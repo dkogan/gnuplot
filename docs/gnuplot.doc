@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.387.2.19 2007/08/17 20:31:59 sfeam Exp $
+C RCS $Id: gnuplot.doc,v 1.387.2.23 2008/02/29 17:53:38 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -2336,8 +2336,8 @@ C ... and restart the table:
  deactivation command (like `set xdata`), the quantity will be shown in its
  numerical form.
 
- The command `set format` defines the format that will be used for tic labels,
- whether or not the specified axis is time/date.
+ The commands `set format` or `set tics format`	define the format that will be
+ used for tic labels, whether or not the specified axis is time/date.
 
  If time/date information is to be plotted from a file, the `using` option
  _must_ be used on the `plot` or `splot` command.  These commands simply use
@@ -4590,7 +4590,7 @@ C ... and restart the table:
  and from within `gnuplot` you submit the commands
        a=0
        load 'looper'
- The result will be four plots (separated by the `pause` message).
+ The result will be five plots (separated by the `pause` message).
 
  Suppose the file "data" contains six columns of numbers with a total yrange
  from 0 to 10; the first is x and the next are five different functions of x.
@@ -5391,16 +5391,18 @@ C ... and restart the table:
                   { default | user }
                   { origin x, y }
                   { size x, y }
+                  { front | back }
                   { noborder | bdefault | border [line style] }
                 }
        show colorbox
        unset colorbox
 
- Colorbox position can be `default` or `user`.  If the latter is specified the
- values as given with the `origin` and `size` subcommands are used.
+ Color box position can be `default` or `user`.  If the latter is specified the
+ values as given with the `origin` and `size` subcommands are used. The box
+ can be drawn after (`front`) or before (`back`) the graph or the surface.
 
- `vertical` and `horizontal` switches the orientation of the color
- gradient.
+ The orientation of the color gradient can be switched by options `vertical`
+ and `horizontal`.
 
  `origin x, y` and `size x, y` are used only in combination with the `user`
  option. The x and y values are interpreted as screen coordinates by default,
@@ -5895,7 +5897,8 @@ C ... and restart the table:
 ?show format
 ?format
 ?format cb
- The format of the tic-mark labels can be set with the `set format` command.
+ The format of the tic-mark labels can be set with the `set format` command
+ or with the `set tics format` or individual `set {axis}tics format` commands.
 
  Syntax:
        set format {<axes>} {"<format-string>"}
@@ -7185,7 +7188,7 @@ C ... and restart the table:
        set mxtics 5
  Major tics at 0,5,7.5,10, minor tics at 1,2,3,4,6,7,8,9
        set logscale y
-       set format y ""
+       set ytics format ""
        set ytics 1e-6, 10, 1
        set ytics add ("1" 1, ".1" 0.1, ".01" 0.01, "10^-3" 0.001, \
                       "10^-4" 0.0001)
@@ -7482,7 +7485,10 @@ C ... and restart the table:
  polygon meshes.)  You may try to switch between `scansforward` and
  `scansbackward` to force the first scan of the data to be plotted first or
  last.  The default is `scansautomatic` where gnuplot makes a guess about scans
- order.
+ order.  On the other hand, the `depthorder` option completely reorders the
+ qudrangles. The rendering is performed after a depth sorting, which allows to
+ visualize even complicated surfaces; see `help pm3d depthorder` for more
+ details.
 
  If two subsequent scans do not have same number of points, then it has to be
  decided whether to start taking points for quadrangles from the beginning of
@@ -7599,7 +7605,23 @@ C ... and restart the table:
 
  See also help for `set palette`, `set cbrange`, `set colorbox`, `x11 pm3d`
  and definitely the demo file `demo/pm3d.dem`.
+4 depthorder
+?commands set pm3d depthorder
+?set pm3d depthorder
+?pm3d depthorder
+?depthorder
+ By default the quadrangles making up a pm3d solid surface are rendered in the
+ order they are encountered along the surface grid points.  This order may be
+ controlled by the options `scansautomatic`|`scansforward`|`scansbackward`.
+ These scan options are not in general compatible with hidden-surface removal.
 
+ Gnuplot does not do true hidden surface removal for solid surfaces, but often
+ it is sufficient to render the component quadrangles in order from furthest
+ to closest.  This mode may be selected using the options
+       set pm3d depthorder hidden3d
+ The `depthorder` option orders the solid quadrangles; the `hidden3d` option
+ similarly orders the bounding lines (if drawn).  Note that the global option
+ `set hidden3d` does not affect pm3d surfaces.
 3 palette
 ?commands set palette
 ?commands show palette
@@ -9391,7 +9413,7 @@ C ... and restart the table:
        set tics {axis | border} {{no}mirror}
                 {in | out} {scale {default | <major> {,<minor>}}}
                 {{no}rotate {by <ang>}} {offset <offset> | nooffset}
-                { font "name{,<size>}" }
+                { format "formatstring" } { font "name{,<size>}" }
                 { textcolor <colorspec> }
        unset tics
        show tics
@@ -10039,7 +10061,7 @@ C ... and restart the table:
                   | <incr>
                   | <start>, <incr> {,<end>}
                   | ({"<label>"} <pos> {<level>} {,{"<label>"}...) }
-                 { font "name{,<size>}" }
+                 { formt "formatstring" } { font "name{,<size>}" }
                  { textcolor <colorspec> }
        unset xtics
        show xtics
@@ -10180,13 +10202,13 @@ C ... and restart the table:
  Examples:
        set xdata time
        set timefmt "%d/%m"
-       set format x "%b %d"
+       set xtics format "%b %d"
        set xrange ["01/12":"06/12"]
        set xtics "01/12", 172800, "05/12"
 
        set xdata time
        set timefmt "%d/%m"
-       set format x "%b %d"
+       set xtics format "%b %d"
        set xrange ["01/12":"06/12"]
        set xtics ("01/12", "" "03/12", "05/12")
  Both of these will produce tics "Dec 1", "Dec 3", and "Dec 5", but in the

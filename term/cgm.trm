@@ -1,5 +1,5 @@
 /* Hey Emacs this is -*- C -*-
- * $Id: cgm.trm,v 1.77.2.1 2006/11/18 02:56:02 sfeam Exp $
+ * $Id: cgm.trm,v 1.77.2.3 2008/03/02 22:13:37 sfeam Exp $
  */
 
 /* GNUPLOT - cgm.trm */
@@ -97,6 +97,7 @@ TERM_PUBLIC void CGM_put_text __PROTO((unsigned int x, unsigned int y,
 				       const char *str));
 TERM_PUBLIC int CGM_text_angle __PROTO((int ang));
 TERM_PUBLIC int CGM_justify_text __PROTO((enum JUSTIFY mode));
+TERM_PUBLIC int CGM_set_font __PROTO((const char *font));
 TERM_PUBLIC void CGM_point __PROTO((unsigned int x, unsigned int y,
 				    int number));
 TERM_PUBLIC void CGM_fillbox __PROTO((int style, unsigned int x1, unsigned int y1,
@@ -129,9 +130,7 @@ TERM_PUBLIC void CGM_set_pointsize __PROTO((double size));
 #ifndef TERM_PROTO_ONLY
 #ifdef TERM_BODY
 
-static int CGM_find_font __PROTO((const char *name, int len,
-				       double *relwidth));
-static int CGM_set_font __PROTO((const char *font));
+static int CGM_find_font __PROTO((const char *name, int len, double *relwidth));
 /*
  * on NeXTstep, id is an identifier (in ObjC) and causes a parse error
  * since some asserts below are mistaken as casts. datum is a type
@@ -347,6 +346,7 @@ static struct gen_table CGM_opts[] =
     { "da$shed", CGM_DASHED },
     { "s$olid", CGM_SOLID },
     { "li$newidth", CGM_LINEWIDTH },
+    { "lw", CGM_LINEWIDTH },
     { "wid$th", CGM_WIDTH },
     { NULL, CGM_OTHER }
 };
@@ -410,8 +410,7 @@ CGM_options()
 	    if (!END_OF_COMMAND) {
 		cgm_linewidth_pt = (unsigned int) real(const_express(&a));
 		if (cgm_linewidth_pt == 0 || cgm_linewidth_pt > 10000) {
-		    fputs("gnuplot(cgm.trm): linewidth out of range\n",
-			  stderr);
+		    int_warn(c_token,"linewidth out of range");
 		    cgm_linewidth_pt = 1;
 		}
 	    }
@@ -421,7 +420,7 @@ CGM_options()
 	    if (!END_OF_COMMAND) {
 		cgm_plotwidth = (int) real(const_express(&a));
 		if (cgm_plotwidth < 0 || cgm_plotwidth > 10000) {
-		    fputs("gnuplot(cgm.trm): width out of range\n", stderr);
+		    int_warn(c_token,"width out of range");
 		    cgm_plotwidth = 6 * 72;
 		}
 	    }
@@ -583,11 +582,9 @@ CGM_init()
     cgm_posx = cgm_posy = 0;
     cgm_linetype = 0;
     cgm_next.angle = 0;
-    cgm_next.interior_style = 2;
+    cgm_next.interior_style = 1;
     cgm_next.hatch_index = 1;
-    
-    if (!(cgm_polyline=malloc(CGM_MAX_SEGMENTS*sizeof(int))))
-	 FATAL("Cannot malloc space");
+    cgm_polyline = gp_alloc(CGM_MAX_SEGMENTS*sizeof(int), "cgm_polylines");
 }
 
 TERM_PUBLIC void
@@ -901,8 +898,6 @@ CGM_linetype(int linetype)
 	/* dashes for gridlines, solid for everything else */
 	CGM_dashtype(linetype == -1 ? 2 : 0);
     }
-    /* CGM_dashtype(cgm_monochrome ? linetype : 0); first fix, color->no dashes */
-    /* CGM_dashtype(linetype);  orig distribution              */
 }
 
 TERM_PUBLIC void
@@ -928,9 +923,8 @@ CGM_linecolor(int linecolor)
     cgm_next.fill_color = linecolor;
 
     CGM_flush_polyline();
-    CGM_write_int_record(5, 4, 2, (int *) &cgm_color);
-    /* EAM - set text color to same as line color */
-    CGM_write_int_record(5, 14, 2, (int *) &cgm_color);
+    CGM_write_int_record(5,  4, 2, (int *) &cgm_color);  /* line color */
+    CGM_write_int_record(5, 14, 2, (int *) &cgm_color); /* text color */
 }
 
 TERM_PUBLIC void
@@ -939,11 +933,6 @@ CGM_fillbox(
      unsigned int x1, unsigned int y1,
      unsigned int width, unsigned int height)
 {
-    int saved_fill_color = cgm_next.fill_color;
-    /* We will use solid fill for patterns 0 and 3 */
-    int hatch_index[]={0, 6, 5, 0, 4, 3};
-    int pattern;
-    double filldens;
     gpiPoint corner[5];
 
     corner[0].x = x1;        corner[0].y = y1;
@@ -952,57 +941,8 @@ CGM_fillbox(
     corner[3].x = x1;        corner[3].y = y1+height;
     corner[4].x = x1;        corner[4].y = y1;
 
-    switch( style & 0xf ) {
-
-    case FS_SOLID:
-	/* style == 1 --> fill with intensity according to filldensity */
-        filldens = (style >> 4) / 100.0;
-        if( filldens < 0.0 )
-	    filldens = 0.0;
-        if( filldens > 1.0 )
-	    filldens = 1.0;
-	/* FIXME: There's no way to set the density.  One solution
-	 * would be to use direct color rather than indexed color. Or,
-	 * initialize the color table with some generic colors
-	 * (e.g. the "web colors") whether or not we know we'll need
-	 * them. */
-	cgm_next.interior_style = 1; /* solid */
-	corner->style = style;
-	CGM_filled_polygon(5, corner);
-        break;
-
-    case FS_PATTERN:
-	/* Fill with background, then go back and draw a hatched pattern */
-	cgm_next.fill_color = 0; /* index 0 is always the background color */
-	cgm_current.interior_style = -1; /* invalidate previouse style */
-	cgm_next.interior_style = 1; /* solid */
-	CGM_filled_polygon(5, corner);
-	cgm_next.fill_color = saved_fill_color;
-
-	pattern = (style >> 4) % 6;
-	if (pattern == 0) {
-	    /* Fill with background  - done */
-	    break;
-	}
-	if (pattern == 3) {
-	    /* Fill with solid color */
-	    CGM_filled_polygon(5, corner);
-	    break;
-	}
-
-	/* The rest of the patterns are hatch-filled */
-	cgm_next.interior_style = 3; /* hatched */
-	cgm_next.hatch_index = hatch_index[pattern];
-	CGM_filled_polygon(5, corner);
-	cgm_next.interior_style = 1; /* solid */
-        break;
-
-    default: /* style == 0 or unknown --> fill with background color */
-	cgm_next.fill_color = 0; /* index 0 is always the background color */
-	cgm_next.interior_style = 1; /* solid */
-	corner->style = style;
-	CGM_filled_polygon(5, corner);
-    }
+    corner->style = style;
+    CGM_filled_polygon(5, corner);
 }
 
 TERM_PUBLIC void
@@ -1109,8 +1049,8 @@ CGM_make_palette(t_sm_palette *palette)
 	      cgm_user_color_table[k++] = palette->color[i].r*255.9;
 	      cgm_user_color_table[k++] = palette->color[i].g*255.9;
 	      cgm_user_color_table[k++] = palette->color[i].b*255.9;
-	      cgm_user_color_count = CGM_COLORS + cgm_smooth_colors;
 	 }
+	 cgm_user_color_count = CGM_COLORS + cgm_smooth_colors;
 	 CGM_write_int_record(5, 34, (cgm_user_color_count*3+1)*
 			      sizeof(cgm_user_color_table[0])/CGM_ADJ,
 			      cgm_user_color_table);
@@ -1123,14 +1063,13 @@ CGM_make_palette(t_sm_palette *palette)
 TERM_PUBLIC void
 CGM_set_color(t_colorspec *colorspec)
 {
-    double gray;
-
     if (colorspec->type == TC_LT) {
-	 CGM_linetype(colorspec->lt);
+	 CGM_linecolor(colorspec->lt);
+	 cgm_linetype = colorspec->lt;
+	 return;
 
-    } else if (colorspec->type == TC_FRAC){
-
-	 gray = colorspec->value;
+    } else if (colorspec->type == TC_FRAC) {
+	 double gray = colorspec->value;
 	 /* map [0...1] to interval [0...cgm_smooth_colors-1], then add
 	    offset to get past the default colors */
 	 cgm_next.fill_color = (gray <= 0) ? 0 : (int)(gray * cgm_smooth_colors);
@@ -1151,34 +1090,72 @@ CGM_set_color(t_colorspec *colorspec)
 TERM_PUBLIC void
 CGM_filled_polygon(int points, gpiPoint *corner)
 {
-    int i;
-
     /* Note: This implementation cannot handle polygons with more than
      * about 8190 edges.  The best fix is to implement continuation
      * blocks.  If the high order bit of the "length" field of a block
      * is set, then it is followed by another block with more data.
      * This allows an arbitrary amount of data in a record.  However,
-     * we implement a big enough block that problems should be
-     * rare.  */
+     * we implement a big enough block that problems should be rare.
+     */
+
+    /* We will use solid fill for patterns 0 and 3 */
+    int hatch_index[]={0, 6, 5, 0, 4, 3};
+    int style = corner->style;
+    int pattern = (style >> 4) % 6;
+    int i;
+
+    switch( style & 0xf ) {
+
+    case FS_SOLID:
+	cgm_next.interior_style = 1;
+        break;
+
+    case FS_PATTERN:
+	if (pattern == 0) {
+	    /* FIXME - for unknown reasons, solid fill messes up the subsequent */
+	    /* color state.  Just leave it empty and let the background show */
+	    cgm_next.interior_style = 0; /* empty */
+	    break;
+	}
+	if (pattern == 3) {
+	    /* Fill with solid color */
+	    cgm_next.interior_style = 1;
+	    break;
+	}
+
+	/* The rest of the patterns are hatch-filled */
+	cgm_next.interior_style = 3; /* hatched */
+	cgm_next.hatch_index = hatch_index[pattern];
+        break;
+
+    default: /* style == 0 or unknown --> fill with background color */
+	cgm_next.fill_color = 0;
+	cgm_next.interior_style = 1; /* solid */
+        break;
+    }
 
     if (cgm_current.interior_style != cgm_next.interior_style){
       cgm_current.interior_style = cgm_next.interior_style;
       CGM_write_int_record(5, 22, 2, &cgm_next.interior_style);
     }
+
     if (cgm_current.fill_color != cgm_next.fill_color){
       cgm_current.fill_color = cgm_next.fill_color;
-      CGM_write_int_record(5, 23, 2, &cgm_next.fill_color);
+      CGM_write_int_record(5, 23, 2, &cgm_next.fill_color);  /* fill color */
     }
+
     if (cgm_current.hatch_index != cgm_next.hatch_index &&
 	cgm_next.interior_style == 3){
       cgm_current.hatch_index = cgm_next.hatch_index;
       CGM_write_int_record(5, 24, 2, &cgm_next.hatch_index);
     }
-    cgm_next.edge_visibility = 0;
+
+    cgm_next.edge_visibility = 0;	/* We draw the borders elsewhere */
     if (cgm_current.edge_visibility != cgm_next.edge_visibility){
       cgm_current.edge_visibility = cgm_next.edge_visibility;
       CGM_write_int_record(5, 30, 2, &cgm_current.edge_visibility);
     }
+
     CGM_move(corner[0].x, corner[0].y);
     cgm_doing_polygon = 1;
     for (i = 1; i < points; i++)
@@ -1560,7 +1537,7 @@ CGM_point(unsigned int x, unsigned int y, int number)
     } else {
 	/* NOT filled */
       cgm_next.edge_visibility = 1;
-      cgm_next.fill_color = 0;	/* index 0 is always the background color */
+      cgm_next.interior_style = 0; /* empty */
       cgm_next.edge_color = cgm_color;
     }
 

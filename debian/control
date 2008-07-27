@@ -3,8 +3,9 @@ Section: math
 Priority: optional
 Maintainer: Cyril Bouthors <cyril@bouthors.org>
 Uploaders: Thierry Randrianiriana <randrianiriana@gmail.com>
-Standards-Version: 3.7.2
-Build-Depends: debhelper (>= 5), libpng12-dev | libpng-dev, libx11-dev, libxt-dev, pkg-config, texinfo (>= 4.8), texlive-latex-base | tetex-bin, texlive-latex-recommended | tetex-extra, zlib1g-dev, libgd2-noxpm-dev | libgd-dev, dpatch, libwxgtk2.6-dev, libcairo2-dev, libpango1.0-dev
+Standards-Version: 3.8.0
+Homepage: http://gnuplot.sourceforge.net/
+Build-Depends: debhelper (>= 6), libpng12-dev | libpng-dev, libx11-dev, libxt-dev, pkg-config, texinfo (>= 4.8), texlive-latex-base, texlive-latex-recommended, zlib1g-dev, libgd2-noxpm-dev | libgd-dev, dpatch, libwxgtk2.6-dev, libcairo2-dev, libpango1.0-dev
 
 Package: gnuplot
 Architecture: all
@@ -23,9 +24,7 @@ Description: A command-line driven interactive plotting program
  This package is for transition and to install a full-featured gnuplot
  supporting the X11-output. If you want to skip the
  X-windows-dependency (e.g. if you're running a small server) just
- install "gnuplot-nox" and skip this meta-package.
- .
-  Homepage: http://gnuplot.sourceforge.net/
+ install "gnuplot-nox" and skip this metapackage.
 
 Package: gnuplot-nox
 Architecture: any
@@ -42,8 +41,6 @@ Description: A command-line driven interactive plotting program
  Data files and self-defined functions can be manipulated by internal
  C-like language.  Can perform smoothing, spline-fitting, or nonlinear
  fits. Can work with complex numbers.
- .
-  Homepage: http://gnuplot.sourceforge.net/
 
 Package: gnuplot-x11
 Architecture: any
@@ -54,8 +51,6 @@ Description: X11-terminal driver for gnuplot
  plot images interactively under X11. Most users will want this, it is
  however packaged separately so that low-end systems don't need X
  installed to use gnuplot.
- .
-  Homepage: http://gnuplot.sourceforge.net/
 
 Section: doc
 Package: gnuplot-doc
@@ -64,5 +59,3 @@ Conflicts: gnuplot (<< 3.7.2-5)
 Description: Documentation for gnuplot
  This package contains the additional documentation for the gnuplot
  interactive plotting program.
- .
-  Homepage: http://gnuplot.sourceforge.net/

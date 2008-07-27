@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.157.2.12 2007/08/30 19:24:02 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.157.2.16 2008/03/08 17:51:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graph3d.c */
@@ -500,9 +500,9 @@ static void
 place_arrows3d(int layer)
 {
     struct arrow_def *this_arrow;
+    BoundingBox *clip_save = clip_area;
 
-    /* Allow arrows to run off the plot, so long as they are still on
-     * the canvas */
+    /* Allow arrows to run off the plot, so long as they are still on the canvas */
     if (term->flags & TERM_CAN_CLIP)
       clip_area = NULL;
     else
@@ -522,6 +522,7 @@ place_arrows3d(int layer)
 	    FPRINTF((stderr,"place_arrows3d: skipping out-of-bounds arrow\n"));
 	}
     }
+    clip_area = clip_save;
 }
 
 /* we precalculate features of the key, to save lots of nested
@@ -645,10 +646,7 @@ do_3dplot(
 
     /* Draw PM3D color key box */
     if (!quick) {
-	can_pm3d = is_plot_with_palette() && !make_palette()
-	    && term->set_color;
-	if (can_pm3d && is_plot_with_colorbox())
-	    draw_color_smooth_box(MODE_SPLOT);
+	can_pm3d = is_plot_with_palette() && !make_palette() && term->set_color;
     }
 
 #ifdef USE_GRID_LAYERS
@@ -735,6 +733,10 @@ do_3dplot(
 		write_multiline(x, y, str, LEFT, JUST_TOP, 0, timelabel.font);
 	}
     }
+
+    /* Add 'back' color box */
+    if (!quick && can_pm3d && is_plot_with_colorbox() && color_box.layer == LAYER_BACK)
+	draw_color_smooth_box(MODE_SPLOT);
 
     /* Add 'back' rectangles */
     place_rectangles(first_object, 0, 3, &clip_splot_map);
@@ -1178,7 +1180,7 @@ do_3dplot(
 			    set_color( cb2gray( z2cb(cntrs->z) ) );
 			else {
 			    if (prefer_line_styles && label_contours) {
-				struct lp_style_type ls;
+				struct lp_style_type ls = thiscontour_lp_properties;
 				lp_use_properties(&ls, ++thiscontour_lp_properties.l_type, FALSE);
 				term_apply_lp_properties(&ls);
 			    } else {
@@ -1328,6 +1330,10 @@ do_3dplot(
 	draw_3d_graphbox(plots, pcount, BORDERONLY, LAYER_FRONT);
 
 #endif /* USE_GRID_LAYERS */
+
+    /* Add 'front' color box */
+    if (!quick && can_pm3d && is_plot_with_colorbox() && color_box.layer == LAYER_FRONT)
+	draw_color_smooth_box(MODE_SPLOT);
 
     /* Add 'front' rectangles */
     place_rectangles(first_object, 1, 3, &clip_splot_map);
@@ -1857,10 +1863,10 @@ cntr3d_lines(struct gnuplot_contours *cntr, struct lp_style_type *lp)
 {
     int i;			/* point index */
     vertex this_vertex;
-    struct lp_style_type ls;
 
     /* user may prefer explicit line styles */
     if (prefer_line_styles && label_contours) {
+	struct lp_style_type ls = *lp;
 	lp_use_properties(&ls, lp->l_type, FALSE);
 	lp = &ls;
     }
@@ -2878,7 +2884,10 @@ map3d_getposition(
 	plot_coords = TRUE;
 	break;
     case graph:
-	*ypos = Y_AXIS.min + *ypos * (Y_AXIS.max - Y_AXIS.min);
+	if (splot_map)
+	    *ypos = Y_AXIS.max - *ypos * (Y_AXIS.max - Y_AXIS.min);
+	else
+	    *ypos = Y_AXIS.min + *ypos * (Y_AXIS.max - Y_AXIS.min);
 	plot_coords = TRUE;
 	break;
     case screen:
@@ -2972,9 +2981,9 @@ map3d_position_r(
 	else
 	    xpos = 0;
 	if (pos->scaley == graph)
-	    ypos = Y_AXIS.min;
+	    ypos = (splot_map) ? Y_AXIS.max : Y_AXIS.min;
 	else
-	    ypos = 0;
+	    ypos = (splot_map) ? Y_AXIS.max : 0;
 	if (pos->scalez == graph)
 	    zpos = Z_AXIS.min;
 	else
@@ -2984,8 +2993,8 @@ map3d_position_r(
 	*y -= yoriginlocal;
     } else {
     /* endpoint `screen' or 'character' coordinates */
-	    *x = xpos;
-	    *y = ypos;
+	*x = xpos;
+	*y = ypos;
     }
     return;
 }

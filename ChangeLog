@@ -1,3 +1,358 @@
+2007-03-08  Ethan Merritt  <merritt@u.washington.edu>
+
+	Version 4.2.3 release
+	Any further commits to this tree will be in 4.2.4 if such a version is
+	ever released.
+
+2007-03-08  Ethan Merritt  <merritt@u.washington.edu>
+
+	* term/x11.trm (X11_filled_polygon):
+	Fix read beyond end of buffer found by valgrind.
+
+	* src/datafile.c (df_tokenise):
+	Fix uninitialized variable found by valgrind.
+
+2007-03-07  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/util3d.c (draw3d_line_unconditional): Check for user-defined
+	line styles when choosing colors for front/back of hidden surfaces.
+	Bugfix (back-ported from 4.3)
+
+	* src/color.c (draw_color_smooth) src/graph3d.c (do_3dplot cntr3d_lines)
+	src/misc.c (lp_use_properties):  Do not fail to initialize the structure
+	passed to lp_use_properties().
+	Bugfix (back-ported from 4.3)
+
+2008-03-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_gets): Revert patch from 2008-03-04 because of
+	problems reported in the development version. Revisit after 4.2.3.
+
+2008-03-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_gets): Use readline() for reading inline data from
+	pseudofile '-'.
+
+	* src/graphics.c (boundary): Be more precise in estimating the vertical
+	space required to accommodate rotated tick labels on x and x2 axes.
+	Bug #1879907
+
+	* PATCHLEVEL configure.in src/version.c:  Mark as patchlevel 3
+
+	* NEWS docs/gnuplot.texi: Update in preparation for 4.2.3
+
+	* share/Makefile.am: Correct error in generating distribution package.
+
+2008-03-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/color.c (draw_color_smooth_box) src/unset.c (unset_axislabel):
+	Allow user to set colorbar label rotatation if the bar is vertical.
+
+	* src/datafile(adjust_binary_use_spec): Allow more than one binary
+	file in a single "plot" command.
+
+2008-03-02  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/cgm.trm (CGM_set_color): Decouple dash type from line color.
+	Code clean-up. Use shared routines int_warn(), gp_alloc().
+
+2008-03-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/cgm.trm (CGM_fillbox CGM_filled_polygon):  Move the
+	management of fill styles and pm3d fill from CGM_fillbox() to 
+	CGM_filled_polygon().  This is necessary because while boxes
+	and histograms call filled_polygon() via term->fillbox(),
+	the pm3d code calls term->filled_polygon() directly.  Bugfix.
+
+2008-02-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c (set_format set_tics set_tic_prop) docs/gnuplot.doc:
+	Allow the tic format to be provided as a string variable.
+	Also introduce a format keyword for "set tics" and "set {axis} tics".
+	"set tics format 'foo'"  is equivalent to "set format 'foo'"
+	"set ytics format 'baz'" is equivalent to "set format y 'baz'"
+
+2008-02-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (map_position place_objects) src/graphics.h src/mouse.c
+	src/color.c:  Change map_position() to return (int) x,y rather than
+	(unsigned int). Callers are modified accordingly.  This avoids implicit
+	casting that breaks clipping calculations on ia64 and PPC.
+	This patchset fixes clipping of labels and rectangles.  Bugfix.
+
+2008-02-23  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/os2/gclient.c: Use the font palette dialog instead of the standard
+	font selection dialog. Still switcheable via #define STANDARD_FONT_DIALOG.
+	SF #1773922 OS/2 PM-Termial broken font selection by Franz Bakan.
+
+	* config/makefile.cyg: Added GNUPLOT_PS_DIR and WIN_IPC.
+
+	* config/makefile.dj2 config/makefile.os2: Added GNUPLOT_PS_DIR.
+
+	* config/makefile.mgw: Added WIN_IPC.
+
+	* config/config.nt config/makefile.nt: Moved GIF_ANIMATION.
+
+2008-02-22  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/pslatex.trm:  Include entry point PS_path in the terminal tables
+	for epslatex, pslatex, and pstex.  This fixes a bug due to the code in
+	color.c:draw_inside_color_smooth_box_postscript() not being able to sync
+	with the code in the terminal driver.
+
+2008-02-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c (place_arrows3d): Save/restore the clipping area so
+	that splot doesn't trash the current clipping state.  Bugfix.
+
+	* src/graphics.c (boundary): Reset the default clipping area to the
+	plot boundary at the start of every 'plot' command.  This should not
+	be necessary, but it provides protection against a hypothetical instance
+	of int_error() in the middle of a save/draw/restore sequence.
+
+2008-02-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c (set_timestamp): Do not spin on unrecognized option. Bugfix.
+
+2008-02-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/util.c (gd_strdup) src/set.c (set_decimalsign): Fix segfault due
+	to trying to free a string returned by getenv().
+	Bugfix.
+
+2008-02-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (change_term):  Allow terminals with similar names to
+	coexist (svg/svga/svgalib). Back-ported from 4.3.
+
+2008-02-01  Daniel Sebald  <daniel.sebald@ieee.org>
+
+	* src/datafile.c (df_readbinary): Fix off-by-one error in the implicit
+	"column 0" of non-matrix binary data files.
+
+2008-01-28  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* graph3d.c (map3d_getposition, map3d_position_r): Fix case of y graph
+	coordinate and splot_map.
+
+2008-01-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (plot_image_or_update_axes):  Do not clip 3D image data
+	against Z range if the plot mode is "set view map".
+
+2008-01-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	Backport fix for Bug #1850588
+
+	* src/datafile.c: Call add_tic_user with a tick type of -1 (a new flag
+	value) rather than 0 (major tick).  This allows to distinguish between
+	tick labels read from a data file and those from the command line.
+
+	* src/axis.c (gen_tics): Treat tick type -1 the same as major ticks. 
+
+	* src/set.c (prune_dataticks) src/setshow.h: New routine to purge any
+	axis tick labels left over from 'using xtics(n)' option of previous
+	plot command.
+
+	* plot2d.c (plotrequest): Call prune_dataticks() before each new plot.
+
+2008-01-10  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/pm3d.c (pm3d_plot): When color information is given in a separate
+	column, we must not use the interpolated z coordinate as for color.
+	Bug #1783405
+
+2008-01-10  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/command.c (replot_command): Fix for replot with unknown terminal.
+
+2008-01-10  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* term/post.trm (PS_encode_image): Fix for maxcolors in "plot with
+	image".
+
+2008-01-10  Daniel Sebald  <daniel.sebald@ieee.org>
+
+	* src/hidden3d.c (store_polygon): Discard degenerate polygons.
+	Bug #1727198
+
+2008-01-07  Allin Cottrell  <cottrell@wfu.edu>
+
+	* term/pdf.trm (EMF_setfont):  Add support for encodings
+	iso_8859_1 iso_8859_2 iso_8859_15 cp1250
+
+2008-01-06  Allin Cottrell  <cottrell@wfu.edu>
+
+	* term/emf.trm (EMF_setfont):  Add support for encodings
+	iso_8859_2 cp1250 koi8r koi8u
+
+2007-12-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/x11.trm:  Fix 4.3-ism in patch of 2007-12-09.
+
+2007-12-17  Lars Hecking  <lhecking@users.sourceforge.net>
+
+	* share/Makefile.am: Gnuplot is generated by make and deleted by
+	'make clean'. Bring variable names in line with xorg.
+
+2007-12-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in:  Increase the chance that ./configure will correctly
+	find all the pieces of gnu libreadline under OSX 1.4.
+
+2007-12-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/x11.trm: New option 'set term x11 linewidth LW'
+
+2007-12-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gplt_x11.c: Command line options -bw and -borderwidth were 
+	being mapped to X Resource "borderwidth".  It should be "borderWidth".
+	Also remove limitation that maximum linewidth is 4 pixels.
+
+	* share/Makefile.am: Rename Gnuplot.app-defaults to Gnuplot before
+	installing it.  Bug #1784379
+
+	* src/graphics.c (place_rectangles):  If the linestyle is LT_DEFAULT,
+	nevertheless check for an explicit linewidth for this rectangle.
+	Bug #1833429
+
+2007-12-08  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	New options "front" and "back" to "set colorbox" to let the box be
+	drawn either after or below the image or surface.
+
+	* src/gadgets.h src/gadgets.c: New "layer" field in color_box_struct.
+
+	* src/graphics.c src/graph3d.c: Draw the colorbox at expected layers.
+
+	* src/save.c src/set.c src/show.c src/tables.h src/tables.c
+	docs/gnuplot.doc: The other necessary changes.
+
+2007-12-01  Thomas Orgis  <sobukus@users.sourceforge.net>
+
+	* src/gplt_x11.c (process_configure_notify_event):  Test for failure of
+	window resize, and do not loop indefinitely trying to resize. Fixes
+	infinite loop problem on ion and fluxbox window managers.
+	Bug #1836959 #1614928
+
+2007-11-25  Johannes Zellner  <johannes@zellner.org>
+
+	* term/emf.trm: implemented pm3d and point types according to the
+	suggestion in term/README.  (2006-12-07 patch to CVS trunk)
+
+2007-11-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/estimate.trm: Never return a zero size estimate for a
+	non-empty string. Promote fraction characters to size 1.
+
+2007-11-25  Vladimir  <qva@users.sourceforge.net>
+
+	* term/svg.trm (SVG_init): Correct encoding names to koi8-r, koi8-u.
+	Bug #1838066
+
+2007-11-23  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/fig.trm (FIG_boxfill):  Update current color before drawing.
+	Bug #1837187
+
+2007-11-22  Morten MacFly  <mortenmacfly@users.sourceforge.net>
+
+	* config/config.nt: #define vsnprintf
+
+2007-11-21  Allin Cottrell  <cottrell@wfu.edu>
+
+	* term/emf.trm (EMF_filled_polygon): Do not alter original color
+	when processing filled areas with opacity < 1.0
+
+2007-11-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/post.trm (RememberFont): Revert patch of 2007-10-23
+	Parenthesized font names are not compatible with enhanced text mode,
+	and anyhow PostScript fontnames should not contain any spaces.
+
+2007-11-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (enhanced_recursion):  Do not allow the '}' character in a
+	font name.  Prevents PostScript badness from the following user error:
+	set label "Foo{/Symbol}Baz".
+	Bug #1833457.
+
+2007-11-02  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/internal.c (f_sprintf) docs/gnuplot.doc:
+	Remove limitation of 10 args max to internal function sprintf().
+	Bug #1753756.
+
+2007-10-30  Christian Faulhammer (v-li@users.sourceforge.net)
+
+	* docs/doc2texi.el: Gentoo patch to allow for changed handling of
+	newlines in up-coming version of XEmacs. Needed in order to 
+	regenerate gnuplot.texi on such a system.
+	Bug #1822610
+
+2007-10-29  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* docs/gnuplot.doc: Document option "pm3d depthorder" within
+	"help pm3d".
+
+2007-10-23  Christer Lundberg  <ssslub@users.sourceforge.net>
+
+	* term/post.trm: A font name containing spaces must be protected by
+	parentheses in PostScript output.
+
+2007-10-05  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (eval_plots): Load first/second axis information into 
+	the head of the label list for plot mode LABELPOINTS.
+	Bug #1807015
+
+2007-10-02  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/binary.c src/binary.h src/bf_test.c: Rename the routine vector()
+	to alloc_vector().  This avoids a conflict with the "vector" keyword on
+	PowerPC OSX with Altivec compiler options enabled.
+	Bug #1754164
+
+2007-10-01  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (bound_intersect):  Fix a degenerate case in the
+	intersection test that caused a divide by zero.
+	Bug #1805697
+
+2007-09-29  Hanno Hoffstadt  <hannoh@users.sourceforge.net>
+
+	* term/Postscript/prologue.ps: Add an explicit 'closepath' before
+	filling a rectangle. This is not required by the language spec, but
+	works around a bug in Adobe Distiller 7 and Apple's Quartz Preview.
+	Bug #1771533
+
+2007-09-28  Hanno Hoffstadt  <hannoh@users.sourceforge.net>
+
+	* src/graphics.c (do_plot):  It is necessary to call
+	term->previous_palette() at the end of any 2D plot or 3D plot
+	that used custom rgb colors.
+	Bug #1803337
+
+2007-09-23  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c (gen_tics): On log scale plots with very large range,
+	the minitic interval can overflow integer representation.
+	Bug #1797500
+
+	* term/gd.trm (PNG_image):  gdImageGetClip was introduced in libgd
+	version 2.0.12.  Don't try to use it if version is less than 2.
+	Bug #1790171
+
+2007-09-01  Ethan Merritt  <merritt@u.washington.edu>
+
+	Tag version 4.2.2 using command
+		cvs tag -c "Release_4_2_2"
+	
+	Version 4.2.2 released via SourceForge.  Any further commits to
+	this tree will be in 4.2.3 if such a version is ever released.
+
 2007-08-31  Ethan Merritt  <merritt@u.washington.edu>
 
 	The axis label bug is serious enough to warrant an updated release
@@ -44,15 +399,15 @@
 	from a datafile columnheader, apply or don't apply enhanced text
 	processing based on the setting of "set key {no}enhanced".
 	Bug #1712560
- 
+
 2007-08-20  Timothee Lecomte  <timothee.lecomte@ens.fr>
 
-        * src/wxterminal/gp_cairo.c (gp_cairo_fill_pattern): Do not use
-        negative coordinates to create hash patterns. This gives corruption
-        with recent cairo versions (1.4.10 for example). Instead create them
-        with rotations and scaling.
-        Also scale the linewidth of the patterns with PATTERN_SIZE instead
-        of its inverse.
+	* src/wxterminal/gp_cairo.c (gp_cairo_fill_pattern): Do not use
+	negative coordinates to create hash patterns. This gives corruption
+	with recent cairo versions (1.4.10 for example). Instead create them
+	with rotations and scaling.
+	Also scale the linewidth of the patterns with PATTERN_SIZE instead
+	of its inverse.
 
 2007-08-17  Ethan Merritt  <merritt@u.washington.edu>
 

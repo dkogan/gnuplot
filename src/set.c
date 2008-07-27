@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.236.2.3 2007/05/28 23:43:52 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.236.2.8 2008/02/29 17:53:39 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -1162,11 +1162,11 @@ set_decimalsign()
 	c_token++;
 	newlocale = try_to_get_string();
 	if (!newlocale)
-	    newlocale = getenv("LC_ALL");
+	    newlocale = gp_strdup(getenv("LC_ALL"));
 	if (!newlocale)
-	    newlocale = getenv("LC_NUMERIC");
+	    newlocale = gp_strdup(getenv("LC_NUMERIC"));
 	if (!newlocale)
-	    newlocale = getenv("LANG");
+	    newlocale = gp_strdup(getenv("LANG"));
 	if (!setlocale(LC_NUMERIC, newlocale ? newlocale : ""))
 	    int_error(c_token-1, "Could not find requested locale");
 	decimalsign = gp_strdup(localeconv()->decimal_point);
@@ -1265,7 +1265,7 @@ set_format()
 	    = set_for_axis[FIRST_Y_AXIS]
 	    = TRUE;
 	c_token++;
-    } else if (isstring(c_token) || END_OF_COMMAND) {
+    } else {
 	/* Assume he wants all */
 	for (axis = 0; axis < AXIS_ARRAY_SIZE; axis++)
 	    set_for_axis[axis] = TRUE;
@@ -1279,15 +1279,15 @@ set_format()
 	SET_DEFFORMAT(SECOND_Y_AXIS, set_for_axis);
 	SET_DEFFORMAT(COLOR_AXIS   , set_for_axis);
     } else {
-	if (!isstring(c_token))
+	char *format = try_to_get_string();
+	if (!format)
 	    int_error(c_token, "expecting format string");
 	else {
 
-#define SET_FORMATSTRING(axis)						      \
-	    if (set_for_axis[axis]) {					      \
-		quote_str(axis_array[axis].formatstring,c_token, MAX_ID_LEN); \
-		axis_array[axis].format_is_numeric =			      \
-		    looks_like_numeric(axis_array[axis].formatstring);	      \
+#define SET_FORMATSTRING(axis)							\
+	    if (set_for_axis[axis]) {						\
+		strncpy(axis_array[axis].formatstring, format, MAX_ID_LEN);	\
+		axis_array[axis].format_is_numeric = looks_like_numeric(format);\
 	    }
 	    SET_FORMATSTRING(FIRST_X_AXIS);
 	    SET_FORMATSTRING(FIRST_Y_AXIS);
@@ -1297,6 +1297,7 @@ set_format()
 	    SET_FORMATSTRING(COLOR_AXIS);
 #undef SET_FORMATSTRING
 
+	    free(format);
 	    c_token++;
 	}
     }
@@ -2941,6 +2942,13 @@ set_colorbox()
 	    case S_COLORBOX_USER: /* "u$ser" */
 		color_box.where = SMCOLOR_BOX_USER;
 		continue;
+	    /* color box layer: front or back */
+	    case S_COLORBOX_FRONT: /* "fr$ont" */
+		color_box.layer = LAYER_FRONT;
+		continue;
+	    case S_COLORBOX_BACK: /* "ba$ck" */
+		color_box.layer = LAYER_BACK;
+		continue;
 	    /* border of the color box */
 	    case S_COLORBOX_BORDER: /* "bo$rder" */
 
@@ -3821,6 +3829,8 @@ set_tics()
 	    ++c_token;
 	    for (i = 0; i < AXIS_ARRAY_SIZE; ++i)
 		axis_array[i].ticdef.offset = tics_nooffset;
+	} else if (almost_equals(c_token, "format")) {
+	    set_format();
 	} else if (almost_equals(c_token, "f$ont")) {
 	    ++c_token;
 	    /* Make sure they've specified a font */
@@ -4005,6 +4015,8 @@ set_timestamp()
 	}
 	/* The "offset" keyword is new (v4.1); for backward compatibility we don't enforce it */
 	get_position_default(&(timelabel.offset),character);
+#else
+	int_error(c_token,"unrecognized option");
 #endif
 
     }
@@ -4295,10 +4307,19 @@ set_tic_prop(AXIS_INDEX axis)
 		    int_error(c_token,"expected font");
 		else {
 		    free(axis_array[axis].ticdef.font);
-		    /* FIXME: protect against int_error() bail from try_to_get_string */
 		    axis_array[axis].ticdef.font = NULL;
 		    axis_array[axis].ticdef.font = try_to_get_string();
 		}
+	    } else if (equals(c_token,"format")) {
+		char *format;
+		++c_token;
+		if (!((format = try_to_get_string())))
+		    int_error(c_token,"expected format");
+		strncpy(axis_array[axis].formatstring, format,
+			sizeof(axis_array[axis].formatstring));
+		free(format);
+		axis_array[axis].format_is_numeric =
+			looks_like_numeric(axis_array[axis].formatstring);
 	    } else if (equals(c_token,"tc") ||
 		       almost_equals(c_token,"text$color")) {
 		parse_colorspec(&axis_array[axis].ticdef.textcolor, TC_FRAC);
@@ -4696,6 +4717,28 @@ free_marklist(struct ticmark *list)
 	    free(freeable->label);
 	free(freeable);
     }
+}
+
+/* Remove tic labels that were read from a datafile during a previous plot
+ * via the 'using xtics(n)' mechanism.  These have tick level < 0.
+ */
+struct ticmark *
+prune_dataticks(struct ticmark *list)
+{
+    struct ticmark a = {0.0,NULL,0,NULL};
+    struct ticmark *b = &a;
+
+    while (list) {
+	if (list->level < 0)
+	    free(list->label);
+	else {
+	    b->next = list;
+	    b = list;
+	}
+	list = list->next;
+    }
+    b->next = NULL;
+    return a.next;
 }
 
 /* load TIC_SERIES definition */

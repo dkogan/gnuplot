@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.133.2.4 2007/05/20 04:42:36 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.133.2.6 2008/01/14 07:27:58 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -240,6 +240,15 @@ plotrequest()
     CHECK_REVERSE(SECOND_X_AXIS);
     PARSE_RANGE(SECOND_Y_AXIS);
     CHECK_REVERSE(SECOND_Y_AXIS);
+
+    /* Clear out any tick labels read from data files in previous plot */
+    for (t_axis=0; t_axis<AXIS_ARRAY_SIZE; t_axis++) {
+	struct ticdef *ticdef = &axis_array[t_axis].ticdef;
+	if (ticdef->def.user)
+	    ticdef->def.user = prune_dataticks(ticdef->def.user);
+	if (!ticdef->def.user && ticdef->type == TIC_USER)
+	    ticdef->type = TIC_COMPUTED;
+    }
 
     /* use the default dummy variable unless changed */
     if (dummy_token >= 0)
@@ -1781,10 +1790,16 @@ eval_plots()
 
 #ifdef EAM_DATASTRINGS
             /* If we got this far without initializing the label list, do it now */
-            if (this_plot->plot_style == LABELPOINTS && this_plot->labels == NULL) {
-                this_plot->labels = new_text_label(-1);
-                this_plot->labels->pos = JUST_CENTRE;
-                this_plot->labels->layer = LAYER_PLOTLABELS;
+            if (this_plot->plot_style == LABELPOINTS) {
+		if (this_plot->labels == NULL) {
+		    this_plot->labels = new_text_label(-1);
+		    this_plot->labels->pos = JUST_CENTRE;
+		    this_plot->labels->layer = LAYER_PLOTLABELS;
+		}
+		this_plot->labels->place.scalex =
+		    (x_axis == SECOND_X_AXIS) ? second_axes : first_axes;
+		this_plot->labels->place.scaley =
+		    (y_axis == SECOND_Y_AXIS) ? second_axes : first_axes;
             }
 #endif /* EAM_DATASTRINGS */
 

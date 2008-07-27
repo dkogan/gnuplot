@@ -60,9 +60,9 @@ am__vpath_adj = case $$p in \
     *) f=$$p;; \
   esac;
 am__strip_dir = `echo $$p | sed -e 's|^.*/||'`;
-am__installdirs = "$(DESTDIR)$(xresourcedir)"
-xresourceDATA_INSTALL = $(INSTALL_DATA)
-DATA = $(xresource_DATA)
+am__installdirs = "$(DESTDIR)$(appdefaultdir)"
+appdefaultDATA_INSTALL = $(INSTALL_DATA)
+DATA = $(appdefault_DATA)
 ETAGS = etags
 CTAGS = ctags
 DIST_SUBDIRS = $(SUBDIRS)
@@ -190,8 +190,10 @@ target_alias = @target_alias@
 AUTOMAKE_OPTIONS = foreign 1.2h
 EXTRA_DIST = Gnuplot.app-defaults
 SUBDIRS = LaTeX
-xresourcedir = $(libdir)/X11/app-defaults
-xresource_DATA = Gnuplot.app-defaults
+appdefaultdir = $(libdir)/X11/app-defaults
+APPDEFAULTFILES = Gnuplot
+appdefault_DATA = $(APPDEFAULTFILES)
+CLEANFILES = $(APPDEFAULTFILES)
 all: all-recursive
 
 .SUFFIXES:
@@ -225,22 +227,22 @@ $(top_srcdir)/configure:  $(am__configure_deps)
 $(ACLOCAL_M4):  $(am__aclocal_m4_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
 uninstall-info-am:
-install-xresourceDATA: $(xresource_DATA)
+install-appdefaultDATA: $(appdefault_DATA)
 	@$(NORMAL_INSTALL)
-	test -z "$(xresourcedir)" || $(mkdir_p) "$(DESTDIR)$(xresourcedir)"
-	@list='$(xresource_DATA)'; for p in $$list; do \
+	test -z "$(appdefaultdir)" || $(mkdir_p) "$(DESTDIR)$(appdefaultdir)"
+	@list='$(appdefault_DATA)'; for p in $$list; do \
 	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
 	  f=$(am__strip_dir) \
-	  echo " $(xresourceDATA_INSTALL) '$$d$$p' '$(DESTDIR)$(xresourcedir)/$$f'"; \
-	  $(xresourceDATA_INSTALL) "$$d$$p" "$(DESTDIR)$(xresourcedir)/$$f"; \
+	  echo " $(appdefaultDATA_INSTALL) '$$d$$p' '$(DESTDIR)$(appdefaultdir)/$$f'"; \
+	  $(appdefaultDATA_INSTALL) "$$d$$p" "$(DESTDIR)$(appdefaultdir)/$$f"; \
 	done
 
-uninstall-xresourceDATA:
+uninstall-appdefaultDATA:
 	@$(NORMAL_UNINSTALL)
-	@list='$(xresource_DATA)'; for p in $$list; do \
+	@list='$(appdefault_DATA)'; for p in $$list; do \
 	  f=$(am__strip_dir) \
-	  echo " rm -f '$(DESTDIR)$(xresourcedir)/$$f'"; \
-	  rm -f "$(DESTDIR)$(xresourcedir)/$$f"; \
+	  echo " rm -f '$(DESTDIR)$(appdefaultdir)/$$f'"; \
+	  rm -f "$(DESTDIR)$(appdefaultdir)/$$f"; \
 	done
 
 # This directory's subdirectories are mostly independent; you can cd
@@ -410,7 +412,7 @@ check: check-recursive
 all-am: Makefile $(DATA)
 installdirs: installdirs-recursive
 installdirs-am:
-	for dir in "$(DESTDIR)$(xresourcedir)"; do \
+	for dir in "$(DESTDIR)$(appdefaultdir)"; do \
 	  test -z "$$dir" || $(mkdir_p) "$$dir"; \
 	done
 install: install-recursive
@@ -430,6 +432,7 @@ install-strip:
 mostlyclean-generic:
 
 clean-generic:
+	-test -z "$(CLEANFILES)" || rm -f $(CLEANFILES)
 
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
@@ -455,7 +458,7 @@ info: info-recursive
 
 info-am:
 
-install-data-am: install-xresourceDATA
+install-data-am: install-appdefaultDATA
 
 install-exec-am:
 
@@ -481,7 +484,7 @@ ps: ps-recursive
 
 ps-am:
 
-uninstall-am: uninstall-info-am uninstall-xresourceDATA
+uninstall-am: uninstall-appdefaultDATA uninstall-info-am
 
 uninstall-info: uninstall-info-recursive
 
@@ -489,15 +492,18 @@ uninstall-info: uninstall-info-recursive
 	clean clean-generic clean-recursive ctags ctags-recursive \
 	distclean distclean-generic distclean-recursive distclean-tags \
 	distdir dvi dvi-am html html-am info info-am install \
-	install-am install-data install-data-am install-exec \
-	install-exec-am install-info install-info-am install-man \
-	install-strip install-xresourceDATA installcheck \
-	installcheck-am installdirs installdirs-am maintainer-clean \
+	install-am install-appdefaultDATA install-data install-data-am \
+	install-exec install-exec-am install-info install-info-am \
+	install-man install-strip installcheck installcheck-am \
+	installdirs installdirs-am maintainer-clean \
 	maintainer-clean-generic maintainer-clean-recursive \
 	mostlyclean mostlyclean-generic mostlyclean-recursive pdf \
 	pdf-am ps ps-am tags tags-recursive uninstall uninstall-am \
-	uninstall-info-am uninstall-xresourceDATA
+	uninstall-appdefaultDATA uninstall-info-am
 
+
+Gnuplot: $(srcdir)/Gnuplot.app-defaults
+	cp -p $(srcdir)/Gnuplot.app-defaults $@
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

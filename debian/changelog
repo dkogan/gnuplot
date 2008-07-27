@@ -1,13 +1,21 @@
-gnuplot (4.2.2-1.2) testing-proposed-updates; urgency=medium
+gnuplot (4.2.3-1) unstable; urgency=low
 
-  * Non-maintainer upload.
-  * Build the -nox variant without the WX terminal as it pulls in X11.
-    Requires building twice because WX does not support a pipe protocol to
-    talk to the main gnuplot binary as gnuplot_x11 does. We now have a second
-    /usr/bin/gnuplot binary in -x11, we dpkg-divert the -nox binary to
-    gnuplot-nox. (Closes: #435518)
+  * New upstream release (Closes: #471685, #487859)
+  * Ack NMU, thanks to Serafeim Zanikolas. (Closes: #484389)
+  * debian/control
+    + removed tetex-bin,tetex-extra in Build-Depends
+    + Used Homepage field
+    + Updated Standards-Version to 3.8.0
+    + Updated debhelper to >= 6
+    + Fixed spelling error in description
+  * debian/compat:
+    + Updated debhelper compat level to 6.
+  * debian/rules:
+    + Added LDFLAGS="-Wl,-z,defs,-as-needed"
+  * Added description in the patch file 01_check_x11-driver.dpatch
+  * Updated doc-base section to Science/Mathematics
 
- -- Christoph Berg <myon@debian.org>  Fri, 26 Sep 2008 19:39:57 +0200
+ -- Thierry Randrianiriana <randrianiriana@gmail.com>  Sun, 27 Jul 2008 14:17:05 +0300
 
 gnuplot (4.2.2-1.1) unstable; urgency=low
 

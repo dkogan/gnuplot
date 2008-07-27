@@ -5,6 +5,13 @@ EXTRA_DIST = Gnuplot.app-defaults
 
 SUBDIRS = LaTeX
 
-xresourcedir = $(libdir)/X11/app-defaults
-xresource_DATA = Gnuplot.app-defaults
+appdefaultdir = $(libdir)/X11/app-defaults
 
+APPDEFAULTFILES = Gnuplot
+
+appdefault_DATA = $(APPDEFAULTFILES)
+
+Gnuplot: $(srcdir)/Gnuplot.app-defaults
+	cp -p $(srcdir)/Gnuplot.app-defaults $@
+
+CLEANFILES = $(APPDEFAULTFILES)

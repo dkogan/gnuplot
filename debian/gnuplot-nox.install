@@ -1,4 +1,4 @@
-../../build-nox/gnuplot usr/bin
+usr/bin/gnuplot
 usr/share/gnuplot/gnuplot.gih
 usr/share/man/man1/gnuplot.1
 usr/share/gnuplot/gnuplot/

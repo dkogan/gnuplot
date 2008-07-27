@@ -1,5 +1,7 @@
 #! /bin/sh /usr/share/dpatch/dpatch-run
 ## 01_check_x11-driver.dpatch by Thierry Randrianiriana  <randrianiriana@gmail.com>
+## DP: only print warning about missing x11-driver 
+## DP: See bugs #244655, #245428 and #243189 
 
 @DPATCH@
 
