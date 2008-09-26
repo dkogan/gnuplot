@@ -1,3 +1,14 @@
+gnuplot (4.2.3-1.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Build the -nox variant without the WX terminal as it pulls in X11.
+    Requires building twice because WX does not support a pipe protocol to
+    talk to the main gnuplot binary as gnuplot_x11 does. We now have a second
+    /usr/bin/gnuplot binary in -x11, we dpkg-divert the -nox binary to
+    gnuplot-nox. (Closes: #435518)
+
+ -- Christoph Berg <myon@debian.org>  Fri, 26 Sep 2008 19:39:57 +0200
+
 gnuplot (4.2.3-1) unstable; urgency=low
 
   * New upstream release (Closes: #471685, #487859)

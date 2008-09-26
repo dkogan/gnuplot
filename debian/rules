@@ -28,9 +28,42 @@ ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
 	INSTALL_PROGRAM += -s
 endif
 
-config.status: configure
+build-arch: build-arch-stamp
+build-arch-stamp:
 	dh_testdir
 
+	# Building nox variant
+	./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE)  CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" \
+	  	--prefix=/usr \
+		--mandir=\$${prefix}/share/man \
+	  	--infodir=\$${prefix}/share/info \
+	  	--libexecdir=\$${prefix}/lib/gnuplot \
+	  	--datadir=\$${prefix}/share/gnuplot \
+		--with-gihdir=\$${prefix}/share/gnuplot \
+	  	--without-lasergnu \
+	  	--with-png --with-gd --without-lisp-files \
+	  	--without-linux-vga \
+		--with-readline=builtin \
+		--without-x --disable-wxwidgets
+
+# don't regenerate autotools-stuff
+	touch configure.in && \
+	touch config.status && \
+	touch aclocal.m4 && \
+	touch config.hin && \
+	touch configure && \
+	touch stamp-h.in
+
+	find -name Makefile.in -exec touch {} \; && \
+	find -name Makefile -exec touch {} \;
+
+	$(MAKE) -C src
+	test -d build-nox || mkdir -p build-nox
+	cp src/gnuplot build-nox
+
+	make distclean
+
+	# Building x11 variant
 	./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE)  CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" \
 	  	--prefix=/usr \
 		--mandir=\$${prefix}/share/man \
@@ -42,10 +75,6 @@ config.status: configure
 	  	--with-png --with-gd --without-lisp-files \
 	  	--without-linux-vga \
 		--with-readline=builtin
-
-build-arch: config.status build-arch-stamp
-build-arch-stamp:
-	dh_testdir
 
 # don't regenerate autotools-stuff
 	touch configure.in && \
@@ -63,8 +92,8 @@ build-arch-stamp:
 
 	touch build-arch-stamp
 
-build-indep: config.status build-indep-stamp
-build-indep-stamp:
+build-indep: build-indep-stamp
+build-indep-stamp: build-arch-stamp
 	dh_testdir
 
         # create documentation
@@ -80,6 +109,7 @@ build-indep-stamp:
 
 	touch build-indep-stamp
 
+# FIXME: 'patch' is not called when 'build-arch' is invoked directly
 build: patch build-arch build-indep
 
 clean: unpatch
@@ -106,7 +136,8 @@ clean: unpatch
 		docs/psdoc/ps_fontfile_doc.ps \
 		docs/psdoc/prologue.ps \
 		docs/psdoc/missfont.log \
-		docs/htmldocs
+		docs/htmldocs \
+		build-nox
 
 install: DH_OPTIONS=
 install: build
