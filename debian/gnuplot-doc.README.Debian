@@ -1,0 +1,11 @@
+I'd like to warn gnuplot users that some of the present documentation
+is to be regarded as outdated. For example, `latex_tutorial.dvi' dates
+back to 1991 and was written for gnuplot 3.0. It doesn't mention some
+analogous ways of importing gnuplot-produced Postscript into TeX, such
+as using `set term pslatex', etc.
+
+Similarly, the reference card `gpcard.ps' is also outdated.  Please
+use on-line documentation as the definite source of help.  This
+on-line documentation is available also in info, html, and ps formats.
+
+ -- Thimo Neubauer <thimo@debian.org>, Sun Mar  7 15:20:24 2004

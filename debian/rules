@@ -1,0 +1,195 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+#export DH_VERBOSE=1
+
+include /usr/share/dpatch/dpatch.make
+
+# which types of docs should be produced?
+DOCS = ps info gpcard.ps
+TUTOR = tutorial.dvi tutorial.ps
+
+# !!! HACK !!! to get gnuplot_x11 binary into a directory without
+# major version number in (this path is semi-hardcoded in src/Makefile.am)
+MAKEHACK = pkglibexecdir='$$(libexecdir)'
+
+export DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+export DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+
+CFLAGS = -Wall -g
+
+ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
+	CFLAGS += -O0
+else
+	CFLAGS += -O2
+endif
+
+ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
+	INSTALL_PROGRAM += -s
+endif
+
+build-arch: build-arch-stamp
+build-arch-stamp:
+	dh_testdir
+
+	# Building nox variant
+	./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE)  CFLAGS="$(CFLAGS)" \
+	  	--prefix=/usr \
+		--mandir=\$${prefix}/share/man \
+	  	--infodir=\$${prefix}/share/info \
+	  	--libexecdir=\$${prefix}/lib/gnuplot \
+	  	--datadir=\$${prefix}/share/gnuplot \
+		--with-gihdir=\$${prefix}/share/gnuplot \
+	  	--without-lasergnu \
+	  	--with-png --with-gd --without-lisp-files \
+	  	--without-linux-vga \
+		--with-readline=builtin \
+		--without-x --disable-wxwidgets
+
+# don't regenerate autotools-stuff
+	touch configure.in && \
+	touch config.status && \
+	touch aclocal.m4 && \
+	touch config.hin && \
+	touch configure && \
+	touch stamp-h.in
+
+	find -name Makefile.in -exec touch {} \; && \
+	find -name Makefile -exec touch {} \;
+
+	$(MAKE) -C src
+	test -d build-nox || mkdir -p build-nox
+	cp src/gnuplot build-nox
+
+	make distclean
+
+	# Building x11 variant
+	./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE)  CFLAGS="$(CFLAGS)" \
+	  	--prefix=/usr \
+		--mandir=\$${prefix}/share/man \
+	  	--infodir=\$${prefix}/share/info \
+	  	--libexecdir=\$${prefix}/lib/gnuplot \
+	  	--datadir=\$${prefix}/share/gnuplot \
+		--with-gihdir=\$${prefix}/share/gnuplot \
+	  	--without-lasergnu \
+	  	--with-png --with-gd --without-lisp-files \
+	  	--without-linux-vga \
+		--with-readline=builtin
+
+# don't regenerate autotools-stuff
+	touch configure.in && \
+	touch config.status && \
+	touch aclocal.m4 && \
+	touch config.hin && \
+	touch configure && \
+	touch stamp-h.in
+
+	find -name Makefile.in -exec touch {} \; && \
+	find -name Makefile -exec touch {} \;
+
+# compile an set special path... (explained above)
+	$(MAKE) $(MAKEHACK)
+
+	touch build-arch-stamp
+
+build-indep: build-indep-stamp
+build-indep-stamp: build-arch-stamp
+	dh_testdir
+
+        # create documentation
+	cp -f term/PostScript/prologue.ps docs/psdoc/
+
+	$(MAKE) -C docs $(DOCS)
+	$(MAKE) -C tutorial $(TUTOR)
+	$(MAKE) -C docs/psdoc ps_fontfile_doc.ps
+#	cd $(CURDIR)/docs/psdoc/ && ../../src/gnuplot ps_symbols.gpi && cd $(CURDIR)
+
+	mkdir -p docs/htmldocs
+	$(MAKEINFO) --html --output=docs/htmldocs/ docs/gnuplot.texi
+
+	touch build-indep-stamp
+
+# FIXME: 'patch' is not called when 'build-arch' is invoked directly
+build: patch build-arch build-indep
+
+clean: unpatch
+	dh_testdir
+	dh_testroot
+	-rm -f build-arch-stamp build-indep-stamp
+	[ ! -f Makefile ] || $(MAKE) clean
+	[ ! -f Makefile ] || $(MAKE) distclean
+
+	dh_clean
+	-rm -rf config.log \
+		debian/gnuplot \
+		debian/gnuplot-doc \
+		debian/gnuplot-nox \
+		debian/gnuplot-x11 \
+		docs/psdoc/ps_symbols.ps \
+		docs/psdoc/ps_fontfile_doc.aux \
+		docs/psdoc/ps_fontfile_doc.dvi \
+		docs/psdoc/ps_fontfile_doc.log \
+		docs/psdoc/ps_fontfile_doc.pdf \
+		docs/psdoc/ps_fontfile_doc.ps \
+		docs/psdoc/ps_fontfile_doc.log \
+		docs/psdoc/ps_fontfile_doc.aux \
+		docs/psdoc/ps_fontfile_doc.ps \
+		docs/psdoc/prologue.ps \
+		docs/psdoc/missfont.log \
+		docs/htmldocs \
+		build-nox
+
+install: DH_OPTIONS=
+install: build
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+	$(MAKE) install prefix=$(CURDIR)/debian/tmp/usr $(MAKEHACK)
+        # clear SUID-flag
+	chmod u-s $(CURDIR)/debian/tmp/usr/bin/gnuplot
+	mkdir -p debian/gnuplot-nox/usr/share/gnuplot/pm3d
+	cp -p pm3d/contrib/* debian/gnuplot-nox/usr/share/gnuplot/pm3d
+	dh_install --list-missing --sourcedir=debian/tmp/
+
+	mkdir -p debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html
+	cp -f docs/htmldocs/* debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html/
+
+# Build architecture-independent files here.
+# Pass -i to all debhelper commands in this target to reduce clutter.
+binary-indep: build install
+	dh_testdir -i
+	dh_testroot -i
+	dh_installdocs -pgnuplot-doc
+	# no regexps allowed in gnuplot-doc.examples
+	dh_installexamples -i -X CVS
+	dh_installinfo -pgnuplot-doc ./docs/gnuplot.info
+	dh_installchangelogs -pgnuplot-doc ChangeLog
+	dh_link -i
+	dh_compress -i
+	dh_fixperms -i
+	dh_installdeb -i
+	dh_gencontrol -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir -a
+	dh_testroot -a
+	dh_installdocs -a
+	dh_installmenu -a
+	dh_installman -a
+	dh_installchangelogs ChangeLog -a
+	dh_strip -a
+	dh_link -a
+	dh_compress -a
+	dh_fixperms -a
+	dh_installdeb -a
+	dh_shlibdeps -a
+	dh_gencontrol -a
+	dh_md5sums -a
+	dh_builddeb -a
+
+binary: binary-indep binary-arch
+.PHONY: build clean binary-indep binary-arch binary install

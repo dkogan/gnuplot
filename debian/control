@@ -1,0 +1,68 @@
+Source: gnuplot
+Section: math
+Priority: optional
+Maintainer: Cyril Bouthors <cyril@bouthors.org>
+Uploaders: Thierry Randrianiriana <randrianiriana@gmail.com>
+Standards-Version: 3.7.2
+Build-Depends: debhelper (>= 5), libpng12-dev | libpng-dev, libx11-dev, libxt-dev, pkg-config, texinfo (>= 4.8), texlive-latex-base | tetex-bin, texlive-latex-recommended | tetex-extra, zlib1g-dev, libgd2-noxpm-dev | libgd-dev, dpatch, libwxgtk2.6-dev, libcairo2-dev, libpango1.0-dev
+
+Package: gnuplot
+Architecture: all
+Depends: gnuplot-nox (>= ${source:Version}), gnuplot-x11 (>= ${source:Version})
+Suggests: gnuplot-doc (>= ${source:Version})
+Description: A command-line driven interactive plotting program
+ Package for making 2D and 3D graphs from data and functions.
+ Supports lots of output formats, including drivers for many printers,
+ (La)TeX, (x)fig, Postscript, and so on. The X11-output is packaged in
+ gnuplot-x11.
+ .
+ Data files and self-defined functions can be manipulated by internal
+ C-like language.  Can perform smoothing, spline-fitting, or nonlinear
+ fits. Can work with complex numbers.
+ .
+ This package is for transition and to install a full-featured gnuplot
+ supporting the X11-output. If you want to skip the
+ X-windows-dependency (e.g. if you're running a small server) just
+ install "gnuplot-nox" and skip this meta-package.
+ .
+  Homepage: http://gnuplot.sourceforge.net/
+
+Package: gnuplot-nox
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Conflicts: suidmanager (<< 0.50)
+Replaces: gnuplot (<< 4.0.0)
+Suggests: gnuplot-x11 (>= ${binary:Version}), gnuplot-doc (>= ${source:Version})
+Description: A command-line driven interactive plotting program
+ Package for making 2D and 3D graphs from data and functions.
+ Supports lots of output formats, including drivers for many printers,
+ (La)TeX, (x)fig, Postscript, and so on. The X11-output is packaged in
+ gnuplot-x11.
+ .
+ Data files and self-defined functions can be manipulated by internal
+ C-like language.  Can perform smoothing, spline-fitting, or nonlinear
+ fits. Can work with complex numbers.
+ .
+  Homepage: http://gnuplot.sourceforge.net/
+
+Package: gnuplot-x11
+Architecture: any
+Depends: gnuplot-nox (>= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Replaces: gnuplot (<< 4.0.0)
+Description: X11-terminal driver for gnuplot
+ This package contains the terminal driver that enables gnuplot to
+ plot images interactively under X11. Most users will want this, it is
+ however packaged separately so that low-end systems don't need X
+ installed to use gnuplot.
+ .
+  Homepage: http://gnuplot.sourceforge.net/
+
+Section: doc
+Package: gnuplot-doc
+Architecture: all
+Conflicts: gnuplot (<< 3.7.2-5)
+Description: Documentation for gnuplot
+ This package contains the additional documentation for the gnuplot
+ interactive plotting program.
+ .
+  Homepage: http://gnuplot.sourceforge.net/
