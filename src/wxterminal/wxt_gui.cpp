@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.30.2.7 2007/05/22 16:35:39 tlecomte Exp $
+ * $Id: wxt_gui.cpp,v 1.30.2.9 2008/07/29 22:19:05 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -266,7 +266,7 @@ void wxtApp::LoadPngIcon(const unsigned char *embedded_png, int length, int icon
 }
 
 /* load a cursor */
-void wxtApp::LoadCursor(wxCursor &cursor, char* xpm_bits[])
+void wxtApp::LoadCursor(wxCursor &cursor, const char* xpm_bits[])
 {
 	int hotspot_x, hotspot_y;
 	wxBitmap cursor_bitmap = wxBitmap(xpm_bits);
@@ -621,8 +621,6 @@ void wxtPanel::Draw()
 /* copy the plot to the panel, draw zoombow and ruler needed */
 void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 {
-	dc.BeginDrawing();
-
 	wxPen tmp_pen;
 
 	/* TODO extend the region mechanism to surfaces other than GTK_SURFACE */
@@ -724,7 +722,6 @@ void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 	}
 #endif /*USE_MOUSE*/
 
-	dc.EndDrawing();
 }
 
 /* avoid flickering under win32 */
@@ -1863,7 +1860,7 @@ void wxt_set_color(t_colorspec *colorspec)
 		wxt_linetype(colorspec->lt);
 		return;
 	} else if (colorspec->type == TC_FRAC)
-		rgb1_from_gray( colorspec->value, &rgb1 );
+		rgb1maxcolors_from_gray( colorspec->value, &rgb1 );
 	else if (colorspec->type == TC_RGB) {
 		rgb1.r = (double) ((colorspec->lt >> 16) & 0xff)/255;
 		rgb1.g = (double) ((colorspec->lt >> 8) & 0xff)/255;

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.85.2.2 2008/02/28 22:58:25 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.85.2.5 2008/07/23 19:25:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -64,6 +64,7 @@ static char *RCSid() { return RCSid("$Id: mouse.c,v 1.85.2.2 2008/02/28 22:58:25
 #include "readline.h"
 #include "term_api.h"
 #include "util3d.h"
+#include "hidden3d.h"
 
 #ifdef _Windows
 # include "win/winmain.h"
@@ -1470,7 +1471,7 @@ event_buttonpress(struct gp_event_t *ge)
 		/* not bound in 2d graphs */
 	    } else if (2 == b) {
 		/* not bound in 2d graphs */
-	    } else if (3 == b && !replot_disabled && !(paused_for_mouse & PAUSE_CLICK)) {
+	    } else if (3 == b && !replot_disabled && !(paused_for_mouse & PAUSE_BUTTON3)) {
 		/* start zoom; but ignore it when
 		 *   - replot is disabled, e.g. with inline data, or
 		 *   - during 'pause mouse'
@@ -1738,7 +1739,12 @@ event_motion(struct gp_event_t *ge)
 		    if (surface_scale < 0)
 			surface_scale = 0;
 		} else {
-		    surface_zscale += (mouse_y - start_y) * 2.0 / term->ymax;
+		    if (disable_mouse_z && (mouse_y-start_y > 0))
+			;
+		    else {
+			surface_zscale += (mouse_y - start_y) * 2.0 / term->ymax;
+			disable_mouse_z = FALSE;
+		    }
 		    if (surface_zscale < 0)
 			surface_zscale = 0;
 		}
@@ -1831,9 +1837,10 @@ event_reset(struct gp_event_t *ge)
 	/* remove pause message box after 'pause mouse' */
 	kill_pending_Pause_dialog();
 #endif
-	/* This hack is necessary for X11 in order to prevent one character */
-	/* of input from being swallowed when the plot window is closed.    */
-	if (term && !strncmp("x11",term->name,3))
+	/* This hack is necessary on some systems in order to prevent one  */
+	/* character of input from being swallowed when the plot window is */
+	/* closed. But which systems, exactly?                             */
+	if (term && (!strncmp("x11",term->name,3) || !strncmp("wxt",term->name,3)))
 	    ungetc('\n',stdin);
     }
 }

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.60.2.4 2008/01/14 07:27:57 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.60.2.10 2008/09/22 23:23:07 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -600,6 +600,8 @@ make_tics(AXIS_INDEX axis, int guide)
     double xr, tic;
 
     xr = fabs(axis_array[axis].min - axis_array[axis].max);
+    if (xr == 0)
+	return 1;       /* Anything will do, since we'll never use it */
     tic = quantize_normal_tics(xr, guide);
     /* FIXME HBB 20010831: disabling this might allow short log axis
      * to receive better ticking... */
@@ -788,15 +790,19 @@ setup_tics(AXIS_INDEX axis, int max)
 	autoextend_min = autoextend_max = FALSE;
     }
 
-    /* BUGFIX HBB 20010831: for time/date axes, if an explicit
-     * stepsize was set, timelevel[axis] wasn't defined, leading to
-     * strange misbehaviours of minor tics on time axes. This would
-     * usually be used to redefine the 'tic' interval, but as a side
-     * effect, it defines timelevel[axis]. */
-    /* HBB 20011204: moved this up --- round_outward() needs
-     * timelevel[axis], too */
-    if (this->is_timedata && ticdef->type == TIC_SERIES)
-	quantize_time_tics(axis, tic, fabs(this->max - this->min), 20);
+    /* If an explicit stepsize was set, timelevel[axis] wasn't defined,
+     * leading to strange misbehaviours of minor tics on time axes.
+     * We used to call quantize_time_tics, but that also caused strangeness.
+     */
+    if (this->is_timedata && ticdef->type == TIC_SERIES) {
+	if      (tic >= 365*24*60*60.) timelevel[axis] = TIMELEVEL_YEARS;
+	else if (tic >=  28*24*60*60.) timelevel[axis] = TIMELEVEL_MONTHS;
+	else if (tic >=   7*24*60*60.) timelevel[axis] = TIMELEVEL_WEEKS;
+	else if (tic >=     24*60*60.) timelevel[axis] = TIMELEVEL_DAYS;
+	else if (tic >=        60*60.) timelevel[axis] = TIMELEVEL_HOURS;
+	else if (tic >=           60.) timelevel[axis] = TIMELEVEL_MINUTES;
+	else                           timelevel[axis] = TIMELEVEL_SECONDS;
+    }
 
     if (autoextend_min)
 	this->min = round_outward(axis, ! (this->min < this->max), this->min);
@@ -866,7 +872,9 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	    if (!inrange(internal, internal_min, internal_max))
 		continue;
 
-	    if (axis_array[axis].is_timedata)
+	    if (mark->level < 0) /* label read from data file */
+		strncpy(label, mark->label, sizeof(label));
+	    else if (axis_array[axis].is_timedata)
 		gstrftime(label, 24, mark->label ? mark->label : ticfmt[axis], mark->position);
 	    else
 		gprintf(label, sizeof(label), mark->label ? mark->label : ticfmt[axis], log10_base, mark->position);
@@ -1046,6 +1054,12 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	if (step == 0)
 	    return;		/* just quietly ignore them ! */
 	/* }}} */
+
+	if ( (internal_max-internal_min)/step > term->xmax) {
+	    int_warn(NO_CARET,"Too many axis ticks (>%.0g)",
+		(internal_max-internal_min)/step);
+	    return;
+	}
 
 	/* FIXME HBB 20010121: keeping adding 'step' to 'tic' is
 	 * begging for rounding errors to strike us. */
@@ -1638,6 +1652,9 @@ add_tic_user(AXIS_INDEX axis, char *label, double position, int level)
 {
     struct ticmark *tic, *newtic;
     struct ticmark listhead;
+
+    if (!label && level < 0)
+	return;
 
     /* Mark this axis as user-generated ticmarks only, unless the */
     /* mix flag indicates that both user- and auto- tics are OK.  */

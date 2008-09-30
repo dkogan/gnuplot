@@ -1,20 +1,10 @@
 #!/usr/bin/make -f
-# -*- makefile -*-
 
-#export DH_VERBOSE=1
+include /usr/share/quilt/quilt.make
 
-include /usr/share/dpatch/dpatch.make
 
-# which types of docs should be produced?
-DOCS = ps info gpcard.ps
-TUTOR = tutorial.dvi tutorial.ps
-
-# !!! HACK !!! to get gnuplot_x11 binary into a directory without
-# major version number in (this path is semi-hardcoded in src/Makefile.am)
-MAKEHACK = pkglibexecdir='$$(libexecdir)'
-
-export DEB_HOST_GNU_TYPE   ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
-export DEB_BUILD_GNU_TYPE  ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
+export DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
 CFLAGS = -Wall -g
 
@@ -28,13 +18,13 @@ ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
 	INSTALL_PROGRAM += -s
 endif
 
-build-arch: build-arch-stamp
-build-arch-stamp:
+configure-nox: configure-nox-stamp
+configure-nox-stamp: $(QUILT_STAMPFN)
 	dh_testdir
-
-	# Building nox variant
-	./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE)  CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" \
-	  	--prefix=/usr \
+	[ ! -f Makefile ] || $(MAKE) distclean
+	CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" ./configure \
+		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
+		--prefix=/usr \
 		--mandir=\$${prefix}/share/man \
 	  	--infodir=\$${prefix}/share/info \
 	  	--libexecdir=\$${prefix}/lib/gnuplot \
@@ -45,26 +35,14 @@ build-arch-stamp:
 	  	--without-linux-vga \
 		--with-readline=builtin \
 		--without-x --disable-wxwidgets
+	touch $@
 
-# don't regenerate autotools-stuff
-	touch configure.in && \
-	touch config.status && \
-	touch aclocal.m4 && \
-	touch config.hin && \
-	touch configure && \
-	touch stamp-h.in
-
-	find -name Makefile.in -exec touch {} \; && \
-	find -name Makefile -exec touch {} \;
-
-	$(MAKE) -C src
-	test -d build-nox || mkdir -p build-nox
-	cp src/gnuplot build-nox
-
-	make distclean
-
-	# Building x11 variant
-	./configure --host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE)  CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" \
+configure-x11: configure-x11-stamp
+configure-x11-stamp: $(QUILT_STAMPFN)
+	dh_testdir
+	[ ! -f Makefile ] || $(MAKE) distclean
+	CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" ./configure \
+		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
 	  	--prefix=/usr \
 		--mandir=\$${prefix}/share/man \
 	  	--infodir=\$${prefix}/share/info \
@@ -75,52 +53,55 @@ build-arch-stamp:
 	  	--with-png --with-gd --without-lisp-files \
 	  	--without-linux-vga \
 		--with-readline=builtin
+	touch $@
 
-# don't regenerate autotools-stuff
-	touch configure.in && \
-	touch config.status && \
-	touch aclocal.m4 && \
-	touch config.hin && \
-	touch configure && \
-	touch stamp-h.in
+build-nox: build-nox-stamp
+build-nox-stamp: configure-nox-stamp
+	dh_testdir
+	$(MAKE) -C src
+	mkdir -p $(CURDIR)/debian/build-nox
+	cp src/gnuplot $(CURDIR)/debian/build-nox/
+	touch $@
 
-	find -name Makefile.in -exec touch {} \; && \
-	find -name Makefile -exec touch {} \;
+build-x11: build-x11-stamp
+build-x11-stamp: configure-x11-stamp
+	dh_testdir
+	$(MAKE) -C src pkglibexecdir='$$(libexecdir)'
+	mkdir -p $(CURDIR)/debian/build-x11
+	cp src/gnuplot $(CURDIR)/debian/build-x11/
+	touch $@
 
-# compile an set special path... (explained above)
-	$(MAKE) $(MAKEHACK)
+build-rest: build-rest-stamp
+build-rest-stamp:
+	dh_testdir
+	$(MAKE)
+	touch $@
 
-	touch build-arch-stamp
+build-arch: build-nox build-x11 build-rest
 
 build-indep: build-indep-stamp
-build-indep-stamp: build-arch-stamp
+build-indep-stamp: build-arch
 	dh_testdir
-
-        # create documentation
 	cp -f term/PostScript/prologue.ps docs/psdoc/
-
-	$(MAKE) -C docs $(DOCS)
-	$(MAKE) -C tutorial $(TUTOR)
+	$(MAKE) -C docs ps info gpcard.ps
+	$(MAKE) -C tutorial tutorial.dvi tutorial.ps
 	$(MAKE) -C docs/psdoc ps_fontfile_doc.ps
-#	cd $(CURDIR)/docs/psdoc/ && ../../src/gnuplot ps_symbols.gpi && cd $(CURDIR)
-
 	mkdir -p docs/htmldocs
 	$(MAKEINFO) --html --output=docs/htmldocs/ docs/gnuplot.texi
+	touch $@
 
-	touch build-indep-stamp
-
-# FIXME: 'patch' is not called when 'build-arch' is invoked directly
-build: patch build-arch build-indep
+build: build-arch build-indep
 
 clean: unpatch
 	dh_testdir
 	dh_testroot
-	-rm -f build-arch-stamp build-indep-stamp
-	[ ! -f Makefile ] || $(MAKE) clean
+	rm -f build-arch-stamp build-indep-stamp build-nox-stamp \
+		build-rest-stamp build-x11-stamp configure-nox-stamp \
+		configure-x11-stamp
 	[ ! -f Makefile ] || $(MAKE) distclean
-
 	dh_clean
-	-rm -rf config.log \
+	rm -rf debian/build-nox debian/build-x11 \
+		config.log \
 		debian/gnuplot \
 		debian/gnuplot-doc \
 		debian/gnuplot-nox \
@@ -136,32 +117,26 @@ clean: unpatch
 		docs/psdoc/ps_fontfile_doc.ps \
 		docs/psdoc/prologue.ps \
 		docs/psdoc/missfont.log \
-		docs/htmldocs \
-		build-nox
+		docs/htmldocs
 
-install: DH_OPTIONS=
 install: build
 	dh_testdir
 	dh_testroot
 	dh_clean -k
 	dh_installdirs
-	$(MAKE) install prefix=$(CURDIR)/debian/tmp/usr $(MAKEHACK)
-        # clear SUID-flag
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp/ \
+		pkglibexecdir='$$(libexecdir)'
 	chmod u-s $(CURDIR)/debian/tmp/usr/bin/gnuplot
 	mkdir -p debian/gnuplot-nox/usr/share/gnuplot/pm3d
 	cp -p pm3d/contrib/* debian/gnuplot-nox/usr/share/gnuplot/pm3d
-	dh_install --list-missing --sourcedir=debian/tmp/
-
+	dh_install
 	mkdir -p debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html
 	cp -f docs/htmldocs/* debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html/
 
-# Build architecture-independent files here.
-# Pass -i to all debhelper commands in this target to reduce clutter.
 binary-indep: build install
 	dh_testdir -i
 	dh_testroot -i
 	dh_installdocs -pgnuplot-doc
-	# no regexps allowed in gnuplot-doc.examples
 	dh_installexamples -i -X CVS
 	dh_installinfo -pgnuplot-doc ./docs/gnuplot.info
 	dh_installchangelogs -pgnuplot-doc ChangeLog
@@ -173,7 +148,6 @@ binary-indep: build install
 	dh_md5sums -i
 	dh_builddeb -i
 
-# Build architecture-dependent files here.
 binary-arch: build install
 	dh_testdir -a
 	dh_testroot -a

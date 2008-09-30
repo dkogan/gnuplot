@@ -1,3 +1,27 @@
+gnuplot (4.2.4-1) unstable; urgency=low
+
+  * New upstream release.
+  * New maintainer. Closes: #500347.
+  * debian/rules
+    - Restructure build process.
+    - General tidying up.
+  * debian/patches
+    - 01_check_x11-driver.diff - Remove useless whitespace changes.
+    - 02_fix_info.diff
+      + Fix complie errors in info file.
+      + Fix typo. Closes: #489929.
+  * Revert useless changes outside debian/ dir.
+  * Migrate from dptach to quilt.
+  * Convert copyright to machine readable format.
+  * Update compat to 7 and upgrade debhelper dependency to (>= 7)
+  * Add missing groff dependency. Closes: #456766.
+  * Fix broken debian/watch file.
+  * Remove old outdated conlicts.
+  * Reformat descriptions.
+  * Remove old outdated maintainer scripts.
+
+ -- Bradley Smith <brad@brad-smith.co.uk>  Tue, 30 Sep 2008 23:38:09 +0100
+
 gnuplot (4.2.3-1.1) unstable; urgency=medium
 
   * Non-maintainer upload.

@@ -1,2 +1,3 @@
-usr/bin/gnuplot
-usr/lib/gnuplot/gnuplot_x11
+debian/tmp/usr/lib/gnuplot/gnuplot_x11
+debian/tmp/usr/share/man/man1/gnuplot.1
+debian/build-x11/gnuplot usr/bin/
