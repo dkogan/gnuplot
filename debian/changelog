@@ -1,3 +1,15 @@
+gnuplot (4.2.4-2) experimental; urgency=low
+
+  * Change maintainer email address.
+  * Fix changelog typos. Closes: #501292.
+  * debian/patches
+    - Add 03_use_libedit.diff - Use libedit for readline style support in
+      place of builtin readline. Closes: #75403, #319994.
+    - 04_fix_libexecdir.diff - Fix hardcoded libexecdir path.
+  * Add Vcs-* fields.
+
+ -- Bradley Smith <bradsmith@debian.org>  Thu, 16 Oct 2008 21:59:49 +0100
+
 gnuplot (4.2.4-1) unstable; urgency=low
 
   * New upstream release.
@@ -8,15 +20,15 @@ gnuplot (4.2.4-1) unstable; urgency=low
   * debian/patches
     - 01_check_x11-driver.diff - Remove useless whitespace changes.
     - 02_fix_info.diff
-      + Fix complie errors in info file.
+      + Fix compile errors in info file.
       + Fix typo. Closes: #489929.
   * Revert useless changes outside debian/ dir.
-  * Migrate from dptach to quilt.
+  * Migrate from dpatch to quilt.
   * Convert copyright to machine readable format.
   * Update compat to 7 and upgrade debhelper dependency to (>= 7)
   * Add missing groff dependency. Closes: #456766.
   * Fix broken debian/watch file.
-  * Remove old outdated conlicts.
+  * Remove old outdated conflicts.
   * Reformat descriptions.
   * Remove old outdated maintainer scripts.
 

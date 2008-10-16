@@ -1,0 +1,13 @@
+Index: gnuplot/src/Makefile.am
+===================================================================
+--- gnuplot.orig/src/Makefile.am	2008-10-16 21:59:42.000000000 +0100
++++ gnuplot/src/Makefile.am	2008-10-16 22:43:16.000000000 +0100
+@@ -2,7 +2,7 @@
+ AUTOMAKE_OPTIONS = ansi2knr foreign 1.2h
+ 
+ # in the spirit of automake ...
+-pkglibexecdir = $(libexecdir)/@PACKAGE@/@VERSION_MAJOR@
++pkglibexecdir = $(libexecdir)
+ 
+ # Where to send bug reports and comments
+ EMAIL = http://sourceforge.net/projects/gnuplot

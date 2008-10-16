@@ -1,2 +1,4 @@
 01_check_x11-driver.diff
 02_fix_info.diff
+03_use_libedit.diff
+04_fix_libexecdir.diff

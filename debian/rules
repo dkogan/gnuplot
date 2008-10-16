@@ -18,8 +18,14 @@ ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
 	INSTALL_PROGRAM += -s
 endif
 
+autoreconf: autoreconf-stamp
+autoreconf-stamp: $(QUILT_STAMPFN)
+	dh_testdir
+	autoreconf
+	touch $@
+
 configure-nox: configure-nox-stamp
-configure-nox-stamp: $(QUILT_STAMPFN)
+configure-nox-stamp: autoreconf-stamp
 	dh_testdir
 	[ ! -f Makefile ] || $(MAKE) distclean
 	CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" ./configure \
@@ -33,12 +39,12 @@ configure-nox-stamp: $(QUILT_STAMPFN)
 	  	--without-lasergnu \
 	  	--with-png --with-gd --without-lisp-files \
 	  	--without-linux-vga \
-		--with-readline=builtin \
+		--with-readline=bsd \
 		--without-x --disable-wxwidgets
 	touch $@
 
 configure-x11: configure-x11-stamp
-configure-x11-stamp: $(QUILT_STAMPFN)
+configure-x11-stamp: autoreconf-stamp
 	dh_testdir
 	[ ! -f Makefile ] || $(MAKE) distclean
 	CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" ./configure \
@@ -52,7 +58,7 @@ configure-x11-stamp: $(QUILT_STAMPFN)
 	  	--without-lasergnu \
 	  	--with-png --with-gd --without-lisp-files \
 	  	--without-linux-vga \
-		--with-readline=builtin
+		--with-readline=bsd
 	touch $@
 
 build-nox: build-nox-stamp
@@ -92,7 +98,9 @@ build-indep-stamp: build-arch
 
 build: build-arch build-indep
 
-clean: unpatch
+clean: pre-clean unpatch
+
+pre-clean:
 	dh_testdir
 	dh_testroot
 	rm -f build-arch-stamp build-indep-stamp build-nox-stamp \
@@ -102,6 +110,9 @@ clean: unpatch
 	dh_clean
 	rm -rf debian/build-nox debian/build-x11 \
 		config.log \
+		config.hin \
+		configure \
+		src/Makefile.in \
 		debian/gnuplot \
 		debian/gnuplot-doc \
 		debian/gnuplot-nox \
@@ -166,4 +177,4 @@ binary-arch: build install
 	dh_builddeb -a
 
 binary: binary-indep binary-arch
-.PHONY: build clean binary-indep binary-arch binary install
+.PHONY: build clean binary-indep binary-arch binary install configure-nox configure-x11 build-nox build-rest build-x11
