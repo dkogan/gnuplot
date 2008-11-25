@@ -1,3 +1,10 @@
+gnuplot (4.2.4-3) unstable; urgency=low
+
+  * Merge changes from experimental.
+  * Install missing info files. Closes: #504330.
+
+ -- Bradley Smith <bradsmith@debian.org>  Tue, 25 Nov 2008 16:22:11 +0000
+
 gnuplot (4.2.4-2) experimental; urgency=low
 
   * Change maintainer email address.
