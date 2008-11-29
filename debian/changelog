@@ -1,3 +1,9 @@
+gnuplot (4.2.4-4) unstable; urgency=low
+
+  * Fix crash when doing set terminal. Closes: #507289.
+
+ -- Bradley Smith <bradsmith@debian.org>  Sat, 29 Nov 2008 20:06:41 +0000
+
 gnuplot (4.2.4-3) unstable; urgency=low
 
   * Merge changes from experimental.

@@ -1,7 +1,7 @@
 Index: gnuplot/configure.in
 ===================================================================
---- gnuplot.orig/configure.in	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/configure.in	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/configure.in	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/configure.in	2008-11-29 20:01:50.000000000 +0000
 @@ -274,10 +274,11 @@
          AC_CHECK_HEADERS(ggi/xmi.h)])
     fi])
@@ -56,8 +56,8 @@ Index: gnuplot/configure.in
    if test "$with_readline" = builtin; then
 Index: gnuplot/src/command.c
 ===================================================================
---- gnuplot.orig/src/command.c	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/command.c	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/command.c	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/command.c	2008-11-29 20:01:50.000000000 +0000
 @@ -458,6 +458,11 @@
  #if defined(HAVE_LIBREADLINE)
  	rl_forced_update_display();
@@ -159,8 +159,8 @@ Index: gnuplot/src/command.c
  # endif
 Index: gnuplot/src/gp_hist.h
 ===================================================================
---- gnuplot.orig/src/gp_hist.h	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/gp_hist.h	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/gp_hist.h	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/gp_hist.h	2008-11-29 20:01:50.000000000 +0000
 @@ -66,16 +66,23 @@
  # include <readline/history.h>
  #endif
@@ -191,8 +191,8 @@ Index: gnuplot/src/gp_hist.h
  
 Index: gnuplot/src/graphics.c
 ===================================================================
---- gnuplot.orig/src/graphics.c	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/graphics.c	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/graphics.c	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/graphics.c	2008-11-29 20:01:50.000000000 +0000
 @@ -1577,12 +1577,12 @@
  	int_error(NO_CARET, "y_min should not equal y_max!");
  
@@ -210,8 +210,8 @@ Index: gnuplot/src/graphics.c
      /* compute boundary for plot (plot_bounds.xleft, plot_bounds.xright, plot_bounds.ytop, plot_bounds.ybot)
 Index: gnuplot/src/history.c
 ===================================================================
---- gnuplot.orig/src/history.c	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/history.c	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/history.c	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/history.c	2008-11-29 20:01:50.000000000 +0000
 @@ -52,7 +52,7 @@
  #endif
  
@@ -291,8 +291,8 @@ Index: gnuplot/src/history.c
 +#endif /* READLINE && !HAVE_LIBREADLINE && !HAVE_LIBEDITLINE */
 Index: gnuplot/src/plot.c
 ===================================================================
---- gnuplot.orig/src/plot.c	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/plot.c	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/plot.c	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/plot.c	2008-11-29 20:01:50.000000000 +0000
 @@ -117,6 +117,12 @@
  extern int rl_complete_with_tilde_expansion;
  #endif 
@@ -380,8 +380,8 @@ Index: gnuplot/src/plot.c
  
 Index: gnuplot/src/readline.c
 ===================================================================
---- gnuplot.orig/src/readline.c	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/readline.c	2008-10-16 23:13:10.000000000 +0100
+--- gnuplot.orig/src/readline.c	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/readline.c	2008-11-29 20:02:54.000000000 +0000
 @@ -57,7 +57,7 @@
  #include "util.h"
  #include "term_api.h"
@@ -400,7 +400,7 @@ Index: gnuplot/src/readline.c
   * was typed (not from the ipc).
   */
  static void
-@@ -77,7 +77,11 @@
+@@ -77,8 +77,16 @@
      line_complete = 1;
  }
  
@@ -409,10 +409,26 @@ Index: gnuplot/src/readline.c
 +#else
  static int
 +#endif
++#if defined(HAVE_LIBEDITLINE)
++getc_wrapper(FILE* fp /* is NULL, supplied by libedit */)
++#else
  getc_wrapper(FILE* fp /* should be stdin, supplied by readline */)
++#endif
  {
      int c;
-@@ -96,9 +100,9 @@
+ 
+@@ -89,16 +97,20 @@
+ 	}
+ 	else
+ #endif
++#if defined(HAVE_LIBEDITLINE)
++	    c = getchar();
++#else
+ 	    c = getc(fp);
++#endif
+ 	if (c == EOF && errno == EINTR)
+ 	    continue;
+ 	return c;
      }
  }
  
@@ -424,7 +440,7 @@ Index: gnuplot/src/readline.c
  char*
  readline_ipc(const char* prompt)
  {
-@@ -121,7 +125,7 @@
+@@ -121,7 +133,7 @@
  #endif  /* defined(HAVE_LIBREADLINE) || define(READLINE) */
  
  
@@ -435,8 +451,8 @@ Index: gnuplot/src/readline.c
   * this is not the BASH or GNU EMACS version of READLINE due to Copyleft
 Index: gnuplot/src/readline.h
 ===================================================================
---- gnuplot.orig/src/readline.h	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/readline.h	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/readline.h	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/readline.h	2008-11-29 20:01:50.000000000 +0000
 @@ -46,12 +46,19 @@
  
  /* Prototypes of functions exported by readline.c */
@@ -461,8 +477,8 @@ Index: gnuplot/src/readline.h
  
 Index: gnuplot/src/show.c
 ===================================================================
---- gnuplot.orig/src/show.c	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/show.c	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/show.c	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/show.c	2008-11-29 20:01:50.000000000 +0000
 @@ -548,7 +548,7 @@
  #endif
      case S_PLOT:
@@ -492,8 +508,8 @@ Index: gnuplot/src/show.c
  #else
 Index: gnuplot/src/term.c
 ===================================================================
---- gnuplot.orig/src/term.c	2008-10-16 23:12:20.000000000 +0100
-+++ gnuplot/src/term.c	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/term.c	2008-11-29 20:01:49.000000000 +0000
++++ gnuplot/src/term.c	2008-11-29 20:01:50.000000000 +0000
 @@ -50,7 +50,7 @@
    *
    * term_set_output() : called when  set output  invoked
@@ -535,8 +551,8 @@ Index: gnuplot/src/term.c
          FPRINTF((stderr, "- calling term->graphics()\n"));
 Index: gnuplot/src/term_api.h
 ===================================================================
---- gnuplot.orig/src/term_api.h	2008-10-16 23:09:57.000000000 +0100
-+++ gnuplot/src/term_api.h	2008-10-16 23:12:20.000000000 +0100
+--- gnuplot.orig/src/term_api.h	2008-10-16 23:13:21.000000000 +0100
++++ gnuplot/src/term_api.h	2008-11-29 20:01:50.000000000 +0000
 @@ -361,7 +361,7 @@
  /* Prototypes of functions exported by term.c */
  
