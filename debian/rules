@@ -18,6 +18,9 @@ ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
 	INSTALL_PROGRAM += -s
 endif
 
+# Force package to build with -j1
+MAKEFLAGS = -j1
+
 autoreconf: autoreconf-stamp
 autoreconf-stamp: $(QUILT_STAMPFN)
 	dh_testdir
@@ -62,7 +65,7 @@ configure-x11-stamp: autoreconf-stamp
 	touch $@
 
 build-nox: build-nox-stamp
-build-nox-stamp: configure-nox-stamp
+build-nox-stamp: configure-nox
 	dh_testdir
 	$(MAKE) -C src
 	mkdir -p $(CURDIR)/debian/build-nox
@@ -70,7 +73,7 @@ build-nox-stamp: configure-nox-stamp
 	touch $@
 
 build-x11: build-x11-stamp
-build-x11-stamp: configure-x11-stamp
+build-x11-stamp: configure-x11
 	dh_testdir
 	$(MAKE) -C src pkglibexecdir='$$(libexecdir)'
 	mkdir -p $(CURDIR)/debian/build-x11
@@ -78,7 +81,7 @@ build-x11-stamp: configure-x11-stamp
 	touch $@
 
 build-rest: build-rest-stamp
-build-rest-stamp:
+build-rest-stamp: autoreconf-stamp
 	dh_testdir
 	$(MAKE)
 	touch $@
@@ -133,7 +136,7 @@ pre-clean:
 install: build
 	dh_testdir
 	dh_testroot
-	dh_clean -k
+	dh_prep
 	dh_installdirs
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp/ \
 		pkglibexecdir='$$(libexecdir)'

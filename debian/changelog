@@ -1,3 +1,10 @@
+gnuplot (4.2.4-5) unstable; urgency=low
+
+  * Move wx Build-depends to 2.8. Closes: #512147.
+  * Fix parallel builds.
+
+ -- Bradley Smith <bradsmith@debian.org>  Sun, 08 Mar 2009 15:19:27 +0000
+
 gnuplot (4.2.4-4) unstable; urgency=low
 
   * Fix crash when doing set terminal. Closes: #507289.
