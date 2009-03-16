@@ -245,7 +245,7 @@ Index: gnuplot/src/history.c
  {
 -    HIST_ENTRY **the_list = history_list();
 +#ifdef HAVE_LIBREADLINE
-+    (const HIST_ENTRY *) *the_list = history_list();
++    HIST_ENTRY **the_list = history_list();
 +#endif
 +    const HIST_ENTRY *list_entry;
      FILE *out = stdout;

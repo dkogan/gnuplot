@@ -18,8 +18,8 @@ ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
 	INSTALL_PROGRAM += -s
 endif
 
-# Force package to build with -j1
-MAKEFLAGS = -j1
+BUILDDIR_NOX = $(CURDIR)/debian/build-nox
+BUILDDIR_X11 = $(CURDIR)/debian/build-x11
 
 autoreconf: autoreconf-stamp
 autoreconf-stamp: $(QUILT_STAMPFN)
@@ -30,70 +30,56 @@ autoreconf-stamp: $(QUILT_STAMPFN)
 configure-nox: configure-nox-stamp
 configure-nox-stamp: autoreconf-stamp
 	dh_testdir
-	[ ! -f Makefile ] || $(MAKE) distclean
-	CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" ./configure \
+	mkdir -p $(BUILDDIR_NOX)
+	cd $(BUILDDIR_NOX); CFLAGS="$(CFLAGS)" \
+		LDFLAGS="-Wl,-z,defs,-as-needed" ../../configure \
 		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
-		--prefix=/usr \
-		--mandir=\$${prefix}/share/man \
+		--prefix=/usr --mandir=\$${prefix}/share/man \
 	  	--infodir=\$${prefix}/share/info \
-	  	--libexecdir=\$${prefix}/lib/gnuplot \
+		--libexecdir=\$${prefix}/lib/gnuplot \
 	  	--datadir=\$${prefix}/share/gnuplot \
 		--with-gihdir=\$${prefix}/share/gnuplot \
-	  	--without-lasergnu \
-	  	--with-png --with-gd --without-lisp-files \
-	  	--without-linux-vga \
-		--with-readline=bsd \
-		--without-x --disable-wxwidgets
+	  	--without-lasergnu --with-png --with-gd --without-lisp-files \
+	  	--without-linux-vga --with-readline=bsd --without-x \
+		--disable-wxwidgets
 	touch $@
 
 configure-x11: configure-x11-stamp
 configure-x11-stamp: autoreconf-stamp
 	dh_testdir
-	[ ! -f Makefile ] || $(MAKE) distclean
-	CFLAGS="$(CFLAGS)" LDFLAGS="-Wl,-z,defs,-as-needed" ./configure \
+	mkdir -p $(BUILDDIR_X11)
+	cd $(BUILDDIR_X11); CFLAGS="$(CFLAGS)" \
+		LDFLAGS="-Wl,-z,defs,-as-needed" ../../configure \
 		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
-	  	--prefix=/usr \
-		--mandir=\$${prefix}/share/man \
+	  	--prefix=/usr --mandir=\$${prefix}/share/man \
 	  	--infodir=\$${prefix}/share/info \
 	  	--libexecdir=\$${prefix}/lib/gnuplot \
 	  	--datadir=\$${prefix}/share/gnuplot \
 		--with-gihdir=\$${prefix}/share/gnuplot \
-	  	--without-lasergnu \
-	  	--with-png --with-gd --without-lisp-files \
-	  	--without-linux-vga \
-		--with-readline=bsd
+	  	--without-lasergnu --with-png --with-gd --without-lisp-files \
+	  	--without-linux-vga --with-readline=bsd
 	touch $@
 
 build-nox: build-nox-stamp
 build-nox-stamp: configure-nox
 	dh_testdir
-	$(MAKE) -C src
-	mkdir -p $(CURDIR)/debian/build-nox
-	cp src/gnuplot $(CURDIR)/debian/build-nox/
+	$(MAKE) -C $(BUILDDIR_NOX)/src
 	touch $@
 
 build-x11: build-x11-stamp
 build-x11-stamp: configure-x11
 	dh_testdir
-	$(MAKE) -C src pkglibexecdir='$$(libexecdir)'
-	mkdir -p $(CURDIR)/debian/build-x11
-	cp src/gnuplot $(CURDIR)/debian/build-x11/
+	$(MAKE) -C $(BUILDDIR_X11) pkglibexecdir='$$(libexecdir)'
 	touch $@
 
-build-rest: build-rest-stamp
-build-rest-stamp: autoreconf-stamp
-	dh_testdir
-	$(MAKE)
-	touch $@
-
-build-arch: build-nox build-x11 build-rest
+build-arch: build-nox build-x11
 
 build-indep: build-indep-stamp
 build-indep-stamp: build-arch
 	dh_testdir
 	cp -f term/PostScript/prologue.ps docs/psdoc/
-	$(MAKE) -C docs ps info gpcard.ps
-	$(MAKE) -C tutorial tutorial.dvi tutorial.ps
+	$(MAKE) -C $(BUILDDIR_X11)/docs ps info gpcard.ps
+	$(MAKE) -C $(BUILDDIR_X11)/tutorial tutorial.dvi tutorial.ps
 	$(MAKE) -C docs/psdoc ps_fontfile_doc.ps
 	mkdir -p docs/htmldocs
 	$(MAKEINFO) --html --output=docs/htmldocs/ docs/gnuplot.texi
@@ -101,15 +87,11 @@ build-indep-stamp: build-arch
 
 build: build-arch build-indep
 
-clean: pre-clean unpatch
-
-pre-clean:
+clean: unpatch
 	dh_testdir
 	dh_testroot
 	rm -f build-arch-stamp build-indep-stamp build-nox-stamp \
-		build-rest-stamp build-x11-stamp configure-nox-stamp \
-		configure-x11-stamp
-	[ ! -f Makefile ] || $(MAKE) distclean
+		build-x11-stamp configure-nox-stamp	configure-x11-stamp
 	dh_clean
 	rm -rf debian/build-nox debian/build-x11 \
 		config.log \
@@ -138,7 +120,7 @@ install: build
 	dh_testroot
 	dh_prep
 	dh_installdirs
-	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp/ \
+	$(MAKE) -C $(BUILDDIR_X11) install DESTDIR=$(CURDIR)/debian/tmp/ \
 		pkglibexecdir='$$(libexecdir)'
 	chmod u-s $(CURDIR)/debian/tmp/usr/bin/gnuplot
 	mkdir -p debian/gnuplot-nox/usr/share/gnuplot/pm3d
@@ -152,7 +134,7 @@ binary-indep: build install
 	dh_testroot -i
 	dh_installdocs -pgnuplot-doc
 	dh_installexamples -i -X CVS
-	dh_installinfo -pgnuplot-doc ./docs/gnuplot.info*
+	dh_installinfo -pgnuplot-doc $(BUILDDIR_X11)/docs/gnuplot.info*
 	dh_installchangelogs -pgnuplot-doc ChangeLog
 	dh_link -i
 	dh_compress -i

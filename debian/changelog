@@ -1,3 +1,13 @@
+gnuplot (4.2.4-6) unstable; urgency=low
+
+  * Fix parallel builds.
+  * Fix nox build. Closes: #519395.
+  * Move groff to Recommends. Closes: #507088.
+  * Tidy up libedit patch. Closes: #518964.
+  * Update Standards-Version to 3.8.1. (No changes).
+
+ -- Bradley Smith <bradsmith@debian.org>  Mon, 16 Mar 2009 17:24:48 +0000
+
 gnuplot (4.2.4-5) unstable; urgency=low
 
   * Move wx Build-depends to 2.8. Closes: #512147.
