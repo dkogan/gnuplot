@@ -12,39 +12,3 @@ Index: gnuplot/docs/gnuplot.texi
  
  
  @node Improved_text_options, More_text_encodings, New_plot_option_smooth_frequency, Features_introduced_in_version_4.0
-@@ -6434,7 +6434,7 @@
- * mytics::                      
- * mztics::                      
- * offsets::                     
--* origin_::                     
-+* origin::                      
- * output::                      
- * parametric_::                 
- * plot_::                       
-@@ -9675,7 +9675,7 @@
- Minor tic marks along the z axis are controlled by @ref{mztics}.  Please
- see @ref{mxtics}.
- 
--@node offsets, origin_, mztics, set-show
-+@node offsets, origin, mztics, set-show
- @subsection offsets
- 
- @c ?commands set offsets
-@@ -9720,7 +9720,7 @@
- This graph of sin(x) will have a y range [-3:3] because the function
- will be autoscaled to [-1:1] and the vertical offsets are each two.
- 
--@node origin_, output, offsets, set-show
-+@node origin, output, offsets, set-show
- @subsection origin
- 
- @c ?commands set origin
-@@ -9742,7 +9742,7 @@
- 
- @end example
- 
--@node output, parametric_, origin_, set-show
-+@node output, parametric_, origin, set-show
- @subsection output
- 
- @c ?commands set output

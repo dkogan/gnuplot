@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.132.2.8 2008/06/08 05:58:54 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.132.2.13 2009/03/28 21:22:54 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -281,6 +281,10 @@ set y2data%s\n",
     fprintf(fp, "set angles %s\n",
 	    (ang2rad == 1.0) ? "radians" : "degrees");
 
+    /* Grid back/front controls tics also. Make sure it is saved */
+    if (grid_layer >= 0)
+	fprintf(fp,"set tics %s\n", grid_layer == 0 ? "back" : "front");
+    
     if (! some_grid_selected())
 	fputs("unset grid\n", fp);
     else {
@@ -545,9 +549,12 @@ set encoding %s\n\
     fputs("set view ", fp);
     if (splot_map == TRUE)
 	fputs("map", fp);
-    else
+    else {
 	fprintf(fp, "%g, %g, %g, %g",
 	    surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
+    }
+    fprintf(fp, "\nset view %s", aspect_ratio_3D == 2 ? "equal xy" :
+                                 aspect_ratio_3D == 3 ? "equal xyz": "");
 
     fprintf(fp, "\n\
 set samples %d, %d\n\
@@ -955,6 +962,8 @@ save_tics(FILE *fp, AXIS_INDEX axis)
 	break;
     }
 
+    fprintf(fp, (axis_array[axis].ticdef.rangelimited)?" rangelimit":" norangelimit");
+
     if (axis_array[axis].ticdef.font && *axis_array[axis].ticdef.font)
         fprintf(fp, " font \"%s\"", axis_array[axis].ticdef.font);
 
@@ -969,6 +978,8 @@ save_tics(FILE *fp, AXIS_INDEX axis)
 		(axis_array[axis].ticdef.type == TIC_USER) ? "" : "add");
 	fputs(" (", fp);
 	for (t = axis_array[axis].ticdef.def.user; t != NULL; t = t->next) {
+	    if (t->level < 0)	/* Don't save ticlabels read from data file */
+		continue;
 	    if (t->label)
 		fprintf(fp, "\"%s\" ", conv_text(t->label));
 	    SAVE_NUM_OR_TIME(fp, (double) t->position, axis);

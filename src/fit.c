@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: fit.c,v 1.56.2.1 2007/07/19 16:11:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: fit.c,v 1.56.2.4 2009/02/05 17:17:25 sfeam Exp $"); }
 #endif
 
 /*  NOTICE: Change of Copyright Status
@@ -551,7 +551,7 @@ fit_interrupt()
 		struct value v;
 		const char *tmp;
 
-		tmp = (fit_script != 0 && *fit_script) ? fit_script : DEFAULT_CMD;
+		tmp = (*fit_script) ? fit_script : DEFAULT_CMD;
 		fprintf(STANDARD, "executing: %s", tmp);
 		/* set parameters visible to gnuplot */
 		for (i = 0; i < num_params; i++) {
@@ -1538,7 +1538,7 @@ fit_command()
 	viafile = try_to_get_string();	/* Cannot fail since isstringvalue succeeded */
 	fprintf(log_f, "fitted parameters and initial values from file: %s\n\n", viafile);
 	if (!(f = loadpath_fopen(viafile, "r")))
-	    Eex2("could not read parameter-file %s", sstr);
+	    Eex2("could not read parameter-file \"%s\"", viafile);
 
 	/* get parameters and values out of file and ignore fixed ones */
 
@@ -1636,7 +1636,11 @@ fit_command()
 	if (a[i] == 0)
 	    a[i] = NEARLY_ZERO;
 
-    (void) regress(a);
+
+    if (num_params == 0)
+	int_warn(NO_CARET, "No fittable parameters!\n");
+    else
+	(void) regress(a);
 
     (void) fclose(log_f);
     log_f = NULL;

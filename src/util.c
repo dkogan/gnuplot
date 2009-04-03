@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util.c,v 1.65.2.6 2008/04/20 22:27:19 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util.c,v 1.65.2.9 2009/02/05 17:17:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util.c */
@@ -157,15 +157,24 @@ isstring(int t_num)
 	     gp_input_line[token[t_num].start_index] == '"'));
 }
 
+/* Test for the existence of a variable without triggering errors.
+ * Return values:
+ *  0	variable does not exist or is not defined
+ * >0	type of variable: INTGR, CMPLX, STRING
+ */
 int
 type_udv(int t_num)
 {
     struct udvt_entry **udv_ptr = &first_udv;
 
     while (*udv_ptr) {
-       if (equals(t_num, (*udv_ptr)->udv_name))
-	   return (*udv_ptr)->udv_value.type;
-       udv_ptr = &((*udv_ptr)->next_udv);
+	if (equals(t_num, (*udv_ptr)->udv_name)) {
+	    if ((*udv_ptr)->udv_undef)
+		return 0;
+	    else
+		return (*udv_ptr)->udv_value.type;
+	    }
+	udv_ptr = &((*udv_ptr)->next_udv);
     }
     return 0;
 }
@@ -549,6 +558,7 @@ gprintf(
                                        output, already */
     int stored_power = 0;	/* power that matches the mantissa
                                    output earlier */
+    TBOOLEAN got_hash = FALSE;				   
 
     for (;;) {
 	/*{{{  copy to dest until % */
@@ -568,6 +578,11 @@ gprintf(
 	/*{{{  copy format part to temp, excluding conversion character */
 	t = temp;
 	*t++ = '%';
+	if (format[1] == '#') {
+	    *t++ = '#';
+	    format++;
+	    got_hash = TRUE;
+	}
 	/* dont put isdigit first since sideeffect in macro is bad */
 	while (*++format == '.' || isdigit((unsigned char) *format)
 	       || *format == '-' || *format == '+' || *format == ' '
@@ -731,6 +746,9 @@ gprintf(
 	    int_error(NO_CARET, "Bad format character");
 	} /* switch */
 	/*}}} */
+	
+	if (got_hash && (format != strpbrk(format,"oeEfFgG")))
+	   int_error(NO_CARET, "Bad format character");
 
     /* change decimal `.' to the actual entry in decimalsign */
 	if (decimalsign != NULL) {

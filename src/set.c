@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.236.2.11 2008/06/08 05:58:54 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.236.2.19 2009/03/28 21:22:54 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -1876,8 +1876,10 @@ set_label()
 	char* text;
 	parse_label_options( this_label );
 	text = try_to_get_string();
-	if (text)
+	if (text) {
+	    free(this_label->text);
 	    this_label->text = text;
+	}
 #else
     /* get text from string */
     if (!END_OF_COMMAND && isstring(c_token)) {
@@ -2526,15 +2528,15 @@ set_palette_defined()
     num = -1;
 
     while (!END_OF_COMMAND) {
+	char *col_str;
 	p = real(const_express(&a));
-	if (isstring(c_token)) {
-	    /* either color name or X-styel rgb value "#rrggbb" */
-	    char col_buf[21];
-	    quote_str(col_buf, c_token++, 20);
-	    if (col_buf[0] == '#') {
+	col_str = try_to_get_string();
+	if (col_str) {
+	    /* either color name or X-style rgb value "#rrggbb" */
+	    if (col_str[0] == '#') {
 		/* X-style specifier */
 		int rr,gg,bb;
-		if (sscanf( col_buf, "#%2x%2x%2x", &rr, &gg, &bb ) != 3 )
+		if (sscanf( col_str, "#%2x%2x%2x", &rr, &gg, &bb ) != 3 )
 		    int_error( c_token-1,
 			       "Unknown color specifier. Use '#rrggbb'." );
 		r = (double)(rr)/255.;
@@ -2550,7 +2552,7 @@ set_palette_defined()
 		   so we'll do it manually */
 		const struct gen_table *tbl = pm3d_color_names_tbl;
 		while (tbl->key) {
-		    if (!strcmp(col_buf, tbl->key)) {
+		    if (!strcmp(col_str, tbl->key)) {
 			r = (double)((tbl->value >> 16 ) & 255) / 255.;
 			g = (double)((tbl->value >> 8 ) & 255) / 255.;
 			b = (double)(tbl->value & 255) / 255.;
@@ -2562,6 +2564,7 @@ set_palette_defined()
 		    int_error( c_token-1, "Unknown color name." );
 		named_colors = 1;
 	    }
+	    free(col_str);
 	} else {
 	    /* numerical rgb, hsv, xyz, ... values  [0,1] */
 	    r = real(const_express(&a));
@@ -3859,6 +3862,12 @@ set_tics()
 	    parse_colorspec(&lcolor, TC_FRAC);
 	    for (i = 0; i < AXIS_ARRAY_SIZE; ++i)
 		axis_array[i].ticdef.textcolor = lcolor;
+	} else if (equals(c_token,"front")) {
+	    grid_layer = 1;
+	    ++c_token;
+	} else if (equals(c_token,"back")) {
+	    grid_layer = 0;
+	    ++c_token;
 	} else if (!END_OF_COMMAND) {
 	    int_error(c_token, "extraneous arguments in set tics");
 	}
@@ -4057,6 +4066,22 @@ set_view()
     if (splot_map == TRUE) {
 	splot_map_deactivate();
 	splot_map = FALSE; /* default is no map */
+    }
+
+    if (almost_equals(c_token,"equal$_axes")) {
+	c_token++;
+	if (END_OF_COMMAND || equals(c_token,"xy")) {
+	    aspect_ratio_3D = 2;
+	    c_token++;
+	} else if (equals(c_token,"xyz")) {
+	    aspect_ratio_3D = 3;
+	    c_token++;
+	}
+	return;
+    } else if (almost_equals(c_token,"noequal$_axes")) {
+	aspect_ratio_3D = 0;
+	c_token++;
+	return;
     }
 
     local_vals[0] = surface_rot_x;
@@ -4309,6 +4334,12 @@ set_tic_prop(AXIS_INDEX axis)
 		    { character, character, character, 0., 0., 0.};
 		++c_token;
 		axis_array[axis].ticdef.offset = tics_nooffset;
+	    } else if (almost_equals(c_token,"range$limited")) {
+		axis_array[axis].ticdef.rangelimited = TRUE;
+		++c_token;
+	    } else if (almost_equals(c_token,"norange$limited")) {
+		axis_array[axis].ticdef.rangelimited = FALSE;
+		++c_token;
 	    } else if (almost_equals(c_token, "f$ont")) {
 		++c_token;
 		/* Make sure they've specified a font */
@@ -4647,8 +4678,10 @@ static void
 load_tics(AXIS_INDEX axis)
 {
     if (equals(c_token, "(")) {	/* set : TIC_USER */
-	c_token++;
-	load_tic_user(axis);
+	if (equals(++c_token, ")"))
+	    c_token++;
+	else
+	    load_tic_user(axis);
     } else {			/* series : TIC_SERIES */
 	load_tic_series(axis);
     }
@@ -4685,6 +4718,7 @@ load_tic_user(AXIS_INDEX axis)
 	if (ticlabel && axis_array[axis].is_timedata
 	    && (equals(c_token,",") || equals(c_token,")"))) {
 	    c_token = save_token;
+	    free(ticlabel);
 	    ticlabel = NULL;
 	}
 
@@ -4700,6 +4734,7 @@ load_tic_user(AXIS_INDEX axis)
 
 	/* add to list */
 	add_tic_user(axis, ticlabel, ticposition, ticlevel);
+	free(ticlabel);
 
 	/* expect "," or ")" here */
 	if (!END_OF_COMMAND && equals(c_token, ","))
@@ -4736,15 +4771,19 @@ prune_dataticks(struct ticmark *list)
 {
     struct ticmark a = {0.0,NULL,0,NULL};
     struct ticmark *b = &a;
+    struct ticmark *tmp;
 
     while (list) {
-	if (list->level < 0)
+	if (list->level < 0) {
 	    free(list->label);
-	else {
+	    tmp = list->next;
+	    free(list);
+	    list = tmp;
+	} else {
 	    b->next = list;
 	    b = list;
+	    list = list->next;
 	}
-	list = list->next;
     }
     b->next = NULL;
     return a.next;

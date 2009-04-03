@@ -1,5 +1,5 @@
 /*
- * $Id: axis.h,v 1.46.2.1 2008/08/05 23:41:06 sfeam Exp $
+ * $Id: axis.h,v 1.46.2.3 2008/10/30 22:26:23 sfeam Exp $
  *
  */
 
@@ -107,6 +107,7 @@ typedef struct ticdef {
 	   TBOOLEAN mix;		/* TRUE to use both the above */
     } def;
     struct position offset;
+    TBOOLEAN rangelimited;		/* Limit tics to data range */
 } t_ticdef;
 
 /* we want two auto modes for minitics - default where minitics are
@@ -229,7 +230,7 @@ typedef struct axis {
     lp_style_type zeroaxis;	/* drawing style for zeroaxis, if any */
 } AXIS;
 
-#define DEFAULT_AXIS_TICDEF {TIC_COMPUTED, NULL, {TC_DEFAULT, 0, 0}, {NULL, {0,0}, FALSE},  { character, character, character, 0., 0., 0. } }
+#define DEFAULT_AXIS_TICDEF {TIC_COMPUTED, NULL, {TC_DEFAULT, 0, 0}, {NULL, {0,0}, FALSE},  { character, character, character, 0., 0., 0. }, FALSE }
 # define DEFAULT_AXIS_ZEROAXIS {0, -3, 0, 1.0, 1.0, 0}
 
 #define DEFAULT_AXIS_STRUCT {						    \
@@ -621,8 +622,6 @@ do {						\
 /* (DFK) Watch for cancellation error near zero on axes labels */
 /* FIXME HBB 20000521: these seem not to be used much, anywhere... */
 #define CheckZero(x,tic) (fabs(x) < ((tic) * SIGNIF) ? 0.0 : (x))
-#define NearlyEqual(x,y,tic) (fabs((x)-(y)) < ((tic) * SIGNIF))
-
 
 
 /* ------------ functions exported by axis.c */

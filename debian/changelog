@@ -1,3 +1,13 @@
+gnuplot (4.2.5-1) unstable; urgency=low
+
+  * New upstream release.
+  * Add cm-super to Build-Depends. Closes: #522371.
+  * debian/patches
+    - Refresh 02_fix_info.diff.
+    - Remove 03_use_libedit.diff - Gone upstream.
+
+ -- Bradley Smith <bradsmith@debian.org>  Fri, 03 Apr 2009 14:13:39 +0100
+
 gnuplot (4.2.4-6) unstable; urgency=low
 
   * Fix parallel builds.

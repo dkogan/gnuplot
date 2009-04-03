@@ -3,7 +3,7 @@ Section: math
 Priority: optional
 Maintainer: Bradley Smith <bradsmith@debian.org>
 Standards-Version: 3.8.1
-Build-Depends: debhelper (>= 7), libpng12-dev, libx11-dev, libxt-dev, pkg-config, texinfo (>= 4.8), texlive-latex-base, texlive-latex-recommended, zlib1g-dev, libgd2-noxpm-dev, quilt, libwxgtk2.8-dev, libcairo2-dev, libpango1.0-dev, libedit-dev, autoconf, automake
+Build-Depends: debhelper (>= 7), libpng12-dev, libx11-dev, libxt-dev, pkg-config, texinfo (>= 4.8), texlive-latex-base, texlive-latex-recommended, zlib1g-dev, libgd2-noxpm-dev, quilt, libwxgtk2.8-dev, libcairo2-dev, libpango1.0-dev, libedit-dev, autoconf, automake, cm-super
 Homepage: http://gnuplot.sourceforge.net/
 Vcs-Git: http://git.brad-smith.co.uk/git/debian/pkg-gnuplot.git
 Vcs-Browser: http://git.brad-smith.co.uk/?p=debian/pkg-gnuplot.git

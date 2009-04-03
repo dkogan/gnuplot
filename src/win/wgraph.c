@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: wgraph.c,v 1.52.2.5 2008/09/09 16:42:50 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: wgraph.c,v 1.52.2.7 2009/03/23 23:03:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - win/wgraph.c */
@@ -909,13 +909,23 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 		if (line_width != 1)
 		    cur_penstruct.lopnWidth.x *= line_width;
 	
-		/* use ExtCreatePen instead of CreatePen/CreatePenIndirect to support
-		 * dashed lines if line_width > 1 */
+		/* use ExtCreatePen instead of CreatePen/CreatePenIndirect
+		 * to support dashed lines if line_width > 1 */
 		lb.lbStyle = BS_SOLID;
 		lb.lbColor = cur_penstruct.lopnColor;
+
+#if 0 /* shige work-around for Windows clipboard bug */
 		lpgw->hapen = ExtCreatePen(
 		        (line_width==1 ? PS_COSMETIC : PS_GEOMETRIC) | cur_penstruct.lopnStyle | PS_ENDCAP_FLAT | PS_JOIN_BEVEL, 
 			cur_penstruct.lopnWidth.x, &lb, 0, 0);
+#else
+		if (line_width==1)
+		  lpgw->hapen = CreatePenIndirect((LOGPEN FAR *) &cur_penstruct);
+		else
+		  lpgw->hapen = ExtCreatePen(
+		        PS_GEOMETRIC | cur_penstruct.lopnStyle | PS_ENDCAP_FLAT | PS_JOIN_BEVEL, 
+			cur_penstruct.lopnWidth.x, &lb, 0, 0);
+#endif
 		DeleteObject(SelectObject(hdc, lpgw->hapen));
 
 		SelectObject(hdc, lpgw->colorbrush[cur_pen]);
@@ -1963,9 +1973,13 @@ Wnd_exec_event(LPGW lpgw, LPARAM lparam, char type, int par1)
     int mx, my;
     static unsigned long lastTimestamp = 0;
     unsigned long thisTimestamp = GetMessageTime();
+    int par2 = thisTimestamp - lastTimestamp;
+
+    if (type == GE_keypress)
+	par2 = 0;
 
     GetMousePosViewport(lpgw, &mx, &my);
-    gp_exec_event(type, mx, my, par1, thisTimestamp - lastTimestamp, 0);
+    gp_exec_event(type, mx, my, par1, par2, 0);
     lastTimestamp = thisTimestamp;
 }
 

@@ -1,3 +1,368 @@
+2009-03-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (boundary):  Reserve room for user tic labels even if
+	the format for autoticks is "".
+
+	* src/set.c (load_tics) src/save.c (save_tics):  Do not save or restore
+	axis tic labels that were read from a data file.
+	Bug #2711994
+
+2009-03-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (boundary): Fix bug that caused the left/right margin
+	offsets to be applied twice, leading to too-wide margins.
+	Bug #2714997
+
+2009-03-26  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/history.c (write_history_list): Indexing istart from 1 otherwise
+	"history" command (without arguments) does not work.
+
+2009-03-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c:  Fix breakage if configured --disable-binary-data-file
+	(Lucas Hart)
+
+2009-03-24  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/pm3d.c (pm3d_plot): The quadrangles are only prepared but not
+	drawn by this routine in pm3d depthorder mode, thus set_color() should
+	not be called.
+
+2009-03-23  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/win/wgraph.c (Wnd_exec_event): Clean the 2nd parameter sent to
+	gp_exec_event after a keypress. This should fix the problem leading to
+	"protocol error" messages.
+
+2009-03-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/wxterminal/gp_cairo.c (gp_cairo_draw_text): Determine the vertical
+	placement of text based on the average value found when the font was
+	selected, rather than on the specific height of this text fragment.
+	Otherwise successive fragments with different height produce an uneven
+	baseline.  Bug #2661664
+
+	* src/axis.c (make_tics): Trap case where there were insufficient data
+	to determine axis range. E.g. "set view map; set pm3d; splot {0,1};".
+
+2009-03-15  Ethan A Merritt  <merritt@u.washington.edu>
+
+	Increment patchlevel, version strings, documentation dates, and NEWS in
+	preparation for release of version 4.2.5
+
+2009-03-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* demo/datastrings.dem demo/histograms.dem demo/histograms:
+	Switch demos to use the documented syntax "... title columnhead(2)"
+	rather than the deprecated "... title 2"
+
+2009-03-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c: Fix assignment of fill patterns to plot boxes and key
+	for columnstacked histograms.  Bug #2664732
+
+2009-03-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (find_maxl_keys do_plot): The first entry in a list of
+	labels is a placeholder for style information.  Do not reserve space for
+	this entry in the key of a columnstacked histogram plot.  Bug #2664723
+
+2009-03-02  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/hpgl.trm term/tgif.trm term/gd.trm:
+	Fix illegal memory access violations found by valgrind.
+
+2009-03-02  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* term/post.trm (PS_encode_image print_five_operand_image): Fix
+	related to the patch of post.trm from 2009-01-26: images drawn
+	"with rgbimage" must always be drawn as rgb colour images.
+	SF Patch #2613919: postscript outputs colour RGB as palette image
+
+2009-02-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/gd.trm (PNG_text_angle): Force angle to fall in the range
+	[-pi/2 : pi/2].  Reported to avoid problems in some versions of libgd.
+
+2009-02-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* docs/titlepag.tex docs/gnuplot.doc term/cgm.trm:
+	Remove duplicate keyword entries. Put version number on title page.
+
+2009-02-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* demo/all.dem demo/heatmaps.dem:  Add heat maps to demo set.
+
+2009-02-11  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* config/makefile.mgw: Use $(CC) instead of gcc to compile pgnuplot.
+
+2009-02-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/x11.trm (X11_options): Call term->init() rather than X11_init(),
+	since the options routine is shared by x11 and xlib drivers.
+
+2009-02-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/util.c (type_udv) src/eval.c (add_udv_by_name) src/fit.c
+	src/plot2d.c: Prevent strange behaviour due to uninitialized field
+	udv_type in a udv entry that has been created but not yet defined.
+	Bug #2556225
+
+	* src/graph3d.c (draw_3d_graphbox): Allow Z axis label in 3D plots
+	to be rotated.
+
+2009-02-02  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/mouse.c (lookup_key): Use exact match, otherwise F10, F11, or F12
+	hotkeys bind to F1.
+
+2009-01-28  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/breaders.c (edf_filetype_function): Fix for long headers.
+
+2009-01-27  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	*  src/pm3d.c (pm3d_plot): Fix for "set pm3d depthorder" ignoring
+	"set pm3d interpolate".
+
+2009-01-26  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* term/post.trm (PS_make_header PS_image): Since the beginning of pm3d,
+	the "/Color def" switched between gray and colour map. Choosing "false"
+	for "Color", the gray map was always selected regardless the use of a
+	custom palette. This led to ambiguities for custom colour palettes if
+	they contain grays only. Thus let postscript choose always colour
+	palette for interpolated colours ('set palette defined', 'set palette
+	file') and colour/gray according to "Color" otherwise ('set palette
+	gray', 'set palette rgb').
+	SF Patch #2516634: custom colormap using postscript term
+
+2009-01-22  Ethan Merritt  <merritt@u.washington.edu>
+
+	* term/svg.trm:  Back-port changes to svg terminal driver from 4.3 CVS.
+	This adds support for dashed lines, additional color modes,
+	more standard xml syntax for attributes, and a work-around for viewers
+	that fail to correctly inherit <text xml:space="preserve">
+
+2009-01-21  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/fit.c (fit_command):  Issue a warning if no fittable parameters
+	are found.
+	Bug #1964774
+
+2009-01-14  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/util.c: Replace the file util.c with the correct file for this
+	CVS branch.  Somehow the copy from the 4.3 branch got incorrectly
+	duplicated here.
+
+2009-01-14  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/gplt_x11.c (process_event): Change the status bar of a non-active
+	or persistent window only for almost2d plot.
+
+	* src/gplt_x11.c (exec_cmd): Add field almost2d to plot_struct and set
+	it according to sent ALMOST2D.
+
+	* term/x11.trm (X11_text): Send information about ALMOST2D.
+
+	* src/gadgets.h src/mouse.c: Move definition of macro ALMOST2D to
+	gadgets.h.
+
+2009-01-13  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* config/makefile.mgw: Option to run gdlib-config to determine libraries
+	for linking of gd. Fix link where to download hcw.
+
+2009-01-07  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/util3d.c (edge3d_intersect):  Fix long-standing bug in which
+	the z coordinate was clipping against xmax rather than zmax.
+	Bug #2472621
+
+2008-12-27  Allin Cottrell  <cottrell@wfu.edu>
+
+	* util.c (gprintf): Allow '#' format character.
+
+2008-12-26  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/set.c: More work on "set view equal {xy|xyz}'.
+
+2008-12-24  Mike Sutton  <mws115@usa.com>
+
+	* term/x11.trm src/gplt_x11.c: Added size and position options for X11.
+
+2008-12-17  Ethan Merritt  <merritt@u.washington.edu>
+
+	* term/x11.trm (parse_driver):  Do not overwrite environmental variable
+	GNUPLOT_DRIVER_DIR.
+
+2008-12-14  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/gadgets.c src/gadgets.h src/graph3d.c src/graph3d.h src/save.c
+	src/show.c src/unset.c docs/gnuplot.doc:
+	More work on "set view equal {xy|xyz}'.  It now works well for terminals
+	with isotropic coordinate systems, but unfortunately not for x11 or 
+	for windows.
+
+2008-12-13  Ethan Merritt  <merritt@u.washington.edu>
+
+	* term/emf.trm: Replace assert() statements with int_warn().
+	Fix handling of enhanced text for which the rotation angle is non-zero.
+	Bug #2424595
+
+2008-12-11  Bastian Maerkisch  <bmaerkisch@web.de>
+            Axel Thimm <thimm@users.sourceforge.net>
+
+	* configure.in NEWS src/command.c src/gp_hist.h src/graphics.c
+	src/history.c src/plot.c src/readline.c src/readline.h src/show.c
+	src/term_api.h src/term.c (term_initialise):
+
+	./configure --with-readline=bsd
+	Allow gnuplot to use the NetBSD editline library as an alternative to
+	gnu readline. This adaptation was originally coded by Bastian Maerkisch
+	and subsequently improved by Axel Thimm and by Tormod Volden.
+
+	The routine term_init() is renamed to term_initialise() to avoid
+	conflict with an identically named routine in libedit.
+
+2008-12-11  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/fit.c src/show.c src/variable.c term/pdf.trm:
+	Quiet some compiler warnings.
+
+2008-12-07  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (do_key_sample do_rectangle): Fill style EMPTY
+	should be no fill at all, rather than fill with background.
+	Bug #2345832
+	
+2008-12-04  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c:  Give an error message if the user requests any
+	unimplemented features documented for 'set datafile binary'.
+	Bug #2378535
+
+2008-11-28  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (boundary) src/graph3d.c (boundary3d)
+	docs/gnuplot.doc docs/gnuplot.texi:
+	`set {lrbt}margin at screen FRAC` should behave consistently for all
+	four plot borders.  Ignore the current value of `set origin`.
+	Bug #2345000
+
+2008-11-27  Ethan Merritt  <merritt@u.washington.edu>
+
+	* docs/gnuplot.doc src/gadgets.c src/gadgets.h src/graph3d.c src/save.c   
+	src/set.c src/show.c src/unset.c NEWS:
+	The docs say that 'set size ratio' is ignored in 3D;   make it so.
+	New option 'set view equal_axes' that forces x and y axes in a 3D plot
+	to use the same scale.  This is similar to 'set size square' in 2D.
+	Bug #2004205. Feature request #2006851.
+
+	* src/set.c (prune_dataticks): Fix typo causing ticlabel list corruption
+
+2008-11-19  Ethan Merritt  <merritt@u.washington.edu>
+
+	* term/gd.trm (PNG_options): If no information is available about what
+	default scalable font might be available we currently give up and fall
+	back to a built in non-scalable font.  Now we try font "arial" before
+	falling back.  Who knows, it might even be available.
+
+2008-11-13  Ethan Merritt  <merritt@u.washington.edu>
+
+	* docs/gnuplot.doc docs/gnuplot.texi: Update section on color selection
+	to include "lc variable".
+
+2008-11-06  Ethan Merritt  <merritt@u.washington.edu>
+
+	* term/x11.trm (X11_set_font ENHX11_put_text): Initialize enhanced text
+	processing to use the most recently requested font rather than the
+	default font.
+
+	* src/set.c (set_tics) src/show.c (show_tics) src/save.c (save_set_all)
+	docs/gnuplot.doc:  Allow tics to be set front/back without turning on
+	the whole grid.    Syntax:   set tics {front|back}
+
+2008-10-30  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c (gen_tics) src/axis.h: Use a more complete test for
+	round-off error when the increment between axis tics is close to the
+	precision of the floating point representation.
+	Bug #2209654
+
+2008-10-27  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (lp_parse) src/graphics.c (check_for_variable_color):
+	New colorspec:   'lc variable'
+	Read linestyle index from data column, look up corresponding color.
+	(2D plots only; Version 4.2 handling of variable color in 3D is messy).
+
+2008-10-12  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (eval_plots): Explicitly set default color of first
+	histogram to linestyle/linetype 0.
+	Bug #2155287
+
+2008-10-10  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/win/pgnuplot.c: Document option "-e".
+
+2008-10-10  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* src/win/wgraph.c (drawgraph):  Work around a Windows clipboard bug by
+	using ExtCreatePen() only for linewidth != 1.  The clipboard loses the
+	line color if created with ExtCreatePen(), but not CreatePenIndirect().
+	[sfeam] Is the clipboard problem still present for thicker lines?
+
+2008-10-08  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* src/plot.c (main):
+	Add a command line option -e to execute specified commands:
+	E.g.:     gnuplot   file1.in   -e "reset"   file2.in
+
+2008-10-06  Juergen Wieferink <wieferink@freenet.de>
+
+	* src/set.c (set_palette_defined): Allow string variables and
+	expressions in "set palette defined". SF #2149065
+
+2008-10-01  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (store_label): Only store color value for each label
+	in a "with labels" plot if "rgb variable" has been requested.
+	Bugfix
+
+2008-09-29  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/color.h: Add field c into structure gpdPoint.
+
+	* src/pm3d.c (pm3d_plot): Support "pm3d interpolate" for surfaces
+	given by both z and colour coordinates.
+	SF Bug #2127845
+
+2008-09-25  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/set.c (set_label load_tic_users prune_dataticks)
+	src/internal.c (f_strftime):  Fix memory leaks found by valgrind.
+	Memcheck now gives all.dem a clean bill of health.
+
+2008-09-23  Ethan Merritt  <merritt@u.washington.edu>
+
+	* src/axis.h src/axis.c(gen_tics) src/set.c(set_tics) src/show.c
+	src/graphics.c (plot_border) demo/random.dem:
+	Add an axis tic attribute "rangelimited".  If set, the border and
+	tics for this axis will be drawn only for the range of the data,
+	rather than for the full range of the axis.
+
+2008-09-22  Ethan Merritt  <merritt@u.washington.edu>
+
+	Version 4.2.4 release
+
+	* configure.in PATCHLEVEL docs/titlepag.tex src/version.c:
+	Update for 4.2.4 release
+
 2008-09-22  Ethan Merritt  <merritt@u.washington.edu>
 
 	* src/axis.c (gen_tics): Add a sanity check for the number of auto-

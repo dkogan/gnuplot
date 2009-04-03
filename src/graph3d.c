@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.157.2.20 2008/09/10 16:01:04 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.157.2.24 2009/02/06 04:53:33 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graph3d.c */
@@ -109,6 +109,9 @@ int iso_samples_1 = ISO_SAMPLES;
 int iso_samples_2 = ISO_SAMPLES;
 
 double xscale3d, yscale3d, zscale3d;
+double xcenter3d = 0.0;
+double ycenter3d = 0.0;
+double zcenter3d = 0.0;
 
 typedef enum { ALLGRID, FRONTGRID, BACKGRID, BORDERONLY } WHICHGRID;
 
@@ -417,17 +420,31 @@ boundary3d(struct surface_points *plots, int count)
 	&& key->margin == GPKEY_RMARGIN) {
 	plot_bounds.xright -= key_col_wth * (key_cols - 1) + key_col_wth - 2 * t->h_char;
     }
-    plot_bounds.xleft += t->xmax * xoffset;
-    plot_bounds.xright += t->xmax * xoffset;
-    plot_bounds.ytop += t->ymax * yoffset;
-    plot_bounds.ybot += t->ymax * yoffset;
+
+    if (!splot_map && aspect_ratio_3D > 0) {
+	int height = (plot_bounds.ytop - plot_bounds.ybot);
+	int width  = (plot_bounds.xright - plot_bounds.xleft);
+	if (height > width) {
+	    plot_bounds.ybot += (height-width)/2;
+	    plot_bounds.ytop -= (height-width)/2;
+	} else {
+	    plot_bounds.xleft += (width-height)/2;
+	    plot_bounds.xright -= (width-height)/2;
+	}
+    }
+
+    if (lmargin.scalex != screen)
+	plot_bounds.xleft += t->xmax * xoffset;
+    if (rmargin.scalex != screen)
+	plot_bounds.xright += t->xmax * xoffset;
+    if (tmargin.scalex != screen)
+	plot_bounds.ytop += t->ymax * yoffset;
+    if (bmargin.scalex != screen)
+	plot_bounds.ybot += t->ymax * yoffset;
     xmiddle = (plot_bounds.xright + plot_bounds.xleft) / 2;
     ymiddle = (plot_bounds.ytop + plot_bounds.ybot) / 2;
 
     
-    /* HBB 980308: sigh... another 16bit glitch: on term's with more than
-     * 8000 pixels in either direction, these calculations produce garbage
-     * results if done in (16bit) ints */
     /* HBB: Magic number alert! */
     xscaler = ((plot_bounds.xright - plot_bounds.xleft) * 4L) / 7L;
     yscaler = ((plot_bounds.ytop - plot_bounds.ybot) * 4L) / 7L;
@@ -439,12 +456,10 @@ boundary3d(struct surface_points *plots, int count)
 	xscaler = (plot_bounds.xright - plot_bounds.xleft) / surface_scale;
 
     /* HBB 20011011: 'set size {square|ratio}' for splots */
-    if (aspect_ratio != 0.0) {
+    if (splot_map && aspect_ratio != 0.0) {
 	double current_aspect_ratio;
 
-	if (aspect_ratio < 0
-	    && (X_AXIS.max - X_AXIS.min) != 0.0
-	    ) {
+	if (aspect_ratio < 0 && (X_AXIS.max - X_AXIS.min) != 0.0) {
 	    current_aspect_ratio = - aspect_ratio
 		* fabs((Y_AXIS.max - Y_AXIS.min) /
 		       (X_AXIS.max - X_AXIS.min));
@@ -652,6 +667,23 @@ do_3dplot(
     yscale3d = 2.0 / (Y_AXIS.max - Y_AXIS.min);
     xscale3d = 2.0 / (X_AXIS.max - X_AXIS.min);
 
+    /* Allow 'set view equal xy' to shrink rendered length of X and/or Y axis. */
+    /* FIXME EAM - This only works correctly if the coordinate system of the   */
+    /* terminal itself is isotropic.  E.g. x11 does not work because the x and */
+    /* coordinates always run from 0-4095 regarless of the shape of the window */
+    xcenter3d = ycenter3d = zcenter3d = 0.0;
+    if (aspect_ratio_3D >= 2) {
+	if (yscale3d > xscale3d) {
+	    ycenter3d = 0.5*yscale3d/xscale3d - 1.0;
+	    yscale3d = xscale3d;
+	} else if (xscale3d > yscale3d) {
+	    xcenter3d = 0.5*xscale3d/yscale3d - 1.0;
+	    xscale3d = yscale3d;
+	}
+	if (aspect_ratio_3D >= 3)
+	    zscale3d = xscale3d;
+    }
+
     /* Initialize palette */
     if (!quick) {
 	can_pm3d = is_plot_with_palette() && !make_palette() && term->set_color;
@@ -815,6 +847,7 @@ do_3dplot(
 	    if (ptitl_cnt > 0) {
 		/* maximise no cols, limited by label-length */
 		key_cols = (int) (plot_bounds.xright - plot_bounds.xleft) / key_col_wth;
+		if (key_cols < 1) key_cols = 1;
 		key_rows = (int) (ptitl_cnt + key_cols - 1) / key_cols;
 		/* now calculate actual no cols depending on no rows */
 		key_cols = (int) (ptitl_cnt + key_rows - 1) / key_rows;
@@ -2643,9 +2676,14 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 
 	ignore_enhanced(Z_AXIS.label.noenhanced);
 	apply_pm3dcolor(&(Z_AXIS.label.textcolor),t);
-	write_multiline(x, y, Z_AXIS.label.text,
-			h_just, v_just, 0,
-			Z_AXIS.label.font);
+	if (Z_AXIS.label.rotate != 0 && (term->text_angle)(Z_AXIS.label.rotate)) {
+	    write_multiline(x, y, Z_AXIS.label.text,
+			    h_just, v_just, Z_AXIS.label.rotate, Z_AXIS.label.font);
+	    (term->text_angle)(0);
+	} else {
+	    write_multiline(x, y, Z_AXIS.label.text,
+			    h_just, v_just, 0, Z_AXIS.label.font);
+	}
 	reset_textcolor(&(Z_AXIS.label.textcolor),t);
 	ignore_enhanced(FALSE);
     }
