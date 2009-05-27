@@ -1,3 +1,16 @@
+gnuplot (4.2.5-2) unstable; urgency=low
+
+  * debian/patches:
+    - Add 05_default_gdfont.diff - Set the default font to
+      LiberationSans-Regular instead of Arial for PNG and JPEG output in
+      the GD terminal driver. Thanks to Fabian Greffrath
+      <fabian@debian-unofficial.org> Closes: #524962.
+  * debian/control:
+    - Add ttf-liberation to Recommends.
+    - Remove cm-super from Build-Depends. Closes: #524493.
+
+ -- Bradley Smith <bradsmith@debian.org>  Wed, 27 May 2009 16:59:12 +0100
+
 gnuplot (4.2.5-1) unstable; urgency=low
 
   * New upstream release.
