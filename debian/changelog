@@ -1,3 +1,10 @@
+gnuplot (4.2.5-3) unstable; urgency=low
+
+  * Update copyright file information. Closes: #544863.
+  * Update Standards-Version to 3.8.3.
+
+ -- Bradley Smith <bradsmith@debian.org>  Thu, 03 Sep 2009 18:21:18 +0100
+
 gnuplot (4.2.5-2) unstable; urgency=low
 
   * debian/patches:
