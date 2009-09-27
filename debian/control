@@ -10,7 +10,7 @@ Vcs-Browser: http://git.brad-smith.co.uk/?p=debian/pkg-gnuplot.git
 
 Package: gnuplot
 Architecture: all
-Depends: gnuplot-nox (>= ${source:Version}), gnuplot-x11 (>= ${source:Version})
+Depends: gnuplot-nox (>= ${source:Version}), gnuplot-x11 (>= ${source:Version}), ${misc:Depends}
 Suggests: gnuplot-doc (>= ${source:Version})
 Description: A command-line driven interactive plotting program
  Gnuplot is a portable command-line driven interactive data and function

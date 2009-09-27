@@ -1,3 +1,113 @@
+2009-09-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	Release 4.2.6
+
+2009-09-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c (set_tic_prop):  When xtics (e.g.) were unset, then a new
+	command 'set xtics ...' could lose track of the tic properties being set.
+	Bug #2848433
+
+2009-08-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in: Remove the EXPERIMENTAL flag from the x11 terminal
+	binary polygon option.
+
+	* share/LaTeX/Makefile.am:  Comment out an uninstall command because
+	it breaks the build script.
+
+	* NEWS PATCHLEVEL configure.in docs/titlepag.tex src/version.c:
+	Update in preparation for release 4.2.6
+
+2009-08-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in: Remove the EXPERIMENTAL flag from the wxt terminal
+
+2009-08-13  anonymous 
+
+	* term/tek.trm: Add support for xterm tektronix emulation
+
+2009-07-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (store2d_point): If the plot uses palette colors taken
+	from the Z coordinate, then also use Z to auto-scale cbrange.
+	Bug #2133407
+
+2009-07-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/save.c: The "set view" command was incorrectly saved twice.
+	Bug #2822433
+
+2009-07-04  Thomas Sefzick <thse@users.sourceforge.net>
+
+	* graphics.c (plot_boxes):  Minimal fix for off-by-one pixel bug in
+	width of boxes with palette or rgb color.  Complete fix is in 4.4.
+	Bug #2804784
+
+2009-07-01  Mojca Miklavec  <mojca.miklavec.lists@gmail.com>
+
+	* term/aquaterm.c: The "size xx,yy" option should have a comma between
+	xx and yy for consistency with other terminals.
+
+2009-06-18  Ethan A Merritt <merritt@u.washington.edu>
+
+	* src/pm3d.c (set_plot_with_palette is_plot_with_colorbox):
+	Fix an accounting error that caused unnecessary loading of a color
+	palette into plots that do not need one.
+	Backport of V4.4 patch from 2009-01-02
+
+2009-06-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/mouse.c:  The following test script triggered multiple problems.
+	                "set multi; set x2data time; set x2tics; unset multi;"
+	- initialize mouse_x, mouse_y to -1;  test before using
+	- initialize mouse values with VERYLARGE (replace magic number 1e38)
+	- xDateTimeFormat: do not attempt to convert VERYLARGE to a date
+	
+	* time.c (ggmtime): Counting back from 1.e38 by one year at a time takes
+	forever. Limit the range of acceptable time values to +/- 10^12 seconds,
+	which gives a range of 33688 years forward or back.
+	* axis.c (gen_tics): Skip calculation of 0-length minor ticks
+
+	Bugfix.
+
+2009-05-30  Thomas Sefzick <thse@users.sourceforge.net>
+
+	* src/graph3d.c (do_3dplot):  Adjust position of 3D plot with
+	'set view equal xyz' so that the center of rotation is at the center
+	of the screen.
+	Bugfix #2797226
+
+2009-05-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/x11.trm: Silence an escaped debug fprintf.  Bugfix.
+
+2009-05-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/pslatex.trm: Broken format specifier.
+	Bug #2750114
+
+2009-05-05  Peter Gasparovic  (buteo@users.sourceforge.net)
+
+	* term/PostScript/cp1250.ps:  Fix code points for Lcaron, lcaron.
+	Bug #2785002
+
+2009-05-05  Thomas Sefzick (thse@users.sourceforge.net)
+
+	* term/pslatex.trm: 'set epslatex ... blacktext' was producing white
+	text for tics labels, axis labels, key labels, but black title text.
+	Bug #2750114
+
+2009-04-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gplt_x11.c:  Filled boxes and filled polygons have different
+	behaviour when the fillstyle is FS_DEFAULT, but the x11 driver was
+	not making this distinction. (caused by patch of 2008-06-22).
+
+2009-03-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	Release 4.2.5
+
 2009-03-28  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* src/graphics.c (boundary):  Reserve room for user tic labels even if

@@ -1,3 +1,11 @@
+gnuplot (4.2.6-1) unstable; urgency=low
+
+  * New upstream release.
+  * Remove 02_fix_info.diff - Gone upstream.
+  * Add missing misc depends.
+
+ -- Bradley Smith <bradsmith@debian.org>  Sun, 27 Sep 2009 14:30:25 +0100
+
 gnuplot (4.2.5-3) unstable; urgency=low
 
   * Update copyright file information. Closes: #544863.
