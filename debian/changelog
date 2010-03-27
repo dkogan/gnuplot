@@ -1,3 +1,9 @@
+gnuplot (4.4.0-1) unstable; urgency=low
+
+  * New usptream release. Closes: #575460, #574099, #519090, #523856.
+
+ -- Bradley Smith <bradsmith@debian.org>  Sat, 27 Mar 2010 11:00:15 +0000
+
 gnuplot (4.2.6-1) unstable; urgency=low
 
   * New upstream release.
