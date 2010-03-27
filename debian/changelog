@@ -4,8 +4,9 @@ gnuplot (4.4.0-1) unstable; urgency=low
   * debian/patches:
     + 01_check_x11-driver.diff - Remove, not needed.
     + Refresh others.
+  * Fixup docs being installed.
 
- -- Bradley Smith <bradsmith@debian.org>  Sat, 27 Mar 2010 11:09:57 +0000
+ -- Bradley Smith <bradsmith@debian.org>  Sat, 27 Mar 2010 11:13:23 +0000
 
 gnuplot (4.2.6-1) unstable; urgency=low
 
