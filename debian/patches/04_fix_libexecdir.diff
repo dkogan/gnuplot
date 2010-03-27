@@ -1,7 +1,7 @@
-Index: gnuplot/src/Makefile.am
+Index: gnuplot-4.4.0/src/Makefile.am
 ===================================================================
---- gnuplot.orig/src/Makefile.am	2008-10-16 21:59:42.000000000 +0100
-+++ gnuplot/src/Makefile.am	2008-10-16 22:43:16.000000000 +0100
+--- gnuplot-4.4.0.orig/src/Makefile.am	2010-03-06 02:09:39.000000000 +0000
++++ gnuplot-4.4.0/src/Makefile.am	2010-03-27 11:08:23.000000000 +0000
 @@ -2,7 +2,7 @@
  AUTOMAKE_OPTIONS = ansi2knr foreign 1.2h
  
@@ -9,5 +9,5 @@ Index: gnuplot/src/Makefile.am
 -pkglibexecdir = $(libexecdir)/@PACKAGE@/@VERSION_MAJOR@
 +pkglibexecdir = $(libexecdir)
  
- # Where to send bug reports and comments
- EMAIL = http://sourceforge.net/projects/gnuplot
+ # Where to send email about bugs and comments (locally)
+ EMAIL = gnuplot-bugs@lists.sourceforge.net
