@@ -1,0 +1,13 @@
+Index: gnuplot-4.4.0/man/gnuplot.1
+===================================================================
+--- gnuplot-4.4.0.orig/man/gnuplot.1	2010-03-27 11:24:06.000000000 +0000
++++ gnuplot-4.4.0/man/gnuplot.1	2010-03-27 11:24:13.000000000 +0000
+@@ -237,7 +237,7 @@
+ .B GNUTERM
+ The name of the terminal type to be used.  This overrides any terminal
+ type sensed by gnuplot on start-up, but is itself overridden by the
+-.gnuplot (or equivalent) start-up file (see \fBFILES\fP and "help
++\&.gnuplot (or equivalent) start-up file (see \fBFILES\fP and "help
+ start-up") and, of course, by later explicit changes.
+ .TP
+ .B GNUHELP 
