@@ -5,8 +5,10 @@ gnuplot (4.4.0-1) unstable; urgency=low
     + 01_check_x11-driver.diff - Remove, not needed.
     + Refresh others.
   * Fixup docs being installed.
+  * Update Standards-Version to 3.8.4.
+  * Move to 3.0 quilt source format.
 
- -- Bradley Smith <bradsmith@debian.org>  Sat, 27 Mar 2010 11:13:23 +0000
+ -- Bradley Smith <bradsmith@debian.org>  Sat, 27 Mar 2010 11:18:22 +0000
 
 gnuplot (4.2.6-1) unstable; urgency=low
 
