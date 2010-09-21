@@ -17,7 +17,7 @@ gnuplot (4.4.0-1) unstable; urgency=low
   * Update Standards-Version to 3.8.4.
   * Move to 3.0 quilt source format.
   * Add README.source.
-  * 
+  *
 
  -- Bradley Smith <bradsmith@debian.org>  Sat, 27 Mar 2010 11:24:40 +0000
 
