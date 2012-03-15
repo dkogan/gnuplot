@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: color.c,v 1.70.2.5 2007/08/12 18:01:44 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: color.c,v 1.70.2.8 2008/03/08 17:51:42 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - color.c */
@@ -54,7 +54,7 @@ int supply_extended_color_specs = 0;
 #endif
 
 /* Corners of the colour box. */
-static unsigned int cb_x_from, cb_x_to, cb_y_from, cb_y_to;
+static int cb_x_from, cb_x_to, cb_y_from, cb_y_to;
 
 /* Internal prototype declarations: */
 
@@ -604,7 +604,7 @@ draw_color_smooth_box(int plot_mode)
 	/* now make boundary around the colour box */
 	if (color_box.border_lt_tag >= 0) {
 	    /* user specified line type */
-	    struct lp_style_type lp;
+	    struct lp_style_type lp = border_lp;
 	    lp_use_properties(&lp, color_box.border_lt_tag, 1);
 	    term_apply_lp_properties(&lp);
 	} else {
@@ -665,9 +665,9 @@ draw_color_smooth_box(int plot_mode)
 	    y += (cb_y_from + cb_y_to) / 2;
 	    if (x<0) x = 0;
 	    if (y<0) y = 0;
-	    if ((*term->text_angle)(TEXT_VERTICAL)) {
+	    if ((*term->text_angle)(CB_AXIS.label.rotate)) {
 		write_multiline(x, y, CB_AXIS.label.text, CENTRE, JUST_TOP,
-				TEXT_VERTICAL, CB_AXIS.label.font);
+				CB_AXIS.label.rotate, CB_AXIS.label.font);
 		(*term->text_angle)(0);
 	    } else {
 		write_multiline(x, y, CB_AXIS.label.text, LEFT, JUST_TOP, 0, CB_AXIS.label.font);

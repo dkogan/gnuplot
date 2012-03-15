@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graphics.c,v 1.194.2.14 2007/08/29 05:00:46 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graphics.c,v 1.194.2.23 2008/03/04 18:12:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graphics.c */
@@ -934,20 +934,31 @@ boundary(struct curve_points *plots, int count)
     if (tmargin < 0
 	&& axis_array[SECOND_X_AXIS].ticmode & TICS_ON_BORDER
 	&& vertical_x2tics) {
+	double projection = sin((double)axis_array[SECOND_X_AXIS].tic_rotate*DEG2RAD);
 	widest_tic_strlen = 0;		/* reset the global variable ... */
 	gen_tics(SECOND_X_AXIS, /* 0, */ widest_tic_callback);
 	plot_bounds.ytop += x2tic_textheight;
 	/* Now compute a new one and use that instead: */
-	x2tic_textheight = (int) (t->h_char * (widest_tic_strlen));
+	if (projection > 0.0)
+	    x2tic_textheight = (int) (t->h_char * (widest_tic_strlen)) * projection;
+	else
+	    x2tic_textheight = t->v_char;
 	plot_bounds.ytop -= x2tic_textheight;
     }
     if (bmargin < 0
 	&& axis_array[FIRST_X_AXIS].ticmode & TICS_ON_BORDER
 	&& vertical_xtics) {
+	double projection;
+	if (axis_array[FIRST_X_AXIS].tic_rotate == 90)
+	    projection = 1.0;
+	else
+	    projection = -sin((double)axis_array[FIRST_X_AXIS].tic_rotate*DEG2RAD);
 	widest_tic_strlen = 0;		/* reset the global variable ... */
 	gen_tics(FIRST_X_AXIS, /* 0, */ widest_tic_callback);
 	plot_bounds.ybot -= xtic_textheight;
-	xtic_textheight = (int) (t->h_char * widest_tic_strlen);
+	if (projection > 0.0)
+	    xtic_textheight = (int) (t->h_char * widest_tic_strlen) * projection
+			    + t->v_char;
 	plot_bounds.ybot += xtic_textheight;
     }
 
@@ -1137,7 +1148,7 @@ boundary(struct curve_points *plots, int count)
 	}
 
     } else {
-	unsigned int x, y;
+	int x, y;
 
 	map_position(&key->user_pos, &x, &y, "key");
 #if 0
@@ -1166,6 +1177,9 @@ boundary(struct curve_points *plots, int count)
 	keybox.yb = keybox.yt - key_h;
     }
     /*}}} */
+
+    /* Set default clipping to the plot boundary */
+    clip_area = &plot_bounds;
 
 }
 
@@ -1205,7 +1219,7 @@ apply_head_properties(struct arrow_style_type *arrow_properties)
     curr_arrow_headlength = 0;
     if (arrow_properties->head_length > 0) {
 	/* set head length+angle for term->arrow */
-	unsigned int itmp, x1, x2;
+	int itmp, x1, x2;
 	struct position headsize = {0,0,0,0.,0.,0.};
 
 	headsize.x = arrow_properties->head_length;
@@ -1314,7 +1328,7 @@ static void
 place_labels(struct text_label *listhead, int layer, TBOOLEAN clip)
 {
     struct text_label *this_label;
-    unsigned int x, y;
+    int x, y;
 
     if (term->pointsize)
 	(*term->pointsize)(pointsize);
@@ -1357,11 +1371,12 @@ place_rectangles(struct object *listhead, int layer, int dimensions, BoundingBox
     t_object *this_object;
     t_rectangle *this_rect;
     double x1, y1, x2, y2;
-    unsigned int x, y, w, h;
+    int x, y;
+    unsigned int w, h;
     int style;
 
     for (this_object = listhead; this_object != NULL; this_object = this_object->next) {
-	struct lp_style_type *lpstyle;
+	struct lp_style_type lpstyle;
 	struct fill_style_type *fillstyle;
 	TBOOLEAN clip_x = FALSE;
 	TBOOLEAN clip_y = FALSE;
@@ -1448,19 +1463,21 @@ place_rectangles(struct object *listhead, int layer, int dimensions, BoundingBox
 	    continue;
 
 	if (this_object->lp_properties.l_type == LT_DEFAULT)
-	    lpstyle = &default_rectangle.lp_properties;
+	    lpstyle = default_rectangle.lp_properties;
 	else
-	    lpstyle = &this_object->lp_properties;
+	    lpstyle = this_object->lp_properties;
+	if (lpstyle.l_width > 0)
+	    lpstyle.l_width = this_object->lp_properties.l_width;
 	
 	if (this_object->fillstyle.fillstyle == FS_DEFAULT)
 	    fillstyle = &default_rectangle.fillstyle;
 	else
 	    fillstyle = &this_object->fillstyle;
-	
-	term_apply_lp_properties(lpstyle);
+
+	term_apply_lp_properties(&lpstyle);
 	style = style_from_fill(fillstyle);
 
-	if (lpstyle->use_palette && term->filled_polygon) {
+	if (lpstyle.use_palette && term->filled_polygon) {
 	    (*term->filled_polygon)(4, fill_corners(style,x,y,w,h));
 	} else if (term->fillbox)
 	    (*term->fillbox) (style, x, y, w, h);
@@ -1537,12 +1554,12 @@ do_plot(struct curve_points *plots, int pcount)
      */
     boundary(plots, pcount);
 
-    /* Give a chance for rectangles to be behind everything else*/
+    /* Give a chance for rectangles to be behind everything else */
     place_rectangles( first_object, -1, 2, NULL );
 
-    /* Add colorbox if appropriate. */
-    if (is_plot_with_palette() && !make_palette() && is_plot_with_colorbox() && term->set_color)
-	draw_color_smooth_box(MODE_PLOT);
+    /* Make palette */
+    if (is_plot_with_palette())
+	make_palette();
 
     screen_ok = FALSE;
 
@@ -1716,6 +1733,11 @@ do_plot(struct curve_points *plots, int pcount)
 	}
 	free(str);
     }
+
+    /* Add back colorbox if appropriate */
+    if (is_plot_with_palette() && is_plot_with_colorbox() && term->set_color
+	&& color_box.layer == LAYER_BACK)
+	    draw_color_smooth_box(MODE_PLOT);
 
     /* And rectangles */
     place_rectangles( first_object, 0, 2, clip_area );
@@ -1984,6 +2006,11 @@ do_plot(struct curve_points *plots, int pcount)
     if (draw_border && border_layer == 1)
 	plot_border();
 
+    /* Add front colorbox if appropriate */
+    if (is_plot_with_palette() && is_plot_with_colorbox() && term->set_color
+	&& color_box.layer == LAYER_FRONT)
+	    draw_color_smooth_box(MODE_PLOT);
+
     /* And rectangles */
     place_rectangles( first_object, 1, 2, clip_area );
 
@@ -1997,6 +2024,10 @@ do_plot(struct curve_points *plots, int pcount)
 
     /* PLACE ARROWS */
     place_arrows( 1 );
+
+    /* Release the palette if we have used one (PostScript only?) */
+    if (is_plot_with_palette() && term->previous_palette)
+	term->previous_palette();
 
     term_end_plot();
 }
@@ -4490,7 +4521,7 @@ filledcurves_opts *filledcurves_options)
 	    dx1 = filledcurves_options->at - points[i-1].x;
 	    dx2 = filledcurves_options->at - points[i].x;
 	    dy1 = points[i].y - points[i-1].y;
-	    if (dx1*dx2 <= 0) {
+	    if (dx1*dx2 < 0) {
 		*ex = filledcurves_options->at;
 		*ey = points[i-1].y + dy1 * dx1 / (dx1-dx2);
 		return TRUE;
@@ -4501,7 +4532,7 @@ filledcurves_opts *filledcurves_options)
 	    dy1 = filledcurves_options->at - points[i-1].y;
 	    dy2 = filledcurves_options->at - points[i].y;
 	    dx1 = points[i].x - points[i-1].x;
-	    if (dy1*dy2 <= 0) {
+	    if (dy1*dy2 < 0) {
 		*ex = points[i-1].x + dx1 * dy1 / (dy1-dy2);
 		*ey = filledcurves_options->at;
 		return TRUE;
@@ -4724,7 +4755,7 @@ label_width(const char *str, int *lines)
 void
 map_position(
     struct position *pos,
-    unsigned int *x, unsigned int *y,
+    int *x, int *y,
     const char *what)
 {
     double xx, yy;
@@ -5563,7 +5594,7 @@ plot_image_or_update_axes(void *plot, t_imagecolor pixel_planes, TBOOLEAN projec
 	    return;
 	}
 
-    } else {
+    } else {	/* !rectangular_image */
 
 	if (pixel_planes != IC_RGB) {
 
@@ -5625,16 +5656,13 @@ plot_image_or_update_axes(void *plot, t_imagecolor pixel_planes, TBOOLEAN projec
 		    p_corners[3].y = y - delta_pixel[1].y;
 		    p_corners[3].z = z - delta_pixel[1].z;
 
-		    /* Check if one of the corners is viewable */
+		    /* Check if any of the corners are viewable */
 		    for (k=0; k < 4; k++) {
 			corner_in_range[k] =
-			    inrange(p_corners[k].x,
-			            view_port_x[0], view_port_x[1])
-			    && inrange(p_corners[k].y,
-			               view_port_y[0], view_port_y[1])
-			    && (!project_points
-			        || inrange(p_corners[k].z,
-				           view_port_z[0], view_port_z[1]));
+			    inrange(p_corners[k].x, view_port_x[0], view_port_x[1])
+			    && inrange(p_corners[k].y, view_port_y[0], view_port_y[1])
+			    && (!project_points || splot_map ||
+			        inrange(p_corners[k].z, view_port_z[0], view_port_z[1]));
 			pixel_in_view = pixel_in_view || corner_in_range[k];
 		    }
 

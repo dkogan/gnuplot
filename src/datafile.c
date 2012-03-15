@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.110.2.8 2007/08/26 04:58:09 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.110.2.14 2008/03/08 17:48:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -665,13 +665,14 @@ df_tokenise(char *s)
 
     while (*s) {
 	/* check store - double max cols or add 20, whichever is greater */
-	if (df_max_cols <= df_no_cols)
-	    df_column
-		= gp_realloc(df_column,
-			     (df_max_cols += (df_max_cols < 20
-				      ? 20 : df_max_cols))
-			     * sizeof(df_column_struct),
-			     "datafile column");
+	if (df_max_cols <= df_no_cols) {
+	    int new_max = df_max_cols + (df_max_cols < 20 ? 20 : df_max_cols);
+	    df_column = gp_realloc(df_column,
+				new_max * sizeof(df_column_struct),
+				"datafile column");
+	    while (df_max_cols < new_max)
+		df_column[df_max_cols++].datum = 0;
+	}
 
 	/* have always skipped spaces at this point */
 	df_column[df_no_cols].position = s;
@@ -1911,7 +1912,7 @@ df_readascii(double v[], int max)
 			evaluate_at(use_spec[output].at, &a);
 			evaluate_inside_using = FALSE;
 			if (a.type == STRING) {
-			    add_tic_user(axis,a.v.string_val,xpos,0);
+			    add_tic_user(axis,a.v.string_val, xpos, -1);
 			    gpfree_string(&a);
 			} else
 			    fprintf(stderr,"Tic label does not evaluate as string!\n");
@@ -1919,7 +1920,7 @@ df_readascii(double v[], int max)
 #endif
 		    {
 			df_parse_string_field(temp_string,df_tokens[output]);
-			add_tic_user(axis,temp_string,xpos,0);
+			add_tic_user(axis,temp_string, xpos, -1);
 		    }
 #ifdef EAM_HISTOGRAMS
 		} else if (use_spec[output].expected_type == CT_KEYLABEL) {
@@ -2667,7 +2668,7 @@ df_set_key_title(struct curve_points *plot)
 	/* way, so we assume that it is supposed to be an xtic label.      */
 	/* FIXME EAM - This style should default to notitle!               */
 	double xpos = plot->histogram_sequence + plot->histogram->start;
-	add_tic_user(FIRST_X_AXIS,df_key_title,xpos,0);
+	add_tic_user(FIRST_X_AXIS, df_key_title, xpos, -1);
 	df_key_title[0] = '\0';
 	return;
     }
@@ -3046,7 +3047,7 @@ adjust_binary_use_spec()
     df_matrix_binary = (df_matrix_file && df_binary_file);
 
     c_token_copy = c_token;
-    for (c_token = 0; !END_OF_COMMAND; c_token++)
+    for (; !END_OF_COMMAND; c_token++)
 	if (almost_equals(c_token, "w$ith"))
 	    break;
     if (!END_OF_COMMAND)
@@ -4877,7 +4878,7 @@ df_readbinary(double v[], int max)
 		}
 	    }
 	} else { /* Not matrix file, general binray. */
-	    df_datum = point_count;
+	    df_datum = point_count + 1;
 	    if (i != df_no_bin_cols) {
 		if (feof(data_fp)) {
 		    if (i != 0) 

@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: svg.trm,v 1.63.2.9 2007/05/24 04:51:59 sfeam Exp $
+ * $Id: svg.trm,v 1.63.2.11 2007/12/14 05:25:38 sfeam Exp $
  */
 
 /*------------------------------------------------------------------------------------------------------------------------------------
@@ -258,7 +258,7 @@ static void
 SVG_SetFont (const char *name, double size)
 {
     if (name && name != SVG_fontNameCur)
-	strcpy (SVG_fontNameCur, name);
+	strncpy (SVG_fontNameCur, name, sizeof(SVG_fontNameCur)-1);
     SVG_fontSizeCur = size;
 
 /* since we cannot interrogate SVG about text properties and according
@@ -624,8 +624,8 @@ SVG_init ()
 	case S_ENC_CP850:	svg_encoding = "encoding=\"ibm-850\" "; break;
 	case S_ENC_CP852:	svg_encoding = "encoding=\"ibm-852\" "; break;
 	case S_ENC_CP1250:	svg_encoding = "encoding=\"windows-1250\" "; break;
-	case S_ENC_KOI8_R:	svg_encoding = "encoding=\"koi8_r\" "; break;
-	case S_ENC_KOI8_U:	svg_encoding = "encoding=\"koi8_u\" "; break;
+	case S_ENC_KOI8_R:	svg_encoding = "encoding=\"koi8-r\" "; break;
+	case S_ENC_KOI8_U:	svg_encoding = "encoding=\"koi8-u\" "; break;
 	case S_ENC_CP437:	svg_encoding = ""; break;
 	default: /* UTF-8 */
 				svg_encoding = "encoding=\"utf-8\" ";
