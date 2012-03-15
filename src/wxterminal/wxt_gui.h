@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.h,v 1.14.2.5 2008/07/15 18:51:40 sfeam Exp $
+ * $Id: wxt_gui.h,v 1.32 2009/03/26 00:49:18 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.h */
@@ -114,6 +114,8 @@ extern "C" {
 # include "getcolor.h"
 /* for paused_for_mouse, PAUSE_BUTTON1 and friends */
 # include "command.h"
+/* for int_error */
+# include "util.h"
 }
 
 /* if the gtk headers are available, use them to tweak some behaviours */
@@ -142,6 +144,16 @@ extern "C" {
 #ifdef GTK_SURFACE
 # undef GTK_SURFACE
 # define IMAGE_SURFACE
+#endif
+
+/* depending on the platform, and mostly because of the Windows terminal which
+ * already has its event loop, we may or may not be multithreaded */
+#if defined(__WXGTK__) || defined(__WXMAC__)
+# define WXT_MULTITHREADED
+#elif defined(__WXMSW__)
+# define WXT_MONOTHREADED
+#else
+# error "wxt does not know if this platform has to be mono- or multi-threaded"
 #endif
 
 extern "C" {
@@ -179,12 +191,13 @@ extern "C" {
 #include "wxt_term.h"
 /* drawing facility */
 #include "gp_cairo.h"
+#include "gp_cairo_helpers.h"
 
 /* ======================================================================
  * declarations
  * ====================================================================*/
 
-#if defined(__WXGTK__)||defined(__WXMAC__)
+#ifdef WXT_MULTITHREADED
 /* thread class, where the gui loop runs.
  * Not needed with Windows, where the main loop
  * already processes the gui messages */
@@ -199,13 +212,18 @@ public:
 
 /* instance of the thread */
 static wxtThread * thread;
-#elif defined(__WXMSW__)
-#else
-# error "Not implemented"
-#endif /* __WXGTK__ */
+#endif /* WXT_MULTITHREADED */
 
 DECLARE_EVENT_TYPE(wxExitLoopEvent, -1)
 DEFINE_EVENT_TYPE(wxExitLoopEvent)
+
+DECLARE_EVENT_TYPE(wxCreateWindowEvent, -1)
+DEFINE_EVENT_TYPE(wxCreateWindowEvent)
+
+#ifdef USE_MOUSE
+DECLARE_EVENT_TYPE(wxStatusTextEvent, -1)
+DEFINE_EVENT_TYPE(wxStatusTextEvent)
+#endif /* USE_MOUSE */
 
 /* Define a new application type, each gui should derive a class from wxApp */
 class wxtApp : public wxApp
@@ -217,8 +235,14 @@ public:
 	int OnExit();
 	/* event handler */
 	void OnExitLoop( wxCommandEvent &event );
-
+	/* event handler */
+	void OnCreateWindow( wxCommandEvent &event );
+	/* wrapper for AddPendingEvent or ProcessEvent */
+	void SendEvent( wxEvent &event);
 private:
+	/* any class wishing to process wxWidgets events must use this macro */
+	DECLARE_EVENT_TABLE()
+
 	/* load a toolbar icon */
 	void LoadPngIcon(const unsigned char *embedded_png, int length, int icon_number);
 	/* load a cursor */
@@ -234,6 +258,11 @@ typedef enum wxt_gp_command_t {
 	command_vector,
 	command_put_text,
 	command_enhanced_put_text,
+	command_enhanced_init,
+	command_enhanced_open,
+	command_enhanced_writec,
+	command_enhanced_flush,
+	command_enhanced_finish,
 	command_set_font,
 	command_justify,
 	command_point,
@@ -241,10 +270,8 @@ typedef enum wxt_gp_command_t {
 	command_linewidth,
 	command_text_angle,
 	command_fillbox,
-	command_filled_polygon
-#ifdef WITH_IMAGE
-	,command_image
-#endif /* WITH_IMAGE */
+	command_filled_polygon,
+	command_image
 } wxt_gp_command_t;
 
 /* base structure for storing gnuplot commands */
@@ -261,14 +288,12 @@ typedef struct gp_command {
 	int integer_value;
 	int integer_value2;
 	double double_value;
+	double double_value2;
 	char *string;
 	gpiPoint *corners;
 	enum JUSTIFY mode;
 	rgb_color color;
-#ifdef WITH_IMAGE
-	t_imagecolor color_mode;
-	coordval * image;
-#endif /* WITH_IMAGE */
+	unsigned int * image;
 } gp_command;
 
 /* declare a type for our list of gnuplot commands */
@@ -428,9 +453,13 @@ public:
 	void OnZoomPrevious( wxCommandEvent& event );
 	void OnZoomNext( wxCommandEvent& event );
 	void OnAutoscale( wxCommandEvent& event );
+	void OnSetStatusText( wxCommandEvent& event );
 #endif /*USE_MOUSE*/
 	void OnConfig( wxCommandEvent& event );
 	void OnHelp( wxCommandEvent& event );
+
+	/* wrapper for AddPendingEvent or ProcessEvent */
+	void SendEvent( wxEvent &event);
 
 	/* destructor*/
 	~wxtFrame() {};
@@ -500,10 +529,22 @@ STATUS_INTERRUPT
 };
 static int wxt_status = STATUS_UNINITIALIZED;
 
-/* structure to store windows and their ID */
+/* wxt_handling_persist is set to true after a child process is created for the
+ * "persist-effect", and starts handling events directly without having two
+ * separate threads. */
+static bool wxt_handling_persist = false;
+
+/* structure to store windows and their ID
+ * also used to pass titles and waiting condition to the GUI thread on
+ * window creation */
 typedef struct wxt_window_t {
 	wxWindowID id;
 	wxtFrame * frame;
+	wxString title;
+	wxMutex * mutex;
+	wxCondition * condition;
+	int axis_mask;
+	wxt_axis_state_t axis_state[4];
 } wxt_window_t;
 
 /* list of already created windows */
@@ -522,27 +563,19 @@ static plot_struct *wxt_current_plot;
 static void wxt_command_push(gp_command command);
 
 #ifdef USE_MOUSE
-/* routine to send an event to gnuplot */
-static void wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id);
+/* routine to send an event to gnuplot
+ * returns true if the event has really been processed - it will
+ * not if the window is not the current one. */
+static bool wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id);
 
-/* process the event list */
-static int wxt_process_events();
+/* process one event, returns true if it ends the pause */
+static bool wxt_process_one_event(struct gp_event_t *);
 
-/* event queue and its mutex */
-static wxMutex mutexProtectingEventList;
-static std::list<gp_event_t> EventList;
-static bool wxt_check_eventlist_empty();
-static void wxt_clear_event_list();
-
-/* state of the main thread, and its mutex, used to know when and how to wake it up */
-typedef enum wxt_thread_state_t {
-	RUNNING = 0,
-	WAITING_FOR_STDIN
-} wxt_thread_state_t;
-static wxt_thread_state_t wxt_thread_state;
-static wxMutex mutexProtectingThreadState;
-static wxt_thread_state_t wxt_check_thread_state();
-static void wxt_change_thread_state(wxt_thread_state_t state);
+# ifdef WXT_MULTITHREADED
+/* set of pipe file descriptors for event communication with the core */
+int wxt_event_fd = -1;
+int wxt_sendevent_fd = -1;
+# endif /* WXT_MULTITHREADED */
 #endif /*USE_MOUSE*/
 
 /* returns true if at least one plot window is opened.

@@ -1,5 +1,5 @@
 /*
- * $Id: tables.h,v 1.57.2.3 2008/06/01 06:13:48 sfeam Exp $
+ * $Id: tables.h,v 1.68.2.1 2009/12/20 03:54:42 sfeam Exp $
  */
 
 /* GNUPLOT - tables.h */
@@ -74,7 +74,7 @@ enum save_id { SAVE_INVALID, SAVE_FUNCS, SAVE_TERMINAL, SAVE_SET, SAVE_VARS };
  * this is rather big, we might be better off with a hash table */
 enum set_id {
     S_INVALID,
-    S_ACTIONTABLE, S_ALL, S_ANGLES, S_ARROW, S_AUTOSCALE, S_BARS, S_BORDER,
+    S_ACTIONTABLE, S_ALL, S_ANGLES, S_ARROW, S_AUTOSCALE, S_BARS, S_BIND, S_BORDER,
     S_BOXWIDTH, S_CLABEL, S_CLIP, S_CNTRPARAM, S_CONTOUR, S_DATA, S_DATAFILE,
     S_FUNCTIONS, S_DGRID3D, S_DUMMY, S_ENCODING, S_DECIMALSIGN, S_FIT,
     S_FONTPATH, S_FORMAT,
@@ -101,7 +101,7 @@ enum set_id {
     S_X2DATA, S_X2DTICS, S_NOX2DTICS, S_X2LABEL, S_X2MTICS, S_NOX2MTICS,
     S_X2RANGE, S_X2TICS, S_NOX2TICS,
     S_XDATA, S_XDTICS, S_NOXDTICS, S_XLABEL, S_XMTICS, S_NOXMTICS, S_XRANGE,
-    S_XTICS, S_NOXTICS,
+    S_XTICS, S_NOXTICS, S_XYPLANE,
 
     S_Y2DATA, S_Y2DTICS, S_NOY2DTICS, S_Y2LABEL, S_Y2MTICS, S_NOY2MTICS,
     S_Y2RANGE, S_Y2TICS, S_NOY2TICS,
@@ -119,7 +119,8 @@ enum set_hidden3d_id {
     S_HI_INVALID,
     S_HI_DEFAULTS, S_HI_OFFSET, S_HI_NOOFFSET, S_HI_TRIANGLEPATTERN,
     S_HI_UNDEFINED, S_HI_NOUNDEFINED, S_HI_ALTDIAGONAL, S_HI_NOALTDIAGONAL,
-    S_HI_BENTOVER, S_HI_NOBENTOVER
+    S_HI_BENTOVER, S_HI_NOBENTOVER,
+    S_HI_FRONT, S_HI_BACK
 };
 
 enum set_key_id {
@@ -132,7 +133,8 @@ enum set_key_id {
     S_KEY_INVERT, S_KEY_NOINVERT,
     S_KEY_ENHANCED, S_KEY_NOENHANCED,
     S_KEY_BOX, S_KEY_NOBOX, S_KEY_SAMPLEN, S_KEY_SPACING, S_KEY_WIDTH,
-    S_KEY_HEIGHT, S_KEY_TITLE,
+    S_KEY_HEIGHT, S_KEY_TITLE, S_KEY_NOTITLE,
+    S_KEY_FONT, S_KEY_TEXTCOLOR,
     S_KEY_AUTOTITLES, S_KEY_NOAUTOTITLES,
     S_KEY_DEFAULT, S_KEY_ON, S_KEY_OFF
 };
@@ -180,10 +182,7 @@ enum show_style_id {
     SHOW_STYLE_INVALID,
     SHOW_STYLE_DATA, SHOW_STYLE_FUNCTION, SHOW_STYLE_LINE,
     SHOW_STYLE_FILLING, SHOW_STYLE_ARROW, SHOW_STYLE_RECTANGLE,
-    SHOW_STYLE_INCREMENT
-#ifdef EAM_HISTOGRAMS
-    , SHOW_STYLE_HISTOGRAM
-#endif
+    SHOW_STYLE_INCREMENT, SHOW_STYLE_HISTOGRAM
 };
 
 enum filledcurves_opts_id {
@@ -197,13 +196,9 @@ enum filledcurves_opts_id {
 };
 
 extern const struct gen_table command_tbl[];
-/* pm 011129: unused for 2 yers, therefore #if 0 .. #endif; in future should
- * be split into datafile_tbl and plot_tbl: */
-#if 0
-extern const struct gen_table plot_tbl[];
-#endif
 extern const struct gen_table plot_axes_tbl[];
 extern const struct gen_table plot_smooth_tbl[];
+extern const struct gen_table dgrid3d_mode_tbl[];
 extern const struct gen_table save_tbl[];
 extern const struct gen_table set_tbl[];
 extern const struct gen_table test_tbl[];
@@ -212,10 +207,15 @@ extern const struct gen_table set_colorbox_tbl[];
 extern const struct gen_table set_palette_tbl[];
 extern const struct gen_table set_pm3d_tbl[];
 extern const struct gen_table color_model_tbl[];
-extern const struct gen_table pm3d_color_names_tbl[];
 extern const struct gen_table set_hidden3d_tbl[];
 extern const struct gen_table show_style_tbl[];
 extern const struct gen_table plotstyle_tbl[];
+
+/* EAM Nov 2008 - this is now dynamic, so we can add colors on the fly */
+extern       struct gen_table *user_color_names_tbl;
+extern       struct gen_table *pm3d_color_names_tbl;
+extern const int num_predefined_colors;
+extern int num_userdefined_colors;
 
 extern const struct gen_ftable command_ftbl[];
 

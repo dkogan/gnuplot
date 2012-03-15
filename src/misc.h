@@ -1,5 +1,5 @@
 /*
- * $Id: misc.h,v 1.22 2005/11/27 18:31:36 sfeam Exp $
+ * $Id: misc.h,v 1.32 2009/03/26 00:49:16 sfeam Exp $
  */
 
 /* GNUPLOT - misc.h */
@@ -47,7 +47,6 @@
 
 /* Variables of misc.c needed by other modules: */
 
-extern char *infile_name;
 
 /* Prototypes from file "misc.c" */
 
@@ -56,6 +55,8 @@ void iso_extend __PROTO((struct iso_curve *ip, int num));
 void iso_free __PROTO((struct iso_curve *ip));
 void load_file __PROTO((FILE *fp, char *name, TBOOLEAN subst_args));
 FILE *lf_top __PROTO((void));
+TBOOLEAN lf_pop __PROTO((void));
+void lf_push __PROTO((FILE *));
 void load_file_error __PROTO((void));
 FILE *loadpath_fopen __PROTO((const char *, const char *));
 char *fontpath_fullname __PROTO((const char *));
@@ -67,13 +68,15 @@ enum PLOT_STYLE get_style __PROTO((void));
 void get_filledcurves_style_options __PROTO((filledcurves_opts *));
 void filledcurves_options_tofile __PROTO((filledcurves_opts *, FILE *));
 void lp_parse __PROTO((struct lp_style_type *, TBOOLEAN, TBOOLEAN));
-void lp_use_properties __PROTO((struct lp_style_type *lp, int tag, int pointflag));
+
 void arrow_parse __PROTO((struct arrow_style_type *, TBOOLEAN));
 
 void parse_fillstyle __PROTO((struct fill_style_type *fs, int def_style,
-                              int def_density, int def_pattern, int def_border ));
+                              int def_density, int def_pattern, t_colorspec def_border ));
 void parse_colorspec __PROTO((struct t_colorspec *tc, int option));
+TBOOLEAN need_fill_border __PROTO((struct fill_style_type *fillstyle));
 
+void get_image_options __PROTO((t_image *image));
 
 /* State information for load_file(), to recover from errors
  * and properly handle recursive load_file calls
@@ -84,6 +87,11 @@ typedef struct lf_state_struct {
     TBOOLEAN interactive;	/* value of interactive flag on entry */
     TBOOLEAN do_load_arg_substitution;	/* likewise ... */
     int inline_num;		/* inline_num on entry */
+    int depth;			/* recursion depth */
+    char *input_line;		/* Input line text to restore */
+    struct lexical_unit *tokens;/* Input line tokens to restore */
+    int num_tokens;		/* How big is the above ? */
+    int c_token;		/* Which one were we on ? */
     struct lf_state_struct *prev;			/* defines a stack */
     char *call_args[10];	/* args when file is 'call'ed instead of 'load'ed */
 }  LFS;

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: specfun.c,v 1.34.2.1 2008/05/21 18:14:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: specfun.c,v 1.37.2.1 2010/02/24 04:16:48 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - specfun.c */
@@ -110,8 +110,8 @@ static double confrac __PROTO((double a, double b, double x));
 static double ibeta __PROTO((double a, double b, double x));
 static double igamma __PROTO((double a, double x));
 static double ranf __PROTO((struct value * init));
-static double inverse_normal_func __PROTO((double p));
 static double inverse_error_func __PROTO((double p));
+static double inverse_normal_func __PROTO((double p));
 static double lambertw __PROTO((double x));
 #ifndef GAMMA
 static int ISNAN __PROTO((double x));
@@ -686,7 +686,8 @@ void f_rand(union argument *arg)
  *
  *   XREF      lngamma()
  *
- *   BUGS      none
+ *   BUGS      This approximation is only accurate on the domain
+ *             x < (a-1)/(a+b-2)
  *
  *   REFERENCE The continued fraction expansion as given by
  *             Abramowitz and Stegun (1964) is used.
@@ -712,7 +713,12 @@ ibeta(double a, double b, double x)
 	return x;
 
     /* Swap a, b if necessary for more efficient evaluation */
-    return a < x * (a + b) ? 1.0 - confrac(b, a, 1.0 - x) : confrac(a, b, x);
+    if (a < x * (a + b)) {
+	double temp = confrac(b, a, 1.0 - x);
+	return (temp < 0.0) ? temp : 1.0 - temp;
+    } else {
+	return confrac(a, b, x);
+    }
 }
 
 static double
@@ -975,7 +981,9 @@ f_normal(union argument *arg)
     x = real(pop(&a));
 
     x = 0.5 * SQRT_TWO * x;
-    x = 0.5 * (1.0 + erf(x));
+    x = 0.5 * erfc(-x);		/* by using erfc instead of erf, we
+				   can get accurate values for -38 <
+				   arg < -8 */
     push(Gcomplex(&a, x, 0.0));
 }
 

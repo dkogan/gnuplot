@@ -2,18 +2,13 @@
         
 /* gnuplot feature enablers */
 #define BINARY_DATA_FILE	1
-#define	EAM_DATASTRINGS		1
-#define EAM_HISTOGRAMS		1
 #define GP_ENH_EST		1
 #define GP_FIT_ERRVARS		1
 #define GP_ISVAR		1
 #define GP_MACROS		1
-#define GP_STRING_VARS		2
 #define HIDDEN3D_QUADTREE	1
 #define USE_ULIG_FILLEDBOXES	   1
 #define USE_ULIG_RELATIVE_BOXWIDTH 1
-#define WITH_IMAGE		1
-
 
 
 

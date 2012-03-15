@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.81.2.4 2008/10/29 17:20:25 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.108.2.1 2009/08/02 23:38:51 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -39,7 +39,7 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.81.2.4 2008/10/29 17:20:25 
 #include "alloc.h"
 #include "command.h"
 #include "graphics.h"
-#include "parse.h"		/* for const_express() */
+#include "parse.h"		/* for const_*() */
 #include "plot.h"
 #include "tables.h"
 #include "util.h"
@@ -53,11 +53,6 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.81.2.4 2008/10/29 17:20:25 
 # include <windows.h>
 #endif
 
-/* name of command file; NULL if terminal */
-char *infile_name = NULL;
-
-static TBOOLEAN lf_pop __PROTO((void));
-static void lf_push __PROTO((FILE *));
 static void arrow_use_properties __PROTO((struct arrow_style_type *arrow, int tag));
 static char *recursivefullname __PROTO((const char *path, const char *filename, TBOOLEAN recursive));
 
@@ -85,6 +80,7 @@ iso_alloc(int num)
     struct iso_curve *ip;
     ip = (struct iso_curve *) gp_alloc(sizeof(struct iso_curve), "iso curve");
     ip->p_max = (num >= 0 ? num : 0);
+    ip->p_count = 0;
     if (num > 0) {
 	ip->points = (struct coordinate GPHUGE *)
 	    gp_alloc(num * sizeof(struct coordinate), "iso curve points");
@@ -169,24 +165,28 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
 	int argc = 0; /* number arguments passed by "call" */
 	interactive = FALSE;
 	inline_num = 0;
-	infile_name = name;
+	lf_head->name = name;
 
 	if (can_do_args) {
-	    while (c_token < num_tokens && argc <= 9) {
+	    /* Gnuplot "call" command can have up to 10 arguments "$0" to "$9" */
+	    while (!END_OF_COMMAND && argc <= 9) {
 		if (isstring(c_token))
 		    m_quote_capture(&call_args[argc++], c_token, c_token);
 		else
 		    m_capture(&call_args[argc++], c_token, c_token);
 		c_token++;
 	    }
-	    /* Gnuplot "call" command can have up to 10 arguments named "$0"
-	       to "$9". After reading the 10th argument (i.e., "$9") the
-	       variable 'argc' equals 10.
-	       Also, "call" must be the last command on the command line.
-	    */
-	    if (c_token < num_tokens)
+	    if (!END_OF_COMMAND)
 		int_error(++c_token, "too many arguments for 'call <file>'");
 	}
+
+	/* These were initialized to NULL in lf_push(); will be freed in lf_pop() */
+	lf_head->c_token = c_token;
+	lf_head->num_tokens = num_tokens;
+	lf_head->tokens = gp_alloc(num_tokens * sizeof(struct lexical_unit), "lf tokens");
+	memcpy(lf_head->tokens, token, num_tokens * sizeof(struct lexical_unit));
+	lf_head->input_line = gp_strdup(gp_input_line);
+	
 	while (!stop) {		/* read all commands in file */
 	    /* read one command */
 	    left = gp_input_line_len;
@@ -287,7 +287,7 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
 /* pop from load_file state stack
    FALSE if stack was empty
    called by load_file and load_file_error */
-static TBOOLEAN
+TBOOLEAN
 lf_pop()
 {
     LFS *lf;
@@ -312,7 +312,21 @@ lf_pop()
 	do_load_arg_substitution = lf->do_load_arg_substitution;
 	interactive = lf->interactive;
 	inline_num = lf->inline_num;
-	infile_name = lf->name;
+
+	/* Restore saved input state and free the copy */
+	if (lf->tokens) {
+	    num_tokens = lf->num_tokens;
+	    c_token = lf->c_token;
+	    memcpy(token, lf->tokens, lf->num_tokens * sizeof(struct lexical_unit));
+	    free(lf->tokens);
+	}
+	if (lf->input_line) {
+	    strcpy(gp_input_line, lf->input_line);
+	    free(lf->input_line);
+	}
+	if (lf->name)
+	    free(lf->name);
+	
 	lf_head = lf->prev;
 	free((char *) lf);
 	return (TRUE);
@@ -322,7 +336,7 @@ lf_pop()
 /* push onto load_file state stack
    essentially, we save information needed to undo the load_file changes
    called by load_file */
-static void
+void
 lf_push(FILE *fp)
 {
     LFS *lf;
@@ -335,7 +349,6 @@ lf_push(FILE *fp)
 	int_error(c_token, "not enough memory to load file");
     }
     lf->fp = fp;		/* save this file pointer */
-    lf->name = infile_name;	/* save current name */
     lf->interactive = interactive;	/* save current state */
     lf->inline_num = inline_num;	/* save current line number */
     lf->do_load_arg_substitution = do_load_arg_substitution;
@@ -343,6 +356,12 @@ lf_push(FILE *fp)
 	lf->call_args[argindex] = call_args[argindex];
 	call_args[argindex] = NULL;	/* initially no args */
     }
+    lf->depth = lf_head ? lf_head->depth+1 : 0;	/* recursion depth */
+    lf->c_token = c_token;	/* Will be updated by caller */
+    lf->num_tokens = num_tokens;/* Will be updated by caller */
+    lf->input_line = NULL;	/* Will be filled in by caller */
+    lf->tokens = NULL;		/* Will be filled in by caller */
+    lf->name = NULL;		/* Will be filled in by caller */
     lf->prev = lf_head;		/* link to stack */
     lf_head = lf;
 }
@@ -585,8 +604,7 @@ pop_terminal()
 	i = interactive;
 	interactive = 0;
 	sprintf(s,"set term %s %s", push_term_name, (push_term_opts ? push_term_opts : ""));
-	do_string(s);
-	free(s);
+	do_string(s, TRUE);
 	interactive = i;
 	if (interactive)
 	    fprintf(stderr,"   restored terminal is %s %s\n", term->name, ((*term_options) ? term_options : ""));
@@ -616,9 +634,7 @@ expecting 'lines', 'points', 'linespoints', 'dots', 'impulses',\n\
 \t'histeps', 'filledcurves', 'boxes', 'boxerrorbars', 'boxxyerrorbars',\n\
 \t'vectors', 'financebars', 'candlesticks', 'errorlines', 'xerrorlines',\n\
 \t'yerrorlines', 'xyerrorlines', 'pm3d', 'labels', 'histograms'"
-#ifdef WITH_IMAGE
 ",\n\t 'image', 'rgbimage'"
-#endif
 );
 	ps = LINES;
     }
@@ -633,7 +649,6 @@ void
 get_filledcurves_style_options(filledcurves_opts *fco)
 {
     int p;
-    struct value a;
     p = lookup_table(&filledcurves_opts_tbl[0], c_token);
 
     if (p == FILLEDCURVES_ABOVE) {
@@ -660,14 +675,14 @@ get_filledcurves_style_options(filledcurves_opts *fco)
     if (p != FILLEDCURVES_ATXY)
 	fco->closeto += 4;
     c_token++;
-    fco->at = real(const_express(&a));
+    fco->at = real_expression();
     if (p != FILLEDCURVES_ATXY)
 	return;
     /* two values required for FILLEDCURVES_ATXY */
     if (!equals(c_token, ","))
 	int_error(c_token, "syntax is xy=<x>,<y>");
     c_token++;
-    fco->aty = real(const_express(&a));
+    fco->aty = real_expression();
     return;
 }
 
@@ -699,69 +714,39 @@ filledcurves_options_tofile(filledcurves_opts *fco, FILE *fp)
     }
 }
 
-/* line/point parsing...
- *
+TBOOLEAN
+need_fill_border(struct fill_style_type *fillstyle)
+{
+    /* Doesn't want a border at all */
+    if (fillstyle->border_color.type == TC_LT && fillstyle->border_color.lt == LT_NODRAW)
+	return FALSE;
+
+    /* Wants a border in a new color */
+    if (fillstyle->border_color.type != TC_DEFAULT)
+	apply_pm3dcolor(&fillstyle->border_color,term);
+    
+    return TRUE;
+}
+
+/*
  * allow_ls controls whether we are allowed to accept linestyle in
  * the current context [ie not when doing a  set linestyle command]
  * allow_point is whether we accept a point command
- * We assume compiler will optimise away if(0) or if(1)
+ * allow any order of options - pm 24.11.2001
+ * EAM Oct 2005 - Require that default values have been placed in lp by the caller
  */
-
-void
-lp_use_properties(struct lp_style_type *lp, int tag, int pointflag)
-{
-    /*  This function looks for a linestyle defined by 'tag' and copies
-     *  its data into the structure 'lp'.
-     *
-     *  If 'pointflag' equals ZERO, the properties belong to a linestyle
-     *  used with arrows.  In this case no point properties will be
-     *  passed to the terminal (cf. function 'term_apply_lp_properties' below).
-     */
-
-    struct linestyle_def *this;
-
-    this = first_linestyle;
-    while (this != NULL) {
-	if (this->tag == tag) {
-	    *lp = this->lp_properties;
-	    /* FIXME - It would be nicer if this were always true already */
-	    if (!lp->use_palette) {
-		lp->pm3d_color.type = TC_LT;
-		lp->pm3d_color.lt = lp->l_type;
-	    }
-	    lp->pointflag = pointflag;
-	    return;
-	} else {
-	    this = this->next;
-	}
-    }
-
-    /* tag not found: */
-    /* Mar 2006 - This used to be a fatal error; now we fall back to line type */
-    lp->l_type = tag - 1;
-    lp->pm3d_color.type = TC_LT;
-    lp->pm3d_color.lt = lp->l_type;
-    lp->p_type = tag - 1;
-}
-
-
-/* allow any order of options - pm 24.11.2001 */
-/* EAM Oct 2005 - Require that default values have been placed in lp by the caller */
 void
 lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 {
-    struct value t;
-
-    if (allow_ls &&
-	(almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
-	c_token++;
-	lp_use_properties(lp, (int) real(const_express(&t)), allow_point);
-    } else {
 	/* avoid duplicating options */
 	int set_lt = 0, set_pal = 0, set_lw = 0, set_pt = 0, set_ps = 0;
 
-	lp->pointflag = allow_point;
-
+	if (allow_ls &&
+	    (almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
+	    c_token++;
+	    lp_use_properties(lp, int_expression());
+	} 
+    
 	while (!END_OF_COMMAND) {
 	    if (almost_equals(c_token, "linet$ype") || equals(c_token, "lt")) {
 		if (set_lt++)
@@ -787,11 +772,11 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		    c_token++;
 #endif
 		} else {
-		    int lt = real(const_express(&t));
+		    int lt = int_expression();
 		    lp->l_type = lt - 1;
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles && allow_ls)
-			lp_use_properties(lp, lt, TRUE);
+			lp_use_properties(lp, lt);
 		}
 	    } /* linetype, lt */
 
@@ -828,7 +813,7 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		    lp->pm3d_color.type = TC_LINESTYLE;
 		} else {
 		    lp->pm3d_color.type = TC_LT;
-		    lp->pm3d_color.lt = (int) real(const_express(&t)) - 1;
+		    lp->pm3d_color.lt = int_expression() - 1;
 		}
 		continue;
 	    }
@@ -837,7 +822,7 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		if (set_lw++)
 		    break;
 		c_token++;
-		lp->l_width = real(const_express(&t));
+		lp->l_width = real_expression();
 		if (lp->l_width < 0)
 		    lp->l_width = 0;
 		continue;
@@ -850,15 +835,12 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		continue;
 	    }
 
-	    /* HBB 20010622: restructured to allow for more descriptive
-	     * error message, here. Would otherwise only print out
-	     * 'undefined variable: pointtype' --- rather unhelpful. */
 	    if (almost_equals(c_token, "pointt$ype") || equals(c_token, "pt")) {
 		if (allow_point) {
 		    if (set_pt++)
 			break;
 		    c_token++;
-		    lp->p_type = (int) real(const_express(&t)) - 1;
+		    lp->p_type = int_expression() - 1;
 		} else {
 		    int_warn(c_token, "No pointtype specifier allowed, here");
 		    c_token += 2;
@@ -878,7 +860,7 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 			lp->p_size = PTSZ_DEFAULT;
 			c_token++;
 		    } else {
-			lp->p_size = real(const_express(&t));
+			lp->p_size = real_expression();
 			if (lp->p_size < 0)
 			    lp->p_size = 0;
 		    }
@@ -889,35 +871,40 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		continue;
 	    }
 
+	    if (almost_equals(c_token, "pointi$nterval") || equals(c_token, "pi")) {
+		c_token++;
+		if (allow_point) {
+		    lp->p_interval = int_expression();
+		} else {
+		    int_warn(c_token, "No pointinterval specifier allowed, here");
+		    int_expression();
+		}
+		continue;
+	    }
+
+
 	    /* unknown option catched -> quit the while(1) loop */
 	    break;
 	}
 
 	if (set_lt > 1 || set_pal > 1 || set_lw > 1 || set_pt > 1 || set_ps > 1)
 	    int_error(c_token, "duplicated arguments in style specification");
-
-#if defined(__FILE__) && defined(__LINE__) && defined(DEBUG_LP)
-	fprintf(stderr,
-		"lp_properties at %s:%d : lt: %d, lw: %.3f, pt: %d, ps: %.3f\n",
-		__FILE__, __LINE__, lp->l_type, lp->l_width, lp->p_type,
-		lp->p_size);
-#endif
-    }
 }
 
 /* <fillstyle> = {empty | solid {<density>} | pattern {<n>}} {noborder | border {<lt>}} */
 void
-parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int def_pattern, int def_bordertype)
+parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int def_pattern, 
+		t_colorspec def_bordertype)
 {
-    struct value a;
     TBOOLEAN set_fill = FALSE;
     TBOOLEAN set_param = FALSE;
+    TBOOLEAN transparent = FALSE;
 
     /* Set defaults */
     fs->fillstyle = def_style;
     fs->filldensity = def_density;
     fs->fillpattern = def_pattern;
-    fs->border_linetype = def_bordertype;
+    fs->border_color = def_bordertype;
 
     if (END_OF_COMMAND)
 	return;
@@ -926,15 +913,20 @@ parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int 
     c_token++;
 
     while (!END_OF_COMMAND) {
+	if (almost_equals(c_token, "trans$parent")) {
+	    transparent = TRUE;
+	    c_token++;
+	}
+
 	if (almost_equals(c_token, "e$mpty")) {
 	    fs->fillstyle = FS_EMPTY;
 	    c_token++;
 	} else if (almost_equals(c_token, "s$olid")) {
-	    fs->fillstyle = FS_SOLID;
+	    fs->fillstyle = transparent ? FS_TRANSPARENT_SOLID : FS_SOLID;
 	    set_fill = TRUE;
 	    c_token++;
 	} else if (almost_equals(c_token, "p$attern")) {
-	    fs->fillstyle = FS_PATTERN;
+	    fs->fillstyle = transparent ? FS_TRANSPARENT_PATTERN : FS_PATTERN;
 	    set_fill = TRUE;
 	    c_token++;
 	}
@@ -942,33 +934,39 @@ parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int 
 	if (END_OF_COMMAND)
 	    continue;
 	else if (almost_equals(c_token, "bo$rder")) {
-	    fs->border_linetype = LT_UNDEFINED;
+	    fs->border_color.type = TC_DEFAULT;
 	    c_token++;
-	    /* FIXME EAM - isanumber really means `is a positive number` */
-	    if (isanumber(c_token) ||
-		(equals(c_token, "-") && isanumber(c_token + 1))) {
-		fs->border_linetype = (int) real(const_express(&a)) - 1;
+	    if (equals(c_token,"-") || isanumber(c_token)) {
+		fs->border_color.type = TC_LT;
+		fs->border_color.lt = int_expression() - 1;
+	    } else if (!END_OF_COMMAND) {
+		c_token--;
+		parse_colorspec(&fs->border_color, TC_Z);
 	    }
 	    continue;
 	} else if (almost_equals(c_token, "nobo$rder")) {
-	    fs->border_linetype = LT_NODRAW;
+	    fs->border_color.type = TC_LT;
+	    fs->border_color.lt = LT_NODRAW;
 	    c_token++;
 	    continue;
 	}
+
 	/* We hit something unexpected */
-	else if (!set_fill || !isanumber(c_token) || set_param)
+	if (!set_fill || set_param)
+	    break;
+	if (!(isanumber(c_token) || type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX))
 	    break;
 
-	if (fs->fillstyle == FS_SOLID) {
+	if (fs->fillstyle == FS_SOLID || fs->fillstyle == FS_TRANSPARENT_SOLID) {
 	    /* user sets 0...1, but is stored as an integer 0..100 */
-	    fs->filldensity = 100.0 * real(const_express(&a)) + 0.5;
+	    fs->filldensity = 100.0 * real_expression() + 0.5;
 	    if (fs->filldensity < 0)
 		fs->filldensity = 0;
 	    if (fs->filldensity > 100)
 		fs->filldensity = 100;
 	    set_param = TRUE;
-	} else if (fs->fillstyle == FS_PATTERN) {
-	    fs->fillpattern = real(const_express(&a));
+	} else if (fs->fillstyle == FS_PATTERN || fs->fillstyle == FS_TRANSPARENT_PATTERN) {
+	    fs->fillpattern = int_expression();
 	    if (fs->fillpattern < 0)
 		fs->fillpattern = 0;
 	    set_param = TRUE;
@@ -988,8 +986,6 @@ parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int 
 void
 parse_colorspec(struct t_colorspec *tc, int options)
 {
-    struct value a;
-
     c_token++;
     if (END_OF_COMMAND)
 	int_error(c_token, "expected colorspec");
@@ -1007,7 +1003,7 @@ parse_colorspec(struct t_colorspec *tc, int options)
 	if (END_OF_COMMAND)
 	    int_error(c_token, "expected linetype");
 	tc->type = TC_LT;
-	tc->lt = (int)real(const_express(&a))-1;
+	tc->lt = int_expression()-1;
 	if (tc->lt < LT_BACKGROUND) {
 	    tc->type = TC_DEFAULT;
 	    int_warn(c_token,"illegal linetype");
@@ -1018,14 +1014,13 @@ parse_colorspec(struct t_colorspec *tc, int options)
     } else if (equals(c_token,"ls") || almost_equals(c_token,"lines$tyle")) {
 	c_token++;
 	tc->type = TC_LINESTYLE;
-	tc->lt = (int)real(const_express(&a));
+	tc->lt = real_expression();
     } else if (almost_equals(c_token,"rgb$color")) {
 	char *color;
 	int rgbtriple;
 	c_token++;
 	tc->type = TC_RGB;
 	if (almost_equals(c_token, "var$iable")) {
-	    /* Flag to indicate "variable", not currently checked anywhere */
 	    tc->value = -1.0;
 	    c_token++;
 	    return;
@@ -1058,13 +1053,13 @@ parse_colorspec(struct t_colorspec *tc, int options)
 	    c_token++;
 	    if (END_OF_COMMAND)
 		int_error(c_token, "expected cb value");
-	    tc->value = real(const_express(&a));
+	    tc->value = real_expression();
 	} else if (almost_equals(c_token,"frac$tion")) {
 	    tc->type = TC_FRAC;
 	    c_token++;
 	    if (END_OF_COMMAND)
 		int_error(c_token, "expected palette fraction");
-	    tc->value = real(const_express(&a));
+	    tc->value = real_expression();
 	    if (tc->value < 0. || tc->value > 1.0)
 		int_error(c_token, "palette fraction out of range");
 	} else {
@@ -1109,12 +1104,10 @@ arrow_parse(
     struct arrow_style_type *arrow,
     TBOOLEAN allow_as)
 {
-    struct value t;
-
     if (allow_as && (almost_equals(c_token, "arrows$tyle") ||
 		     equals(c_token, "as"))) {
 	c_token++;
-	arrow_use_properties(arrow, (int) real(const_express(&t)));
+	arrow_use_properties(arrow, int_expression());
     } else {
 	/* avoid duplicating options */
 	int set_layer=0, set_line=0, set_head=0;
@@ -1223,22 +1216,15 @@ arrow_parse(
 	if (set_layer>1 || set_line>1 || set_head>1 || set_headsize>1 || set_headfilled>1)
 	    int_error(c_token, "duplicated arguments in style specification");
 
-#if defined(__FILE__) && defined(__LINE__) && defined(DEBUG_LP)
-	arrow->layer = 0;
-	arrow->lp_properties = tmp_lp_style;
-	arrow->head = 1;
-	arrow->head_length = 0.0;
-	arrow->head_lengthunit = first_axes;
-	arrow->head_angle = 15.0;
-	arrow->head_backangle = 90.0;
-	arrow->head_filled = 0;
-	fprintf(stderr,
-		"arrow_properties at %s:%d : layer: %d, lt: %d, lw: %.3f, head: %d, headlength/unit: %.3f/%d, headangles: %.3f/%.3f, headfilled %d\n",
-		__FILE__, __LINE__, arrow->layer, arrow->lp_properties.l_type,
-		arrow->lp_properties.l_width, arrow->head, arrow->head_length,
-		arrow->head_lengthunit, arrow->head_angle,
-		arrow->head_backangle, arrow->head_filled);
-#endif
     }
 }
 
+void
+get_image_options(t_image *image)
+{
+    if (equals(c_token, "failsafe")) {
+	c_token++;
+	image->fallback = TRUE;
+    }
+
+}

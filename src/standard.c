@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: standard.c,v 1.25 2006/07/14 00:30:41 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: standard.c,v 1.29 2008/05/31 20:03:40 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - standard.c */
@@ -40,6 +40,11 @@ static char *RCSid() { return RCSid("$Id: standard.c,v 1.25 2006/07/14 00:30:41 
 #include "gp_time.h"		/* needed by f_tmsec() and friendsa */
 #include "util.h"		/* for int_error() */
 
+static double carlson_elliptic_rc(double x,double y);
+static double carlson_elliptic_rf(double x,double y,double z);
+static double carlson_elliptic_rd(double x,double y,double z);
+static double carlson_elliptic_rj(double x,double y,double z,double p);
+
 static double jzero __PROTO((double x));
 static double pzero __PROTO((double x));
 static double qzero __PROTO((double x));
@@ -66,215 +71,6 @@ static double ry1 __PROTO((double x));
  * equation.
  * These bessel functions are accurate to about 1e-13
  */
-
-#if (defined (ATARI) || defined (MTOS)) && defined(__PUREC__)
-/* Sorry. But PUREC bugs here.
- * These bessel functions are NOT accurate to about 1e-13
- */
-
-#define PI_ON_FOUR	 0.785398163397448309615661
-#define PI_ON_TWO	 1.570796326794896619231313
-#define THREE_PI_ON_FOUR 2.356194490192344928846982
-#define TWO_ON_PI	 0.636619772367581343075535
-
-static double dzero = 0.0;
-
-/* jzero for x in [0,8]
- * Index 5849, 19.22 digits precision
- */
-static double pjzero[] = {
-	 0.493378725179413356181681e+21,
-	-0.117915762910761053603844e+21,
-	 0.638205934107235656228943e+19,
-	-0.136762035308817138686542e+18,
-	 0.143435493914034611166432e+16,
-	-0.808522203485379387119947e+13,
-	 0.250715828553688194555516e+11,
-	-0.405041237183313270636066e+8,
-	 0.268578685698001498141585e+5
-};
-
-static double qjzero[] = {
-	 0.493378725179413356211328e+21,
-	 0.542891838409228516020019e+19,
-	 0.302463561670946269862733e+17,
-	 0.112775673967979850705603e+15,
-	 0.312304311494121317257247e+12,
-	 0.669998767298223967181403e+9,
-	 0.111463609846298537818240e+7,
-	 0.136306365232897060444281e+4,
-	 0.1e+1
-};
-
-/* pzero for x in [8,inf]
- * Index 6548, 18.16 digits precision
- */
-static double ppzero[] = {
-	 0.227790901973046843022700e+5,
-	 0.413453866395807657967802e+5,
-	 0.211705233808649443219340e+5,
-	 0.348064864432492703474453e+4,
-	 0.153762019090083542957717e+3,
-	 0.889615484242104552360748e+0
-};
-
-static double qpzero[] = {
-	 0.227790901973046843176842e+5,
-	 0.413704124955104166398920e+5,
-	 0.212153505618801157304226e+5,
-	 0.350287351382356082073561e+4,
-	 0.157111598580808936490685e+3,
-	 0.1e+1
-};
-
-/* qzero for x in [8,inf]
- * Index 6948, 18.33 digits precision
- */
-static double pqzero[] = {
-	-0.892266002008000940984692e+2,
-	-0.185919536443429938002522e+3,
-	-0.111834299204827376112621e+3,
-	-0.223002616662141984716992e+2,
-	-0.124410267458356384591379e+1,
-	-0.8803330304868075181663e-2,
-};
-
-static double qqzero[] = {
-	 0.571050241285120619052476e+4,
-	 0.119511315434346136469526e+5,
-	 0.726427801692110188369134e+4,
-	 0.148872312322837565816135e+4,
-	 0.905937695949931258588188e+2,
-	 0.1e+1
-};
-
-
-/* yzero for x in [0,8]
- * Index 6245, 18.78 digits precision
- */
-static double pyzero[] = {
-	-0.275028667862910958370193e+20,
-	 0.658747327571955492599940e+20,
-	-0.524706558111276494129735e+19,
-	 0.137562431639934407857134e+18,
-	-0.164860581718572947312208e+16,
-	 0.102552085968639428450917e+14,
-	-0.343637122297904037817103e+11,
-	 0.591521346568688965427383e+8,
-	-0.413703549793314855412524e+5
-};
-
-static double qyzero[] = {
-	 0.372645883898616588198998e+21,
-	 0.419241704341083997390477e+19,
-	 0.239288304349978185743936e+17,
-	 0.916203803407518526248915e+14,
-	 0.261306575504108124956848e+12,
-	 0.579512264070072953738009e+9,
-	 0.100170264128890626566665e+7,
-	 0.128245277247899380417633e+4,
-	 0.1e+1
-};
-
-
-/* jone for x in [0,8]
- * Index 6050, 20.98 digits precision
- */
-static double pjone[] = {
-	 0.581199354001606143928051e+21,
-	-0.667210656892491629802094e+20,
-	 0.231643358063400229793182e+19,
-	-0.358881756991010605074364e+17,
-	 0.290879526383477540973760e+15,
-	-0.132298348033212645312547e+13,
-	 0.341323418230170053909129e+10,
-	-0.469575353064299585976716e+7,
-	 0.270112271089232341485679e+4
-};
-
-static double qjone[] = {
-	 0.116239870800321228785853e+22,
-	 0.118577071219032099983711e+20,
-	 0.609206139891752174610520e+17,
-	 0.208166122130760735124018e+15,
-	 0.524371026216764971540673e+12,
-	 0.101386351435867398996705e+10,
-	 0.150179359499858550592110e+7,
-	 0.160693157348148780197092e+4,
-	 0.1e+1
-};
-
-
-/* pone for x in [8,inf]
- * Index 6749, 18.11 digits precision
- */
-static double ppone[] = {
-	 0.352246649133679798341724e+5,
-	 0.627588452471612812690057e+5,
-	 0.313539631109159574238670e+5,
-	 0.498548320605943384345005e+4,
-	 0.211152918285396238210572e+3,
-	 0.12571716929145341558495e+1
-};
-
-static double qpone[] = {
-	 0.352246649133679798068390e+5,
-	 0.626943469593560511888834e+5,
-	 0.312404063819041039923016e+5,
-	 0.493039649018108897938610e+4,
-	 0.203077518913475932229357e+3,
-	 0.1e+1
-};
-
-/* qone for x in [8,inf]
- * Index 7149, 18.28 digits precision
- */
-static double pqone[] = {
-	 0.351175191430355282253332e+3,
-	 0.721039180490447503928086e+3,
-	 0.425987301165444238988699e+3,
-	 0.831898957673850827325226e+2,
-	 0.45681716295512267064405e+1,
-	 0.3532840052740123642735e-1
-};
-
-static double qqone[] = {
-	 0.749173741718091277145195e+4,
-	 0.154141773392650970499848e+5,
-	 0.915223170151699227059047e+4,
-	 0.181118670055235135067242e+4,
-	 0.103818758546213372877664e+3,
-	 0.1e+1
-};
-
-
-/* yone for x in [0,8]
- * Index 6444, 18.24 digits precision
- */
-static double pyone[] = {
-	-0.292382196153296254310105e+20,
-	 0.774852068218683964508809e+19,
-	-0.344104806308411444618546e+18,
-	 0.591516076049007061849632e+16,
-	-0.486331694256717507482813e+14,
-	 0.204969667374566218261980e+12,
-	-0.428947196885524880182182e+9,
-	 0.355692400983052605669132e+6
-};
-
-static double qyone[] = {
-	 0.149131151130292035017408e+21,
-	 0.181866284170613498688507e+19,
-	 0.113163938269888452690508e+17,
-	 0.475517358888813771309277e+14,
-	 0.150022169915670898716637e+12,
-	 0.371666079862193028559693e+9,
-	 0.726914730719888456980191e+6,
-	 0.107269614377892552332213e+4,
-	 0.1e+1
-};
-
-#else
 
 #define PI_ON_FOUR       0.78539816339744830961566084581987572
 #define PI_ON_TWO        1.57079632679489661923131269163975144
@@ -478,15 +274,12 @@ static double GPFAR qyone[] = {
 	0.1e+1
 };
 
-#endif /* (ATARI || MTOS) && __PUREC__ */
-
-#if (GP_STRING_VARS > 1)
 /*
  * Make all the following internal routines perform autoconversion
  * from string to numeric value.
  */
 #define pop(x) pop_or_convert_from_string(x)
-#endif
+
 
 void
 f_real(union argument *arg)
@@ -814,6 +607,81 @@ f_atanh(union argument *arg)
     }
 }
 
+void 
+f_ellip_first(union argument *arg)
+{
+    struct value a;
+    double	ak,q;
+
+    (void) arg;			/* avoid -Wunused warning */
+    (void) pop(&a);
+    if (fabs(imag(&a)) > zero)
+	int_error(NO_CARET, "can only do elliptic integrals of reals");
+
+    ak=real(&a);
+    q=(1.0-ak)*(1.0+ak);
+    if (q > 0.0)
+	push(Gcomplex(&a,carlson_elliptic_rf(0.0,q,1.0) ,0.0));
+    else {
+	push(&a);
+	undefined=TRUE;
+    }
+ 
+}
+
+void 
+f_ellip_second(union argument *arg)
+{
+    struct value a;
+    double	ak,q,e;
+
+    (void) arg;			/* avoid -Wunused warning */
+    (void) pop(&a);
+    if (fabs(imag(&a)) > zero)
+	int_error(NO_CARET, "can only do elliptic integrals of reals");
+
+    ak=real(&a);
+    q=(1.0-ak)*(1.0+ak);
+    if (q > 0.0) {	
+	e=carlson_elliptic_rf(0.0,q,1.0)-(ak*ak)*carlson_elliptic_rd(0.0,q,1.0)/3.0;
+	push(Gcomplex(&a,e,0.0));
+
+    } else if (q < 0.0) {
+	undefined=TRUE;
+	push(&a);
+
+    } else {
+	e=1.0;
+	push(Gcomplex(&a,e,0.0));
+    }
+    
+ 
+}
+
+void 
+f_ellip_third(union argument *arg)
+{
+    struct value a1,a2;
+    double	ak,en,q;
+
+    (void) arg;			/* avoid -Wunused warning */
+    (void) pop(&a1);
+    (void) pop(&a2);
+    if (fabs(imag(&a1)) > zero || fabs(imag(&a2)) > zero)
+	int_error(NO_CARET, "can only do elliptic integrals of reals");
+
+    ak=real(&a1);
+    en=real(&a2);
+    q=(1.0-ak)*(1.0+ak);
+    if (q > 0.0 && en < 1.0)
+	push(Gcomplex(&a2, carlson_elliptic_rf(0.0,q,1.0)+en*carlson_elliptic_rj(0.0,q,1.0,1.0-en)/3.0, 0.0));
+    else {
+	undefined=TRUE;
+	push(&a1);
+    }
+ 
+}
+
 void
 f_int(union argument *arg)
 {
@@ -908,10 +776,10 @@ f_log10(union argument *arg)
     (void) arg;			/* avoid -Wunused warning */
     (void) pop(&a);
     if (magnitude(&a) == 0.0) {
-        undefined = TRUE;
+	undefined = TRUE;
 	push(&a);
     } else
-        push(Gcomplex(&a, log(magnitude(&a)) / M_LN10, angle(&a) / M_LN10));
+	push(Gcomplex(&a, log(magnitude(&a)) / M_LN10, angle(&a) / M_LN10));
 }
 
 
@@ -923,10 +791,10 @@ f_log(union argument *arg)
     (void) arg;			/* avoid -Wunused warning */
     (void) pop(&a);
     if (magnitude(&a) == 0.0) {
-        undefined = TRUE;
+	undefined = TRUE;
 	push(&a);
     } else
-        push(Gcomplex(&a, log(magnitude(&a)), angle(&a)));
+	push(Gcomplex(&a, log(magnitude(&a)), angle(&a)));
 }
 
 
@@ -967,10 +835,8 @@ f_ceil(union argument *arg)
     }
 }
 
-#if (GP_STRING_VARS > 1)
 /* Terminate the autoconversion from string to numeric values */
 #undef pop
-#endif
 
 /* EAM - replacement for defined(foo) + f_pushv + f_isvar
  *       implements      exists("foo") instead
@@ -978,7 +844,6 @@ f_ceil(union argument *arg)
 void
 f_exists(union argument *arg)
 {
-#ifdef GP_STRING_VARS
     struct value a;
 
     (void) arg;			/* avoid -Wunused warning */
@@ -991,7 +856,6 @@ f_exists(union argument *arg)
     } else {
 	push(Ginteger(&a, 0));
     }
-#endif
 }
 
 /* bessel function approximations */
@@ -1279,3 +1143,206 @@ TIMEFUNC( f_tmmon, tm_mon)
 TIMEFUNC( f_tmyear, tm_year)
 TIMEFUNC( f_tmwday, tm_wday)
 TIMEFUNC( f_tmyday, tm_yday)
+
+
+/*****************************************************************************/
+
+#define		SQR(a)		((a)*(a))
+
+#define C1 0.3
+#define C2 (1.0/7.0)
+#define C3 0.375
+#define C4 (9.0/22.0)
+
+static double 
+carlson_elliptic_rc(double x,double y)
+{
+    double alamb,ave,s,w,xt,yt,ans;
+
+    if (y > 0.0) {
+	xt=x;
+	yt=y;
+	w=1.0;
+    } else {
+	xt=x-y;
+	yt = -y;
+	w=sqrt(x)/sqrt(xt);
+    }
+
+    do {
+	alamb=2.0*sqrt(xt)*sqrt(yt)+yt;
+	xt=0.25*(xt+alamb);
+	yt=0.25*(yt+alamb);
+	ave=(1.0/3.0)*(xt+yt+yt);
+	s=(yt-ave)/ave;
+    } while (fabs(s) > 0.0012);
+
+    ans=w*(1.0+s*s*(C1+s*(C2+s*(C3+s*C4))))/sqrt(ave);
+
+    return(ans);
+}
+
+#undef	C4
+#undef	C3
+#undef	C2
+#undef	C1
+
+static double
+carlson_elliptic_rf(double x,double y,double z)
+{
+    double alamb,ave,delx,dely,delz,e2,e3,sqrtx,sqrty,sqrtz,xt,yt,zt;
+    xt=x;
+    yt=y;
+    zt=z;
+    do  {
+	sqrtx=sqrt(xt);
+	sqrty=sqrt(yt);
+	sqrtz=sqrt(zt);
+	alamb=sqrtx*(sqrty+sqrtz)+sqrty*sqrtz;
+	xt=0.25*(xt+alamb);
+	yt=0.25*(yt+alamb);
+	zt=0.25*(zt+alamb);
+	ave=(1.0/3.0)*(xt+yt+zt);
+	delx=(ave-xt)/ave;
+	dely=(ave-yt)/ave;
+	delz=(ave-zt)/ave;
+    } while (fabs(delx) > 0.0025 || fabs(dely) > 0.0025 || fabs(delz) > 0.0025);
+    e2=delx*dely-delz*delz;
+    e3=delx*dely*delz;
+
+    return((1.0+((1.0/24.0)*e2-(0.1)-(3.0/44.0)*e3)*e2+(1.0/14.0)*e3)/sqrt(ave));
+}
+
+#define C1 (3.0/14.0)
+#define C2 (1.0/6.0)
+#define C3 (9.0/22.0)
+#define C4 (3.0/26.0)
+#define C5 (0.25*C3)
+#define C6 (1.5*C4)
+
+static double
+carlson_elliptic_rd(double x,double y,double z)
+{
+    double alamb,ave,delx,dely,delz,ea,eb,ec,ed,ee,fac,
+	sqrtx,sqrty,sqrtz,sum,xt,yt,zt,ans;
+
+    xt=x;
+    yt=y;
+    zt=z;
+    sum=0.0;
+    fac=1.0;
+    do {
+	sqrtx=sqrt(xt);
+	sqrty=sqrt(yt);
+	sqrtz=sqrt(zt);
+	alamb=sqrtx*(sqrty+sqrtz)+sqrty*sqrtz;
+	sum+=fac/(sqrtz*(zt+alamb));
+	fac=0.25*fac;
+	xt=0.25*(xt+alamb);
+	yt=0.25*(yt+alamb);
+	zt=0.25*(zt+alamb);
+	ave=0.2*(xt+yt+3.0*zt);
+	delx=(ave-xt)/ave;
+	dely=(ave-yt)/ave;
+	delz=(ave-zt)/ave;
+    } while (fabs(delx) > 0.0015 || fabs(dely) > 0.0015 || fabs(delz) > 0.0015);
+    ea=delx*dely;
+    eb=delz*delz;
+    ec=ea-eb;
+    ed=ea-6.0*eb;
+    ee=ed+ec+ec;
+    ans=3.0*sum+fac*(1.0+ed*(-C1+C5*ed-C6*delz*ee)
+		+delz*(C2*ee+delz*(-C3*ec+delz*C4*ea)))/(ave*sqrt(ave));
+
+    return(ans);
+}
+
+#undef	C6
+#undef	C5
+#undef	C4
+#undef	C3
+#undef	C2
+#undef	C1
+
+#define C1 (3.0/14.0)
+#define C2 (1.0/3.0)
+#define C3 (3.0/22.0)
+#define C4 (3.0/26.0)
+#define C5 (0.75*C3)
+#define C6 (1.5*C4)
+#define C7 (0.5*C2)
+#define C8 (C3+C3)
+
+static double
+carlson_elliptic_rj(double x,double y,double z,double p)
+{
+    double a,alamb,alpha,ans,ave,b,beta,delp,delx,dely,delz,ea,eb,ec,
+	ed,ee,fac,pt,rcx,rho,sqrtx,sqrty,sqrtz,sum,tau,xt,yt,zt;
+
+    sum=0.0;
+    fac=1.0;
+    if (p > 0.0) {
+	xt=x;
+	yt=y;
+	zt=z;
+	pt=p;
+	a=b=rcx=0.0;
+    } else {
+	xt=GPMIN(GPMIN(x,y),z);
+	zt=GPMAX(GPMAX(x,y),z);
+	yt=x+y+z-xt-zt;
+	a=1.0/(yt-p);
+	b=a*(zt-yt)*(yt-xt);
+	pt=yt+b;
+	rho=xt*zt/yt;
+	tau=p*pt/yt;
+	rcx=carlson_elliptic_rc(rho,tau);
+    }
+
+    do {
+	sqrtx=sqrt(xt);
+	sqrty=sqrt(yt);
+	sqrtz=sqrt(zt);
+	alamb=sqrtx*(sqrty+sqrtz)+sqrty*sqrtz;
+	alpha=SQR(pt*(sqrtx+sqrty+sqrtz)+sqrtx*sqrty*sqrtz);
+	beta=pt*SQR(pt+alamb);
+	sum += fac*carlson_elliptic_rc(alpha,beta);
+	fac=0.25*fac;
+	xt=0.25*(xt+alamb);
+	yt=0.25*(yt+alamb);
+	zt=0.25*(zt+alamb);
+	pt=0.25*(pt+alamb);
+	ave=0.2*(xt+yt+zt+pt+pt);
+	delx=(ave-xt)/ave;
+	dely=(ave-yt)/ave;
+	delz=(ave-zt)/ave;
+	delp=(ave-pt)/ave;
+    } while (fabs(delx)>0.0015 || fabs(dely)>0.0015 || fabs(delz)>0.0015 || fabs(delp)>0.0015);
+
+    ea=delx*(dely+delz)+dely*delz;
+    eb=delx*dely*delz;
+    ec=delp*delp;
+    ed=ea-3.0*ec;
+    ee=eb+2.0*delp*(ea-ec);
+
+    ans=3.0*sum+fac*(1.0+ed*(-C1+C5*ed-C6*ee)+eb*(C7+delp*(-C8+delp*C4))
+	+delp*ea*(C2-delp*C3)-C2*delp*ec)/(ave*sqrt(ave));
+
+    if (p <= 0.0)
+	ans=a*(b*ans+3.0*(rcx-carlson_elliptic_rf(xt,yt,zt)));
+
+    return(ans);
+}
+
+#undef	C6
+#undef	C5
+#undef	C4
+#undef	C3
+#undef	C2
+#undef	C1
+#undef	C8
+#undef	C7
+
+#undef			SQR
+
+/*****************************************************************************/

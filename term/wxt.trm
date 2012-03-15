@@ -1,5 +1,5 @@
 /*
- * $Id: wxt.trm,v 1.17 2006/09/15 14:09:36 tlecomte Exp $
+ * $Id: wxt.trm,v 1.24 2009/03/26 00:49:27 sfeam Exp $
  */
 
 /* GNUPLOT - wxt.trm */
@@ -47,6 +47,7 @@ register_term (wxt)
 
 #ifdef TERM_PROTO
 TERM_PUBLIC void wxt_options __PROTO ((void));
+TERM_PUBLIC void wxt_text_wrapper __PROTO ((void));
 #endif /* TERM_PROTO */
 
 #ifndef TERM_PROTO_ONLY
@@ -54,8 +55,6 @@ TERM_PUBLIC void wxt_options __PROTO ((void));
 #ifdef TERM_BODY
 
 #include "wxterminal/wxt_term.h"
-/* for enhanced text mode */
-#include "wxterminal/gp_cairo_term.h"
 
 /* terminal state, defined extern in wxt_term.h */
 int wxt_window_number = 0;
@@ -63,17 +62,27 @@ TBOOLEAN wxt_enhanced_enabled = FALSE;
 int wxt_persist = UNSET;
 int wxt_raise = UNSET;
 int wxt_ctrl = UNSET;
+int wxt_rounded = no;
 /* default text font family: */
 char wxt_set_fontname[MAX_ID_LEN + 1] = "";
 /* default text size*/
 int wxt_set_fontsize = 0;
 /* window title */
 char wxt_title[MAX_ID_LEN + 1] = "";
+/* size of the plot area, in pixels
+ * (window is bigger, includes toolbar and status bar) */
+int wxt_width = 640;
+int wxt_height = 384;
+
+/* These are used to pass axis scaling information at the end of each plot */
+int wxt_axis_mask;
+wxt_axis_state_t wxt_axis_state[4];
 
 enum WXT_id {
     WXT_FONT,
     WXT_ENHANCED,
     WXT_NOENHANCED,
+    WXT_SIZE,
     WXT_PERSIST,
     WXT_NOPERSIST,
     WXT_RAISE,
@@ -82,6 +91,8 @@ enum WXT_id {
     WXT_NOCTRL,
     WXT_TITLE,
     WXT_CLOSE,
+    WXT_ROUNDED,
+    WXT_BUTT,
     WXT_OTHER
 };
 
@@ -89,6 +100,7 @@ static struct gen_table wxt_opts[] = {
     {"font",   WXT_FONT},
     {"enh$anced", WXT_ENHANCED},
     {"noenh$anced", WXT_NOENHANCED},
+    {"s$ize", WXT_SIZE},
     {"per$sist", WXT_PERSIST},
     {"noper$sist", WXT_NOPERSIST},
     {"rai$se", WXT_RAISE},
@@ -97,6 +109,8 @@ static struct gen_table wxt_opts[] = {
     {"noct$rlq", WXT_NOCTRL},
     {"ti$tle", WXT_TITLE},
     {"cl$ose", WXT_CLOSE},
+    {"round$ed", WXT_ROUNDED},
+    {"butt", WXT_BUTT},
     {NULL, WXT_OTHER}
 };
 
@@ -107,7 +121,6 @@ static struct gen_table wxt_opts[] = {
 * term_options[] is used by the save command.  Use options_null() if no options are available." */
 TERM_PUBLIC void wxt_options()
 {
-	struct value a;
 	char *s = NULL;
 	char *font_setting = NULL;
 	int sep;
@@ -116,6 +129,7 @@ TERM_PUBLIC void wxt_options()
 	TBOOLEAN set_persist = FALSE, set_number = FALSE;
 	TBOOLEAN set_raise = FALSE, set_ctrl = FALSE;
 	TBOOLEAN set_title = FALSE, set_close = FALSE;
+	TBOOLEAN set_capjoin = FALSE, set_size = FALSE;
 
 	while (!END_OF_COMMAND) {
 		FPRINTF((stderr, "processing token\n"));
@@ -155,6 +169,19 @@ TERM_PUBLIC void wxt_options()
 			term->flags &= ~TERM_ENHANCED_TEXT;
 			if (set_enhanced) duplication=TRUE;
 			set_enhanced = TRUE;
+			break;
+		case WXT_SIZE:
+			c_token++;
+			if (END_OF_COMMAND)
+				int_error(c_token,"size requires 'width,heigth'");
+			wxt_width = real_expression();
+			if (!equals(c_token++,","))
+				int_error(c_token,"size requires 'width,heigth'");
+			wxt_height = real_expression();
+			if (wxt_width < 1 || wxt_height < 1)
+				int_error(c_token, "size is out of range");
+			if (set_size) duplication=TRUE;
+			set_size = TRUE;
 			break;
 		case WXT_PERSIST:
 			c_token++;
@@ -207,9 +234,21 @@ TERM_PUBLIC void wxt_options()
 			if (set_close) duplication=TRUE;
 			set_close = TRUE;
 			break;
+		case WXT_ROUNDED:
+			c_token++;
+			if (set_capjoin) duplication=TRUE;
+			wxt_rounded = yes;
+			set_capjoin = TRUE;
+			break;
+		case WXT_BUTT:
+			c_token++;
+			if (set_capjoin) duplication=TRUE;
+			wxt_rounded = no;
+			set_capjoin = TRUE;
+			break;
 		case WXT_OTHER:
 		default:
-			wxt_window_number = (int) real(const_express(&a));
+			wxt_window_number = int_expression();
 			if (set_number) duplication=TRUE;
 			set_number = TRUE;
 			/*int_error(c_token, "unrecognized terminal option");*/
@@ -231,6 +270,14 @@ TERM_PUBLIC void wxt_options()
 		wxt_update_title(wxt_window_number);
 	}
 
+	if (set_size) {
+		char tmp_term_options[MAX_LINE_LEN+1] = "";
+		snprintf(tmp_term_options, sizeof(tmp_term_options),
+			  " size %d, %d", wxt_width, wxt_height);
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		wxt_update_size(wxt_window_number);
+	}
+
 	if (set_enhanced)
 		strncat(term_options,
 			wxt_enhanced_enabled ? " enhanced" : " noenhanced",
@@ -242,6 +289,10 @@ TERM_PUBLIC void wxt_options()
 		strncat(term_options, "\"", sizeof(term_options)-strlen(term_options));
 		free(font_setting);
 	}
+
+	if (set_capjoin)
+		strncat(term_options, wxt_rounded ? " rounded" : " butt",
+			sizeof(term_options)-strlen(term_options));
 
 	if (set_persist)
 		strncat(term_options,
@@ -261,6 +312,37 @@ TERM_PUBLIC void wxt_options()
 	if (set_close)
 		wxt_close_terminal_window(wxt_window_number);
 }
+
+/* wxt_text() will do most of the work, but we have to pass it axis scaling
+ * info via a global structure that is loaded here.  The axis scaling is
+ * so that subsequent mouse events can be transformed into plot
+ * coordinates even though the plot is no longer active.
+ */
+TERM_PUBLIC void wxt_text_wrapper()
+{
+    int i;
+
+#ifdef USE_MOUSE
+	int axis_order[4] = {FIRST_X_AXIS, FIRST_Y_AXIS, SECOND_X_AXIS, SECOND_Y_AXIS};
+	wxt_axis_mask = 0;
+
+	for (i=0; i<4; i++) {
+		if (axis_array[axis_order[i]].ticmode != NO_TICS)
+		    wxt_axis_mask |= (1 << i);
+	}
+
+	for (i=0; i<4; i++) {
+		wxt_axis_state[i].min = axis_array[axis_order[i]].min;
+		wxt_axis_state[i].term_lower = axis_array[axis_order[i]].term_lower;
+		wxt_axis_state[i].term_scale = axis_array[axis_order[i]].term_scale;
+		wxt_axis_state[i].logbase = axis_array[axis_order[i]].log
+			? axis_array[axis_order[i]].log_base : 0;
+	}
+#endif
+
+    wxt_text();
+}
+
 #endif /* TERM_BODY */
 
 #ifdef TERM_TABLE
@@ -269,20 +351,19 @@ TERM_TABLE_START (wxt_driver)
     /* the following values are overriden by wxt_graphics */
     1 /* xmax */ , 1 /* ymax */ , 1 /* vchar */ , 1 /* hchar */ ,
     1 /* vtic */ , 1 /* htic */ ,
-    wxt_options, wxt_init, wxt_reset, wxt_text, null_scale, wxt_graphics,
+    wxt_options, wxt_init, wxt_reset, wxt_text_wrapper, null_scale, wxt_graphics,
     wxt_move, wxt_vector, wxt_linetype, wxt_put_text,
     wxt_text_angle, wxt_justify_text,
     wxt_point, do_arrow, wxt_set_font,
-    wxt_pointsize, TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE,
+    wxt_pointsize,
+    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL,
     wxt_text /* suspend */, 0 /* resume */, wxt_fillbox, wxt_linewidth
 #ifdef USE_MOUSE
     , wxt_waitforinput, wxt_put_tmptext, wxt_set_ruler, wxt_set_cursor, wxt_set_clipboard
 #endif
     , wxt_make_palette, 0 /* wxt_previous_palette */, wxt_set_color, wxt_filled_polygon
-#ifdef WITH_IMAGE
     , wxt_image
-#endif
-    , gp_cairo_enhanced_open, gp_cairo_enhanced_flush, do_enh_writec
+    , wxt_enhanced_open, wxt_enhanced_flush, wxt_enhanced_writec
 TERM_TABLE_END (wxt_driver)
 
 #undef LAST_TERM
@@ -306,6 +387,7 @@ START_HELP(wxt)
 "",
 " Syntax:",
 "         set term wxt {<n>}",
+"                      {size <width>,<height>}",
 "                      {{no}enhanced}",
 "                      {font <font>}",
 "                      {title \"title\"}",
@@ -325,6 +407,9 @@ START_HELP(wxt)
 " while that window has input focus, by choosing `close` from a window",
 " manager menu, or with `set term wxt <n> close`.",
 "",
+" The size of the plot area is given in pixels, it defaults to 640x384.",
+" In addition to that, the actual size of the window also includes the space",
+" reserved for the toolbar and the status bar.",
 " When you resize a window, the plot is immediately scaled to fit in the",
 " new size of the window. Unlike other interactive terminals, the `wxt`",
 " terminal scales the whole plot, including fonts and linewidths, and keeps",

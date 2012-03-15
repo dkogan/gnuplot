@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: variable.c,v 1.27.2.1 2008/12/12 07:14:11 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: variable.c,v 1.34.2.1 2010/02/07 23:17:34 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - variable.c */
@@ -43,7 +43,7 @@ static char *RCSid() { return RCSid("$Id: variable.c,v 1.27.2.1 2008/12/12 07:14
 #include "alloc.h"
 #include "command.h"
 #include "util.h"
-
+#include "term_api.h"
 
 #define PATHSEP_TO_NUL(arg)			\
 do {						\
@@ -78,6 +78,7 @@ loadpath_handler(int action, char *path)
     /* index pointer, end of loadpath,
      * env section of loadpath, current limit, in that order */
     static char *p, *last, *envptr, *limit;
+    char *appdir;
 
     switch (action) {
     case ACTION_CLEAR:
@@ -148,6 +149,18 @@ loadpath_handler(int action, char *path)
 	    }
 	} else
 	    fputs("\tloadpath is empty\n", stderr);
+#ifdef X11
+	if ((appdir = getenv("XAPPLRESDIR"))) {
+	    fprintf(stderr,"\tenvironmental path for X11 application defaults: \"%s\"\n",
+		appdir);
+	}
+#ifdef XAPPLRESDIR
+	else {
+	    fprintf(stderr,"\tno XAPPLRESDIR found in the environment,\n");
+	    fprintf(stderr,"\t    falling back to \"%s\"\n", XAPPLRESDIR);
+	}
+#endif
+#endif
 	break;
     case ACTION_SAVE:
 	/* we don't save the load path taken from the
@@ -194,7 +207,7 @@ struct path_table {
 };
 
 /* Yet, no special font paths for these operating systems:
- * MSDOS, ATARI, AMIGA, MTOS, NeXT, ultrix, VMS, _IBMR2, alliant
+ * MSDOS, AMIGA, NeXT, ultrix, VMS, _IBMR2, alliant
  *
  * Environmental variables are written as $(name).
  * Commands are written as $`command`.
@@ -387,7 +400,8 @@ fontpath_handler(int action, char *path)
 					      +cmdbeg-envend+1,
 					      "expand fontpath");
 			    strncpy(tmpdir,currdir,cmdbeg-currdir);
-			    strcpy(tmpdir+(cmdbeg-currdir),envval);
+			    if (*envval)
+				strcpy(tmpdir+(cmdbeg-currdir),envval);
 			    strcpy(tmpdir+(cmdbeg-currdir+envlen), envend+1);
 
 			    free(currdir);
@@ -540,25 +554,29 @@ char abbrev_day_names[7][8] =
 char *
 locale_handler(int action, char *newlocale)
 {
-    static char *current_locale = NULL;
     struct tm tm;
     int i;
 
     switch(action) {
     case ACTION_CLEAR:
     case ACTION_INIT:
-	if (current_locale) free(current_locale);
+	free(current_locale);
+#ifdef HAVE_LOCALE_H
+	setlocale(LC_TIME, "");
+	current_locale = gp_strdup(setlocale(LC_TIME,NULL));
+#else
 	current_locale = gp_strdup(INITIAL_LOCALE);
+#endif
 	break;
+
     case ACTION_SET:
-/* FIXME: configure test for setlocale() */
 #ifdef HAVE_LOCALE_H
 	if (setlocale(LC_TIME, newlocale)) {
-	    current_locale = gp_realloc(current_locale, strlen(newlocale) + 1, "locale");
-	    strcpy(current_locale, newlocale);
-	}
-	else
+	    free(current_locale);
+	    current_locale = gp_strdup(setlocale(LC_TIME,NULL));
+	} else {
 	    int_error(c_token, "Locale not available");
+	}
 
 	/* we can do a *lot* better than this ; eg use system functions
 	 * where available; create values on first use, etc
@@ -579,19 +597,20 @@ locale_handler(int action, char *newlocale)
 	strcpy(current_locale, newlocale);
 #endif /* HAVE_LOCALE_H */
 	break;
+
     case ACTION_SHOW:
 #ifdef HAVE_LOCALE_H
-	fprintf(stderr, "\tLC_CTYPE is %s\n", setlocale(LC_CTYPE,NULL));
-	fprintf(stderr, "\tLC_TIME is %s\n", setlocale(LC_TIME,NULL));
+	fprintf(stderr, "\tgnuplot LC_CTYPE   %s\n", setlocale(LC_CTYPE,NULL));
+	fprintf(stderr, "\tgnuplot encoding   %s\n", encoding_names[encoding]);
+	fprintf(stderr, "\tgnuplot LC_TIME    %s\n", setlocale(LC_TIME,NULL));
+	fprintf(stderr, "\tgnuplot LC_NUMERIC %s\n", numeric_locale ? numeric_locale : "C");
 #else
 	fprintf(stderr, "\tlocale is \"%s\"\n", current_locale);
 #endif
 	break;
-    case ACTION_SAVE:
+    
     case ACTION_GET:
-    case ACTION_NULL:
     default:
-	/* just return */
 	break;
     }
 

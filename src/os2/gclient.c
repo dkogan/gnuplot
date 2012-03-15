@@ -1,5 +1,5 @@
 #ifdef INCRCSDATA
-static char RCSid[]="$Id: gclient.c,v 1.47.2.1 2008/02/23 11:23:12 mikulik Exp $";
+static char RCSid[]="$Id: gclient.c,v 1.50 2008/04/10 18:09:05 sfeam Exp $";
 #endif
 
 /****************************************************************************
@@ -814,7 +814,9 @@ EXPENTRY DisplayClientWndProc(HWND hWnd, ULONG message, MPARAM mp1, MPARAM mp2)
 #endif
 
 	switch (key) {
+
 	case VK_SPACE: {
+#ifndef DISABLE_SPACE_RAISES_CONSOLE
 	    /* raise gnuplot's window */
 	    HWND hw = WinQueryWindow(swGnu.hwnd, QW_BOTTOM);
 	    WinSetFocus(HWND_DESKTOP, hw);
@@ -823,6 +825,9 @@ EXPENTRY DisplayClientWndProc(HWND hWnd, ULONG message, MPARAM mp1, MPARAM mp2)
 		       0 /* MPFROMSHORT(key) */
 		);
 	    WinSwitchToProgram(hSwitch);
+#else
+	    key = ' ';
+#endif /* DISABLE_SPACE_RAISES_CONSOLE */
 	    break;
 	}
 	    /* remap virtual keys to gnuplot's codes: */
@@ -993,7 +998,7 @@ EXPENTRY DisplayClientWndProc(HWND hWnd, ULONG message, MPARAM mp1, MPARAM mp2)
 	}
 	free(pp);
 #ifndef STANDARD_FONT_DIALOG
-	gp_execute("replot");
+	gp_execute("refresh");
 #endif
 	break;
     }
@@ -2711,6 +2716,7 @@ ReadGnu(void* arg)
 		switch(style & 0xf) {
 
 		    case FS_SOLID:
+		    case FS_TRANSPARENT_SOLID:
 		    {
 			/* style == 1 --> fill with intensity according to filldensity */
 			static const ULONG patternlist[] = {
@@ -2731,6 +2737,7 @@ ReadGnu(void* arg)
 		    }
 
 		    case FS_PATTERN:
+		    case FS_TRANSPARENT_PATTERN:
 		    {
 			/* style == 2 --> fill with pattern according to fillpattern */
 			/* the upper 3 nibbles of 'style' contain pattern number */

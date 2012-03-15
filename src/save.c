@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.132.2.14 2009/07/16 15:52:26 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.171.2.5 2010/02/24 22:48:49 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -200,11 +200,11 @@ save_set_all(FILE *fp)
 %sset clip points\n\
 %sset clip one\n\
 %sset clip two\n\
-set bar %f\n",
+set bar %f %s\n",
 	    (clip_points) ? "" : "un",
 	    (clip_lines1) ? "" : "un",
 	    (clip_lines2) ? "" : "un",
-	    bar_size);
+	    bar_size, (bar_layer == LAYER_BACK) ? "back" : "front");
 
     if (draw_border) {
 	fprintf(fp, "set border %d %s", draw_border, border_layer == 0 ? "back" : "front");
@@ -259,11 +259,24 @@ set y2data%s\n",
     save_fillstyle(fp, &default_rectangle.fillstyle);
 #endif
 
-    if (dgrid3d)
+    if (dgrid3d) {
+      if( dgrid3d_mode == DGRID3D_QNORM ) {
 	fprintf(fp, "set dgrid3d %d,%d, %d\n",
-		dgrid3d_row_fineness,
-		dgrid3d_col_fineness,
-		dgrid3d_norm_value);
+          	dgrid3d_row_fineness,
+          	dgrid3d_col_fineness,
+          	dgrid3d_norm_value);
+      } else if( dgrid3d_mode == DGRID3D_SPLINES ) {
+	fprintf(fp, "set dgrid3d %d,%d splines\n",
+          	dgrid3d_row_fineness, dgrid3d_col_fineness );
+      } else {
+	fprintf(fp, "set dgrid3d %d,%d %s %f,%f\n",
+          	dgrid3d_row_fineness,
+          	dgrid3d_col_fineness,
+		reverse_table_lookup(dgrid3d_mode_tbl, dgrid3d_mode),
+          	dgrid3d_x_scale,
+          	dgrid3d_y_scale );
+      }
+    }
 
     fprintf(fp, "set dummy %s,%s\n", set_dummy_var[0], set_dummy_var[1]);
 
@@ -317,12 +330,15 @@ set y2data%s\n",
 	fputc('\n', fp);
     }
 
-    fprintf(fp, "set key title \"%s\"\n", conv_text(key->title));
-    if (!(key->visible))
-	fputs("unset key\n", fp);
-    else {
-	fputs("set key ", fp);
-	switch (key->region) {
+    fprintf(fp, "set key title \"%s\"", conv_text(key->title));
+    if (key->font)
+	fprintf(fp, " font \"%s\"", key->font);
+    if (key->textcolor.type != TC_LT || key->textcolor.lt != LT_BLACK)
+	save_textcolor(fp, &key->textcolor);
+    fputs("\n", fp);
+
+    fputs("set key ", fp);
+    switch (key->region) {
 	case GPKEY_AUTO_INTERIOR_LRTBC:
 	    fputs("inside", fp);
 	    break;
@@ -346,12 +362,13 @@ set y2data%s\n",
 	    }
 	    break;
 	case GPKEY_USER_PLACEMENT:
+	    fputs("at ", fp);
 	    save_position(fp, &key->user_pos, FALSE);
 	    break;
-	}
-	if (!(key->region == GPKEY_AUTO_EXTERIOR_MARGIN
+    }
+    if (!(key->region == GPKEY_AUTO_EXTERIOR_MARGIN
 	      && (key->margin == GPKEY_LMARGIN || key->margin == GPKEY_RMARGIN))) {
-	    switch (key->hpos) {
+	switch (key->hpos) {
 	    case RIGHT:
 		fputs(" right", fp);
 		break;
@@ -361,11 +378,11 @@ set y2data%s\n",
 	    case CENTRE:
 		fputs(" center", fp);
 		break;
-	    }
 	}
-	if (!(key->region == GPKEY_AUTO_EXTERIOR_MARGIN
+    }
+    if (!(key->region == GPKEY_AUTO_EXTERIOR_MARGIN
 	      && (key->margin == GPKEY_TMARGIN || key->margin == GPKEY_BMARGIN))) {
-	    switch (key->vpos) {
+	switch (key->vpos) {
 	    case JUST_TOP:
 		fputs(" top", fp);
 		break;
@@ -375,9 +392,9 @@ set y2data%s\n",
 	    case JUST_CENTRE:
 		fputs(" center", fp);
 		break;
-	    }
 	}
-	fprintf(fp, " %s %s %sreverse %senhanced %s ",
+    }
+    fprintf(fp, " %s %s %sreverse %senhanced %s ",
 		key->stack_dir == GPKEY_VERTICAL ? "vertical" : "horizontal",
 		key->just == GPKEY_LEFT ? "Left" : "Right",
 		key->reverse ? "" : "no",
@@ -385,17 +402,20 @@ set y2data%s\n",
 		key->auto_titles == COLUMNHEAD_KEYTITLES ? "autotitles columnhead"
 		: key->auto_titles == FILENAME_KEYTITLES ? "autotitles"
 		: "noautotitles" );
-	if (key->box.l_type > LT_NODRAW) {
-	    fputs("box", fp);
-	    save_linetype(fp, &(key->box), FALSE);
-	} else
-	    fputs("nobox", fp);
-	/* Put less common options on a separate line*/
-	fprintf(fp, "\nset key %sinvert samplen %g spacing %g width %g height %g ",
+    if (key->box.l_type > LT_NODRAW) {
+	fputs("box", fp);
+	save_linetype(fp, &(key->box), FALSE);
+    } else
+	fputs("nobox", fp);
+
+    /* Put less common options on a separate line*/
+    fprintf(fp, "\nset key %sinvert samplen %g spacing %g width %g height %g ",
 		key->invert ? "" : "no",
 		key->swidth, key->vert_factor, key->width_fix, key->height_fix);
-	fputc('\n', fp);
-    }
+    fputc('\n', fp);
+
+    if (!(key->visible))
+	fputs("unset key\n", fp);
 
     fputs("unset label\n", fp);
     for (this_label = first_label; this_label != NULL;
@@ -491,7 +511,6 @@ set y2data%s\n",
 	fprintf(fp, "\n");
     }
 
-#ifdef EAM_HISTOGRAMS
     fprintf(fp, "set style histogram ");
     switch (histogram_opts.type) {
 	default:
@@ -507,10 +526,9 @@ set y2data%s\n",
     fprintf(fp,"title ");
     save_position(fp, &histogram_opts.title.offset, TRUE);
     fprintf(fp, "\n");
-#endif
 
 #ifdef EAM_OBJECTS
-    save_rectangle(fp, 0);
+    save_object(fp, 0);
 #endif
 
     fputs("unset logscale\n", fp);
@@ -526,24 +544,24 @@ set y2data%s\n",
     SAVE_LOG(COLOR_AXIS );
 #undef SAVE_LOG
 
+    save_offsets(fp, "set offsets");
+
     /* FIXME */
     fprintf(fp, "\
-set offsets %g, %g, %g, %g\n\
 set pointsize %g\n\
 set encoding %s\n\
 %sset polar\n\
 %sset parametric\n",
-	    loff, roff, toff, boff,
 	    pointsize,
 	    encoding_names[encoding],
 	    (polar) ? "" : "un",
 	    (parametric) ? "" : "un");
-    if (decimalsign != NULL) {
-#ifdef HAVE_LOCALE_H
-	fprintf(fp, "set decimalsign locale \"%s\"\n", setlocale(LC_NUMERIC,NULL));
-#endif
+
+    if (numeric_locale)
+	fprintf(fp, "set decimalsign locale \"%s\"\n", numeric_locale);
+    if (decimalsign != NULL)
 	fprintf(fp, "set decimalsign '%s'\n", decimalsign);
-    } else
+    if (!numeric_locale && !decimalsign)
         fprintf(fp, "unset decimalsign\n");
 
     fputs("set view ", fp);
@@ -614,6 +632,8 @@ set isosamples %d, %d\n\
 	fprintf(fp, "set datafile commentschars '%s'\n", df_commentschars);
     if (df_fortran_constants)
 	fprintf(fp, "set datafile fortran\n");
+    if (df_nofpe_trap)
+	fprintf(fp, "set datafile nofpe_trap\n");
 
     save_hidden3doptions(fp);
     fprintf(fp, "set cntrparam order %d\n", contour_order);
@@ -668,9 +688,9 @@ set origin %g,%g\n",
     save_zeroaxis(fp, SECOND_Y_AXIS);
 
     if (xyplane.absolute)
-	fprintf(fp, "set xyplane at %g\n", xyplane.xyplane_z);
+	fprintf(fp, "set xyplane at %g\n", xyplane.z);
     else
-	fprintf(fp, "set ticslevel %g\n", xyplane.ticslevel);
+	fprintf(fp, "set ticslevel %g\n", xyplane.z);
 
 #define SAVE_MINI(axis)							\
     switch(axis_array[axis].minitics & TICS_MASK) {			\
@@ -770,7 +790,7 @@ set origin %g,%g\n",
     fprintf(fp, "set tmargin %s %g\n",
 	    tmargin.scalex == screen ? "at screen" : "", tmargin.x);
 
-    fprintf(fp, "set locale \"%s\"\n", get_locale());
+    fprintf(fp, "set locale \"%s\"\n", get_time_locale());
 
     fputs("set pm3d ", fp);
     fputs((PM3D_IMPLICIT == pm3d.implicit ? "implicit" : "explicit"), fp);
@@ -793,9 +813,6 @@ set origin %g,%g\n",
     fputs("ftriangles", fp);
     if (pm3d.hidden3d_tag) fprintf(fp," hidden3d %d", pm3d.hidden3d_tag);
 	else fputs(" nohidden3d", fp);
-#if PM3D_HAVE_SOLID
-    fputs((pm3d.solid ? " solid" : " transparent"), fp);
-#endif
     fputs(" corners2color ", fp);
     switch (pm3d.which_corner_color) {
 	case PM3D_WHICHCORNER_MEAN:    fputs("mean", fp); break;
@@ -994,12 +1011,11 @@ save_tics(FILE *fp, AXIS_INDEX axis)
 
 }
 
+static const char *coord_msg[] = { "first ", "second ", "graph ", "screen ",
+				 "character "};
 static void
 save_position(FILE *fp, struct position *pos, TBOOLEAN offset)
 {
-    static const char *msg[] = { "first ", "second ", "graph ", "screen ",
-				 "character "};
- 
     assert(first_axes == 0 && second_axes == 1 && graph == 2 && screen == 3 &&
 	   character == 4);
 
@@ -1007,9 +1023,9 @@ save_position(FILE *fp, struct position *pos, TBOOLEAN offset)
 	fprintf(fp, " offset ");
 
     fprintf(fp, "%s%g, %s%g, %s%g",
-	    pos->scalex == first_axes ? "" : msg[pos->scalex], pos->x,
-	    pos->scaley == pos->scalex ? "" : msg[pos->scaley], pos->y,
-	    pos->scalez == pos->scaley ? "" : msg[pos->scalez], pos->z);
+	    pos->scalex == first_axes ? "" : coord_msg[pos->scalex], pos->x,
+	    pos->scaley == pos->scalex ? "" : coord_msg[pos->scaley], pos->y,
+	    pos->scalez == pos->scaley ? "" : coord_msg[pos->scalez], pos->z);
 }
 
 
@@ -1037,11 +1053,11 @@ save_range(FILE *fp, AXIS_INDEX axis)
 	/* add current (hidden) range as comments */
 	fputs("  # (currently [", fp);
 	if (axis_array[axis].set_autoscale & AUTOSCALE_MIN) {
-	    SAVE_NUM_OR_TIME(fp, axis_array[axis].set_min, axis);
+	    SAVE_NUM_OR_TIME(fp, axis_array[axis].min, axis);
 	}
 	putc(':', fp);
 	if (axis_array[axis].set_autoscale & AUTOSCALE_MAX) {
-	    SAVE_NUM_OR_TIME(fp, axis_array[axis].set_max, axis);
+	    SAVE_NUM_OR_TIME(fp, axis_array[axis].max, axis);
 	}
 	fputs("] )\n", fp);
 
@@ -1066,10 +1082,16 @@ save_fillstyle(FILE *fp, const struct fill_style_type *fs)
 {
     switch(fs->fillstyle) {
     case FS_SOLID:
-	fprintf(fp, " solid %.2f ", fs->filldensity / 100.0);
+    case FS_TRANSPARENT_SOLID:
+	fprintf(fp, " %s solid %.2f ", 
+		fs->fillstyle == FS_SOLID ? "" : "transparent",
+		fs->filldensity / 100.0);
 	break;
     case FS_PATTERN:
-	fprintf(fp, " pattern %d ", fs->fillpattern);
+    case FS_TRANSPARENT_PATTERN:
+	fprintf(fp, " %s pattern %d ", 
+		fs->fillstyle == FS_PATTERN ? "" : "transparent",
+		fs->fillpattern);
 	break;
     case FS_DEFAULT:
 	fprintf(fp, " default\n");
@@ -1078,12 +1100,13 @@ save_fillstyle(FILE *fp, const struct fill_style_type *fs)
 	fprintf(fp, " empty ");
 	break;
     }
-    if (fs->border_linetype == LT_NODRAW)
+    if (fs->border_color.type == TC_LT && fs->border_color.lt == LT_NODRAW) {
 	fprintf(fp, "noborder\n");
-    else if (fs->border_linetype == LT_UNDEFINED)
-	fprintf(fp, "border\n");
-    else
-	fprintf(fp, "border %d\n",fs->border_linetype+1);
+    } else {
+	fprintf(fp, "border");
+	save_pm3dcolor(fp, &fs->border_color);
+	fprintf(fp, "\n");
+    }
 }
 
 void
@@ -1113,7 +1136,9 @@ save_pm3dcolor(FILE *fp, const struct t_colorspec *tc)
 		      break;
 	case TC_RGB:  {
 		      const char *color = reverse_table_lookup(pm3d_color_names_tbl, tc->lt);
-		      if (color)
+		      if (tc->value < 0)
+		  	fprintf(fp," rgb variable ");
+		      else if (color)
 	    		fprintf(fp," rgb \"%s\" ", color);
     		      else
 	    		fprintf(fp," rgb \"#%6.6x\" ", tc->lt);
@@ -1164,11 +1189,9 @@ save_data_func_style(FILE *fp, const char *which, enum PLOT_STYLE style)
     case BOXES:
 	fputs("boxes\n", fp);
 	break;
-#ifdef EAM_HISTOGRAMS
     case HISTOGRAMS:
 	fputs("histograms\n", fp);
 	break;
-#endif
     case FILLEDCURVES:
 	fputs("filledcurves ", fp);
 	if (!strcmp(which, "data") || !strcmp(which, "Data"))
@@ -1204,17 +1227,18 @@ save_data_func_style(FILE *fp, const char *which, enum PLOT_STYLE style)
     case PM3DSURFACE:
 	fputs("pm3d\n", fp);
 	break;
-#ifdef EAM_DATASTRINGS
     case LABELPOINTS:
 	fputs("labels\n", fp);
 	break;
-#endif
-#ifdef WITH_IMAGE
     case IMAGE:
-	fputs("image\n", stderr);
+	fputs("image\n", fp);
 	break;
     case RGBIMAGE:
-	fputs("rgbimage\n", stderr);
+	fputs("rgbimage\n", fp);
+	break;
+#ifdef EAM_OBJECTS
+	case CIRCLES:
+	fputs("circles\n", fp);
 	break;
 #endif
     default:
@@ -1236,7 +1260,7 @@ save_linetype(FILE *fp, lp_style_type *lp, TBOOLEAN show_point)
     }
     fprintf(fp, " linewidth %.3f", lp->l_width);
 
-    if (show_point && lp->pointflag) {
+    if (show_point) {
 	fprintf(fp, " pointtype %d", lp->p_type + 1);
 	if (lp->p_size == PTSZ_VARIABLE)
 	    fprintf(fp, " pointsize variable");
@@ -1244,26 +1268,38 @@ save_linetype(FILE *fp, lp_style_type *lp, TBOOLEAN show_point)
 	    fprintf(fp, " pointsize default");
 	else
 	    fprintf(fp, " pointsize %.3f", lp->p_size);
+	fprintf(fp, " pointinterval %d", lp->p_interval);
     }
 	
+}
+
+
+void
+save_offsets(FILE *fp, char *lead)
+{
+    fprintf(fp, "%s %s%g, %s%g, %s%g, %s%g\n", lead,
+	loff.scalex == graph ? "graph " : "", loff.x,
+	roff.scalex == graph ? "graph " : "", roff.x,
+	toff.scaley == graph ? "graph " : "", toff.y,
+	boff.scaley == graph ? "graph " : "", boff.y);
 }
 
 #ifdef EAM_OBJECTS
 
 /* Save/show rectangle <tag> (0 means show all) */
 void
-save_rectangle(FILE *fp, int tag)
+save_object(FILE *fp, int tag)
 {
     t_object *this_object;
     t_rectangle *this_rect;
+    t_circle *this_circle;
+    t_ellipse *this_ellipse;
     TBOOLEAN showed = FALSE;
 
     for (this_object = first_object; this_object != NULL; this_object = this_object->next) {
-	if (this_object->object_type == OBJ_RECTANGLE)
+	if ((this_object->object_type == OBJ_RECTANGLE)
+	    && (tag == 0 || tag == this_object->tag)) {
 	    this_rect = &this_object->o.rectangle;
-	else
-	    continue;
-	if (tag == 0 || tag == this_object->tag) {
 	    showed = TRUE;
 	    fprintf(fp, "%sobject %2d rect ", (fp==stderr) ? "\t" : "set ",this_object->tag);
 
@@ -1278,23 +1314,70 @@ save_rectangle(FILE *fp, int tag)
 		fprintf(fp, " to ");
 		save_position(fp, &this_rect->tr, FALSE);
 	    }
-
-	    fprintf(fp, " %s ", this_object->layer > 0 ? "front" : this_object->layer < 0 ? "behind" : "back");
-	    if (this_object->lp_properties.l_width)
-		fprintf(fp, "lw %.1f ",this_object->lp_properties.l_width);
-	    fprintf(fp, "fc ");
-	    if (this_object->lp_properties.l_type == LT_DEFAULT)
-		fprintf(fp,"default");
-	    else if (this_object->lp_properties.use_palette)
-		save_pm3dcolor(fp, &this_object->lp_properties.pm3d_color);
-	    else
-		fprintf(fp, "lt %d",this_object->lp_properties.l_type+1);
-	    fprintf(fp, " fillstyle ");
-	    save_fillstyle(fp, &this_object->fillstyle);
 	}
+
+	else if ((this_object->object_type == OBJ_CIRCLE)
+	    && (tag == 0 || tag == this_object->tag)) {
+	    struct position *e = &this_object->o.circle.extent;
+	    this_circle = &this_object->o.circle;
+	    showed = TRUE;
+	    fprintf(fp, "%sobject %2d circle ", (fp==stderr) ? "\t" : "set ",this_object->tag);
+
+	    fprintf(fp, "center ");
+	    save_position(fp, &this_circle->center, FALSE);
+	    fprintf(fp, " size ");
+	    fprintf(fp, "%s%g", e->scalex == first_axes ? "" : coord_msg[e->scalex], e->x);
+	    fprintf(fp, " arc [%g:%g] ", this_circle->arc_begin, this_circle->arc_end);
+	}
+
+	else if ((this_object->object_type == OBJ_ELLIPSE)
+	    && (tag == 0 || tag == this_object->tag)) {
+	    struct position *e = &this_object->o.ellipse.extent;
+	    this_ellipse = &this_object->o.ellipse;
+	    showed = TRUE;
+	    fprintf(fp, "%sobject %2d ellipse ", (fp==stderr) ? "\t" : "set ",this_object->tag);
+	    fprintf(fp, "center ");
+	    save_position(fp, &this_ellipse->center, FALSE);
+	    fprintf(fp, " size ");
+	    fprintf(fp, "%s%g", e->scalex == first_axes ? "" : coord_msg[e->scalex], e->x);
+	    fprintf(fp, ", %s%g", e->scaley == e->scalex ? "" : coord_msg[e->scaley], e->y);
+	    fprintf(fp, "  angle %g", this_ellipse->orientation);
+	}
+
+	else if ((this_object->object_type == OBJ_POLYGON)
+	    && (tag == 0 || tag == this_object->tag)) {
+	    t_polygon *this_polygon = &this_object->o.polygon;
+	    int nv;
+	    showed = TRUE;
+	    fprintf(fp, "%sobject %2d polygon ", (fp==stderr) ? "\t" : "set ",this_object->tag);
+	    if (this_polygon->vertex) {
+		fprintf(fp, "from ");
+		save_position(fp, &this_polygon->vertex[0], FALSE);
+	    }
+	    for (nv=1; nv < this_polygon->type; nv++) {
+		fprintf(fp, (fp==stderr) ? "\n\t\t\t    to " : " to ");
+		save_position(fp, &this_polygon->vertex[nv], FALSE);
+	    }
+	}
+
+	/* Properties common to all objects */
+	fprintf(fp, "\n%sobject %2d ", (fp==stderr) ? "\t" : "set ",this_object->tag);
+	fprintf(fp, "%s ", this_object->layer > 0 ? "front" : this_object->layer < 0 ? "behind" : "back");
+	if (this_object->lp_properties.l_width)
+		fprintf(fp, "lw %.1f ",this_object->lp_properties.l_width);
+	fprintf(fp, "fc ");
+	if (this_object->lp_properties.l_type == LT_DEFAULT)
+		fprintf(fp,"default");
+	else if (this_object->lp_properties.use_palette)
+		save_pm3dcolor(fp, &this_object->lp_properties.pm3d_color);
+	else
+		fprintf(fp, "lt %d",this_object->lp_properties.l_type+1);
+	fprintf(fp, " fillstyle ");
+	save_fillstyle(fp, &this_object->fillstyle);
+
     }
     if (tag > 0 && !showed)
-	int_error(c_token, "rect not found");
+	int_error(c_token, "object not found");
 }
 
 #endif

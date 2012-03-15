@@ -1,5 +1,5 @@
 /*
- * $Id: wgnuplib.h,v 1.24 2006/03/05 01:15:56 broeker Exp $
+ * $Id: wgnuplib.h,v 1.28.2.2 2010/02/16 07:05:39 mikulik Exp $
  */
 
 /* GNUPLOT - win/wgnuplib.h */
@@ -45,7 +45,9 @@
 #include <windows.h>
 
 #ifdef _WINDOWS
-#define _Windows
+# ifndef _Windows
+#  define _Windows
+# endif
 #endif
 
 /* HBB 19990506: The following used to be #ifdef __DLL__.
@@ -220,6 +222,7 @@ typedef struct tagTW
 typedef TW FAR*  LPTW;
 
 
+#ifndef WGP_CONSOLE
 /* ================================== */
 /* wtext.c - Text Window */
 void WDPROC TextMessage(void);
@@ -242,6 +245,8 @@ void WDPROC TextInsertLine(LPTW lptw);
 void WDPROC TextDeleteLine(LPTW lptw);
 void WDPROC TextScrollReverse(LPTW lptw);
 void WDPROC TextAttr(LPTW lptw, BYTE attr);
+#endif /* WGP_CONSOLE */
+
 void WDPROC AboutBox(HWND hwnd, LPSTR str);
 
 /* ================================== */
@@ -252,6 +257,9 @@ void WDPROC AboutBox(HWND hwnd, LPSTR str);
 /* number of different 'basic' pens supported (the ones you can modify
  * by the 'Line styles...' dialog, and save to/from wgnuplot.ini). */
 #define WGNUMPENS 15
+
+/* maximum number of different colors per palette, used to be hardcoded (256) */
+#define WIN_PAL_COLORS 4096
 
 /* Information about one graphical operation to be stored by the
  * driver for the sake of redraws. Array of GWOP kept in global block */
@@ -347,12 +355,16 @@ typedef struct tagGW {
 	unsigned int nGWOP;
 	BOOL	locked;		/* locked if being written */
 	double  org_pointsize;	/* Original Pointsize */
+	int		statuslineheight;	/* height of status line area */
 } GW;
 typedef GW FAR*  LPGW;
 
 #define WINFONTSIZE 10
 #define WIN30FONT "Courier"
 #define WINFONT "Arial"
+
+#define MAXTITLELEN 120
+#define WINGRAPHTITLE "gnuplot graph"
 
 #if 0
 enum JUSTIFY {
@@ -364,6 +376,7 @@ void WDPROC GraphInit(LPGW lpgw);
 void WDPROC GraphClose(LPGW lpgw);
 void WDPROC GraphStart(LPGW lpgw, double pointsize);
 void WDPROC GraphEnd(LPGW lpgw);
+void WDPROC GraphChangeTitle(LPGW lpgw);
 void WDPROC GraphResume(LPGW lpgw);
 void WDPROC GraphOp(LPGW lpgw, WORD op, WORD x, WORD y, LPCSTR str);
 void WDPROC GraphOpSize(LPGW lpgw, WORD op, WORD x, WORD y, LPCSTR str, DWORD size);
@@ -372,6 +385,8 @@ void WDPROC GraphRedraw(LPGW lpgw);
 void WDPROC GraphChangeFont(LPGW lpgw, LPCSTR font, int fontsize, HDC hdc, RECT rect);
 unsigned int WDPROC GraphGetTextLength(LPGW lpgw, LPCSTR text, LPCSTR fontname, int fontsize);
 int WDPROC GraphGetFontScaling(LPGW lpgw, LPCSTR font, int fontsize);
+void	ReadGraphIni(LPGW lpgw);
+void WDPROC win_close_terminal_window(LPGW lpgw);
 
 #ifdef USE_MOUSE
 void WDPROC Graph_set_cursor (LPGW lpgw, int c, int x, int y );

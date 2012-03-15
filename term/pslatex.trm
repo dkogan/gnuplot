@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: pslatex.trm,v 1.69.2.3 2009/05/11 21:47:30 sfeam Exp $
+ * $Id: pslatex.trm,v 1.75 2009/05/11 17:55:20 sfeam Exp $
  */
 
 /* GNUPLOT - pslatex.trm */
@@ -441,7 +441,10 @@ EPSLATEX_common_init()
         case S_ENC_ISO8859_2:
             inputenc = "latin2";
             break;
-        case S_ENC_ISO8859_15:
+        case S_ENC_ISO8859_9:	/* ISO8859-9 is Latin5 */
+            inputenc = "latin5";
+            break;
+        case S_ENC_ISO8859_15:	/* ISO8859-15 is Latin9 */
             inputenc = "latin9";
             break;
         case S_ENC_CP437:
@@ -945,9 +948,7 @@ TERM_TABLE_START(epslatex_driver)
 #endif
     PS_make_palette, PS_previous_palette,
     EPSLATEX_set_color, PS_filled_polygon,
-#ifdef WITH_IMAGE
     PS_image,
-#endif
     0, 0, 0, /* Enhanced text mode not used */
     EPSLATEX_layer, /* Used to signal front/back text */
     PS_path
@@ -972,12 +973,10 @@ TERM_TABLE_START(pslatex_driver)
    PS_previous_palette, /* write grestore */
    PS_set_color,
    PS_filled_polygon
-#ifdef WITH_IMAGE
     , PS_image
     , 0, 0, 0	/* No enhanced text mode because this is LaTeX */
     , 0         /* layer */
     , PS_path
-#endif
 TERM_TABLE_END(pslatex_driver)
 #undef LAST_TERM
 #define LAST_TERM pslatex_driver
@@ -999,9 +998,7 @@ TERM_TABLE_START(pstex_driver)
    PS_previous_palette, /* write grestore */
    PS_set_color,
    PS_filled_polygon
-#ifdef WITH_IMAGE
     , PS_image
-#endif
     , 0, 0, 0	/* No enhanced text mode because this is LaTeX */
     , 0         /* layer */
     , PS_path

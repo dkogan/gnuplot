@@ -1,5 +1,5 @@
 /*
- * $Id: syscfg.h,v 1.33.2.1 2007/08/26 06:15:51 sfeam Exp $
+ * $Id: syscfg.h,v 1.36.2.2 2010/02/03 05:01:00 sfeam Exp $
  */
 
 /* GNUPLOT - syscfg.h */
@@ -80,22 +80,6 @@
 #  define S_IFIFO S_IREAD
 # endif
 #endif /* Amiga */
-
-#ifdef ATARI
-# define OS      "TOS"
-# define HOME     "GNUPLOT"
-# define PLOTRC   "gnuplot.ini"
-# define SHELL    "gulam.prg"
-# define DIRSEP1  '\\'
-# ifdef MTOS
-#  define DIRSEP2 '/'
-# endif
-#endif /* Atari */
-/* FIXME: may need to be ifdef'd for ATARI/MTOS */
-#ifdef __PUREC__
-# define sscanf purec_sscanf
-# define GP_MATHERR purec_matherr
-#endif
 
 #ifdef DOS386
 # define OS       "DOS 386"
@@ -181,9 +165,6 @@
 #  define DOS16
 # endif
 /* should this be here ? */
-# ifdef MTOS
-#  define OS "TOS & MiNT & MULTITOS & Magic - "
-# endif /* MTOS */
 # define OS       "MS-DOS"
 # undef HELPFILE
 # define HELPFILE "gnuplot.gih"
@@ -234,17 +215,6 @@
 # define PATHSEP ':'
 #endif
 
-#ifndef FAQ_LOCATION
-#define FAQ_LOCATION "http://www.gnuplot.info/faq/"
-#endif
-
-#ifndef CONTACT
-# define CONTACT "http://sourceforge.net/projects/gnuplot"
-#endif
-
-#ifndef HELPMAIL
-# define HELPMAIL "gnuplot-info@lists.sourceforge.net"
-#endif
 /* End fall-through defaults */
 
 /* Need this before any headers are incldued */
@@ -253,20 +223,6 @@
 #else
 # define __PROTO(proto) ()
 #endif
-
-/* Atari stuff. Moved here from command.c, plot2d.c, readline.c */
-#if defined(ATARI) || defined(MTOS)
-# ifdef __PUREC__
-#  include <ext.h>
-#  include <tos.h>
-#  include <aes.h>
-# else
-#  include <osbind.h>
-#  include <aesbind.h>
-#  include <support.h>
-# endif                         /* __PUREC__ */
-#endif /* ATARI || MTOS */
-
 
 /* DOS/Windows stuff. Moved here from command.c */
 #if defined(MSDOS) || defined(DOS386)
@@ -466,6 +422,11 @@ typedef unsigned char _Bool;
 # define false 0
 # define true 1
 # define __bool_true_false_are_defined 1
+#endif
+
+/* May or may not fix a problem reported for Sun Studio compilers */
+#if defined(__SUNPRO_CC) && !defined(bool)
+#define bool unsigned char
 #endif
 
 #undef TRUE

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gpexecute.c,v 1.14.2.1 2009/02/19 21:17:54 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gpexecute.c,v 1.16 2009/02/19 21:15:49 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - gpexecute.c */
@@ -259,8 +259,10 @@ gp_exec_event(char type, int mx, int my, int par1, int par2, int winid)
 	    switch (errno) {
 	    case EAGAIN:
 		/* do nothing */
+		FPRINTF((stderr, "(gp_exec_event) EAGAIN\n"));
 		break;
 	    default:
+		FPRINTF((stderr, "(gp_exec_event) errno = %d\n", errno));
 		break;
 	    }
 	    break;

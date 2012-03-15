@@ -65,8 +65,9 @@ typedef enum position_type {
     character
 } position_type;
 
-/* A full 3D position, with all 3 coordinates of different axes,
- * possibly. Used for 'set label' and 'set arrow' positions: */
+/* A full 3D position, with all 3 coordinates of possible using different axes.
+ * Used for 'set label', 'set arrow' positions and various offsets.
+ */
 typedef struct position {
     enum position_type scalex,scaley,scalez;
     double x,y,z;
@@ -106,26 +107,49 @@ typedef struct arrow_def {
 } arrow_def;
 
 #ifdef EAM_OBJECTS
-/* The only object type supported so far is OBJ_RECTANGLE */
+/* The object types supported so far are OBJ_RECTANGLE, OBJ_CIRCLE, and OBJ_ELLIPSE */
 typedef struct rectangle {
     int type;			/* 0 = corners;  1 = center + size */
-    t_position bl;		/* bottom left */
-    t_position tr;		/* top right */
     t_position center;		/* center */
     t_position extent;		/* width and height */
+    t_position bl;		/* bottom left */
+    t_position tr;		/* top right */
 } t_rectangle;
+
+typedef struct circle {
+    int type;			/* not used */
+    t_position center;		/* center */
+    t_position extent;		/* radius */
+    double arc_begin;
+    double arc_end;
+} t_circle;
+
+typedef struct ellipse {
+    int type;			/* not used */
+    t_position center;		/* center */
+    t_position extent;		/* major and minor axes */
+    double orientation;		/* angle of first axis to horizontal */
+} t_ellipse;
+
+typedef struct polygon {
+    int	type;			/* Number of vertices */
+    t_position *vertex;		/* Array of vertices */
+} t_polygon;
 
 /* Datastructure for 'set object' */
 typedef struct object {
     struct object *next;
     int tag;
     int layer;			/* behind or back or front */
-    int object_type;	/* OBJ_RECTANGLE */
+    int object_type;		/* OBJ_RECTANGLE */
     fill_style_type fillstyle;
     lp_style_type lp_properties;
-    union o {t_rectangle rectangle;} o;
+    union o {t_rectangle rectangle; t_circle circle; t_ellipse ellipse; t_polygon polygon;} o;
 } t_object;
 #define OBJ_RECTANGLE (1)
+#define OBJ_CIRCLE (2)
+#define OBJ_ELLIPSE (3)
+#define OBJ_POLYGON (4)
 #endif
 
 /* Datastructure implementing 'set style line' */
@@ -183,7 +207,6 @@ typedef struct {
 } filledcurves_opts;
 #define EMPTY_FILLEDCURVES_OPTS { 0, 0, 0.0, 0.0, 0 }
 
-#ifdef EAM_HISTOGRAMS
 typedef struct histogram_style {
     int type;		/* enum t_histogram_type */
     int gap;		/* set style hist gap <n> (space between clusters) */
@@ -205,13 +228,18 @@ typedef enum histogram_type {
 } t_histogram_type;
 #define DEFAULT_HISTOGRAM_STYLE { HT_NONE, 2, 1, 0.0, 0.0, LT_UNDEFINED, LT_UNDEFINED, 0, NULL, EMPTY_LABELSTRUCT }
 
-#endif
 
 /***********************************************************/
 /* Variables defined by gadgets.c needed by other modules. */
 /***********************************************************/
 
-
+/* bounding box position, in terminal coordinates */
+typedef struct {
+    int xleft;
+    int xright;
+    int ybot;
+    int ytop;
+} BoundingBox;
 
 /* EAM Feb 2003 - Move all global variables related to key into a */
 /* single structure. Eventually this will allow multiple keys.    */
@@ -239,6 +267,9 @@ typedef struct {
     TBOOLEAN enhanced;		/* enable/disable enhanced text of key titles */
     struct lp_style_type box;	/* linetype of box around key:  */
     char title[MAX_LINE_LEN+1];	/* title line for the key as a whole */
+    char *font;			/* Will be used for both key title and plot titles */
+    struct t_colorspec textcolor;	/* Will be used for both key title and plot titles */
+    BoundingBox bounds;
 } legend_key;
 
 extern legend_key keyT;
@@ -257,15 +288,8 @@ extern legend_key keyT;
 		FILENAME_KEYTITLES, \
 		FALSE, FALSE, TRUE, \
 		DEFAULT_KEYBOX_LP, \
-		"" }
-
-/* bounding box position, in terminal coordinates */
-typedef struct {
-    int xleft;
-    int xright;
-    int ybot;
-    int ytop;
-} BoundingBox;
+		"", \
+		NULL, {TC_LT, LT_BLACK, 0.0} }
 
 
 /*
@@ -288,8 +312,10 @@ typedef struct {
   char border; /* if non-null, a border will be drawn around the box (default) */
   int border_lt_tag;
   int layer; /* front or back */
+  int xoffset;	/* To adjust left or right, e.g. for y2tics */
   struct position origin;
   struct position size;
+  BoundingBox bounds;
 } color_box_struct;
 
 extern color_box_struct color_box;
@@ -353,6 +379,7 @@ extern double pointsize;
 #define border_north	(draw_border & NORTH)
 #define border_complete	((draw_border & 15) == 15)
 extern int draw_border;
+extern int user_border;
 extern int border_layer;
 
 extern struct lp_style_type border_lp;
@@ -384,9 +411,16 @@ extern TBOOLEAN is_3d_plot;
       ( fabs(fmod(surface_rot_z,90.0))<0.1  \
         && (surface_rot_x>179.9 || surface_rot_x<0.1) ) )
 
-#ifdef WITH_IMAGE
-extern TBOOLEAN is_cb_plot;
+#ifdef VOLATILE_REFRESH
+extern int refresh_ok;		/* 0 = no;  2 = 2D ok;  3 = 3D ok */
+extern int refresh_nplots;
+#else
+#define refresh_ok FALSE
 #endif
+extern TBOOLEAN volatile_data;
+
+/* WINDOWID to be filled by terminals running on X11 (x11, wxt, qt, ...) */
+extern int current_x11_windowid;
 
 /* Plot layer definitions are collected here. */
 /* Someday they might actually be used.       */
@@ -415,11 +449,29 @@ void reset_textcolor __PROTO((const struct t_colorspec *tc, const struct terment
 extern fill_style_type default_fillstyle;
 
 #ifdef EAM_OBJECTS
+/*       Warning: C89 does not like the union initializers     */
 extern struct object default_rectangle;
 #define DEFAULT_RECTANGLE_STYLE { NULL, -1, 0, OBJ_RECTANGLE,	\
-	{FS_SOLID, 100, 0, LT_BLACK},   			\
-	{1, LT_BACKGROUND, 0, 1.0, 0.0},			\
-	{{0, {0,0.,0.,0.}, {0,0.,0.,0.}, {0,0.,0.,0.}, {0,0.,0.,0.}}} }
+	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
+	{1, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, DEFAULT_COLORSPEC}, \
+	{.rectangle = {0, {0,0.,0.,0.}, {0,0.,0.,0.}, {0,0.,0.,0.}, {0,0.,0.,0.}}} }
+
+extern struct object default_circle;
+#define DEFAULT_CIRCLE_STYLE { NULL, -1, 0, OBJ_CIRCLE,       \
+	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
+	{1, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, DEFAULT_COLORSPEC},			\
+	{.circle = {1, {0,0.,0.,0.}, {0,0.,0.,0.}, 0., 360. }} }
+
+#define DEFAULT_ELLIPSE_STYLE { NULL, -1, 0, OBJ_CIRCLE,       \
+	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
+	{1, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, DEFAULT_COLORSPEC},			\
+	{.ellipse = {1, {0,0.,0.,0.}, {0,0.,0.,0.}, 0. }} }
+
+#define DEFAULT_POLYGON_STYLE { NULL, -1, 0, OBJ_POLYGON,       \
+	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
+	{1, LT_BLACK, 0, 0, 1.0, 0.0, FALSE, DEFAULT_COLORSPEC},			\
+	{.polygon = {0, NULL} } }
+
 #endif
 
 /* filledcurves style options set by 'set style [data|func] filledcurves opts' */
@@ -429,15 +481,11 @@ extern filledcurves_opts filledcurves_opts_func;
 /* Prefer line styles over plain line types */
 extern TBOOLEAN prefer_line_styles;
 
-#ifdef EAM_HISTOGRAMS
 extern histogram_style histogram_opts;
-#endif
 
 void default_arrow_style __PROTO((struct arrow_style_type *arrow));
 
-#ifdef EAM_DATASTRINGS
 void free_labels __PROTO((struct text_label *tl));
-#endif
 
 void get_offsets __PROTO((struct text_label *this_label,
 	struct termentry *t, int *htic, int *vtic));

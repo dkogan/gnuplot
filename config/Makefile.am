@@ -9,9 +9,9 @@ EXTRA_DIST = README MacOSX Makefile.am.in buildvms.com config.amg \
 config.cyg config.dj2 config.mgw config.nt config.os2 config.oww \
 config.wc djconfig.sh make_vms.com term_pc.h makefile.286 makefile.amg \
 makefile.ami makefile.cyg makefile.dj2 makefile.emx makefile.g \
-makefile.mgw makefile.msc makefile.msw makefile.mto makefile.nt \
-makefile.os2 makefile.os9 makefile.oww makefile.st makefile.tc \
-makefile.unx makefile.vms makefile.wc makefile.win makefile.ztc 
+makefile.mgw makefile.msc makefile.msw makefile.nt makefile.os2 \
+makefile.os9 makefile.oww makefile.tc makefile.unx makefile.vms \
+makefile.wc makefile.win makefile.ztc 
 ##m4-files-end
 
 Makefile.am: Makefile.am.in

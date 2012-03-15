@@ -1,5 +1,5 @@
 /*
- * $Id: binary.h,v 1.10.4.1 2007/10/02 18:20:30 sfeam Exp $
+ * $Id: binary.h,v 1.11 2007/10/02 18:18:57 sfeam Exp $
  */
 
 /* GNUPLOT - binary.h */

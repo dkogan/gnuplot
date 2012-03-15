@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: winmain.c,v 1.22.2.1 2007/03/22 05:08:26 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: winmain.c,v 1.26.2.3 2009/11/25 17:59:40 mikulik Exp $"); }
 #endif
 
 /* GNUPLOT - win/winmain.c */
@@ -62,6 +62,7 @@ static char *RCSid() { return RCSid("$Id: winmain.c,v 1.22.2.1 2007/03/22 05:08:
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include <fcntl.h>
 #ifdef __MSC__
 # include <malloc.h>
 #endif
@@ -82,11 +83,11 @@ static char *RCSid() { return RCSid("$Id: winmain.c,v 1.22.2.1 2007/03/22 05:08:
 #ifdef WIN32
 # ifndef _WIN32_IE
 #  define _WIN32_IE 0x0400
-# endif 
+# endif
 # include <shlobj.h>
 # include <shlwapi.h>
   /* workaround for old header files */
-# ifndef CSIDL_APPDATA 
+# ifndef CSIDL_APPDATA
 #  define CSIDL_APPDATA (0x001a)
 # endif
 #endif
@@ -94,6 +95,7 @@ static char *RCSid() { return RCSid("$Id: winmain.c,v 1.22.2.1 2007/03/22 05:08:
 /* limits */
 #define MAXSTR 255
 #define MAXPRINTF 1024
+  /* used if vsnprintf(NULL,0,...) returns zero (MingW 3.4) */
 
 /* globals */
 TW textwin;
@@ -101,6 +103,7 @@ GW graphwin;
 PW pausewin;
 MW menuwin;
 LPSTR szModuleName;
+LPSTR szPackageDir;
 LPSTR winhelpname;
 LPSTR szMenuName;
 #define MENUNAME "wgnuplot.mnu"
@@ -158,10 +161,13 @@ WinExit()
 #endif
 	if (graphwin.hWndGraph && IsWindow(graphwin.hWndGraph))
 		GraphClose(&graphwin);
+#ifndef WGP_CONSOLE
 	TextMessage();	/* process messages */
+#endif
  	WinHelp(textwin.hWndText,(LPSTR)winhelpname,HELP_QUIT,(DWORD)NULL);
-	TextClose(&textwin);
+#ifndef WGP_CONSOLE
 	TextMessage();	/* process messages */
+#endif
 	return;
 }
 
@@ -185,18 +191,18 @@ GetDllVersion(LPCTSTR lpszDllName)
     HINSTANCE hinstDll;
     DWORD dwVersion = 0;
 
-    /* For security purposes, LoadLibrary should be provided with a 
+    /* For security purposes, LoadLibrary should be provided with a
        fully-qualified path to the DLL. The lpszDllName variable should be
        tested to ensure that it is a fully qualified path before it is used. */
     hinstDll = LoadLibrary(lpszDllName);
-	
+
     if (hinstDll) {
         DLLGETVERSIONPROC pDllGetVersion;
-        pDllGetVersion = (DLLGETVERSIONPROC)GetProcAddress(hinstDll, 
+        pDllGetVersion = (DLLGETVERSIONPROC)GetProcAddress(hinstDll,
                           "DllGetVersion");
 
         /* Because some DLLs might not implement this function, you
-        must test for it explicitly. Depending on the particular 
+        must test for it explicitly. Depending on the particular
         DLL, the lack of a DllGetVersion function can be a useful
         indicator of the version. */
         if (pDllGetVersion) {
@@ -218,7 +224,7 @@ GetDllVersion(LPCTSTR lpszDllName)
 char *
 appdata_directory(void)
 {
-    HMODULE hShell32; 
+    HMODULE hShell32;
     FARPROC pSHGetSpecialFolderPath;
     static char dir[MAX_PATH] = "";
 
@@ -229,7 +235,7 @@ appdata_directory(void)
     hShell32 = LoadLibrary(TEXT("shell32.dll"));
     if (hShell32) {
 	pSHGetSpecialFolderPath =
-	    GetProcAddress(hShell32, 
+	    GetProcAddress(hShell32,
 			   TEXT("SHGetSpecialFolderPathA"));
 	if (pSHGetSpecialFolderPath)
 	    (*pSHGetSpecialFolderPath)(NULL, dir, CSIDL_APPDATA, FALSE);
@@ -251,12 +257,22 @@ appdata_directory(void)
 
 #endif /* WIN32 */
 
+#ifndef WGP_CONSOLE
 int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		LPSTR lpszCmdLine, int nCmdShow)
+#else
+int main(int argc, char **argv)
+#endif
 {
 	/*WNDCLASS wndclass;*/
 	LPSTR tail;
 
+#ifdef WGP_CONSOLE
+# define _argv argv
+# define _argc argc
+	HINSTANCE hInstance = GetModuleHandle(NULL), hPrevInstance = NULL;
+	int nCmdShow = 0;
+#else
 #ifdef __MSC__  /* MSC doesn't give us _argc and _argv[] so ...   */
 # ifdef WIN32    /* WIN32 has __argc and __argv */
 #  define _argv __argv
@@ -271,6 +287,7 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		_argv[++_argc] = _fstrtok( NULL, " ");
 # endif /* WIN32 */
 #endif /* __MSC__ */
+#endif /* WGP_CONSOLE */
 
 #ifdef	__WATCOMC__
 # define _argv __argv
@@ -295,6 +312,17 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	}
 	szModuleName = (LPSTR)farrealloc(szModuleName, _fstrlen(szModuleName)+1);
 	CheckMemory(szModuleName);
+
+	if (_fstrlen(szModuleName) >= 5 && _fstrnicmp(&szModuleName[_fstrlen(szModuleName)-5], "\\bin\\", 5) == 0)
+	{
+		int len = _fstrlen(szModuleName)-4;
+		szPackageDir = (LPSTR)farmalloc(len+1);
+		CheckMemory(szPackageDir);
+		_fstrncpy(szPackageDir, szModuleName, len);
+		szPackageDir[len] = '\0';
+	}
+	else
+		szPackageDir = szModuleName;
 
 	winhelpname = (LPSTR)farmalloc(_fstrlen(szModuleName)+_fstrlen(HELPFILE)+1);
 	CheckMemory(winhelpname);
@@ -345,13 +373,14 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
 	graphwin.hInstance = hInstance;
 	graphwin.hPrevInstance = hPrevInstance;
-	graphwin.Title = "gnuplot graph";
+	graphwin.Title = WINGRAPHTITLE;
 	graphwin.lptw = &textwin;
 	graphwin.IniFile = textwin.IniFile;
 	graphwin.IniSection = textwin.IniSection;
 	graphwin.color=TRUE;
 	graphwin.fontsize = WINFONTSIZE;
 
+#ifndef WGP_CONSOLE
 	if (TextInit(&textwin))
 		exit(1);
 	textwin.hIcon = LoadIcon(hInstance, "TEXTICON");
@@ -377,15 +406,21 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		InvalidateRect(textwin.hWndParent, (LPRECT) &rect, 1);
 		UpdateWindow(textwin.hWndParent);
 	}
+#endif
 
 
 	atexit(WinExit);
+
+	if (!isatty(fileno(stdin)))
+		setmode(fileno(stdin), O_BINARY);
 
 	gnu_main(_argc, _argv, environ);
 
 	return 0;
 }
 
+
+#ifndef WGP_CONSOLE
 
 /* replacement stdio routines that use Text Window for stdin/stdout */
 /* WARNING: Do not write to stdout/stderr with functions not listed
@@ -485,7 +520,9 @@ MyFPutC(int ch, FILE *file)
 {
     if (isterm(file)) {
 	MyPutCh((BYTE)ch);
+#ifndef WGP_CONSOLE
 	TextMessage();
+#endif
 	return ch;
     }
     return fputc(ch,file);
@@ -496,7 +533,9 @@ MyFPutS(const char *str, FILE *file)
 {
     if (isterm(file)) {
 	TextPutS(&textwin, (char*) str);
+#ifndef WGP_CONSOLE
 	TextMessage();
+#endif
 	return (*str);	/* different from Borland library */
     }
     return fputs(str,file);
@@ -517,12 +556,21 @@ MyFPrintF(FILE *file, const char *fmt, ...)
     int count;
     va_list args;
 
-    va_start(args,fmt);
+    va_start(args, fmt);
     if (isterm(file)) {
-	char buf[MAXPRINTF];
-
-	count = vsprintf(buf,fmt,args);
-	TextPutS(&textwin,&buf[0]);
+	char *buf;
+#ifdef __MSC__
+	count = _vscprintf(fmt, args) + 1;
+#else
+	count = vsnprintf(NULL,0,fmt,args) + 1;
+	if (count == 0) count = MAXPRINTF;
+#endif
+	va_end(args);
+	va_start(args, fmt);
+	buf = (char *)malloc(count * sizeof(char));
+	count = vsnprintf(buf, count, fmt, args);
+	TextPutS(&textwin, buf);
+	free(buf);
     } else
 	count = vfprintf(file, fmt, args);
     va_end(args);
@@ -535,9 +583,21 @@ MyVFPrintF(FILE *file, const char *fmt, va_list args)
     int count;
 
     if (isterm(file)) {
-	char buf[MAXPRINTF];
-	count = vsprintf(buf,fmt,args);
+	char *buf;
+	va_list args_copied;
+
+	va_copy(args_copied, args);
+#ifdef __MSC__
+	count = _vscprintf(fmt, args_copied) + 1;
+#else
+	count = vsnprintf(NULL, 0U, fmt, args_copied) + 1;
+	if (count == 0) count = MAXPRINTF;
+#endif
+	va_end(args_copied);
+	buf = (char *)malloc(count * sizeof(char));
+	count = vsnprintf(buf, count, fmt, args);
 	TextPutS(&textwin, buf);
+	free(buf);
     } else
 	count = vfprintf(file, fmt, args);
     return count;
@@ -547,12 +607,22 @@ int
 MyPrintF(const char *fmt, ...)
 {
     int count;
-    char buf[MAXPRINTF];
+    char *buf;
     va_list args;
 
-    va_start(args,fmt);
-    count = vsprintf(buf,fmt,args);
-    TextPutS(&textwin,buf);
+    va_start(args, fmt);
+#ifdef __MSC__
+    count = _vscprintf(fmt, args) + 1;
+#else
+    count = vsnprintf(NULL, 0, fmt, args) + 1;
+    if (count == 0) count = MAXPRINTF;
+#endif
+    va_end(args);
+    va_start(args, fmt);
+    buf = (char *)malloc(count * sizeof(char));
+    count = vsnprintf(buf, count, fmt, args);
+    TextPutS(&textwin, buf);
+    free(buf);
     va_end(args);
     return count;
 }
@@ -583,6 +653,91 @@ MyFRead(void *ptr, size_t size, size_t n, FILE *file)
     }
     return fread(ptr, size, n, file);
 }
+
+#else /* WGP_CONSOLE */
+
+DWORD WINAPI stdin_pipe_reader(LPVOID param)
+{
+#if 0
+    HANDLE h = (HANDLE)_get_osfhandle(fileno(stdin));
+    char c;
+    DWORD cRead;
+
+    if (ReadFile(h, &c, 1, &cRead, NULL))
+        return c;
+#else
+    unsigned char c;
+    if (fread(&c, 1, 1, stdin) == 1)
+        return (DWORD)c;
+    return EOF;
+#endif
+}
+
+int ConsoleGetch()
+{
+    int fd = fileno(stdin);
+    HANDLE h;
+    DWORD waitResult;
+
+    if (!isatty(fd))
+        h = CreateThread(NULL, 0, stdin_pipe_reader, NULL, 0, NULL);
+    else
+        h = (HANDLE)_get_osfhandle(fd);
+
+    do
+    {
+        waitResult = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
+        if (waitResult == WAIT_OBJECT_0)
+        {
+            if (isatty(fd))
+            {
+                INPUT_RECORD rec;
+                DWORD recRead;
+
+                ReadConsoleInput(h, &rec, 1, &recRead);
+                if (recRead == 1 && rec.EventType == KEY_EVENT && rec.Event.KeyEvent.bKeyDown &&
+                        (rec.Event.KeyEvent.wVirtualKeyCode < VK_SHIFT ||
+                         rec.Event.KeyEvent.wVirtualKeyCode > VK_MENU))
+                {
+                    if (rec.Event.KeyEvent.uChar.AsciiChar)
+                        return rec.Event.KeyEvent.uChar.AsciiChar;
+                    else
+                        switch (rec.Event.KeyEvent.wVirtualKeyCode)
+                        {
+                            case VK_UP: return 020;
+                            case VK_DOWN: return 016;
+                            case VK_LEFT: return 002;
+                            case VK_RIGHT: return 006;
+                            case VK_HOME: return 001;
+                            case VK_END: return 005;
+                            case VK_DELETE: return 004;
+                        }
+                }
+            }
+            else
+            {
+                DWORD c;
+                GetExitCodeThread(h, &c);
+		CloseHandle(h);
+                return c;
+            }
+        }
+        else if (waitResult == WAIT_OBJECT_0+1)
+        {
+            MSG msg;
+
+            while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
+            {
+                TranslateMessage(&msg);
+                DispatchMessage(&msg);
+            }
+        }
+        else
+            break;
+    } while (1);
+}
+
+#endif /* WGP_CONSOLE */
 
 /* public interface to printer routines : Windows PRN emulation
  * (formerly in win.trm)

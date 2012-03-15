@@ -1,8 +1,8 @@
 %% Don't forget to change the paper format in the next line
 %
-% $Id: faq-ja.tex,v 1.2.2.1 2007/08/26 06:14:42 sfeam Exp $
+% $Id: faq-ja.tex,v 1.5 2008/02/23 19:18:36 sfeam Exp $
 % translated to Japanese by Shigeharu TAKENO 2005/03/14
-% Original: Id: faq.tex,v 1.16.2.2 2007/02/25 13:18:34 (for 4.2)
+% Original: Id: faq.tex,v 1.37 2008/01/24 18:13:04 sfeam Exp
 %
 %
 %%% \documentclass[a4paper,11pt]{article}
@@ -30,7 +30,7 @@
 \else % *** pdflatex output
     \usepackage{times,mathptmx}
     \usepackage[
-        pdftex,
+%       pdftex,
         hyperindex,
         bookmarks,
         bookmarksnumbered=true,
@@ -114,18 +114,18 @@
 
 \noindent
 %%% This document deals with \gnuplot{} version 4.2 which is the
-%%% latest official release as of February 2007.
-この文書では、2007 年 2 月にリリースされた \gnuplot{} の正式最新版である %
+%%% latest official release as of March 2007.
+この文書では、2007 年 3 月にリリースされた \gnuplot{} の正式最新版である %
 version 4.2 を取り扱っています。
 %% end Japanese
         \\
-%%% Its version is 
-%%% \verb+Revision: 1.16.2.2 +, dated
-%%% \verb+Date: 2007/02/25 13:18:34 +.
+%%% Its version is
+%%% \verb+Revision: 1.37 +, dated
+%%% \verb+Date: 2008/01/24 18:13:04 +.
 % <== 本当は \verb++ の内側に $ がついている
 この文書のバージョンは %
-\verb+$+\verb+Revision: 1.16.2.2 $+,
-\verb+$+\verb+Date: 2007/02/25 13:18:34 $+ です。
+\verb+$+\verb+Revision: 1.37 $+,
+\verb+$+\verb+Date: 2008/01/24 18:13:04 $+ です。
 % 少し細工をしないと RCS に書き換えられてしまう。
 
 \tableofcontents
@@ -301,12 +301,18 @@ cgi スクリプトでラップすることで
 %%% \subsection{Can I run \gnuplot{} on my computer?}
 \subsection{\gnuplot{} は私のコンピュータで動かすことができますか}
 
-%%% \Gnuplot{} is available for a number of platforms. These are: Unix
-%%% (X11 and NeXTSTEP), Linux, VMS, OS/2, MS-DOS, Amiga, MS-Windows,
-%%% OS-9/68k, Atari ST, BeOS, and Macintosh.
-\gnuplot{} は多くのプラットホーム上で利用可能です。
-現在は UNIX (X11 および NeXTSTEP)、VAX/VMS, OS/2, MS-DOS, Amiga, 
-MS-Windows, OS-9/68k, Atari ST, BeOS, Macintosh で動作します。
+%%% \Gnuplot{} is in widespread use on many platforms, including
+%%% MS Windows, linux, unix, and OSX.  The current source code retains
+%%% supports for older systems as well, including VMS, Ultrix, OS/2,
+%%% MS-DOS, Amiga, OS-9/68k, Atari ST, BeOS, and Macintosh. 
+%%% Versions since 4.0 have not been extensively tested on legacy platforms.
+\gnuplot{} は、MS Windows, linux, unix, OSX などの
+多くのプラットホーム上で、広く利用できます。
+現在のソースコードは、VMS, Ultrix, OS/2, %
+MS-DOS, Amiga, OS-9/68k, Atari ST, BeOS, Macintosh などの 
+古いシステムのサポートも保持していますが、
+バージョン 4.0 以降では古いプラットホームでは
+徹底的なテストは行われていません。
 
 %%% Please notify the FAQ-maintainer of any further ports you
 %%% might be aware of.
@@ -399,11 +405,13 @@ gnuplot Web ページ \http{www.gnuplot.info} と、
 %%% \subsection{What is the current version of \gnuplot?}
 \subsection{\gnuplot{} の最新バージョンは ?}
 
-%%% The current released version of \gnuplot{} is 4.2.
-\gnuplot{} の最新の正式リリース版は 4.2 です。
+%%% The current released version of \gnuplot{} is 4.2 (March 2007).
+%%% The current patchlevel is 4.2.2 (August 2007).
+\gnuplot{} の最新の正式リリース版は 4.2 です (2007 年 3 月現在)。
+最新のパッチレベルは 4.2.2 です (2007 年 8 月現在)。
 
 % The current development series consists of a series of snapshots
-% with version labels 3.8a through 3.8k.
+% with version labels 4.3-<date>
 
 
 %%% \subsection{Where can I get \gnuplot?}
@@ -411,10 +419,13 @@ gnuplot Web ページ \http{www.gnuplot.info} と、
 %% end Japanese
 \label{where-get-gnuplot}
 
-%%% The best place is definitely \http{www.gnuplot.info}. From there
-%%% you find various pointers to other sites.
-最も適する場所は \http{www.gnuplot.info} です。
-ここから他のサイトへの色んな助言を見つけられるでしょう。
+%%% The best place to start is \http{www.gnuplot.info}. From there
+%%% you find various pointers to other sites, including the project
+%%% development site on SourceForge \http{sourceforge.net/projects/gnuplot}.
+始めに最も適切な場所は \http{www.gnuplot.info} です。
+ここから、例えば SourceForge 上の開発プロジェクトサイト %
+\http{sourceforge.net/projects/gnuplot} などの、
+色々なサイトの場所を見つけられるでしょう。
 
 %%% The source distribution ("gnuplot-4.2.0.tar.gz" or a similar name) is
 %%% available from the official distribution site and its mirrors.
@@ -434,10 +445,10 @@ gnuplot Web ページ \http{www.gnuplot.info} と、
 \end{itemize}
 
 
-%%% As of June 1999, the \gnuplot{} distribution is also mirrored
+%%% Older versions of the \gnuplot{} distribution is also mirrored
 %%% at the Comprehensive TeX Archive Network (CTAN) in the
 %%% \texttt{graphics/gnuplot} directory. See
-1999 年 6 月現在、\gnuplot{} の配布物は CTAN 
+古い版の \gnuplot{} の配布物は CTAN 
 (the Comprehensive TeX Archive Network) の \\
 \texttt{graphics/gnuplot} %
 ディレクトリでもミラーリングされています。
@@ -451,92 +462,36 @@ gnuplot Web ページ \http{www.gnuplot.info} と、
 
 
 
-%%% The following platform-specific sites below still exist, but may
-%%% or may not still hold gnuplot executables. 
-以下のプラットフォーム別のサイトは今も一応はありますが、
-gnuplot の実行ファイルは今も持っているかどうかは分かりません。
-
-\begin{itemize}
-
-%%% \item Source and binary distributions for the Amiga are available on
-%%% Aminet \ftp{ftp.wustl.edu}{~aminet/} and its mirrors, for example
-%%% ftp.uni-kl.de, oes.orst.edu or ftp.luth.se.
-\item Amiga 用のソース、およびバイナリ配布物は Aminet 
-\ftp{ftp.wustl.edu}{~aminet/} およびそのミラーサイト、
-例えば ftp.uni-kl.de, oes.orst.edu, ftp.luth.se などにあります。
-
-%%% \item MS-DOS and MS-Windows binaries are available from
-%%% the above servers and are called for example
-%%% gp37dos.zip, gp37dj.zip, gp37w16.zip, gp37mgw.zip, gnuplot3.7cyg.zip.
-%%% OS/2 binaries are called gp37os2.zip.
-\item MS-DOS と MS-Windows 用のバイナリは上記のサーバにある %
-gp37dos.zip, gp37dj.zip, gp37w16.zip, gp37mgw.zip, gnuplot3.7cyg.zip %
-がそうです。OS/2 のバイナリは gp37os2.zip です。
-
-%%% \item The NeXTSTEP front end can be found at
-%%% \ftp{next-ftp.peak.org}{/pub/next/binaries/plotting/Gnuplot1.2_bin.tar.Z}.
-\item NeXTSTEP のフロントエンドは %
-\ftp{next-ftp.peak.org}{/pub/next/binaries/plotting/Gnuplot1.2_bin.tar.Z} %
- がそれです %
-(訳注: 現在 (03/14 2005) は %
-\ftp{next-ftp.peak.org}{/next/apps/graphics/plotting/Gnuplot1.2.bin.tar.gz} %
-のよう)。
-
-%%% \item A version for OS-9/68K can be found at
-%%% \ftp{cabrales.cs.wisc.edu}{/pub/OSK/GRAPHICS/gnuplot32x.tar.Z}; it
-%%% includes both an X-Window Systems and a non - X-Window Systems
-%%% version. 
-\item OS-9/68K 用は %
-\ftp{cabrales.cs.wisc.edu}{/pub/OSK/GRAPHICS/gnuplot32x.tar.Z} です %
-(訳注: 現在 (03/14 2005) はこのサイトはないようです)。
-それは X-Windows Systems 用のものとそうでないものの両方を含んでいます。
-
-%%% \item Versions for the Atari ST and TT, which include some GEM
-%%% windowing support, are available from
-%%% \ftp{ftp.uni-kl.de}{/pub/atari/graphics/}, as gplt35st.zip
-%%% and gplt35tt.zip. They work best under MiNT.
-\item Atari ST, TT 用の、多少 GEM ウィンドウをサポートしている版は %
-\ftp{ftp.uni-kl.de}{/pub/atari/graphics/} に gplt35st.zip, 
-gplt35tt.zip としてあります (訳注: 現在 (03/14 2005) ここにはないようです)。
-これらは MiNT 上でちゃんと動きます。
-
-%%% \item Executable files, plus documentation in Japanese, exist for the
-%%% X680x0 on
-%%% \ftp{ftp.csis.oita-u.ac.jp}{/pub/x68k/fj.binaries.x68000/vol2}.
-X680x0 用の実行ファイルと日本語のドキュメントが %
-\ftp{ftp.csis.oita-u.ac.jp}{/pub/x68k/fj.binaries.x68000/vol2} %
-に存在します (訳注: 現在 (03/14 2005) はないようです)。
-
-\end{itemize}
-
-
 %%% \subsection{Where can I get current development version of \gnuplot?}
 \subsection{\gnuplot{} の最新の開発版はどこで手に入れられますか}
 
 %%% The development version of gnuplot is availble as a cvs source 
 %%% tree online for
-%%% direct browsing from \http{www.sourceforge.net/projects/gnuplot/}, section
+%%% direct browsing from \http{sourceforge.net/projects/gnuplot/}, section
 %%% "CVS". You can download all current sources according to the documentation
 %%% therein; for example by a sequence of commands like
 gnuplot の開発版は、cvs ソースツリーの形で、オンラインで直接 %
-\http{www.sourceforge.net/projects/gnuplot/} %
+\http{sourceforge.net/projects/gnuplot/} %
 の "CVS" セクションから参照できます。
 そこに含まれているドキュメントに従って、
 例えば、以下のようなコマンド列によって
 最新のソースをすべてダウンロードすることもできます。
 %% end Japanese
 \begin{verbatim}
-  cvs -d:pserver:anonymous@cvs.sourceforge.net:/cvsroot/gnuplot login
-  cvs -z3 -d:pserver:anonymous@cvs.sourceforge.net:/cvsroot/gnuplot co -P gnuplot
+  cvs -d:pserver:anonymous@gnuplot.cvs.sourceforge.net:/cvsroot/gnuplot login
+  cvs -z3 -d:pserver:anonymous@gnuplot.cvs.sourceforge.net:/cvsroot/gnuplot co -P gnuplot
 \end{verbatim}
 %%% or (in bash)
 または (bash では)
 %% end Japanese
 \begin{verbatim}
-  export CVSROOT=:pserver:anonymous@cvs.sourceforge.net:/cvsroot/gnuplot
+  export CVSROOT=:pserver:anonymous@gnuplot.cvs.sourceforge.net:/cvsroot/gnuplot
   cvs login
   cvs -z3 checkout gnuplot
 \end{verbatim}
+
+%%% Hit \verb+<return>+ when asked for a password.
+パスワードを聞かれたら \verb+<return>+ を打ちます。
 
 %%% Further, before the \texttt{./configure} command of gnuplot 
 %%% compilation phase,
@@ -708,9 +663,9 @@ gnuplot のオンラインドキュメントがあります。
 
 %%% There is repository of contributed patches in the "Patches" section 
 %%% on gnuplot's
-%%% sourceforge site http://www.sourceforge.net/projects/gnuplot/.
+%%% sourceforge site \http{gnuplot.sourceforge.net}.
 寄稿されたパッチの置き場所は gnuplot の sourceforge サイト %
-\http{www.sourceforge.net/projects/gnuplot/} %
+\http{gnuplot.sourceforge.net} %
 の "Patches" セクションにあります。
 
 
@@ -745,9 +700,9 @@ demo サブディレクトリを見てください。ヒントを与えてくれるでしょう。
 %%% post a question to \news{comp.graphics.apps.gnuplot} or send mail
 %%% to the gatewayed mailing list \mailto{gnuplot-info@lists.sourceforge.net}.
 %%% Do not forget to cite the version number and the operating system.
-%%% If you want to subscribe to the mailing list, send a mail to
-%%% \mailto{majordomo@lists.sourceforge.net} with the body of the message being
-%%% \verb+subscribe info-gnuplot+. Please don't do this if you can get
+%%% If you want to subscribe to the mailing list, visit the URL 
+%%% \http{lists.sourceforge.net/lists/listinfo/gnuplot-info}.
+%%% But please don't use the mailing list if you can read
 %%% \news{comp.graphics.apps.gnuplot} directly. If you post a
 %%% question there, it is considered good form to solicit e-mail
 %%% replies and post a summary.
@@ -758,9 +713,9 @@ demo サブディレクトリを見てください。ヒントを与えてくれるでしょう。
 \mailto{gnuplot-info@lists.sourceforge.net} にメールを送ってください。
 その際、バージョン番号とオペレーティングシステムを併記することを
 忘れないでください。
-そのメーリングリストを購読したいならば、
-\mailto{majordomo@lists.sourceforge.net} に、本文に %
-\verb+subscribe info-gnuplot+ とだけ書いたメールを送ってください。
+そのメーリングリストを購読したいならば、URL %
+\http{lists.sourceforge.net/lists/listinfo/gnuplot-info}
+を参照してください。
 しかしニュースグループ \news{comp.graphics.apps.gnuplot} %
 が直接読めるならば、そうしないでください。
 質問をそのニュースグループに投稿すれば、
@@ -837,9 +792,9 @@ gnuplot> set term pop
 その前に対応する \texttt{set term push} を実行していない場合は、
 起動時の出力形式、例えば x11, pm, win 等に復帰します。
 
-%%% In Microschrott Windows you click in the upper left
+%%% In MS Windows you click in the upper left
 %%% corner of the graph window and print directly from there.
-Microschrott Windows ではグラフウィンドウの左上隅をクリックすると
+MS Windows ではグラフウィンドウの左上隅をクリックすると
 それを直接プリントアウトします。
 
 
@@ -865,7 +820,8 @@ Microschrott Windows ではグラフウィンドウの左上隅をクリックすると
 \verb+set term+ として使用できるファイル形式のリストを見てください。
 
 %%% Many word processors can use Encapsulated PostScript for graphs. 
-%%% This can be generated by the \verb+set terminal postscript eps [color]+ 
+%%% This can be generated by the 
+%%% \verb+set terminal postscript eps [color]+ 
 %%% command.
 多くのワープロソフトは Encapsulated PostScript (EPS) のグラフを取り込めます。
 これは \\
@@ -1185,7 +1141,8 @@ gnuplot> plot 'curve.dat' w l
 %%% A plot with filled area between two given curves requires a parametric 
 %%% plot with
 %%% \verb+filledcurves closed+.
-%%% The example below demonstrates this for two curves f(x) and g(x) with a tricky
+%%% The example below demonstrates this for two curves f(x) and g(x) 
+%%% with a tricky
 %%% "folded" parameter \verb+t+:
 2 つの与えられた曲線の間を塗りつぶす描画は、
 parametric モードでの \verb+filledcurves closed+ による plot で行なえます。
@@ -1282,7 +1239,7 @@ unix 互換のプラットフォーム上でデータファイルを %
 \subsection{(色) 地図グラフ、すなわち 3 次元データの 2 次元射影を描画するには}
 
 %%% Use \texttt{set view map; unset surface} or \texttt{set pm3d map} rather than
-%%% \texttt{set view 180,0}. The latter facilitates drawing matrices
+%%% \texttt{set view 180,0}. The latter facilitates drawing matrices 
 %%% or data files
 %%% as maps, even without the necessity for matrix-like data organization
 %%% (gridding). It is possible to decrease the output postscript file size by
@@ -1336,6 +1293,7 @@ splot x*y with line lt -1
 pause -1
 splot x*y with line palette
 \end{verbatim}
+
 %%% Another solution requires to write contours into a temporary file using the
 %%% table terminal:
 他のやり方としては、等高線を table 出力形式を利用して一時ファイルに書き出す
@@ -1508,7 +1466,8 @@ splot 'facets_with_color.dat' using 1:2:3:4
 %%% They are plotted one surface after another, as found in the data file.
 %%% Parts overlapping in 2D projection are overdrawn.
 上の例では、pm3d は三角形をそれぞれ独立な曲面として描画します。
-それらは、データファイル中に他のものが見つかった後で一つの曲面に描かれます。
+それらは、データファイル中に他のものが見つかったときに
+その後で一つの曲面に描かれます。
 重なる部分は 2 次元射影では重なって描画されてしまいます
 
 %%% Gnuplot is not 3D modeling program. Its hidden routines apply for points and
@@ -1582,7 +1541,7 @@ gnuplot は曲面や 3 次元の物体を仮想現実としては描画しません。
 \verb+set term+ とタイプしてください。
 
 %%% Some graphics drivers are included in the normal distribution,
-%%% but are uncommented by default. If you want to use them, you'll
+%%% but are not built by default. If you want to use them, you'll
 %%% have to change file \verb+gnuplot/src/term.h+, and recompile.
 通常の配布物には含まれていても、
 デフォルトでは使えないようになっているグラフィックドライバもあります。
@@ -1616,7 +1575,7 @@ gnuplot は曲面や 3 次元の物体を仮想現実としては描画しません。
 Bernhard Reiter は fig 出力形式の後処理用の AWK スクリプトを書きました。
 これは、古い版の \gnuplot{} では有用でしょう。
 \http{www.usf.uni-osnabrueck.de/~breiter/tools/gnuplot/barchart.en.html} %
-を見てください
+を見てください。
 
 %%% \subsection{Does \gnuplot{} support pie charts?}
 \subsection{\gnuplot{} は円グラフが書けますか}
@@ -1691,20 +1650,15 @@ e
 %%% \subsection{Can I put Greek letters and super/subscripts into my labels?}
 \subsection{ラベルにギリシャ文字や上/下付きの文字を使えますか}
 
-%%% The enhanced option in some terminals (currently postscript, Presentation
-%%% Manager, png, pdf, and x11) lets you use sub- and superscripts. 
-%%% It also allows to use Greek letters and symbols via symbol fonts, to
-%%% the extent that these are supported by the underlying font libraries
-%%% on your system.  Versions through 2.0.15 of libgd (needed for png and jpeg)
-%%% must be patched in order to handle symbol fonts.
-いくつかの出力形式 %
-(現在は、postscript, プレゼンテーションマネージャ (pm)、png, pdf, x11) %
-の enhanced オプションで上付き下付きの文字が扱えます。
-その場合、暗に使用しているあなたのシステムのフォントライブラリの
-サポートする範囲内で、
-ギリシャ文字や、symbol フォントの記号文字も扱えます。
-2.0.15 までの版の libgd (png, jpeg 用に必要) では、
-symbol フォントを使うためにはパッチが必要です。
+%%% Most terminal types (output device drivers) support an "enhanced text" mode.
+%%% This lets you use sub- and superscripts.  It also allows to use Greek
+%%% letters and math symbols to the extent that these are supported by the fonts
+%%% installed on your system.
+多くの出力形式 (出力デバイスドライバ) で、「拡張文字処理」モード %
+("enhanced text" モード) がサポートされていて、
+これで上付き下付きの文字が扱えます。
+その場合、あなたのシステムにインストールされているフォントの
+サポートする範囲内で、ギリシャ文字や、数学記号文字も扱えます。
 
 %%% You might try using the \LaTeX{} terminal type and putting text
 %%% like \verb+"\\alpha_{3}"+ or \verb+'\alpha_{3}'+ .
@@ -1725,6 +1679,7 @@ mpost によって encapsulated PostScript (EPS) に変換します。
 
 %%% \subsection{How do I include accented characters}
 \subsection{どうしたらアクセント付きの文字を出力できますか}
+%% end Japanese
 % \subsection{Can I type labels in Czech, French, Hungarian, Russian...}
 
 %%% To obtain accented characters like \"u or \^n in your labels you should use
@@ -1752,10 +1707,13 @@ gnuplot> plot "bier.dat" u 1:2
 
 %%% A more general solution is to use UTF-8 encoded fonts, and type the 
 %%% UTF-8 characters directly into gnuplot. This works for many terminal types
-%%% but not, unfortunately, PostScript.
+%%% but not, unfortunately, PostScript.  Update: The CVS version of gnuplot
+%%% contains more complete support for UTF-8, including PostScript.
 UTF-8 エンコーディングフォントを使うためのより一般的なやり方は、
 \gnuplot{} 内で直接 UTF-8 の文字を入力することです。
 これは多くの出力形式で動作しますが、残念ながら PostScript ではだめです。
+更新情報: CVS 版の gnuplot では、PostScript を含むより完全な %
+UTF-8 のサポートがなされています。
 
 
 %%% \subsection{Can I do 1:1 scaling of axes?}
@@ -1768,10 +1726,12 @@ UTF-8 エンコーディングフォントを使うためのより一般的なやり方は、
 %%% \subsection{Can I put different text sizes into my plots?}
 \subsection{異なるサイズのテキストを一つのグラフで出力できますか}
 
-%%% Some terminals can, others can't. Some allow you to choose a font size for the
+%%% Some terminals can, others can't. Some allow you to choose 
+%%% a font size for the
 %%% entire plot. Terminals supporting the "enhanced text" mode (like 
 %%% postscript, pm,
-%%% x11, png, pdf) allow you to change fonts and text sizes within a plot. Look at
+%%% x11, png, pdf) allow you to change fonts and text sizes within 
+%%% a plot. Look at
 %%% the help for these terminals.
 可能な出力形式もありますし、そうでないものもあります。
 描画全体のフォントサイズを選択できるようなものもあります。
@@ -2202,11 +2162,13 @@ OS/2 プレゼンテーションマネージャ (pm), X11, Windows, WX, GGI。
 
 %%% Nowadays, the preferred way of submitting, commenting and upgrading 
 %%% patches are
-%%% via 'Patches' section on \http{www.sourceforge.net/projects/gnuplot/}.
-%%% You may want to send a note to \mailto{gnuplot-beta@lists.sourceforge.net} for
+%%% via 'Patches' section on 
+%%% \http{sourceforge.net/tracker/?group_id=2055&atid=302055}.
+%%% You may want to send a note to \mailto{gnuplot-beta@lists.sourceforge.net}
+%%% for
 %%% more lively discussion.
 現在は、投稿よりもむしろ、
-\http{www.sourceforge.net/projects/gnuplot/} %
+\http{sourceforge.net/tracker/?group_id=2055&atid=302055} %
 の 'Patches' セクションを通してコメントするか
 パッチを更新する方が望ましいです。
 \mailto{gnuplot-beta@lists.sourceforge.net} は、
@@ -2228,17 +2190,12 @@ OS/2 プレゼンテーションマネージャ (pm), X11, Windows, WX, GGI。
 と書いてメールを %
 \mailto{Majordomo@lists.sourceforge.net} に送ってください。
 
-%%% Also check with \http{sourceforge.net/projects/gnuplot} about latest
-%%% source for beta releases for development.
-または \http{sourceforge.net/projects/gnuplot} %
-に開発ベータ版の最新ソースがありますのでチェックしてください。
-
 
 %%% \subsection{Open questions for inclusion into the FAQ?}
 \subsection{FAQ に含まれるような未解決の質問は ?}
 
 
-%\mailto{gnuplot-beta@lists.sourceforge.net}。
+% \mailto{gnuplot-beta@lists.sourceforge.net}.
 
 %%% Please submit your questions (along with the answer) to 
 %%% \mailto{gnuplot-beta@lists.sourceforge.net}.
@@ -2477,6 +2434,7 @@ M\$ Windows プラットフォームでは、GUI プログラムの標準入力 (stdin) %
 それは下付き文字として書かれるので小さい文字になります。
 しかしそれらは通常我々が使用するプランク定数の記号とは違っていて、
 横線は斜線ではなく水平線になります。
+アクセント記号なども使ってみましたが %
 (iso-latin-1 エンコーディングの文字 264 など)、
 その大きさと位置を正しくする方法を見つけることはできませんでした。
 もう一つの方法は \verb+{/=14 @^{/Symbol=10 -}{/=14 h}}+ とすることです。
@@ -2509,9 +2467,15 @@ PostScript インタープリタ (通常 Ghostscript) が
 
 %%% As with Planck's constant, the most straightforward way is to use a 
 %%% UTF-8 font, and type in the $\odot$ character (Unicode code point 
-%%% \#x2299) directly. 
-Planck 定数と同様、最も自然な方法は UTF-8 フォントを使い、文字 $\odot$ 
-(Unicode コードポイント \#2299) を直接入力することです。
+%%% \#x2299 ; "circled dot operator") directly. 
+%%% The very similar glyph at code point \#x2609 ; "sun" may be even 
+%%% better, but not many fonts have it.
+Planck 定数と同様、最も自然な方法は UTF-8 フォントを使い、文字 $\odot$ %
+(Unicode コードポイント \#2299; "circled dot operator") %
+を直接入力することです。
+非常によく似たグリフがコードポイント \#x2609 にもあります。
+これは "sun" で、よりいいかもしれませんが、
+それを持つフォントは多くはありません。
 
 
 %%% \subsection{How do I produce blank output page?}
@@ -2611,14 +2575,13 @@ Linux システムでは、wxt 出力形式は fontconfig で管理されているフォントを
 %% end Japanese
 \end{description}
 
-
 %%% \subsection{\Gnuplot{} is not plotting any points under X11! How come?}
 \subsection{X11 で \gnuplot{} がどんな点も描画しません。どうしたらいいですか}
 %% end Japanese
-%%
-%%Very probably, you still are using an old version of
-%%gnuplot\_x11. Remove that, then do a full installation.
-%%
+%%%%
+%%%%Very probably, you still are using an old version of
+%%%%gnuplot\_x11. Remove that, then do a full installation.
+%%%%
 %%% On VMS, you need to make several symbols:
 VMS 上ではいくつかの記号を作らなければいけません:
 
@@ -2753,24 +2716,40 @@ C や Fortran でも行なわれています。
 %
 % Outdated, isn't it?!
 %
-%\subsection{My Linux \gnuplot complains about a missing
+%\subsection{My Linux \gnuplot{} complains about a missing
 %\texttt{gnuplot\_x11}. What is wrong? }
 %
-%The binary \gnuplot distribution from sunsite.unc.edu and its
+%The binary \gnuplot{} distribution from sunsite.unc.edu and its
 %mirrors in \texttt{Linux/apps/math/gplotbin.tgz} is missing one
 %executable that is necessary to access the x11 terminal. Please
-%install \gnuplot from another Linux distribution, e.g.
+%install \gnuplot{} from another Linux distribution, e.g.
 %Slackware.
 
 
-%%% \subsection{Set output 'filename' isn't outputting everything it
-%%% should!}
-\subsection{set output 'ファイル名' が何も出力してくれません}
+%%% \subsection{My output files are incomplete!}
+\subsection{私の出力が不完全です!}
 
 %%% You may need to flush the output with a closing \verb+set output+.
+%%% Some output formats (postscript, pdf, latex, svg, ...) can include several
+%%% pages of plots in a single output file.  For these output modes, gnuplot
+%%% leaves the file open after each plot so that you can add additional plots
+%%% to it.  The file is not completed and made available to external applications
+%%% until you explicitly close it (\verb+set output+ or \verb+unset output+),
+%%% or select a different terminal type (\verb+set term+) or exit gnuplot.
+%%% Output formats that contain only a single 'page' (png, svg, emf, ...)
+%%% should not suffer from this problem.
 \verb+set output+ によって出力をクローズして、
 たまっている出力を吐き出させる必要があるかも知れません。
-
+出力形式によっては、一つの出力ファイルに複数のページが含まれています %
+(postscript, pdf, latex, svg, ...)。
+これらの出力モードでは、gnuplot はあなたが描画の追加ができるように
+各描画後にファイルをオープンしたままにしています。
+よってあなたが明示的にそれをクローズする (\verb+set output+ または %
+\verb+unset output+) か、異なる出力形式を選択する (\verb+set term+) か、
+または gnuplot を終了するまでは、そのファイルは完全ではなく、
+外部のアプリケーションでは使用できるようにはなっていません。
+単一 'ページ' のみを持つ出力形式 (png, emf, ...) では
+このような問題に悩まされることはないでしょう。
 
 %%% \subsection{When using the \LaTeX--terminal, there is an error during
 %%% the \LaTeX--run!}
@@ -2801,13 +2780,13 @@ C や Fortran でも行なわれています。
 \subsection{ドキュメントにある URL にはデモやサンプルが見つかりません}
 
 %%% The examples have been removed from the NASA site mentioned in older
-%%% documentation. You can find the version 4.0 examples at 
-%%% \http{gnuplot.sourceforge.net/demo}.  Version 4.2 examples are at
-%%% \http{gnuplot.sourceforge.net/demo_4.2}.
+%%% documentation. You can find the version 4.2 examples at 
+%%% \http{gnuplot.sourceforge.net/demo}.  Examples from the development version
+%%% are at \http{gnuplot.sourceforge.net/demo_4.3}.
 古いドキュメントに書かれている NASA のサイトからはサンプルは削除されました。
-現在は version 4.0 用のサンプルが \http{gnuplot.sourceforge.net/demo} %
+現在は version 4.2 用のサンプルが \http{gnuplot.sourceforge.net/demo} %
 にあります。
-version 4.2 用のサンプルは \http{gnuplot.sourceforge.net/demo_4.2} %
+開発版用のサンプルは \http{gnuplot.sourceforge.net/demo_4.3} %
 にあります。
 
 
@@ -2863,9 +2842,11 @@ Thomas Koenig, David Kotz, Ed Kubaitis, Russell Lang, Alexander Lehmann,
 Alexander Mai, Carsten Steger, Tom Tkacik, Jos Van der Woude, James R.
 %%% Van Zandt, and Alex Woo.  Additional substantial contributors to version 4.0
 %%% include Ethan Merritt, Petr Mikul\'{\i}k and Johannes Zellner.
+%%% Version 4.2 was coordinated by Ethan Merritt.
 Van Zandt, Alex Woo です。
 さらに version 4.0 への重要な寄与者として、
 include Ethan Merritt, Petr Mikul\'{\i}k, Johannes Zellner がいます。
+version 4.2 は Ethan Merritt が取りまとめました。
 
 %%% This list was initially compiled by John Fletcher with contributions
 %%% from Russell Lang, John Campbell, David Kotz, Rob Cunningham, Daniel
@@ -2898,3 +2879,4 @@ Petr Mikul\'{\i}k と Ethan Merritt により行なわれました。
 行なわれました。)
 %% end Japanese
 \end{document}
+

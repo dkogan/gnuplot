@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: readline.c,v 1.41.2.2 2008/12/12 06:57:50 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: readline.c,v 1.46 2008/12/12 21:06:13 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - readline.c */
@@ -58,25 +58,6 @@ static char *RCSid() { return RCSid("$Id: readline.c,v 1.41.2.2 2008/12/12 06:57
 #include "term_api.h"
 
 #if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
-/* #include <readline/readline.h> --- HBB 20000508: now included by readline.h*/
-/* #include <readline/history.h> --- HBB 20000508: now included by gp_hist */
-
-
-static char* line_buffer;
-static int line_complete;
-
-/**
- * called by libreadline or editline if the input
- * was typed (not from the ipc).
- */
-static void
-LineCompleteHandler(char* ptr)
-{
-    rl_callback_handler_remove();
-    line_buffer = ptr;
-    line_complete = 1;
-}
-
 #if defined(HAVE_LIBEDITLINE)
 int
 #else
@@ -107,7 +88,6 @@ getc_wrapper(FILE* fp /* should be stdin, supplied by readline */)
 	return c;
     }
 }
-
 #endif /* HAVE_LIBREADLINE || HAVE_LIBEDITLINE */
 
 #if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE) || defined(READLINE)
@@ -115,20 +95,9 @@ char*
 readline_ipc(const char* prompt)
 {
 #if defined(PIPE_IPC) && defined(HAVE_LIBREADLINE)
-    /* use readline's alternate interface.
-     * this requires rl_library_version > 2.2
-     * TODO: make a check in configure.in */
-
-    rl_callback_handler_install((char*) prompt, LineCompleteHandler);
     rl_getc_function = getc_wrapper;
-
-    for (line_complete = 0; !line_complete; /* EMPTY */) {
-	rl_callback_read_char(); /* stdin */
-    }
-    return line_buffer;
-#else
-    return readline((const char*) prompt);
 #endif
+    return readline((const char*) prompt);
 }
 #endif  /* defined(HAVE_LIBREADLINE) || define(READLINE) */
 
@@ -176,7 +145,7 @@ readline_ipc(const char* prompt)
 # endif
 #endif /* not HAVE_TERMIOS_H && HAVE_TCGETATTR */
 
-#if !defined(MSDOS) && !defined(ATARI) && !defined(MTOS) && !defined(_Windows) && !defined(DOS386) && !defined(OSK)
+#if !defined(MSDOS) && !defined(_Windows) && !defined(DOS386) && !defined(OSK)
 
 /*
  * Set up structures using the proper include file
@@ -263,7 +232,7 @@ static int term_set = 0;	/* =1 if rl_termio set */
 #define special_getc() ansi_getc()
 static int ansi_getc __PROTO((void));
 
-#else /* MSDOS or ATARI or MTOS or _Windows or DOS386 or OSK */
+#else /* MSDOS or _Windows or DOS386 or OSK */
 
 # ifdef _Windows
 #  include <windows.h>
@@ -271,7 +240,12 @@ static int ansi_getc __PROTO((void));
 #  include "win/winmain.h"
 #  define TEXTUSER 0xf1
 #  define TEXTGNUPLOT 0xf0
+#  ifdef WGP_CONSOLE
+#   define special_getc() win_getch()
+static char win_getch __PROTO((void));
+#  else
 #  define special_getc() msdos_getch()
+#  endif /* WGP_CONSOLE */
 static char msdos_getch __PROTO((void));	/* HBB 980308: PROTO'ed it */
 # endif				/* _Windows */
 
@@ -318,11 +292,7 @@ putc(char c, FILE *fp)
 
 # endif				/* OSK */
 
-# if defined(ATARI) || defined(MTOS)
-#  define special_getc() tos_getch()
-# endif				/* ATARI || MTOS */
-
-#endif /* MSDOS or ATARI or MTOS or _Windows or DOS386 or OSK */
+#endif /* MSDOS or _Windows or DOS386 or OSK */
 
 #ifdef OS2
 # if defined( special_getc )
@@ -373,11 +343,15 @@ user_putc(int ch)
 {
     int rv;
 #ifdef _Windows
+#ifndef WGP_CONSOLE
     TextAttr(&textwin, TEXTUSER);
+#endif
 #endif
     rv = fputc(ch, stderr);
 #ifdef _Windows
+#ifndef WGP_CONSOLE
     TextAttr(&textwin, TEXTGNUPLOT);
+#endif
 #endif
     return rv;
 }
@@ -387,11 +361,15 @@ user_puts(char *str)
 {
     int rv;
 #ifdef _Windows
+#ifndef WGP_CONSOLE
     TextAttr(&textwin, TEXTUSER);
+#endif
 #endif
     rv = fputs(str, stderr);
 #ifdef _Windows
+#ifndef WGP_CONSOLE
     TextAttr(&textwin, TEXTGNUPLOT);
+#endif
 #endif
     return rv;
 }
@@ -459,7 +437,7 @@ readline(const char *prompt)
 	 * applications.
 	 *
 	 * Note that latin1 defines the chars 0x80-0x9f as control
-	 * chars. For the benefit of Atari, MSDOS, Windows and NeXT I
+	 * chars. For the benefit of MSDOS, Windows and NeXT I
 	 * have decided to ignore this, since it would require more
 	 * #ifs. */
 
@@ -768,7 +746,7 @@ copy_line(char *line)
     cur_pos = max_pos = strlen(cur_line);
 }
 
-#if !defined(MSDOS) && !defined(ATARI) && !defined(MTOS) && !defined(_Windows) && !defined(DOS386) && !defined(OSK)
+#if !defined(MSDOS) && !defined(_Windows) && !defined(DOS386) && !defined(OSK)
 /* Convert ANSI arrow keys to control characters */
 static int
 ansi_getc()
@@ -813,6 +791,17 @@ ansi_getc()
 #endif
 
 #if defined(MSDOS) || defined(_Windows) || defined(DOS386) || defined(OS2)
+
+#ifdef WGP_CONSOLE
+static char
+win_getch()
+{
+    if (term && term->waitforinput)
+        return term->waitforinput();
+    else
+        return ConsoleGetch();
+}
+#endif
 
 /* Convert Arrow keystrokes to Control characters: */
 static char
@@ -903,114 +892,12 @@ os2_getch() {
 }
 #endif /* OS2 */
 
-#if defined(ATARI) || defined(MTOS)
-
-/* Convert Arrow keystrokes to Control characters: TOS version */
-
-/* from term/atariaes.trm: */
-long poll_events(int);
-
-/* this function is used in help.c as well. this means that the
- * program doesn't work without -DREADLINE (which would be the case
- * if help.c didn't use it as well, since no events would be processed)
- */
-char
-tos_getch()
-{
-    long rawkey;
-    char c;
-    int scan_code;
-    static int in_help = 0;
-
-    if (strcmp(term->name, "atari") == 0)
-	poll_events(0);
-
-    if (in_help) {
-	switch (in_help) {
-	case 1:
-	case 5:
-	    in_help++;
-	    return 'e';
-	case 2:
-	case 6:
-	    in_help++;
-	    return 'l';
-	case 3:
-	case 7:
-	    in_help++;
-	    return 'p';
-	case 4:
-	    in_help = 0;
-	    return 0x0d;
-	case 8:
-	    in_help = 0;
-	    return ' ';
-	}
-    }
-    if (strcmp(term->name, "atari") == 0) {
-	do {
-	    if (Bconstat(2))
-		rawkey = Cnecin();
-	    else
-		rawkey = poll_events(1);
-	} while (rawkey == 0);
-    } else
-	rawkey = Cnecin();
-
-    c = (char) rawkey;
-    scan_code = ((int) (rawkey >> 16)) & 0xff;	/* get the scancode */
-    if (Kbshift(-1) & 0x00000007)
-	scan_code |= 0x80;	/* shift or control ? */
-
-    switch (scan_code) {
-    case 0x62:			/* HELP         */
-    case 0xe2:			/* shift HELP   */
-	if (max_pos == 0) {
-	    if (scan_code == 0x62) {
-		in_help = 1;
-	    } else {
-		in_help = 5;
-	    }
-	    return 'h';
-	} else {
-	    return 0;
-	}
-    case 0x48:			/* Up Arrow */
-	return 0x10;		/* ^P */
-    case 0x50:			/* Down Arrow */
-	return 0x0e;		/* ^N */
-    case 0x4b:			/* Left Arrow */
-	return 0x02;		/* ^B */
-    case 0x4d:			/* Right Arrow */
-	return 0x06;		/* ^F */
-    case 0xcb:			/* Shift Left Arrow */
-    case 0xf3:			/* Ctrl Left Arrow (TOS-bug ?) */
-    case 0x47:			/* Home */
-	return 0x01;		/* ^A */
-    case 0xcd:			/* Shift Right Arrow */
-    case 0xf4:			/* Ctrl Right Arrow (TOS-bug ?) */
-    case 0xc7:			/* Shift Home */
-    case 0xf7:			/* Ctrl Home */
-	return 0x05;		/* ^E */
-    case 0x61:			/* Undo - redraw line */
-	return 0x0c;		/* ^L */
-    default:
-	if (c == 0x1b)
-	    return 0x15;	/* ESC becomes ^U */
-	if (c == 0x7f)
-	    return 0x04;	/* Del becomes ^D */
-	break;
-    }
-    return c;
-}
-
-#endif /* ATARI || MTOS */
 
   /* set termio so we can do our own input processing */
 static void
 set_termio()
 {
-#if !defined(MSDOS) && !defined(ATARI) && !defined(MTOS) && !defined(_Windows) && !defined(DOS386)
+#if !defined(MSDOS) && !defined(_Windows) && !defined(DOS386)
 /* set termio so we can do our own input processing */
 /* and save the old terminal modes so we can reset them later */
     if (term_set == 0) {
@@ -1136,13 +1023,13 @@ set_termio()
 # endif				/* OSK */
 	term_set = 1;
     }
-#endif /* not MSDOS && not ATARI && not MTOS && not _Windows && not DOS386 */
+#endif /* not MSDOS && not _Windows && not DOS386 */
 }
 
 static void
 reset_termio()
 {
-#if !defined(MSDOS) && !defined(ATARI) && !defined(MTOS) && !defined(_Windows) && !defined(DOS386)
+#if !defined(MSDOS) && !defined(_Windows) && !defined(DOS386)
 /* reset saved terminal modes */
     if (term_set == 1) {
 # ifndef OSK
@@ -1169,7 +1056,7 @@ reset_termio()
 # endif				/* OSK */
 	term_set = 0;
     }
-#endif /* not MSDOS && not ATARI && not MTOS && not _Windows && not DOS386 */
+#endif /* not MSDOS && not _Windows && not DOS386 */
 }
 
 #endif /* READLINE && !HAVE_LIBREADLINE */

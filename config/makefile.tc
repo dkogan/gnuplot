@@ -1,5 +1,5 @@
 #
-# $Id: makefile.tc,v 1.8 2002/03/07 16:20:15 lhecking Exp $
+# $Id: makefile.tc,v 1.10 2007/11/19 21:17:13 sfeam Exp $
 #
 # GNUPLOT Makefile for Borland C++ 3.x
 #
@@ -96,7 +96,7 @@ OBJ2 = dynarray.obj eval.obj fit.obj graph3d.obj graphics.obj help.obj time.obj
 OBJ3 = hidden3d.obj internal.obj interpol.obj matrix.obj misc.obj parse.obj
 OBJ4 = plot.obj plot2d.obj plot3d.obj readline.obj save.obj scanner.obj
 OBJ5 = set.obj show.obj specfun.obj standard.obj stdfn.obj tables.obj term.obj
-OBJ6 = history.obj unset.obj util.obj util3d.obj variable.obj version.obj
+OBJ6 = history.obj unset.obj util.obj util3d.obj variable.obj version.obj tabulate.obj
 
 # uncomment svgaf.obj if you wish to include Super VGA support
 OBJBGI= cgaf.obj egavgaf.obj hercf.obj attf.obj pc3270f.obj svgaf.obj
@@ -107,7 +107,7 @@ CSOURCE5 = $(T)aed.trm $(T)cgi.trm $(T)dumb.trm $(T)dxy.trm \
 	$(T)eepic.trm $(T)epson.trm $(T)fig.trm $(T)hp26.trm \
 	$(T)hp2648.trm $(T)hpgl.trm $(T)hpljii.trm
 CSOURCE6 = $(T)impcodes.h $(T)imagen.trm $(T)object.h \
-	$(T)iris4d.trm $(T)kyo.trm $(T)latex.trm $(T)pc.trm
+	$(T)kyo.trm $(T)latex.trm $(T)pc.trm
 CSOURCE7 = $(T)post.trm $(T)qms.trm $(T)regis.trm $(T)sun.trm \
 	$(T)t410x.trm $(T)tek.trm $(T)unixpc.trm $(T)unixplot.trm \
 	$(T)v384.trm $(T)x11.trm
@@ -211,6 +211,8 @@ standard.obj: standard.c plot.h
 stdfn.obj: stdfn.c stdfn.h
 
 interpol.obj: interpol.c plot.h setshow.h
+
+tabulate.obj: tabulate.c tabulate.h alloc.h axis.h graphics.h graph3d.h plot3d.h
 
 # the CSOURCE? dependencies are not up to date (but who cares)
 term.obj: term.c term.h plot.h set.c show.c bitmap.h $(CSOURCE5) $(CSOURCE6) $(CSOURCE7)

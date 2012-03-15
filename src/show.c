@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.185.2.11 2008/12/15 03:44:22 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.227.2.3 2009/12/20 03:54:42 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -123,9 +123,7 @@ static void show_view __PROTO((void));
 static void show_surface __PROTO((void));
 static void show_hidden3d __PROTO((void));
 static void show_increment __PROTO((void));
-#ifdef EAM_HISTOGRAMS
 static void show_histogram __PROTO((void));
-#endif
 #ifdef GNUPLOT_HISTORY
 static void show_historysize __PROTO((void));
 #endif
@@ -164,8 +162,6 @@ static char *num_to_str __PROTO((double r));
 
 static int var_show_all = 0;
 
-static char *save_locale = NULL;
-
 /* following code segment appears over and over again */
 
 #define SHOW_NUM_OR_TIME(x, axis) SAVE_NUM_OR_TIME(stderr, x, axis)
@@ -176,34 +172,13 @@ static char *save_locale = NULL;
 void
 show_command()
 {
-    /* show at is undocumented/hidden... */
-    static char GPFAR showmess[] =
-    "valid set options:  [] = choose one, {} means optional\n\n\
-\t'all', 'angles', 'arrow', 'autoscale', 'bars', 'border', 'boxwidth', 'clip',\n\
-\t'cntrparam', 'colorbox', 'contour', 'datafile', 'decimalsign','dgrid3d',\n\
-\t'dummy', 'encoding', 'fit', 'fontpath', 'format', 'functions', 'grid',\n\
-\t'hidden', 'isosamples', 'key', 'label', 'loadpath', 'locale', 'logscale',\n\
-\t'mapping', 'margin', 'offsets', 'origin', 'output', 'plot',\n\
-\t'palette', 'parametric', 'pm3d', 'pointsize', 'polar', 'print', '[rtuv]range',\n\
-\t'samples', 'size', 'style', 'terminal', 'tics', 'timestamp',\n\
-\t'timefmt', 'title', 'variables', 'version', 'view',\n\
-\t'[xyz,cb]{2}label', '[xyz,cb]{2}range', '{m}[xyz,cb]{2}tics',\n\
-\t'[xyz,cb]{2}[md]tics', '{[xyz]{2}}zeroaxis', '[xyz,cb]data', 'zero'";
-
     enum set_id token_found;
-    struct value a;
     int tag =0;
     char *error_message = NULL;
 
     c_token++;
 
     token_found = lookup_table(&set_tbl[0],c_token);
-
-#ifdef HAVE_LOCALE_H
-    /* Report internal values in C locale (dot for decimal sign) */
-       save_locale = gp_strdup(setlocale(LC_NUMERIC,NULL));
-       setlocale(LC_NUMERIC,"C");
-#endif
 
     /* rationalize c_token advancement stuff a bit: */
     if (token_found != S_INVALID)
@@ -224,6 +199,11 @@ show_command()
 	break;
     case S_BARS:
 	show_bars();
+	break;
+    case S_BIND:
+	while (!END_OF_COMMAND) c_token++;
+	c_token--;
+	bind_command();
 	break;
     case S_BORDER:
 	show_border();
@@ -286,7 +266,7 @@ show_command()
 
 #define CHECK_TAG_GT_ZERO					\
 	if (!END_OF_COMMAND) {					\
-	    tag = real(const_express(&a));			\
+	    tag = int_expression();				\
 	    if (tag <= 0) {					\
 		error_message =  "tag must be > zero";		\
 		break;						\
@@ -378,7 +358,7 @@ show_command()
 	if (almost_equals(c_token,"rect$angle"))
 	    c_token++;
 	CHECK_TAG_GT_ZERO;
-	save_rectangle(stderr,tag);
+	save_object(stderr,tag);
 #endif
 	break;
     case S_ANGLES:
@@ -434,6 +414,7 @@ show_command()
     case S_TICS:
     case S_TICSLEVEL:
     case S_TICSCALE:
+    case S_XYPLANE:
 	show_tics(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE);
 	break;
     case S_MXTICS:
@@ -638,20 +619,12 @@ show_command()
     /* --- such case now, all implemented. */
 
     case S_INVALID:
-	error_message = showmess;
+	error_message = "Unrecognized option. See 'help show'.";
 	break;
     default:
 	error_message = "invalid or deprecated syntax";
 	break;
     }
-
-#ifdef HAVE_LOCALE_H
-    if (save_locale) {
-       setlocale(LC_NUMERIC,save_locale);
-       free(save_locale);
-       save_locale = NULL;
-    }
-#endif
 
     if (error_message)
 	int_error(c_token,error_message);
@@ -777,7 +750,6 @@ show_all()
     show_zeroaxis(FIRST_Z_AXIS);
     show_label(0);
     show_arrow(0);
-    show_keytitle();
     show_key();
     show_logscale();
     show_offsets();
@@ -795,7 +767,7 @@ show_all()
     show_polar();
     show_angles();
 #ifdef EAM_OBJECTS
-    save_rectangle(stderr,0);
+    save_object(stderr,0);
 #endif
     show_samples();
     show_isosamples();
@@ -865,6 +837,7 @@ show_version(FILE *fp)
      */
     char prefix[6];		/* "#    " */
     char *p = prefix;
+    char fmt[2048];
 
     prefix[0] = '#';
     prefix[1] = prefix[2] = prefix[3] = prefix[4] = ' ';
@@ -943,9 +916,7 @@ show_version(FILE *fp)
 		"";
 
 	    const char *binary_files =
-#ifdef BINARY_DATA_FILE
 		"+BINARY_DATA  "
-#endif
 		"";
 
 	    const char *nocwdrc =
@@ -960,11 +931,12 @@ show_version(FILE *fp)
 #ifdef X11
 		"+X11  "
 #endif
-#ifdef BINARY_X11_POLYGON
 		"+X11_POLYGON  "
-#endif
 #ifdef USE_X11_MULTIBYTE
 		"+MULTIBYTE  "
+#endif
+#ifdef EXTERNAL_X11_WINDOW
+		"+X11_EXTERNAL "
 #endif
 		"";
 
@@ -997,27 +969,19 @@ show_version(FILE *fp)
 		"";
 
 	    const char *plotoptions=
-#ifdef EAM_DATASTRINGS
 		"+DATASTRINGS  "
-#endif
-#ifdef EAM_HISTOGRAMS
 		"+HISTOGRAMS  "
-#endif
 #ifdef EAM_OBJECTS
 		"+OBJECTS  "
 #endif
-#ifdef GP_STRING_VARS
 		"+STRINGVARS  "
-#endif
 #ifdef GP_MACROS
 		"+MACROS  "
 #endif
 # ifdef THIN_PLATE_SPLINES_GRID
 		"+THIN_SPLINES  "
 # endif
-#ifdef WITH_IMAGE
 		"+IMAGE  "
-#endif
 	    "";
 
 	    sprintf(compile_options, "\
@@ -1050,7 +1014,8 @@ show_version(FILE *fp)
 #endif /* BINDIR */
     }
 
-    fprintf(fp, "%s\n\
+    strcpy(fmt, "\
+%s\n\
 %s\t%s\n\
 %s\tVersion %s patchlevel %s\n\
 %s\tlast modified %s\n\
@@ -1059,11 +1024,18 @@ show_version(FILE *fp)
 %s\t%s\n\
 %s\tThomas Williams, Colin Kelley and many others\n\
 %s\n\
-%s\tType `help` to access the on-line reference manual.\n\
-%s\tThe gnuplot FAQ is available from %s\n\
-%s\n\
-%s\tSend bug reports and suggestions to <%s>\n\
-%s\n",
+%s\tgnuplot home:     http://www.gnuplot.info\n\
+");
+#if 0 /* instead of RELEASE_VERSION */
+    strcat(fmt, "%s\tmailing list:     %s\n");
+#endif
+    strcat(fmt, "\
+%s\tfaq, bugs, etc:   type \"help seeking-assistance\"\n\
+%s\timmediate help:   type \"help\"\n\
+%s\tplot window:      hit 'h'\n\
+");
+
+    fprintf(fp, fmt,
 	    p,			/* empty line */
 	    p, PROGRAM,
 	    p, gnuplot_version, gnuplot_patchlevel,
@@ -1073,11 +1045,14 @@ show_version(FILE *fp)
 	    p, gnuplot_copyright,
 	    p,			/* authors */
 	    p,			/* empty line */
-	    p,			/* Type `help` */
-	    p, faq_location,
-	    p,			/* empty line */
-	    p, bug_email,
-	    p);			/* empty line */
+	    p,			/* website */
+#if 0 /* instead of RELEASE_VERSION */
+	    p, help_email,	/* mailing list */
+#endif
+	    p,			/* type "help" */
+	    p,			/* type "help seeking-assistance" */
+	    p			/* hit 'h' */
+	    );
 
 
     /* show version long */
@@ -1087,15 +1062,8 @@ show_version(FILE *fp)
 	c_token++;
 	fprintf(stderr, "Compile options:\n%s\n", compile_options);
 
-	if ((helpfile = getenv("GNUHELP")) == NULL) {
-#if defined(ATARI) || defined(MTOS)
-	    if ((helpfile = user_gnuplotpath) == NULL) {
-		helpfile = HELPFILE;
-	    }
-#else
+	if ((helpfile = getenv("GNUHELP")) == NULL)
 	    helpfile = HELPFILE;
-#endif
-	}
 
 #ifdef X11
 	{
@@ -1103,23 +1071,17 @@ show_version(FILE *fp)
 
 	    if (driverdir == NULL)
 		driverdir = X11_DRIVER_DIR;
-	    fprintf(stderr, "\
-DRIVER_DIR     = \"%s\"\n", driverdir);
+	    fprintf(stderr, "GNUPLOT_DRIVER_DIR = \"%s\"\n", driverdir);
 	}
 #endif
 
 #ifdef GNUPLOT_PS_DIR
 	{
-	   fprintf(stderr, "GNUPLOT_PS_DIR = \"%s\"\n", GNUPLOT_PS_DIR);
+	    fprintf(stderr, "GNUPLOT_PS_DIR     = \"%s\"\n", GNUPLOT_PS_DIR);
 	}
 #endif
 
-	fprintf(stderr, "HELPFILE       = \"%s\"\n", helpfile);
-#if 0
-	/* These are redundant. We just printed them 5 lines ago. */
-	fprintf(stderr, "CONTACT        = <%s>\n", bug_email);
-	fprintf(stderr, "HELPMAIL       = <%s>\n", help_email);
-#endif
+	fprintf(stderr, "HELPFILE           = \"%s\"\n", helpfile);
 
     }
 }
@@ -1178,8 +1140,8 @@ show_bars()
 
     /* I really like this: "terrorbars" ;-) */
     if (bar_size > 0.0)
-	fprintf(stderr, "\terrorbars are plotted with bars of size %f\n",
-		bar_size);
+	fprintf(stderr, "\terrorbars are plotted in %s with bars of size %f\n",
+		(bar_layer == LAYER_BACK) ? "back" : "front", bar_size);
     else
 	fputs("\terrors are plotted without bars\n", stderr);
 }
@@ -1225,28 +1187,28 @@ show_fillstyle()
 
     switch(default_fillstyle.fillstyle) {
     case FS_SOLID:
+    case FS_TRANSPARENT_SOLID:
         fprintf(stderr,
-	    "\tFill style is solid colour with density %f",
+	    "\tFill style uses %s solid colour with density %.3f",
+	    default_fillstyle.fillstyle == FS_SOLID ? "" : "transparent",
 	    default_fillstyle.filldensity/100.0);
         break;
     case FS_PATTERN:
+    case FS_TRANSPARENT_PATTERN:
         fprintf(stderr,
-	    "\tFill style uses patterns starting at %d",
+	    "\tFill style uses %s patterns starting at %d",
+	    default_fillstyle.fillstyle == FS_PATTERN ? "" : "transparent",
 	    default_fillstyle.fillpattern);
         break;
     default:
         fprintf(stderr, "\tFill style is empty");
     }
-    switch(default_fillstyle.border_linetype) {
-    case LT_NODRAW:
+    if (default_fillstyle.border_color.type == TC_LT && default_fillstyle.border_color.lt == LT_NODRAW)
 	fprintf(stderr," with no border\n");
-	break;
-    case LT_UNDEFINED:
-	fprintf(stderr," with border\n");
-	break;
-    default:
-	fprintf(stderr," with border linetype %d\n",default_fillstyle.border_linetype+1);
-	break;
+    else {
+	fprintf(stderr," with border ");
+	save_pm3dcolor(stderr, &default_fillstyle.border_color);
+	fprintf(stderr,"\n");
     }
 }
 
@@ -1352,11 +1314,26 @@ show_dgrid3d()
     SHOW_ALL_NL;
 
     if (dgrid3d)
-	fprintf(stderr, "\
-\tdata grid3d is enabled for mesh of size %dx%d, norm=%d\n",
+      if( dgrid3d_mode == DGRID3D_QNORM ) {
+	fprintf(stderr, 
+		"\tdata grid3d is enabled for mesh of size %dx%d, norm=%d\n",
 		dgrid3d_row_fineness,
 		dgrid3d_col_fineness,
-		dgrid3d_norm_value);
+		dgrid3d_norm_value );
+      } else if( dgrid3d_mode == DGRID3D_SPLINES ){
+	fprintf(stderr, 
+		"\tdata grid3d is enabled for mesh of size %dx%d, splines\n",
+		dgrid3d_row_fineness,
+		dgrid3d_col_fineness );
+      } else {
+	fprintf(stderr, 
+		"\tdata grid3d is enabled for mesh of size %dx%d, kernel=%s, scale factors x=%f, y=%f\n", 
+		dgrid3d_row_fineness,
+		dgrid3d_col_fineness,
+		reverse_table_lookup(dgrid3d_mode_tbl, dgrid3d_mode),
+		dgrid3d_x_scale,
+		dgrid3d_y_scale );
+      }
     else
 	fputs("\tdata grid3d is disabled\n", stderr);
 }
@@ -1429,12 +1406,11 @@ show_format()
 static void
 show_style()
 {
-    struct value a;
     int tag = 0;
 
 #define CHECK_TAG_GT_ZERO					\
 	if (!END_OF_COMMAND) {					\
-	    tag = real(const_express(&a));			\
+	    tag = real_expression();					\
 	    if (tag <= 0)					\
 		int_error(c_token,"tag must be > zero");	\
 	}
@@ -1463,12 +1439,10 @@ show_style()
 	show_increment();
 	c_token++;
 	break;
-#ifdef EAM_HISTOGRAMS
     case SHOW_STYLE_HISTOGRAM:
 	show_histogram();
 	c_token++;
 	break;
-#endif
     case SHOW_STYLE_ARROW:
 	c_token++;
 	CHECK_TAG_GT_ZERO;
@@ -1481,9 +1455,7 @@ show_style()
 	show_linestyle(0);
 	show_fillstyle();
 	show_increment();
-#ifdef EAM_HISTOGRAMS
 	show_histogram();
-#endif
 	show_arrowstyle(0);
 #ifdef EAM_OBJECTS
 	/* Fall through (FIXME: this is ugly) */
@@ -1545,24 +1517,6 @@ show_grid()
 	return;
     }
 
-#if 0
-    /* Old method of accessing grid choices */
-    fprintf(stderr, "\t%s grid drawn at%s%s%s%s%s%s%s%s%s%s%s%s tics\n",
-	    (polar_grid_angle != 0) ? "Polar" : "Rectangular",
-	    grid_selection & GRID_X ? " x" : "",
-	    grid_selection & GRID_Y ? " y" : "",
-	    grid_selection & GRID_Z ? " z" : "",
-	    grid_selection & GRID_X2 ? " x2" : "",
-	    grid_selection & GRID_Y2 ? " y2" : "",
-	    grid_selection & GRID_MX ? " mx" : "",
-	    grid_selection & GRID_MY ? " my" : "",
-	    grid_selection & GRID_MZ ? " mz" : "",
-	    grid_selection & GRID_MX2 ? " mx2" : "",
-	    grid_selection & GRID_MY2 ? " my2" : "",
-	    grid_selection & GRID_CB ? " cb" : "",
-	    grid_selection & GRID_MCB ? " mcb" : ""
-	    );
-#else
     /* HBB 20010806: new storage method for grid options: */
     fprintf(stderr, "\t%s grid drawn at",
 	    (polar_grid_angle != 0) ? "Polar" : "Rectangular");
@@ -1579,7 +1533,7 @@ show_grid()
     SHOW_GRID(COLOR_AXIS);
 #undef SHOW_GRID
     fputs(" tics\n", stderr);
-#endif /* 0/1 */
+
 
     fprintf(stderr, "\tMajor grid drawn with");
     save_linetype(stderr, &(grid_lp), FALSE);
@@ -1721,7 +1675,14 @@ show_keytitle()
     legend_key *key = &keyT;
     SHOW_ALL_NL;
 
-    fprintf(stderr, "\tkeytitle is \"%s\"\n", conv_text(key->title));
+    fprintf(stderr, "\tkey title is \"%s\"\n", conv_text(key->title));
+    if (key->font && *(key->font))
+	fprintf(stderr,"\t  font \"%s\"\n", key->font);
+    if (key->textcolor.type != TC_LT || key->textcolor.lt != LT_BLACK) {
+	fputs("\t ", stderr);
+	save_textcolor(stderr, &(key->textcolor));
+	fputs("\n", stderr);
+    }
 }
 
 
@@ -1813,8 +1774,7 @@ show_key()
 \tvertical spacing is %g characters\n\
 \twidth adjustment is %g characters\n\
 \theight adjustment is %g characters\n\
-\tcurves are%s automatically titled %s\n\
-\tkey title is \"%s\"\n",
+\tcurves are%s automatically titled %s\n",
 	    key->swidth,
 	    key->vert_factor,
 	    key->width_fix,
@@ -1822,8 +1782,8 @@ show_key()
 	    key->auto_titles ? "" : " not",
 	    key->auto_titles == FILENAME_KEYTITLES ? "with filename" :
 	    key->auto_titles == COLUMNHEAD_KEYTITLES
-	    ? "with column header" : "",
-	    key->title);
+	    ? "with column header" : "");
+    show_keytitle();
 }
 
 
@@ -1883,7 +1843,7 @@ show_offsets()
 {
     SHOW_ALL_NL;
 
-    fprintf(stderr, "\toffsets are %g, %g, %g, %g\n", loff, roff, toff, boff);
+    save_offsets(stderr,"\toffsets are");
 }
 
 
@@ -2055,7 +2015,6 @@ static void
 show_palette_palette()
 {
     int colors, i;
-    struct value a;
     double gray;
     rgb_color rgb1;
     rgb255_color rgb255;
@@ -2065,7 +2024,7 @@ show_palette_palette()
     c_token++;
     if (END_OF_COMMAND)
 	int_error(c_token,"palette size required");
-    colors = (int) real(const_express(&a));
+    colors = int_expression();
     if (colors<2) colors = 128;
     if (!END_OF_COMMAND) {
 	if (almost_equals(c_token, "f$loat")) /* option: print r,g,b floats 0..1 values */
@@ -2137,19 +2096,12 @@ show_palette_gradient()
 	}
 }
 
-
+/* Helper function for show_palette_colornames() */
 static void
-show_palette_colornames()
+show_colornames(const struct gen_table *tbl)
 {
-    const struct gen_table *tbl = pm3d_color_names_tbl;
     int i=0;
-    fputs( "\tList of known color names:", stderr );
     while (tbl->key) {
-#if 0
-	/* Print only color names, table with 4 columns */
-	if (i%4 == 0) fputs( "\n  ", stderr );
-	fprintf( stderr, "%-18s ", tbl->key );
-#else
 	/* Print color names and their rgb values, table with 1 column */
 	int r = ((tbl->value >> 16 ) & 255);
 	int g = ((tbl->value >> 8 ) & 255);
@@ -2157,12 +2109,18 @@ show_palette_colornames()
 
 	fprintf( stderr, "\n  %-18s ", tbl->key );
 	fprintf(stderr, "#%02x%02x%02x = %3i %3i %3i", r,g,b, r,g,b);
-#endif
 	++tbl;
 	++i;
     }
     fputs( "\n", stderr );
     ++c_token;
+}
+
+static void
+show_palette_colornames()
+{
+    fprintf(stderr, "\tThere are %d predefined color names:", num_predefined_colors);
+    show_colornames(pm3d_color_names_tbl);
 }
 
 
@@ -2241,7 +2199,7 @@ show_palette()
         show_palette_rgbformulae();
 	return;
     }
-    else if (almost_equals(c_token, "color$names" )) {
+    else if (equals(c_token, "colors") || almost_equals(c_token, "color$names" )) {
         /* 'show palette colornames' */
         show_palette_colornames();
 	return;
@@ -2252,7 +2210,7 @@ show_palette()
 	return;
     }
     else { /* wrong option to "show palette" */
-        int_error( c_token, "Required 'show palette' or 'show palette gradient' or\n\t 'show palette palette <n>' or 'show palette rgbformulae' or\n\t 'show palette colornames'.");
+        int_error( c_token, "Expecting 'gradient' or 'palette <n>' or 'rgbformulae' or 'colornames'");
     }
 }
 
@@ -2338,13 +2296,7 @@ show_pm3d()
     } else {
 	fputs("\tpm3d-hidden3d is off\n", stderr);
     }
-#if PM3D_HAVE_SOLID
-    if (pm3d.solid) {
-	fputs("\tborders, tics and labels may be hidden by the surface\n", stderr);
-    } else {
-	fputs("\tsurface is transparent for borders, tics and labels\n", stderr);
-    }
-#endif
+
     fprintf(stderr,"\tsteps for bilinear interpolation: %d,%d\n",
 	 pm3d.interp_i, pm3d.interp_j);
     fprintf(stderr,"\tquadrangle color according to ");
@@ -2373,7 +2325,10 @@ static void
 show_encoding()
 {
     SHOW_ALL_NL;
-    fprintf(stderr, "\tencoding is %s\n", encoding_names[encoding]);
+    fprintf(stderr, "\tnominal character encoding is %s\n", encoding_names[encoding]);
+#ifdef HAVE_LOCALE_H
+    fprintf(stderr, "\thowever LC_CTYPE in current locale is %s\n", setlocale(LC_CTYPE,NULL));
+#endif
 }
 
 
@@ -2382,12 +2337,11 @@ static void
 show_decimalsign()
 {
     SHOW_ALL_NL;
-#ifdef HAVE_LOCALE_H
-    if (save_locale) {
-	setlocale(LC_NUMERIC,save_locale);
-	fprintf(stderr, "\tdecimalsign for input is  %s \n", localeconv()->decimal_point);
-    }
-#endif
+
+    set_numeric_locale();
+    fprintf(stderr, "\tdecimalsign for input is  %s \n", get_decimal_locale());
+    reset_numeric_locale();
+
     if (decimalsign!=NULL)
         fprintf(stderr, "\tdecimalsign for output is %s \n", decimalsign);
     else
@@ -2519,7 +2473,6 @@ show_increment()
 	fprintf(stderr, "default linetypes\n");
 }
 
-#ifdef EAM_HISTOGRAMS
 static void
 show_histogram()
 {
@@ -2539,7 +2492,6 @@ show_histogram()
 	fprintf(stderr," textcolor lt %d", histogram_opts.title.textcolor.lt+1); 
     fprintf(stderr, "\n");
 }
-#endif
 
 #ifdef GNUPLOT_HISTORY
 /* process 'show historysize' command */
@@ -2605,9 +2557,9 @@ show_tics(
     SHOW_ALL_NL;
 
     if (xyplane.absolute)
-	fprintf(stderr, "xyplane intercepts z axis at %g\n", xyplane.xyplane_z);
+	fprintf(stderr, "\txyplane intercepts z axis at %g\n", xyplane.z);
     else
-	fprintf(stderr, "xyplane ticslevel is %g\n", xyplane.ticslevel);
+	fprintf(stderr, "\txyplane ticslevel is %g\n", xyplane.z);
 
     if (grid_layer >= 0)
         fprintf(stderr, "tics are in %s of plot\n", (grid_layer==0) ? "back" : "front");
@@ -2768,10 +2720,6 @@ show_locale()
 {
     SHOW_ALL_NL;
     locale_handler(ACTION_SHOW,NULL);
-#ifdef HAVE_LOCALE_H
-    /* We reset LC_NUMERIC locale explicitly to C, so we must undo it here */
-    fprintf(stderr, "\tLC_NUMERIC is %s\n", setlocale(LC_NUMERIC,save_locale));
-#endif
 }
 
 
@@ -2825,9 +2773,11 @@ show_datafile()
 	fprintf(stderr, "\tComments chars are \"%s\"\n", df_commentschars);
     }
     if (df_fortran_constants)
-	fputs("\tdatafile parsing will accept Fortran D or Q constants\n",stderr);
-#if BINARY_DATA_FILE
-    if (END_OF_COMMAND || almost_equals(c_token,"bin$ary")) {
+	fputs("\tDatafile parsing will accept Fortran D or Q constants\n",stderr);
+    if (df_nofpe_trap)
+	fputs("\tNo floating point exception handler during data input\n",stderr);
+
+    if (almost_equals(c_token,"bin$ary")) {
 	if (!END_OF_COMMAND)
 	    c_token++;
 	if (END_OF_COMMAND) {
@@ -2844,7 +2794,7 @@ show_datafile()
 	    /* 'show datafile binary filetypes' */
 	    df_show_filetypes(stderr);
     }
-#endif
+
     if (!END_OF_COMMAND)
 	c_token++;
 }
@@ -2886,10 +2836,10 @@ show_mouse()
 		mouse_alt_string);
 	}
 	if (mouse_setting.label) {
-	    fprintf(stderr, "\tButton 2 draws labes with options \"%s\"\n",
+	    fprintf(stderr, "\tButton 2 draws persistent labels with options \"%s\"\n",
 		mouse_setting.labelopts);
 	} else {
-	    fprintf(stderr, "\tdrawing temporary annotation on Button 2\n");
+	    fprintf(stderr, "\tButton 2 draws temporary labels\n");
 	}
 	fprintf(stderr, "\tzoomjump is %s\n",
 	    mouse_setting.warp_pointer ? "on" : "off");
@@ -2916,26 +2866,33 @@ show_variables()
 {
     struct udvt_entry *udv = first_udv;
     int len;
-    int show_gpval = 0;
+    TBOOLEAN show_all = FALSE;
+    char leading_string[MAX_ID_LEN+1] = {'\0'};
 
     SHOW_ALL_NL;
 
     if (!END_OF_COMMAND) {
 	if (almost_equals(c_token, "all"))
-	    show_gpval = 1;
-	else 
-	    int_error(c_token, "Required no option or 'all'");
+	    show_all = TRUE;
+	else
+	    copy_str(leading_string, c_token, MAX_ID_LEN);
 	c_token++;
     }
 
-    if (show_gpval)
+    if (show_all)
 	fputs("\n\tAll available variables:\n", stderr);
+    else if (*leading_string)
+	fprintf(stderr,"\n\tVariables beginning with %s:\n", leading_string);
     else
 	fputs("\n\tUser and default variables:\n", stderr);
 
     while (udv) {
 	len = strcspn(udv->udv_name, " ");
-	if (!show_gpval && !strncmp(udv->udv_name,"GPVAL_",6)) { /* skip GPVAL_ variables */
+	if (*leading_string && strncmp(udv->udv_name,leading_string,strlen(leading_string))) {
+	    udv = udv->next_udv;
+	    continue;
+	} else if (!show_all && !strncmp(udv->udv_name,"GPVAL_",6) && !(*leading_string)) {
+	    /* In the default case skip GPVAL_ variables */
 	    udv = udv->next_udv;
 	    continue;
 	}
@@ -3153,7 +3110,6 @@ disp_value(FILE *fp, struct value *val, TBOOLEAN need_quotes)
 	    fprintf(fp, "%s",
 		    num_to_str(val->v.cmplx_val.real));
 	break;
-#ifdef GP_STRING_VARS
     case STRING:
     	if (val->v.string_val) {
 	    if (need_quotes)
@@ -3162,7 +3118,6 @@ disp_value(FILE *fp, struct value *val, TBOOLEAN need_quotes)
 		fprintf(fp, "%s", val->v.string_val);
 	}
 	break;
-#endif
     default:
 	int_error(NO_CARET, "unknown type in disp_value()");
     }
@@ -3184,9 +3139,6 @@ num_to_str(double r)
 
     sprintf(s[j], "%.15g", r);
     if (strchr(s[j], '.') == NULL &&
-#ifdef HAVE_LOCALE_H
-	strchr(s[j], ',') == NULL &&
-#endif
 	strchr(s[j], 'e') == NULL &&
 	strchr(s[j], 'E') == NULL)
 	strcat(s[j], ".0");

@@ -1,5 +1,5 @@
 %
-% $Id: titlepag.tex,v 1.19.2.7 2009/08/29 17:51:20 sfeam Exp $
+% $Id: titlepag.tex,v 1.24.2.4 2010/03/09 00:28:50 sfeam Exp $
 %
 
 \ifx\LaTeXe\undefined
@@ -35,6 +35,9 @@
 
   \usepackage{makeidx}
   \makeindex
+
+  % These are only needed if you want to embed figures
+  \include{pdffigures}
 
 \fi
 
@@ -98,7 +101,7 @@
 
   \begin{center}
 
-  {\huge\bf gnuplot \gpVersion}\\
+  {\huge\bf {gnuplot \gpVersion}}\\
   \vspace{3ex}
   {\Large An Interactive Plotting Program}\\
 
@@ -155,7 +158,7 @@
 
   \vspace{2ex}
 
- 1 September 2009
+ 05 Mar 2010
 
    \end{center}
 \newpage

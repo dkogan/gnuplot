@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: internal.c,v 1.40.2.4 2008/09/25 19:50:57 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: internal.c,v 1.51 2008/09/25 18:33:50 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - internal.c */
@@ -40,10 +40,9 @@ static char *RCSid() { return RCSid("$Id: internal.c,v 1.40.2.4 2008/09/25 19:50
 #include "stdfn.h"
 #include "alloc.h"
 #include "util.h"		/* for int_error() */
-#ifdef GP_STRING_VARS
 # include "gp_time.h"           /* for str(p|f)time */
-#endif
 #include "command.h"            /* for do_system_func */
+#include "variable.h" /* For locale handling */
 
 #include <math.h>
 
@@ -57,49 +56,13 @@ static char *RCSid() { return RCSid("$Id: internal.c,v 1.40.2.4 2008/09/25 19:50
  *   matherr() in their programs.
  */
 
-#ifdef GP_STRING_VARS
 static enum DATA_TYPES sprintf_specifier __PROTO((const char *format));
-#endif
 
 
 int
 GP_MATHERR( STRUCT_EXCEPTION_P_X )
 {
-#if (defined(ATARI) || defined(MTOS)) && defined(__PUREC__)
-    char *c;
-    switch (e->type) {
-    case DOMAIN:
-	c = "domain error";
-	break;
-    case SING:
-	c = "argument singularity";
-	break;
-    case OVERFLOW:
-	c = "overflow range";
-	break;
-    case UNDERFLOW:
-	c = "underflow range";
-	break;
-    default:
-	c = "(unknown error)";
-	break;
-    }
-    fprintf(stderr, "\
-math exception : %s\n\
-    name : %s\n\
-    arg 1: %e\n\
-    arg 2: %e\n\
-    ret  : %e\n",
-	    c,
-	    e->name,
-	    e->arg1,
-	    e->arg2,
-	    e->retval);
-
-    return 1;
-#else
     return (undefined = TRUE);	/* don't print error message */
-#endif
 }
 
 #define BAD_DEFAULT default: int_error(NO_CARET, "internal error : type neither INT or CMPLX"); return;
@@ -129,6 +92,13 @@ f_pushd1(union argument *x)
     push(&(x->udf_arg->dummy_values[0]));
 }
 
+void
+f_pop(union argument *x)
+{
+    struct value dummy;
+    pop(&dummy);
+    gpfree_string(&dummy);
+}
 
 void
 f_pushd2(union argument *x)
@@ -298,13 +268,11 @@ f_band(union argument *arg)
 }
 
 
-#if (GP_STRING_VARS > 1)
 /*
  * Make all the following internal routines perform autoconversion
  * from string to numeric value.
  */
 #define pop(x) pop_or_convert_from_string(x)
-#endif
 
 void
 f_uminus(union argument *arg)
@@ -971,7 +939,6 @@ f_factorial(union argument *arg)
 
 }
 
-#ifdef GP_STRING_VARS
 /*
  * Terminate the autoconversion from string to numeric values
  */
@@ -1208,6 +1175,10 @@ f_sprintf(union argument *arg)
     prev_pos = next_length;
     remaining = nargs - 1;
 
+    /* If the user has set an explicit LC_NUMERIC locale, apply it */
+    /* to sprintf calls during expression evaluation.              */
+    set_numeric_locale();
+
     /* Each time we start this loop we are pointing to a % character */
     while (remaining-->0 && next_start[0] && next_start[1]) {
 	struct value *next_param = &args[remaining];
@@ -1310,6 +1281,10 @@ f_sprintf(union argument *arg)
 
     if (args != a)
 	free(args);
+
+    /* Return to C locale for internal use */
+    reset_numeric_locale();
+
 }
 
 /* EAM July 2004 - Gnuplot's own string formatting conventions.
@@ -1519,4 +1494,30 @@ f_system(union argument *arg)
     gpfree_string(&result); /* free output */
     gpfree_string(&val);    /* free command string */
 }
-#endif
+
+
+/* Variable assignment operator */
+void
+f_assign(union argument *arg)
+{
+    struct value a, b;
+    (void) arg;
+    (void) pop(&b);	/* new value */
+    (void) pop(&a);	/* name of variable */
+    
+    if (a.type == STRING) {
+	struct udvt_entry *udv;
+	if (!strncmp(a.v.string_val,"GPVAL_",6) || !strncmp(a.v.string_val,"MOUSE_",6))
+	    int_error(NO_CARET,"Attempt to assign to a read-only variable");
+	udv = add_udv_by_name(a.v.string_val);
+	gpfree_string(&a);
+	if (!udv->udv_undef)
+	    gpfree_string(&(udv->udv_value));
+	udv->udv_value = b;
+	udv->udv_undef = FALSE;
+	push(&b);
+    } else {
+	int_error(NO_CARET, "attempt to assign to something other than a named variable");
+    }
+}
+

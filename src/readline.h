@@ -1,5 +1,5 @@
 /*
- * $Id: readline.h,v 1.9.4.1 2008/12/12 06:57:50 sfeam Exp $
+ * $Id: readline.h,v 1.11 2008/12/12 21:06:13 sfeam Exp $
  */
 
 /* GNUPLOT - readline.h */
@@ -67,9 +67,5 @@ char *readline __PROTO((const char *));
  * and a special one for IPC communication.
  */
 char *readline_ipc __PROTO((const char*));
-
-#if defined(ATARI) || defined(MTOS)
-char tos_getch __PROTO((void));
-#endif
 
 #endif /* GNUPLOT_READLINE_H */

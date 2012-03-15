@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.85.2.8 2009/06/05 00:32:52 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.117.2.2 2009/07/05 00:07:10 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -75,6 +75,7 @@ static char *RCSid() { return RCSid("$Id: mouse.c,v 1.85.2.8 2009/06/05 00:32:52
 #endif
 
 /********************** variables ***********************************************************/
+char mouse_fmt_default[] = "% #g";
 
 mouse_setting_t mouse_setting = {
 #ifdef OS2
@@ -84,8 +85,8 @@ mouse_setting_t mouse_setting = {
 #endif
     300 /* ms */,
     1, 0, 0, 0, 0,
-    "% #g",
-    "point pt 1"
+    mouse_fmt_default,
+    NULL
 };
 
 /* "usual well-known" keycodes, i.e. those not listed in special_keys in mouse.h
@@ -183,12 +184,8 @@ static void alert __PROTO((void));
 static void MousePosToGraphPosReal __PROTO((int xx, int yy, double *x, double *y, double *x2, double *y2));
 static char *xy_format __PROTO((void));
 static char *zoombox_format __PROTO((void));
-static char *xy1_format __PROTO((char *leader));
 static char *GetAnnotateString __PROTO((char *s, double x, double y, int mode, char *fmt));
 static char *xDateTimeFormat __PROTO((double x, char *b, int mode));
-#ifdef OLD_STATUS_LINE
-static char *GetCoordinateString __PROTO((char *s, double x, double y));
-#endif
 static void GetRulerString __PROTO((char *p, double x, double y));
 static void apply_zoom __PROTO((struct t_zoom * z));
 static void do_zoom __PROTO((double xmin, double ymin, double x2min,
@@ -298,9 +295,9 @@ static void
 MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double *y2)
 {
     if (!is_3d_plot) {
-# if 0
-	printf("POS: plot_bounds.xleft=%i, plot_bounds.xright=%i, plot_bounds.ybot=%i, plot_bounds.ytop=%i\n", plot_bounds.xleft, plot_bounds.xright, plot_bounds.ybot, plot_bounds.ytop);
-# endif
+	FPRINTF((stderr, "POS: plot_bounds.xleft=%i, plot_bounds.xright=%i, plot_bounds.ybot=%i, plot_bounds.ytop=%i\n",
+		 plot_bounds.xleft, plot_bounds.xright, plot_bounds.ybot, plot_bounds.ytop));
+
 	if (plot_bounds.xright == plot_bounds.xleft)
 	    *x = *x2 = VERYLARGE;	/* protection */
 	else {
@@ -313,9 +310,8 @@ MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double 
 	    *y = AXIS_MAPBACK(FIRST_Y_AXIS, yy);
 	    *y2 = AXIS_MAPBACK(SECOND_Y_AXIS, yy);
 	}
-#if 0
-	printf("POS: xx=%i, yy=%i  =>  x=%g  y=%g\n", xx, yy, *x, *y);
-#endif
+	FPRINTF((stderr, "POS: xx=%i, yy=%i  =>  x=%g  y=%g\n", xx, yy, *x, *y));
+
     } else {
 	/* for 3D plots, we treat the mouse position as if it is
 	 * in the bottom plane, i.e., the plane of the x and y axis */
@@ -392,16 +388,6 @@ zoombox_format()
     return format;
 }
 
-static char *
-xy1_format(char *leader)
-{
-    static char format[0xff];
-    format[0] = NUL;
-    strcat(format, leader);
-    strcat(format, mouse_setting.fmt);
-    return format;
-}
-
 /* formats the information for an annotation (middle mouse button clicked)
  */
 static char *
@@ -412,7 +398,7 @@ GetAnnotateString(char *s, double x, double y, int mode, char *fmt)
 	char format[0xff] = "[%s, ";
 	strcat(format, mouse_setting.fmt);
 	strcat(format, "]");
-	s += sprintf(s, format, xDateTimeFormat(x, buf, mode), y);
+	sprintf(s, format, xDateTimeFormat(x, buf, mode), y);
     } else if (mode == MOUSE_COORDINATES_FRACTIONAL) {
 	double xrange = axis_array[FIRST_X_AXIS].max - axis_array[FIRST_X_AXIS].min;
 	double yrange = axis_array[FIRST_Y_AXIS].max - axis_array[FIRST_Y_AXIS].min;
@@ -421,26 +407,27 @@ GetAnnotateString(char *s, double x, double y, int mode, char *fmt)
 	if (xrange) {
 	    char format[0xff] = "/";
 	    strcat(format, mouse_setting.fmt);
-	    s += sprintf(s, format, (x - axis_array[FIRST_X_AXIS].min) / xrange);
+	    sprintf(s, format, (x - axis_array[FIRST_X_AXIS].min) / xrange);
 	} else {
-	    s += sprintf(s, "/(undefined)");
+	    sprintf(s, "/(undefined)");
 	}
+	s += strlen(s);
 	if (yrange) {
 	    char format[0xff] = ", ";
 	    strcat(format, mouse_setting.fmt);
 	    strcat(format, "/");
-	    s += sprintf(s, format, (y - axis_array[FIRST_Y_AXIS].min) / yrange);
+	    sprintf(s, format, (y - axis_array[FIRST_Y_AXIS].min) / yrange);
 	} else {
-	    s += sprintf(s, ", (undefined)/");
+	    sprintf(s, ", (undefined)/");
 	}
     } else if (mode == MOUSE_COORDINATES_REAL1) {
-	s += sprintf(s, xy_format(), x, y);	/* w/o brackets */
+	sprintf(s, xy_format(), x, y);	/* w/o brackets */
     } else if (mode == MOUSE_COORDINATES_ALT && fmt) {
-	s += sprintf(s, fmt, x, y);	/* user defined format */
+	sprintf(s, fmt, x, y);	/* user defined format */
     } else {
-	s += sprintf(s, xy_format(), x, y);	/* usual x,y values */
+	sprintf(s, xy_format(), x, y);	/* usual x,y values */
     }
-    return s;
+    return s + strlen(s);
 }
 
 
@@ -502,31 +489,12 @@ do {								\
 	char *format = copy_or_invent_formatstring(axis);	\
 	while (strchr(format,'\n'))				\
 	     *(strchr(format,'\n')) = ' ';			\
-	sp+=gstrftime(sp, 40, format, x);			\
-    } else							\
-	sp+=sprintf(sp, mouse_setting.fmt ,x);			\
+	gstrftime(sp, 40, format, x);				\
+    } else {							\
+	sprintf(sp, mouse_setting.fmt ,x);			\
+    }								\
+    sp += strlen(sp);						\
 } while (0)
-
-
-/* formats the information for an annotation (middle mouse button clicked)
- * returns pointer to the end of the string, for easy concatenation
-*/
-# ifdef OLD_STATUS_LINE
-static char *
-GetCoordinateString(char *s, double x, double y)
-{
-    char *sp;
-    s[0] = '[';
-    sp = s + 1;
-    MKSTR(sp, x, FIRST_X_AXIS);
-    *sp++ = ',';
-    *sp++ = ' ';
-    MKSTR(sp, y, FIRST_Y_AXIS);
-    *sp++ = ']';
-    *sp = 0;
-    return sp;
-}
-# endif
 
 
 /* ratio for log, distance for linear */
@@ -596,6 +564,8 @@ GetRulerString(char *p, double x, double y)
 
 
 static struct t_zoom *zoom_head = NULL, *zoom_now = NULL;
+static AXIS axis_array_copy[AXIS_ARRAY_SIZE];
+
 /* Applies the zoom rectangle of  z  by sending the appropriate command
    to gnuplot
 */
@@ -604,8 +574,6 @@ static void
 apply_zoom(struct t_zoom *z)
 {
     char s[1024];		/* HBB 20011005: made larger */
-    /* HBB 20011004: new variable, fixing 'unzoom' back to autoscaled range */
-    static t_autoscale autoscale_copies[AXIS_ARRAY_SIZE];
     int is_splot_map = (is_3d_plot && (splot_map == TRUE));
     int flip = 0;
 
@@ -629,14 +597,21 @@ apply_zoom(struct t_zoom *z)
 
     }
 
-    /* HBB 20011004: implement save/restore of autoscaling if returning to
-     * original setting */
-    if (zoom_now == zoom_head) {
-	/* previous current zoom is the head --> we're leaving
-	 * original non-moused status --> save autoscales */
-	AXIS_INDEX i;
-	for (i = 0; i < AXIS_ARRAY_SIZE; i++)
-	    autoscale_copies[i] = axis_array[i].set_autoscale;
+    /* EAM DEBUG - The autoscale save/restore was too complicated, and
+     * broke refresh. Just save the complete axis state and have done with it.
+     */
+    if (zoom_now == zoom_head && z != zoom_head) {
+	memcpy(axis_array_copy, axis_array, sizeof(axis_array));
+    }
+
+    /* If we are zooming, we don't want to autoscale the range.
+     * This wasn't necessary before we introduced "refresh".  Why?
+     */
+    if (zoom_now == zoom_head && z != zoom_head) {
+	axis_array[FIRST_X_AXIS].autoscale = AUTOSCALE_NONE;
+	axis_array[FIRST_Y_AXIS].autoscale = AUTOSCALE_NONE;
+	axis_array[SECOND_X_AXIS].autoscale = AUTOSCALE_NONE;
+	axis_array[SECOND_Y_AXIS].autoscale = AUTOSCALE_NONE;
     }
 
     zoom_now = z;
@@ -646,78 +621,45 @@ apply_zoom(struct t_zoom *z)
     }
 
     flip = (is_splot_map && zoom_now->was_splot_map);
-#ifdef HAVE_LOCALE_H
-    if (strcmp(localeconv()->decimal_point,".")) {
-	char *save_locale = gp_strdup(setlocale(LC_NUMERIC,NULL));
-	setlocale(LC_NUMERIC,"C");
-	sprintf(s, "set xr[%.12g:%.12g]; set yr[%.12g:%.12g]",
+    sprintf(s, "set xr[%.12g:%.12g]; set yr[%.12g:%.12g]",
 	       zoom_now->xmin, zoom_now->xmax, 
 	       (flip) ? zoom_now->ymax : zoom_now->ymin,
 	       (flip) ? zoom_now->ymin : zoom_now->ymax);
-	setlocale(LC_NUMERIC,save_locale);
-	free(save_locale);
-    } else
-#endif
-	sprintf(s, "set xr[%.12g:%.12g]; set yr[%.12g:%.12g]",
-	       zoom_now->xmin, zoom_now->xmax, 
-	       (flip) ? zoom_now->ymax : zoom_now->ymin,
-	       (flip) ? zoom_now->ymin : zoom_now->ymax);
-
-    /* HBB 20011004: the final part of 'unzoom to autoscale mode'.
-     * Optionally appends 'set autoscale' commands to the string to be
-     * sent, to restore the saved settings. */
-#define OUTPUT_AUTOSCALE(axis)						     \
-    {					     \
-	t_autoscale autoscale = autoscale_copies[axis];			     \
-	t_autoscale fix = autoscale & (AUTOSCALE_FIXMIN | AUTOSCALE_FIXMAX); \
-									     \
-	autoscale &= AUTOSCALE_BOTH;					     \
-									     \
-	if (autoscale) {						     \
-	    sprintf(s + strlen(s), "; set au %s%s",			     \
-		    axis_defaults[axis].name,				     \
-		    autoscale == AUTOSCALE_MIN ? "min"			     \
-		    : autoscale == AUTOSCALE_MAX ? "max"		     \
-		    : "");						     \
-	    if (fix)							     \
-		sprintf(s + strlen(s), "; set au %sfix%s",		     \
-			axis_defaults[axis].name,			     \
-			fix == AUTOSCALE_FIXMIN ? "min"			     \
-			: fix == AUTOSCALE_FIXMAX ? "max"		     \
-			: "");						     \
-	}								     \
-    }
-
-    if (zoom_now == zoom_head) {
-	/* new current zoom is the head --> returning to unzoomed
-	 * settings --> restore autoscale */
-	OUTPUT_AUTOSCALE(FIRST_X_AXIS);
-	OUTPUT_AUTOSCALE(FIRST_Y_AXIS);
-    }
 
     if (!is_3d_plot) {
-#ifdef HAVE_LOCALE_H
-	if (strcmp(localeconv()->decimal_point,".")) {
-	    char *save_locale = gp_strdup(setlocale(LC_NUMERIC,NULL));
-	    setlocale(LC_NUMERIC,"C");
-	    sprintf(s + strlen(s), "; set x2r[% #g:% #g]; set y2r[% #g:% #g]",
+	sprintf(s + strlen(s), "; set x2r[% #g:% #g]; set y2r[% #g:% #g]",
 		zoom_now->x2min, zoom_now->x2max,
 		zoom_now->y2min, zoom_now->y2max);
-	    setlocale(LC_NUMERIC,save_locale);
-	    free(save_locale);
-	} else
-#endif
-	    sprintf(s + strlen(s), "; set x2r[% #g:% #g]; set y2r[% #g:% #g]",
-		zoom_now->x2min, zoom_now->x2max,
-		zoom_now->y2min, zoom_now->y2max);
-	if (zoom_now == zoom_head) {
-	    /* new current zoom is the head --> returning to unzoomed
-	     * settings --> restore autoscale */
-	    OUTPUT_AUTOSCALE(SECOND_X_AXIS);
-	    OUTPUT_AUTOSCALE(SECOND_Y_AXIS);
-	}
-#undef OUTPUT_AUTOSCALE
     }
+
+    /* EAM Jun 2007 - The autoscale save/restore was too complicated, and broke
+     * refresh. Just save/restore the complete axis state and have done with it.
+     * Well, not _quite_ the complete state.  The labels are maintained dynamically.
+     */
+    if (zoom_now == zoom_head) {
+	int i;
+	for (i=0; i<AXIS_ARRAY_SIZE; i++) {
+	    axis_array_copy[i].label = axis_array[i].label;
+	}
+	memcpy(axis_array, axis_array_copy, sizeof(axis_array));
+	s[0] = '\0';	/* FIXME:  Is this better than calling replotrequest()? */
+
+#ifdef VOLATILE_REFRESH
+	/* Falling through to do_string_replot() does not work! */
+	if (volatile_data) {
+	    if (refresh_ok == 2) {
+		refresh_request();
+		return;
+	    }
+	    if (is_splot_map && refresh_ok == 3) {
+		refresh_request();
+		return;
+	    }
+	}
+#endif
+
+    }
+
     do_string_replot(s);
 }
 
@@ -866,15 +808,8 @@ UpdateStatuslineWithMouseSetting(mouse_setting_t * ms)
 	sprintf(s0, format, surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
     } else if (!TICS_ON(axis_array[SECOND_X_AXIS].ticmode) && !TICS_ON(axis_array[SECOND_Y_AXIS].ticmode)) {
 	/* only first X and Y axis are in use */
-# ifdef OLD_STATUS_LINE
-	sp = GetCoordinateString(s0, real_x, real_y);
-# else
 	sp = GetAnnotateString(s0, real_x, real_y, mouse_mode, mouse_alt_string);
-# endif
 	if (ruler.on) {
-# if 0
-	    MousePosToGraphPosReal(ruler.px, ruler.py, &ruler.x, &ruler.y, &ruler.x2, &ruler.y2);
-# endif
 	    GetRulerString(sp, real_x, real_y);
 	}
     } else {
@@ -902,17 +837,26 @@ UpdateStatuslineWithMouseSetting(mouse_setting_t * ms)
 	}
 	if (ruler.on) {
 	    /* ruler on? then also print distances to ruler */
-# if 0
-	    MousePosToGraphPosReal(ruler.px, ruler.py, &ruler.x, &ruler.y, &ruler.x2, &ruler.y2);
-# endif
-	    if (TICS_ON(axis_array[FIRST_X_AXIS].ticmode))
-		sp += sprintf(sp, xy1_format("dx="), DIST(real_x, ruler.x, FIRST_X_AXIS));
-	    if (TICS_ON(axis_array[FIRST_Y_AXIS].ticmode))
-		sp += sprintf(sp, xy1_format("dy="), DIST(real_y, ruler.y, FIRST_Y_AXIS));
-	    if (TICS_ON(axis_array[SECOND_X_AXIS].ticmode))
-		sp += sprintf(sp, xy1_format("dx2="), DIST(real_x2, ruler.x2, SECOND_X_AXIS));
-	    if (TICS_ON(axis_array[SECOND_Y_AXIS].ticmode))
-		sp += sprintf(sp, xy1_format("dy2="), DIST(real_y2, ruler.y2, SECOND_Y_AXIS));
+	    if (TICS_ON(axis_array[FIRST_X_AXIS].ticmode)) {
+		stpcpy(sp,"dx=");
+		sprintf(sp+3, mouse_setting.fmt, DIST(real_x, ruler.x, FIRST_X_AXIS));
+		sp += strlen(sp);
+	    }
+	    if (TICS_ON(axis_array[FIRST_Y_AXIS].ticmode)) {
+		stpcpy(sp,"dy=");
+		sprintf(sp+3, mouse_setting.fmt, DIST(real_y, ruler.y, FIRST_Y_AXIS));
+		sp += strlen(sp);
+	    }
+	    if (TICS_ON(axis_array[SECOND_X_AXIS].ticmode)) {
+		stpcpy(sp,"dx2=");
+		sprintf(sp+4, mouse_setting.fmt, DIST(real_x2, ruler.x2, SECOND_X_AXIS));
+		sp += strlen(sp);
+	    }
+	    if (TICS_ON(axis_array[SECOND_Y_AXIS].ticmode)) {
+		stpcpy(sp,"dy2=");
+		sprintf(sp+4, mouse_setting.fmt, DIST(real_y2, ruler.y2, SECOND_Y_AXIS));
+		sp += strlen(sp);
+	    }
 	}
 	*--sp = 0;		/* delete trailing space */
     }
@@ -945,20 +889,25 @@ builtin_autoscale(struct gp_event_t *ge)
 static char *
 builtin_toggle_border(struct gp_event_t *ge)
 {
-    if (!ge) {
+    if (!ge)
 	return "`builtin-toggle-border`";
-    }
-    if (is_3d_plot) {
-	if (draw_border == 4095)
-	    do_string_replot("set border");
-	else
-	    do_string_replot("set border 4095 lw 0.5");
-    } else {
-	if (draw_border == 15)
-	    do_string_replot("set border");
-	else
-	    do_string_replot("set border 15 lw 0.5");
-    }
+
+    /* EAM July 2009  Cycle through border settings
+     * - no border
+     * - last border requested by the user
+     * - default border
+     * - (3D only) full border
+     */
+    if (draw_border == 0 && draw_border != user_border)
+	draw_border = user_border;
+    else if (draw_border == user_border && draw_border != 31)
+	draw_border = 31;
+    else if (is_3d_plot && draw_border == 31)
+	draw_border = 4095;
+    else
+	draw_border = 0;
+
+    do_string_replot("");
     return (char *) 0;
 }
 
@@ -1001,71 +950,70 @@ static char *
 builtin_toggle_log(struct gp_event_t *ge)
 {
     if (!ge)
-	return "`builtin-toggle-log` y logscale for plots, z and cb logscale for splots";
-    if (is_3d_plot) {
-	if (Z_AXIS.log || CB_AXIS.log)
-	    do_string_replot("unset log zcb");
-	else
-	    do_string_replot("set log zcb");
-    } else {
-#ifdef WITH_IMAGE
-	/* set log cb or log y whether using "with (rgb)image" plot or not */
-	if (is_cb_plot) {
-	    if (CB_AXIS.log)
-		do_string_replot("unset log cb");
-	    else
-		do_string_replot("set log cb");
-	} else {
-#endif
-	if (axis_array[FIRST_Y_AXIS].log)
-	    do_string_replot("unset log y");
-	else
-	    do_string_replot("set log y");
-#ifdef WITH_IMAGE
-	}
-#endif
-    }
+	return "`builtin-toggle-log` y logscale for plots, z and cb for splots";
+
+    if (volatile_data)
+	int_warn(NO_CARET, "Cannot toggle log scale for volatile data");
+    else if ((color_box.bounds.xleft < mouse_x && mouse_x < color_box.bounds.xright)
+	 &&  (color_box.bounds.ybot  < mouse_y && mouse_y < color_box.bounds.ytop))
+	do_string_replot( CB_AXIS.log ? "unset log cb" : "set log cb");
+    else if (is_3d_plot && !splot_map)
+	do_string_replot( Z_AXIS.log ? "unset log z" : "set log z");
+    else
+	do_string_replot( axis_array[FIRST_Y_AXIS].log ? "unset log y" : "set log y");
+
     return (char *) 0;
 }
 
 static char *
 builtin_nearest_log(struct gp_event_t *ge)
 {
-    if (!ge) {
+    if (!ge)
 	return "`builtin-nearest-log` toggle logscale of axis nearest cursor";
-    }
-    if (is_3d_plot) {
-	/* 3D-plot: toggle lin/log z axis */
-	if (Z_AXIS.log || CB_AXIS.log)
-	    do_string_replot("unset log zcb");
-	else
-	    do_string_replot("set log zcb");
+
+    if ((color_box.bounds.xleft < mouse_x && mouse_x < color_box.bounds.xright)
+    &&  (color_box.bounds.ybot  < mouse_y && mouse_y < color_box.bounds.ytop)) {
+	do_string_replot( CB_AXIS.log ? "unset log cb" : "set log cb");
+    } else if (is_3d_plot && !splot_map) {
+	do_string_replot( Z_AXIS.log ? "unset log z" : "set log z");
     } else {
 	/* 2D-plot: figure out which axis/axes is/are
 	 * close to the mouse cursor, and toggle those lin/log */
 	/* note: here it is assumed that the x axis is at
 	 * the bottom, x2 at top, y left and y2 right; it
 	 * would be better to derive that from the ..tics settings */
-	TBOOLEAN change = FALSE;
-	if (mouse_y < plot_bounds.ybot + (plot_bounds.ytop - plot_bounds.ybot) / 4 && mouse_x > plot_bounds.xleft && mouse_x < plot_bounds.xright) {
-	    do_string(axis_array[FIRST_X_AXIS].log ? "unset log x" : "set log x");
-	    change = TRUE;
-	}
-	if (mouse_y > plot_bounds.ytop - (plot_bounds.ytop - plot_bounds.ybot) / 4 && mouse_x > plot_bounds.xleft && mouse_x < plot_bounds.xright) {
-	    do_string(axis_array[SECOND_X_AXIS].log ? "unset log x2" : "set log x2");
-	    change = TRUE;
-	}
-	if (mouse_x < plot_bounds.xleft + (plot_bounds.xright - plot_bounds.xleft) / 4 && mouse_y > plot_bounds.ybot && mouse_y < plot_bounds.ytop) {
-	    do_string(axis_array[FIRST_Y_AXIS].log ? "unset log y" : "set log y");
-	    change = TRUE;
-	}
-	if (mouse_x > plot_bounds.xright - (plot_bounds.xright - plot_bounds.xleft) / 4 && mouse_y > plot_bounds.ybot && mouse_y < plot_bounds.ytop) {
-	    do_string(axis_array[SECOND_Y_AXIS].log ? "unset log y2" : "set log y2");
-	    change = TRUE;
-	}
-	if (change)
+	TBOOLEAN change_x1 = FALSE;
+	TBOOLEAN change_y1 = FALSE;
+	TBOOLEAN change_x2 = FALSE;
+	TBOOLEAN change_y2 = FALSE;
+	if (mouse_y < plot_bounds.ybot + (plot_bounds.ytop - plot_bounds.ybot) / 4
+	&&  mouse_x > plot_bounds.xleft && mouse_x < plot_bounds.xright)
+	    change_x1 = TRUE;
+	if (mouse_x < plot_bounds.xleft + (plot_bounds.xright - plot_bounds.xleft) / 4
+	&&  mouse_y > plot_bounds.ybot && mouse_y < plot_bounds.ytop)
+	    change_y1 = TRUE;
+	if (mouse_y > plot_bounds.ytop - (plot_bounds.ytop - plot_bounds.ybot) / 4
+	&&  mouse_x > plot_bounds.xleft && mouse_x < plot_bounds.xright)
+	    change_x2 = TRUE;
+	if (mouse_x > plot_bounds.xright - (plot_bounds.xright - plot_bounds.xleft) / 4
+	&&  mouse_y > plot_bounds.ybot && mouse_y < plot_bounds.ytop)
+	    change_y2 = TRUE;
+	
+	if (change_x1)
+	    do_string(axis_array[FIRST_X_AXIS].log ? "unset log x" : "set log x", FALSE);
+	if (change_y1)
+	    do_string(axis_array[FIRST_Y_AXIS].log ? "unset log y" : "set log y", FALSE);
+	if (change_x2 && !splot_map)
+	    do_string(axis_array[SECOND_X_AXIS].log ? "unset log x2" : "set log x2", FALSE);
+	if (change_y2 && !splot_map)
+	    do_string(axis_array[SECOND_Y_AXIS].log ? "unset log y2" : "set log y2", FALSE);
+	if (!change_x1 && !change_y1 && splot_map)
+	    do_string_replot( Z_AXIS.log ? "unset log z" : "set log z");
+	
+	if (change_x1 || change_y1 || change_x2 || change_y2)
 	    do_string_replot("");
     }
+
     return (char *) 0;
 }
 
@@ -1380,7 +1328,7 @@ event_keypress(struct gp_event_t *ge, TBOOLEAN current)
 		    /* FIXME - Better to clear MOUSE_[XY] than to set it wrongly. */
 		    /*         This may be worth a separate subroutine.           */
 		    load_mouse_variables(0, 0, FALSE, c);
-		do_string(ptr->command);
+		do_string(ptr->command, FALSE);
 		/* Treat as a current event after we return to x11.trm */
 		ge->type = GE_keypress;
 		break;
@@ -1389,7 +1337,7 @@ event_keypress(struct gp_event_t *ge, TBOOLEAN current)
 		break;
 	    /* Let user defined bindings overwrite the builtin bindings */
 	    } else if ((par2 & 1) == 0 && ptr->command) {
-		do_string(ptr->command);
+		do_string(ptr->command, FALSE);
 		break;
 	    } else if (ptr->builtin) {
 		ptr->builtin(ge);
@@ -1423,6 +1371,11 @@ ChangeView(int x, int z)
 	    surface_rot_z += 360;
 	if (surface_rot_z > 360)
 	    surface_rot_z -= 360;
+    }
+
+    if (x || z) {
+	fill_gpval_float("GPVAL_VIEW_ROT_X", surface_rot_x);
+	fill_gpval_float("GPVAL_VIEW_ROT_Z", surface_rot_z);
     }
 
     if (display_ipc_commands()) {
@@ -1463,7 +1416,9 @@ event_buttonpress(struct gp_event_t *ge)
 		/* not bound in 2d graphs */
 	    } else if (2 == b) {
 		/* not bound in 2d graphs */
-	    } else if (3 == b && !replot_disabled && !(paused_for_mouse & PAUSE_BUTTON3)) {
+	    } else if (3 == b && 
+	    	(!replot_disabled || refresh_ok)	/* Use refresh if available */
+		&& !(paused_for_mouse & PAUSE_BUTTON3)) {
 		/* start zoom; but ignore it when
 		 *   - replot is disabled, e.g. with inline data, or
 		 *   - during 'pause mouse'
@@ -1668,7 +1623,9 @@ event_buttonrelease(struct gp_event_t *ge)
 #ifdef _Windows
     if (paused_for_mouse & PAUSE_CLICK) {
 	/* remove pause message box after 'pause mouse' */
+#ifndef WGP_CONSOLE
 	paused_for_mouse = 0;
+#endif
 	kill_pending_Pause_dialog();
     }
 #endif
@@ -1690,20 +1647,12 @@ event_motion(struct gp_event_t *ge)
 
 	if (button & (1 << 1)) {
 	    /* dragging with button 1 -> rotate */
-#if 0				/* HBB 20001109: what's rint()? */
-	    surface_rot_x = rint(zero_rot_x + 180.0 * mouse_y / term->ymax);
-#else
 	    surface_rot_x = floor(0.5 + zero_rot_x + 180.0 * mouse_y / term->ymax);
-#endif
 	    if (surface_rot_x < 0)
 		surface_rot_x = 0;
 	    if (surface_rot_x > 180)
 		surface_rot_x = 180;
-#if 0				/* HBB 20001109: what's rint()? */
-	    surface_rot_z = rint(fmod(zero_rot_z - 360.0 * mouse_x / term->xmax, 360));
-#else
 	    surface_rot_z = floor(0.5 + fmod(zero_rot_z - 360.0 * mouse_x / term->xmax, 360));
-#endif
 	    if (surface_rot_z < 0)
 		surface_rot_z += 360;
 	    redraw = TRUE;
@@ -1722,7 +1671,7 @@ event_motion(struct gp_event_t *ge)
 		return;
 # endif
 	    if (modifier_mask & Mod_Shift) {
-		xyplane.ticslevel += (1 + fabs(xyplane.ticslevel))
+		xyplane.z += (1 + fabs(xyplane.z))
 		    * (mouse_y - start_y) * 2.0 / term->ymax;
 	    } else {
 
@@ -1758,6 +1707,10 @@ event_motion(struct gp_event_t *ge)
 		 * disabling further replots until it completes */
 		allowmotion = FALSE;
 		do_save_3dplot(first_3dplot, plot3d_num, !!(modifier_mask & Mod_Ctrl));
+		fill_gpval_float("GPVAL_VIEW_ROT_X", surface_rot_x);
+		fill_gpval_float("GPVAL_VIEW_ROT_Z", surface_rot_z);
+		fill_gpval_float("GPVAL_VIEW_SCALE", surface_scale);
+		fill_gpval_float("GPVAL_VIEW_ZSCALE", surface_zscale);
 	    } else {
 		/* postpone the replotting */
 		needreplot = TRUE;
@@ -1835,6 +1788,14 @@ event_reset(struct gp_event_t *ge)
 	if (term && (!strncmp("x11",term->name,3) || !strncmp("wxt",term->name,3)))
 	    ungetc('\n',stdin);
     }
+
+    /* Dummy up a keystroke event so that we can conveniently check for a  */
+    /* binding to "Close". We only get these for the current window. */
+    if (ge != (void *)1) {
+	ge->par1 = GP_Cancel;	/* Dummy keystroke */
+	ge->par2 = 0;		/* Not used; could pass window id here? */
+	event_keypress(ge, TRUE);
+    }
 }
 
 void
@@ -1859,6 +1820,10 @@ do_event(struct gp_event_t *ge)
     switch (ge->type) {
     case GE_plotdone:
 	event_plotdone();
+	if (ge->winid) {
+	    current_x11_windowid = ge->winid;
+	    update_gpval_variables(6); /* fill GPVAL_TERM_WINDOWID */
+	}
 	break;
     case GE_keypress:
 	event_keypress(ge, TRUE);
@@ -1886,7 +1851,7 @@ do_event(struct gp_event_t *ge)
 	break;
     case GE_replot:
 	/* used only by ggi.trm */
-	do_string("replot");
+	do_string("replot", FALSE);
 	break;
     case GE_reset:
 	event_reset(ge);
@@ -1900,6 +1865,10 @@ do_event(struct gp_event_t *ge)
 	/*             but the existing code doesn't expect it to change.   */
 	FPRINTF((stderr, "mouse do_event: window size %d X %d, font hchar %d vchar %d\n",
 		ge->mx, ge->my, ge->par1,ge->par2));
+	break;
+    case GE_buttonpress_old:
+    case GE_buttonrelease_old:
+	/* ignore */
 	break;
     default:
 	fprintf(stderr, "%s:%d protocol error\n", __FILE__, __LINE__);
@@ -1916,10 +1885,12 @@ do_save_3dplot(struct surface_points *plots, int pcount, int quick)
      (A.log && ((!(A.set_autoscale & AUTOSCALE_MIN) && A.set_min <= 0) || \
 		(!(A.set_autoscale & AUTOSCALE_MAX) && A.set_max <= 0)))
 
-    if (!plots) {
-	/* this might happen after the `reset' command for example
-	 * which was reported by Franz Bakan.  replotrequest()
-	 * should set up again everything. */
+    if (!plots || !refresh_ok) {
+	/* !plots might happen after the `reset' command for example
+	 * (reported by Franz Bakan).
+	 * !refresh_ok can happen for example if log scaling is reset (EAM).
+	 * replotrequest() should set up everything again in either case.
+	 */
 	replotrequest();
     } else {
 	if (M_TEST_AXIS(X_AXIS) || M_TEST_AXIS(Y_AXIS) || M_TEST_AXIS(Z_AXIS)
@@ -2051,21 +2022,24 @@ bind_fmt_lhs(const bind_t * in)
 	sprintf(out, "Ctrl-");
     }
     if (in->modifier & Mod_Alt) {
-	sprintf(out, "%sAlt-", out);
+	strcat(out, "%sAlt-");
     }
     if (in->key > GP_FIRST_KEY && in->key < GP_LAST_KEY) {
-	sprintf(out, "%s%s", out, special_keys[in->key - GP_FIRST_KEY]);
+	strcat(out,special_keys[in->key - GP_FIRST_KEY]);
     } else {
 	int k = 0;
 	for ( ; usual_special_keys[k].value > 0; k++) {
 	    if (usual_special_keys[k].value == in->key) {
-		sprintf(out, "%s%s", out, usual_special_keys[k].key);
+		strcat(out, usual_special_keys[k].key);
 		k = -1;
 		break;
 	    }
 	}
-	if (k >= 0)
-	sprintf(out, "%s%c", out, in->key);
+	if (k >= 0) {
+	    char foo[2] = {'\0','\0'};
+	    foo[0] = in->key;
+	    strcat(out,foo);
+	}
     }
     return out;
 }
@@ -2121,8 +2095,10 @@ bind_display(char *lhs)
 	fprintf(stderr, fmt, "<B2-Motion>", "change view (scaling). Use <ctrl> to scale the axes only.");
 	fprintf(stderr, fmt, "<Shift-B2-Motion>", "vertical motion -- change xyplane");
 	fprintf(stderr, "\n");
+#ifndef DISABLE_SPACE_RAISES_CONSOLE
 	fprintf(stderr, " %-12s   %s\n", "Space", "raise gnuplot console window");
-	fprintf(stderr, " %-12s * %s\n", "q", "close this X11 plot window");
+#endif
+	fprintf(stderr, " %-12s * %s\n", "q", "close this plot window");
 	fprintf(stderr, "\n");
 	for (ptr = bindings; ptr; ptr = ptr->next) {
 	    bind_display_one(ptr);
@@ -2283,7 +2259,7 @@ recalc_ruler_pos()
     double P, dummy;
     if (is_3d_plot) {
 	/* To be exact, it is 'set view map' splot. */
-	unsigned int ppx, ppy;
+	int ppx, ppy;
 	dummy = 1.0; /* dummy value, but not 0.0 for the fear of log z-axis */
 	map3d_xy(ruler.x, ruler.y, dummy, &ppx, &ppy);
 	ruler.px = ppx;
@@ -2432,7 +2408,8 @@ static void
 put_label(char *label, double x, double y)
 {
     char cmd[0xff];
-    sprintf(cmd, "set label \"%s\" at %g,%g %s", label, x, y, mouse_setting.labelopts);
+    sprintf(cmd, "set label \"%s\" at %g,%g %s", label, x, y, 
+	mouse_setting.labelopts ? mouse_setting.labelopts : "point pt 1");
     do_string_replot(cmd);
 }
 
@@ -2476,7 +2453,6 @@ load_mouse_variables(double x, double y, TBOOLEAN button, int c)
 	current->udv_undef = FALSE;
 	Ginteger(&current->udv_value,c);
     }
-#ifdef GP_STRING_VARS
     if ((current = add_udv_by_name("MOUSE_CHAR"))) {
 	char *keychar = gp_alloc(2,"key_char");
 	keychar[0] = c;
@@ -2486,8 +2462,6 @@ load_mouse_variables(double x, double y, TBOOLEAN button, int c)
 	current->udv_undef = FALSE;
 	Gstring(&current->udv_value,keychar);
     }
-#endif
-
     if ((current = add_udv_by_name("MOUSE_X"))) {
 	current->udv_undef = FALSE;
 	Gcomplex(&current->udv_value,real_x,0);

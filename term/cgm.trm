@@ -1,5 +1,5 @@
 /* Hey Emacs this is -*- C -*-
- * $Id: cgm.trm,v 1.77.2.5 2009/02/16 21:41:56 sfeam Exp $
+ * $Id: cgm.trm,v 1.91.2.3 2010/02/24 20:16:57 sfeam Exp $
  */
 
 /* GNUPLOT - cgm.trm */
@@ -117,7 +117,7 @@ TERM_PUBLIC void CGM_set_pointsize __PROTO((double size));
 				/* convert from plot units to pt */
 #define CGM_PT ((term->xmax + CGM_MARGIN)/cgm_plotwidth)
 #define CGM_LINE_TYPES 9	/* number of line types we support */
-#define CGM_COLORS WEB_N_COLORS	/* sizeof(web_color_rgbs)  currently in bitmap.c */
+#define CGM_COLORS 96		/* must not exceed size of pm3d_color_names_tbl[] */
 #define CGM_POINTS 13		/* number of markers we support */
 #define CGM_MAX_SEGMENTS 16382	/* maximum # polyline coordinates */
 #define CGM_VCHAR (CGM_SMALL/360*12)
@@ -340,7 +340,6 @@ static struct gen_table CGM_opts[] =
 TERM_PUBLIC void
 CGM_options()
 {
-    struct value a;
     char *string;
 
     /* Annoying hack to handle the case of 'set termoption' after */
@@ -368,10 +367,12 @@ CGM_options()
 	    break;
 	case CGM_MONOCHROME:
 	    cgm_monochrome = TRUE;
+	    term->flags |= TERM_MONOCHROME;
 	    c_token++;
 	    break;
 	case CGM_COLOR:
 	    cgm_monochrome = FALSE;
+	    term->flags &= ~TERM_MONOCHROME;
 	    c_token++;
 	    break;
 	case CGM_ROTATE:
@@ -393,7 +394,7 @@ CGM_options()
 	case CGM_LINEWIDTH:
 	    c_token++;
 	    if (!END_OF_COMMAND) {
-		cgm_linewidth_pt = (unsigned int) real(const_express(&a));
+		cgm_linewidth_pt = int_expression();
 		if (cgm_linewidth_pt == 0 || cgm_linewidth_pt > 10000) {
 		    int_warn(c_token,"linewidth out of range");
 		    cgm_linewidth_pt = 1;
@@ -403,7 +404,7 @@ CGM_options()
 	case CGM_WIDTH:
 	    c_token++;
 	    if (!END_OF_COMMAND) {
-		cgm_plotwidth = (int) real(const_express(&a));
+		cgm_plotwidth = int_expression();
 		if (cgm_plotwidth < 0 || cgm_plotwidth > 10000) {
 		    int_warn(c_token,"width out of range");
 		    cgm_plotwidth = 6 * 72;
@@ -436,40 +437,38 @@ CGM_options()
 	    } else {
 		if (equals(c_token,"font"))
 		    c_token++;
-		if (isstring(c_token)) {
-		      double relwidth;
-		      char *comma;
-		      quote_str(cgm_font, c_token, MAX_ID_LEN);
-		      comma = strchr(cgm_font,',');
-		      if (comma && (1 == sscanf(comma+1,"%d",&cgm_fontsize))) {
+		if (isstringvalue(c_token)) {
+		    double relwidth;
+		    int font_index;
+		    char *s = try_to_get_string();
+		    char *comma = strchr(s,',');
+		    if (comma && (1 == sscanf(comma+1,"%d",&cgm_fontsize)))
 			   *comma = '\0';
-		      }
-		      if (CGM_find_font(cgm_font, strlen(cgm_font),
-					&relwidth) == 0) {
-			   /* insert the font in the font table */
-			   size_t l = strlen(cgm_font);
-			   int n;
-			   for (n=0; cgm_font_data[n].name; n++)
+		    if (*s)
+		      	   font_index = CGM_find_font(s, strlen(s), &relwidth);
+		    else
+			   font_index = CGM_find_font(cgm_font, strlen(cgm_font), &relwidth);
+		    if (font_index == 0) {
+			/* insert the font in the font table */
+			struct fontdata *new_font_data;
+			int i, n;
+			for (n=0; cgm_font_data[n].name; n++)
 				;
-			   if (l <= 255) {
-				struct fontdata *new_font_data;
-				int i;
-				new_font_data =
-				     gp_alloc((n + 2)*sizeof(struct fontdata),
-					      "CGM font list");
-				new_font_data->name = gp_alloc(l+1,"CGM font list");
-				strcpy(new_font_data->name, cgm_font);
-				/* punt, since we don't know the real font width */
-				new_font_data->width = 1.0;
-				for (i = 0; i <= n; i++)
-				     new_font_data[i+1] = cgm_font_data[i];
-				cgm_font_data = new_font_data;
-			   }
-		      }
-		      c_token++;
+			new_font_data = gp_alloc((n + 2)*sizeof(struct fontdata), "CGM font list");
+			new_font_data->name = s;
+			/* punt, since we don't know the real font width */
+			new_font_data->width = 1.0;
+			for (i = 0; i <= n; i++)
+			     new_font_data[i+1] = cgm_font_data[i];
+			cgm_font_data = new_font_data;
+			font_index = 1;
+		    } else
+			free(s);
+		    strncpy(cgm_font, cgm_font_data[font_index-1].name, sizeof(cgm_font));
+
 		} else {
 		      /* the user is specifying the font size */
-		      cgm_fontsize = (int) real(const_express(&a));
+		      cgm_fontsize = int_expression();
 		}
 		 break;
 	    }
@@ -527,9 +526,9 @@ CGM_options()
 
 	for (i = cgm_user_color_count, j = cgm_user_color_count * 3;
 		     i < CGM_COLORS; i++, j+=3) {
-		cgm_user_color_table[j+1] = web_color_rgbs[i].r;
-		cgm_user_color_table[j+2] = web_color_rgbs[i].g;
-		cgm_user_color_table[j+3] = web_color_rgbs[i].b;
+		cgm_user_color_table[j+1] = (pm3d_color_names_tbl[i].value >> 16) & 0xff;
+		cgm_user_color_table[j+2] = (pm3d_color_names_tbl[i].value >>  8) & 0xff;
+		cgm_user_color_table[j+3] = (pm3d_color_names_tbl[i].value      ) & 0xff;
 	}
 
 	cgm_user_color_count = CGM_COLORS;
@@ -565,7 +564,7 @@ CGM_init()
     cgm_next.angle = 0;
     cgm_next.interior_style = 1;
     cgm_next.hatch_index = 1;
-    cgm_polyline = gp_alloc(CGM_MAX_SEGMENTS*sizeof(int), "cgm_polylines");
+    cgm_polyline = gp_alloc(CGM_MAX_SEGMENTS*sizeof(int),"cgm polylines");
 }
 
 TERM_PUBLIC void
@@ -914,6 +913,7 @@ CGM_fillbox(
     CGM_filled_polygon(5, corner);
 }
 
+
 TERM_PUBLIC void
 CGM_linewidth(double width)
 {
@@ -1083,10 +1083,12 @@ CGM_filled_polygon(int points, gpiPoint *corner)
     switch( style & 0xf ) {
 
     case FS_SOLID:
+    case FS_TRANSPARENT_SOLID:
 	cgm_next.interior_style = 1;
         break;
 
     case FS_PATTERN:
+    case FS_TRANSPARENT_PATTERN:
 	if (pattern == 0) {
 	    /* FIXME - for unknown reasons, solid fill messes up the subsequent */
 	    /* color state.  Just leave it empty and let the background show */
@@ -1668,7 +1670,7 @@ CGM_find_nearest_color(t_colorspec *colorspec)
     int k;
     int dr, dg, db, distance;
 
-    for (k=0; k<cgm_user_color_max; k++) {
+    for (k=0; k<cgm_user_color_count; k++) {
 	dr = cgm_user_color_table[++i] - red;
 	dg = cgm_user_color_table[++i] - green;
 	db = cgm_user_color_table[++i] - blue;
@@ -1712,7 +1714,7 @@ TERM_TABLE_START(cgm_driver)
     CGM_linetype, CGM_put_text, CGM_text_angle,
     CGM_justify_text, CGM_point, do_arrow, CGM_set_font,
     CGM_set_pointsize,
-    TERM_BINARY,		/* various flags */
+    TERM_BINARY|TERM_CAN_DASH|TERM_LINEWIDTH,	/* various flags */
     NULL,			/* after one plot of multiplot */
     NULL,			/* before subsequent plot of multiplot */
     CGM_fillbox,
@@ -1775,7 +1777,7 @@ START_HELP(cgm)
 "       set terminal cgm portrait \"Times Italic\" 12",
 "       set terminal cgm color solid      # no pesky dashes!",
 
-"2 cgm fonts",
+"2 cgm font",
 "?commands set terminal cgm font",
 "?set terminal cgm font",
 "?set term cgm font",

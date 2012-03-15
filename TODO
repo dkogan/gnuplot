@@ -5,16 +5,9 @@
 COMMANDS:
 =========
 
--- (EAM) Iterate over plot commands:   plot for [i=1,n] ....
--- (EAM) Everything on command line after "load <foo>" is lost; it shouldn't be
--- (EAM) Fill between curves for functions (already works for data)
--- (EAM) set object <tag> {circle|ellipse}
-
 
 DOCUMENTATION:
 ==============
-
--- gnuplot.doc: Add embedded figures from the demo set for PDF and HTML docs
 
 Recently I've moved importants things from README.os2 into gnuplot.doc and
 INSTALL; those other README.{win, xli, nex} should be
@@ -46,10 +39,6 @@ NeXTstep:
 Pstricks:
   -- Patch 559611 color + variable pointsize in pstricks
 	Can somebody comment on this?
-
-{eps|ps}latex:
-  -- none of the latex terminal variants support pattern-fill, but
-	they return no error if you try it.
 
 Windows:
   -- update its docs from docs/old/README.win, then delete this file
@@ -140,7 +129,6 @@ longer term
 
 Lars' list
 
-- much-requested feature: read text/commands from data files
 - provide library of replacement functions instead of stdfn.c
 - fully switch to automake [docs left to do, won't do lisp]
 - completely rewrite the parser. Use yacc/bison if possible.
@@ -149,19 +137,12 @@ Lars' list
   only worthwhile if the parser is rewritten at the same time.
 - maybe use PD hash code for table-lookup (SNIPPETS code). Tables for
   builtin and user functions, variables, commands. What else? aliases
-- [Robert S. Maier] rewrite term.c to provide an interface to GNU plotutils
 - standardise float/double comparisons around the suggestion in the
   comp.lang.c FAQ (What's a good way to check for "close enough"
   floating-point equality?) and symbolic constants from standard header files.
   LOADS of errors throughout the code, especially in graphics.c
 - autogenerate term.h from config file in text format and/or configure?
-- parse "~" in filenames as $HOME
-  [PARTIALLY DONE] works for all cmds now; plot key shows "~" instead
-  of path (-> fix); does not accept "~" and "~user". Maybe implement
-  former, latter requires reading passwd file (-> not!)
-- general expansion of user defined and environment vars in
-  labels?
-- [Lucas] fix axis ranges, overwritten labels in demos
+- general expansion of user defined and environment vars in labels?
 - write or organise a portable version of snprintf(3) with a copyright
   compatible with the gnuplot copyright (ie. no GPL) (Apache?)
 - add more maintainer checks (eg. file permissions)
@@ -176,12 +157,21 @@ Lars' list
   [HBB: reason known, but proper workaround path unclear]
 
 HBB:
+
 [Optional:] See if 16-bit compilations can be made to work again.
 
-Ethan's List:
-- transparency (alpha channel) for fill areas and images
+Ethan's List (2009):
+
 - separate out the handling of junk, NaN, Inf, and missing data entries
-- 2D plot styles should accept color info from an extra input column
 - you should be able to set a default style for arrows and labels
 - isosurfaces (3D contour of 4D data)
+- fix emf text handling to match other terminals (vertical centering, enhanced)
+- javascript mousing support integrated with svg output
+  (low priority now that the canvas terminal supports mousing).
+- pdflatex driver
+- user-configuration options, e.g. permanently redefine line and point
+  properties and sequence
+- allow the user to assign arbitrary coordinate transforms to the axes
+- more demos and more comprehensible descriptions in the user manual
+- update the FAQ!
 

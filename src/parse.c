@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: parse.c,v 1.47.2.1 2008/04/08 19:00:44 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: parse.c,v 1.57 2009/04/01 00:02:40 vanzandt Exp $"); }
 #endif
 
 /* GNUPLOT - parse.c */
@@ -53,6 +53,14 @@ char set_dummy_var[MAX_NUM_VAR][MAX_ID_LEN+1] = { "x", "y" };
 /* This is used by plot_option_using() */
 int at_highest_column_used = -1;
 
+/* These are used by the iterate-over-plot code */
+static struct udvt_entry *iteration_udv = NULL;
+static int iteration_start = 0, iteration_end = 0;
+static int iteration_increment = 1;
+static int iteration_current = 0;
+static char *iteration_string = NULL;
+int iteration = 0;
+
 /* Internal prototypes: */
 
 static void convert __PROTO((struct value *, int));
@@ -80,6 +88,7 @@ static void parse_relational_expression __PROTO((void));
 static void parse_additive_expression __PROTO((void));
 static void parse_multiplicative_expression __PROTO((void));
 static void parse_unary_expression __PROTO((void));
+static int  parse_assignment_expression __PROTO((void));
 static int is_builtin_function __PROTO((int t_num));
 
 /* Internal variables: */
@@ -91,6 +100,23 @@ static void
 convert(struct value *val_ptr, int t_num)
 {
     *val_ptr = token[t_num].l_val;
+}
+
+
+int
+int_expression()
+{
+    return (int)real_expression();
+}
+
+double
+real_expression()
+{
+   double result;
+   struct value a;
+   result = real(const_express(&a));
+   gpfree_string(&a);
+   return result;
 }
 
 
@@ -149,14 +175,12 @@ string_or_express(struct at_type **atptr)
     if (END_OF_COMMAND)
 	int_error(c_token, "expression expected");
 
-#ifndef GP_STRING_VARS
     if (isstring(c_token)) {
 	if (atptr)
 	    *atptr = NULL;
 	str = try_to_get_string();
 	return str;
     }
-#endif
 
     /* parse expression */
     temp_at();
@@ -176,10 +200,8 @@ string_or_express(struct at_type **atptr)
 	struct value val;
 
 	evaluate_at(at, &val);
-#ifdef GP_STRING_VARS
 	if (!undefined && val.type == STRING)
 	    str = val.v.string_val;
-#endif
     }
 
     /* prepare return */
@@ -254,6 +276,10 @@ add_action(enum operators sf_index)
 static void
 parse_expression()
 {				/* full expressions */
+
+    if (parse_assignment_expression())
+	return;
+
     parse_recursion_level++;
     accept_logical_OR_expression();
     parse_conditional_expression();
@@ -331,6 +357,27 @@ accept_multiplicative_expression()
     parse_multiplicative_expression();			/* * / % */
 }
 
+static int
+parse_assignment_expression()
+{
+    /* Check for assignment operator */
+    if (isletter(c_token) && (c_token + 1 < num_tokens) && equals(c_token + 1, "=")) {
+	/* push the variable name */
+	union argument *foo = add_action(PUSHC);
+	char *varname = NULL;
+	m_capture(&varname,c_token,c_token);
+	foo->v_arg.type = STRING;
+	foo->v_arg.v.string_val = varname;
+	c_token += 2;
+	/* and the expression whose value it will get */
+	parse_expression();
+	/* and the actual assignment operation */
+	(void) add_action(ASSIGN);
+	return 1;
+    }
+    return 0;
+}
+
 
 /* add action table entries for primary expressions, i.e. either a
  * parenthesized expression, a variable names, a numeric constant, a
@@ -342,6 +389,14 @@ parse_primary_expression()
     if (equals(c_token, "(")) {
 	c_token++;
 	parse_expression();
+
+	/* Expressions may be separated by a comma */
+	while (equals(c_token,",")) {
+	    c_token++;
+	    (void) add_action(POP);
+	    parse_expression();
+	}
+
 	if (!equals(c_token, ")"))
 	    int_error(c_token, "')' expected");
 	c_token++;
@@ -398,7 +453,6 @@ parse_primary_expression()
 		    int_error(c_token, "')' expected");
 		c_token++;
 
-#ifdef GP_STRING_VARS
 		/* So far sprintf is the only built-in function */
 		/* with a variable number of arguments.         */
 		if (!strcmp(ft[whichfunc].f_name,"sprintf"))
@@ -408,7 +462,7 @@ parse_primary_expression()
 		    num_params.v.int_val = -1;
 		    add_action(PUSHC)->v_arg = num_params;
 		}
-#endif
+
 		(void) add_action(whichfunc);
 
 	    } else {
@@ -469,7 +523,6 @@ parse_primary_expression()
     }
     /* end if letter */
 
-#ifdef GP_STRING_VARS
     /* Maybe it's a string constant */
     else if (isstring(c_token)) {
 	union argument *foo = add_action(PUSHC);
@@ -478,10 +531,7 @@ parse_primary_expression()
 	/* this dynamically allocated string will be freed by free_at() */
 	m_quote_capture(&(foo->v_arg.v.string_val), c_token, c_token);
 	c_token++;
-    }
-#endif
-
-    else
+    } else
 	int_error(c_token, "invalid expression ");
 
     /* add action code for ! (factorial) operator */
@@ -495,7 +545,7 @@ parse_primary_expression()
 	parse_unary_expression();
 	(void) add_action(POWER);
     }
-#ifdef GP_STRING_VARS
+
     /* Parse and add actions for range specifier applying to previous entity.
      * Currently only used to generate substrings, but could also be used to
      * extract vector slices.
@@ -526,7 +576,6 @@ parse_primary_expression()
 	c_token++;
 	(void) add_action(RANGE);
     }
-#endif
 }
 
 
@@ -658,7 +707,6 @@ parse_equality_expression()
 	    c_token++;
 	    accept_relational_expression();
 	    (void) add_action(NE);
-#ifdef GP_STRING_VARS
 	} else if (equals(c_token, "eq")) {
 	    c_token++;
 	    accept_relational_expression();
@@ -667,7 +715,6 @@ parse_equality_expression()
 	    c_token++;
 	    accept_relational_expression();
 	    (void) add_action(NES);
-#endif
 	} else
 	    break;
     }
@@ -711,7 +758,6 @@ parse_additive_expression()
 {
     /* create action codes for +, - and . operators */
     while (TRUE) {
-#ifdef GP_STRING_VARS
 	if (equals(c_token, ".")) {
 	    c_token++;
 	    accept_multiplicative_expression();
@@ -720,9 +766,7 @@ parse_additive_expression()
 	 * do not accept '-' or '+' at the top level. */
 	} else if (string_result_only && parse_recursion_level == 1)
 	    break;
-	else
-#endif
-	if (equals(c_token, "+")) {
+	else if (equals(c_token, "+")) {
 	    c_token++;
 	    accept_multiplicative_expression();
 	    (void) add_action(PLUS);
@@ -841,20 +885,94 @@ is_builtin_function(int t_num)
     return (0);
 }
 
+/* Look for an iterate-over-plot construct, of the form
+ *    {s}plot  for [<var> = <start> : <end> { : <increment>}] ...
+ */
 void
-cleanup_udvlist()
+check_for_iteration()
 {
-    struct udvt_entry *udv_ptr = first_udv;
-    struct udvt_entry *udv_dead;
+    char *errormsg = "Expecting iterator \tfor [<var> = <start> : <end>]\n\t\t\tor\tfor [<var> in \"string of words\"]";
 
-    while (udv_ptr->next_udv) {
-        if (udv_ptr->next_udv->udv_undef) {
-	    udv_dead = udv_ptr->next_udv;
-	    udv_ptr->next_udv = udv_dead->next_udv;
-	    FPRINTF((stderr,"cleanup_udvlist: deleting %s\n",udv_dead->udv_name));
-	    free(udv_dead->udv_name);
-	    free(udv_dead);
-	} else
-	    udv_ptr = udv_ptr->next_udv;
+    iteration_udv = NULL;
+    free(iteration_string);
+    iteration_string = NULL;
+    iteration_increment = 1;
+    iteration = 0;
+
+    if (!equals(c_token, "for"))
+	return;
+
+    c_token++;
+    if (!equals(c_token++, "[") || !isletter(c_token))
+	int_error(c_token-1, errormsg);
+    iteration_udv = add_udv(c_token++);
+
+    if (equals(c_token, "=")) {
+	c_token++;
+	iteration_start = int_expression();
+	if (!equals(c_token++, ":"))
+	    int_error(c_token-1, errormsg);
+	iteration_end = int_expression();
+	if (equals(c_token,":")) {
+	    c_token++;
+	    iteration_increment = int_expression();
+	}
+	if (!equals(c_token++, "]"))
+	    int_error(c_token-1, errormsg);
+	if (iteration_udv->udv_undef == FALSE)
+	    gpfree_string(&iteration_udv->udv_value);
+	Ginteger(&(iteration_udv->udv_value), iteration_start);
+	iteration_udv->udv_undef = FALSE;
     }
+
+    else if (equals(c_token++, "in")) {
+	iteration_string = try_to_get_string();
+	if (!iteration_string)
+	    int_error(c_token-1, errormsg);
+	if (!equals(c_token++, "]"))
+	    int_error(c_token-1, errormsg);
+	iteration_start = 1;
+	iteration_end = gp_words(iteration_string);
+	if (iteration_udv->udv_undef == FALSE)
+	    gpfree_string(&iteration_udv->udv_value);
+	Gstring(&(iteration_udv->udv_value), gp_word(iteration_string, 1));
+	iteration_udv->udv_undef = FALSE;
+    }
+
+    else /* Neither [i=B:E] or [s in "foo"] */
+ 	int_error(c_token-1, errormsg);
+
+    iteration_current = iteration_start;
+
+}
+
+/* Set up next iteration.
+ * Return TRUE if there is one, FALSE if we're done
+ */
+TBOOLEAN
+next_iteration()
+{
+    if (!iteration_udv) {
+	iteration = 0;
+	return FALSE;
+    }
+    iteration++;
+    iteration_current += iteration_increment;
+    if (iteration_string) {
+	free(iteration_udv->udv_value.v.string_val);
+	iteration_udv->udv_value.v.string_val = gp_word(iteration_string,iteration_current);
+    } else
+	iteration_udv->udv_value.v.int_val = iteration_current;
+    return iteration_increment && /* no infinite loops! */
+      ((iteration_end - iteration_current)*iteration_increment >= 0);
+}
+
+TBOOLEAN
+empty_iteration()
+{
+    if (iteration_udv
+        && ((iteration_end - iteration_start)*iteration_increment < 0))
+        return TRUE;
+    else
+        return FALSE;
 }

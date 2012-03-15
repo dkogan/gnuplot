@@ -1,14 +1,7 @@
 /* config.hin.  Generated from configure.in by autoheader.  */
 
-/* Define to allow use of deprecated syntax and terminal behaviour */
+/* Define to allow use of deprecated syntax and terminal behaviour. */
 #undef BACKWARDS_COMPATIBLE
-
-/* Define if you want to support files in binary format. */
-#undef BINARY_DATA_FILE
-
-/* Define if you want the x11 driver to transfer polygon information in binary
-   format. */
-#undef BINARY_X11_POLYGON
 
 /* Define if you want to use the CGI terminal under SCO. */
 #undef CGI
@@ -16,23 +9,26 @@
 /* Define if you want online help and subtopic tables sorted by column. */
 #undef COLUMN_HELP
 
+/* Define to treat spacebar like any other keystroke. */
+#undef DISABLE_SPACE_RAISES_CONSOLE
+
+/* Contact address for modified and binary distributed gnuplot versions */
+#undef DIST_CONTACT
+
 /* Define if you want to use libgrx20 with MSDOS/djgpp. */
 #undef DJSVGA
 
 /* Define if this system uses a 32-bit DOS extender (djgpp/emx). */
 #undef DOS32
 
-/* Define to allow reading strings from datafiles */
-#undef EAM_DATASTRINGS
-
-/* Define to enable histograms plot style. */
-#undef EAM_HISTOGRAMS
-
 /* Define to allow placement of rectangles and other objects */
 #undef EAM_OBJECTS
 
 /* Define if color information should be passed for each vertex. */
 #undef EXTENDED_COLOR_SPECS
+
+/* Define if you want to supply pre-existing X11 windows. */
+#undef EXTERNAL_X11_WINDOW
 
 /* Define if <errno.h> declares errno. */
 #undef EXTERN_ERRNO
@@ -49,11 +45,8 @@
 /* Define to allow 'fit' to create parameter error variables. */
 #undef GP_FIT_ERRVARS
 
-/* Define to allow command line macros. EXPERIMENTAL */
+/* Define to allow command line macros. */
 #undef GP_MACROS
-
-/* Define to allow string variables. */
-#undef GP_STRING_VARS
 
 /* Define if you want to use a newer version of libgrx under MSDOS/djgpp. */
 #undef GRX21
@@ -69,6 +62,9 @@
 
 /* Define to 1 if you have the `bzero' function. */
 #undef HAVE_BZERO
+
+/* Define if you want the cairo-based terminals. */
+#undef HAVE_CAIROPDF
 
 /* Define to 1 if you have the declaration of `signgam', and to 0 if you
    don't. */
@@ -179,6 +175,12 @@
 /* Define to 1 if you have the <locale.h> header file. */
 #undef HAVE_LOCALE_H
 
+/* Define if you want the lua/TikZ terminal. */
+#undef HAVE_LUA
+
+/* Define to 1 if you have the <lua.h> header file. */
+#undef HAVE_LUA_H
+
 /* Define to 1 if you have the <malloc.h> header file. */
 #undef HAVE_MALLOC_H
 
@@ -220,9 +222,6 @@
 
 /* Define to 1 if you have the `popen' function. */
 #undef HAVE_POPEN
-
-/* Define to 1 if you have the <pwd.h> header file. */
-#undef HAVE_PWD_H
 
 /* Define to 1 if you have the <readline/history.h> header file. */
 #undef HAVE_READLINE_HISTORY_H
@@ -395,9 +394,6 @@
 /* Define to enable handling point size in hidden3d code. */
 #undef HIDDEN3D_VAR_PTSIZE
 
-/* Define if you want to use the IRIS terminal on IRIS4D series computers. */
-#undef IRIS
-
 /* Define if this is a Linux system with SuperVGA library. */
 #undef LINUXVGA
 
@@ -424,6 +420,9 @@
 
 /* Define to the one symbol short name of this package. */
 #undef PACKAGE_TARNAME
+
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
 
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
@@ -476,7 +475,7 @@
 /* Define if you want to use the experimental ggi driver. */
 #undef USE_GGI_DRIVER
 
-/* Define if you want to have mouse support for the x11 terminal. */
+/* Define if you want to have mouse support in interactive terminals. */
 #undef USE_MOUSE
 
 /* Define to enable multi-byte font support for x11 */
@@ -488,8 +487,8 @@
 /* Define if the vgagl libray is present. */
 #undef VGAGL
 
-/* Define if you want to have image plotting support. */
-#undef WITH_IMAGE
+/* Define to allow zooming or refresh of volatile data. EXPERIMENTAL */
+#undef VOLATILE_REFRESH
 
 /* Define if you want the wxwidgets terminal. */
 #undef WXWIDGETS

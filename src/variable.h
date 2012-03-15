@@ -1,5 +1,5 @@
 /*
- * $Id: variable.h,v 1.13 2004/04/13 17:24:03 broeker Exp $
+ * $Id: variable.h,v 1.17 2008/03/18 00:16:33 sfeam Exp $
  */
 
 /* GNUPLOT - variable.h */
@@ -108,9 +108,20 @@ char *locale_handler __PROTO((int, char *));
 
 #define init_locale()      locale_handler(ACTION_INIT,NULL)
 #define set_var_locale(path)   locale_handler(ACTION_SET,(path))
-#define get_locale()       locale_handler(ACTION_GET,NULL)
-#define save_locale()      locale_handler(ACTION_SAVE,NULL)
-#define clear_locale()     locale_handler(ACTION_CLEAR,NULL)
+#define get_time_locale()       locale_handler(ACTION_GET,NULL)
+
+#ifdef HAVE_LOCALE_H
+#define set_numeric_locale() \
+	do {if (numeric_locale && strcmp(numeric_locale,"C")) setlocale(LC_NUMERIC,numeric_locale);} while (0)
+#define reset_numeric_locale() \
+	do {if (numeric_locale && strcmp(numeric_locale,"C")) setlocale(LC_NUMERIC,"C");} while (0)
+#define get_decimal_locale() \
+	(localeconv()->decimal_point)
+#else
+#define set_numeric_locale()
+#define reset_numeric_locale()
+#define get_decimal_locale() "."
+#endif
 
 extern char full_month_names[12][32];
 extern char abbrev_month_names[12][8];

@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.h,v 1.4 2006/06/08 17:59:50 tlecomte Exp $
+ * $Id: gp_cairo.h,v 1.15 2009/03/26 00:49:18 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.h */
@@ -125,6 +125,7 @@ typedef struct plot_struct {
 	double linewidth;
 	int linestyle;
 	double pointsize;
+	double dashlength;
 	double text_angle;
 	rgb_color color;
 
@@ -133,6 +134,8 @@ typedef struct plot_struct {
 
 	/* font handling */
 	char fontname[MAX_ID_LEN + 1];
+	int fontweight;
+	int fontstyle;
 	double fontsize;
 	enum set_encoding_id encoding;
 
@@ -143,6 +146,8 @@ typedef struct plot_struct {
 
 	TBOOLEAN oversampling;
 
+	TBOOLEAN rounded;
+
 	/* hinting option for horizontal and vertical lines :
 	 * Hinting is the process of fitting outlines to the pixel grid
 	 * in order to improve the appearance of the result.
@@ -151,6 +156,8 @@ typedef struct plot_struct {
 	 * hinting = 100 means full hinting
 	 * hinting = 0 means no hinting */
 	int hinting;
+
+	TBOOLEAN polygons_saturate;
 
 	/* cairo drawing context */
 	cairo_t *cr;
@@ -165,7 +172,8 @@ typedef struct plot_struct {
 /* linetype enums */
 enum {
 GP_CAIRO_SOLID,
-GP_CAIRO_DASH
+GP_CAIRO_DASH,
+GP_CAIRO_DOTS
 };
 
 /* correspondance between gnuplot's linetypes and colors */
@@ -189,13 +197,16 @@ void gp_cairo_vector(plot_struct *plot, int x, int y);
 void gp_cairo_stroke(plot_struct *plot);
 void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* str);
 void gp_cairo_draw_enhanced_text(plot_struct *plot, int x1, int y1, const char* str);
+void gp_cairo_enhanced_init(plot_struct *plot, int len);
+void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y);
+void gp_cairo_enhanced_open(plot_struct *plot, char* fontname, double fontsize, double base, TBOOLEAN widthflag, TBOOLEAN showflag, int overprint);
+void gp_cairo_enhanced_flush(plot_struct *plot);
+void gp_cairo_enhanced_writec(plot_struct *plot, int character);
 void gp_cairo_draw_point(plot_struct *plot, int x1, int y1, int style);
 void gp_cairo_draw_fillbox(plot_struct *plot, int x, int y, int width, int height, int style);
 void gp_cairo_draw_polygon(plot_struct *plot, int n, gpiPoint *corners);
 void gp_cairo_end_polygon(plot_struct *plot);
-#ifdef WITH_IMAGE
-void gp_cairo_draw_image(plot_struct *plot, coordval * image, int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4, int M, int N, t_imagecolor color_mode);
-#endif /*WITH_IMAGE*/
+void gp_cairo_draw_image(plot_struct *plot, unsigned int * image, int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4, int M, int N);
 void gp_cairo_set_color(plot_struct *plot, rgb_color color);
 void gp_cairo_set_linestyle(plot_struct *plot, int linestyle);
 void gp_cairo_set_linetype(plot_struct *plot, int linetype);
@@ -206,11 +217,13 @@ void gp_cairo_set_linewidth(plot_struct *plot, double linewidth);
 void gp_cairo_set_textangle(plot_struct *plot, double angle);
 
 /* erase the contents of the cairo drawing context */
-void gp_cairo_clear(plot_struct *plot);
+void gp_cairo_solid_background(plot_struct *plot);
+void gp_cairo_clear_background(plot_struct *plot);
 
-/* fill term->h_char, v_char, h_tic, v_tic
+/* helps to fill term->h_char, v_char, h_tic, v_tic
  * Depends on plot->fontsize and fontname */
-void gp_cairo_set_termvar(plot_struct *plot);
+void gp_cairo_set_termvar(plot_struct *plot, unsigned int *v_char,
+                                             unsigned int *h_char);
 
 /* translate plot->encoding int to char* suitable for glib */
 const char* gp_cairo_get_encoding(plot_struct *plot);

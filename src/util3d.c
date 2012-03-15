@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util3d.c,v 1.27.2.4 2009/01/07 22:58:27 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util3d.c,v 1.36 2009/01/07 22:55:42 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util3d.c */
@@ -900,119 +900,21 @@ map3d_xyz(
     out->z = Res[2] / Res[3];
     /* store z for later color calculation */
     out->real_z = z;
-#ifdef EAM_DATASTRINGS
     out->label = NULL;
-#endif
 }
 
-
-/* DJS (20 Aug 2004):  A more precise double version of map3d_xy() is
- * is required for the image routine.  The original intention was to
- * reuse the double version of the routine to generate the unsigned
- * int versin of the routine.  However, that caused rounding problems
- * such that PostScript versions of all the demos didn't come out
- * quite exactly the same.
- *
- * The define switch below will allow either code reuse or code
- * replication.  My advice is to study the rounding problem and
- * decide if the code reuse rounding is just as well as the code
- * replication approach.  If so, go the code reuse route and toss
- * the replicated code.
- */
-#define REPLICATE_CODE_FOR_BACKWARD_COMPATIBLE_ROUNDING 1
-
-#if REPLICATE_CODE_FOR_BACKWARD_COMPATIBLE_ROUNDING
 
 /* Function to map from user 3D space to normalized 'camera' view
  * space, and from there directly to terminal coordinates */
 void
 map3d_xy(
     double x, double y, double z,
-    unsigned int *xt, unsigned int *yt)
+    int *xt, int *yt)
 {
-    int i, j;
-    double v[4], res[4],	/* Homogeneous coords. vectors. */
-     w = trans_mat[3][3];
-
-    v[0] = map_x3d(x);		/* Normalize object space to -1..1 */
-    v[1] = map_y3d(y);
-    v[2] = map_z3d(z);
-    v[3] = 1.0;
-
-    for (i = 0; i < 2; i++) {	/* Dont use the third axes (z). */
-	res[i] = trans_mat[3][i];	/* Initiate it with the weight factor */
-	for (j = 0; j < 3; j++)
-	    res[i] += v[j] * trans_mat[j][i];
-    }
-
-    for (i = 0; i < 3; i++)
-	w += v[i] * trans_mat[i][3];
-    if (w == 0)
-	w = 1e-5;
-
-    if (lmargin.scalex == screen || rmargin.scalex == screen)
-	*xt = res[0] * xscaler/w + xmiddle;
-    else
-	*xt = (unsigned int) ((res[0] * xscaler / w) + xmiddle);
-
-    if (tmargin.scalex == screen || bmargin.scalex == screen)
-	*yt = res[1] * yscaler/w + ymiddle;
-    else
-	*yt = (unsigned int) ((res[1] * yscaler / w) + ymiddle);
-}
-
-/* Function to map from user 3D space to normalized 'camera' view
- * space, and from there directly to terminal coordinates */
-void
-map3d_xy_double(
-    double x, double y, double z,
-    double *xt, double *yt)
-{
-    int i, j;
-    double v[4], res[4],	/* Homogeneous coords. vectors. */
-     w = trans_mat[3][3];
-
-    v[0] = map_x3d(x);		/* Normalize object space to -1..1 */
-    v[1] = map_y3d(y);
-    v[2] = map_z3d(z);
-    v[3] = 1.0;
-
-    for (i = 0; i < 2; i++) {	/* Dont use the third axes (z). */
-	res[i] = trans_mat[3][i];	/* Initiate it with the weight factor */
-	for (j = 0; j < 3; j++)
-	    res[i] += v[j] * trans_mat[j][i];
-    }
-
-    for (i = 0; i < 3; i++)
-	w += v[i] * trans_mat[i][3];
-    if (w == 0)
-	w = 1e-5;
-
-    if (lmargin.scalex == screen || rmargin.scalex == screen)
-	*xt = res[0] * xscaler + xmiddle;
-    else
-	*xt = (res[0] * xscaler / w) + xmiddle;
-
-    if (tmargin.scalex == screen || bmargin.scalex == screen)
-	*yt = res[1] * yscaler + ymiddle;
-    else
-	*yt = (res[1] * yscaler / w) + ymiddle;
-}
-
-#else /* REPLICATE_CODE_FOR_BACKWARD_COMPATIBLE_ROUNDING */
-
-/* Function to map from user 3D space to normalized 'camera' view
- * space, and from there directly to terminal coordinates */
-void
-map3d_xy(
-    double x, double y, double z,
-    unsigned int *xt, unsigned int *yt)
-{
-#ifdef WITH_IMAGE
     double xtd, ytd;
     map3d_xy_double(x, y, z, &xtd, &ytd);
-    *xt = (unsigned int) xtd;
-    *yt = (unsigned int) ytd;
+    *xt = xtd;
+    *yt = ytd;
 }
 
 void
@@ -1020,7 +922,6 @@ map3d_xy_double(
     double x, double y, double z,
     double *xt, double *yt)
 {
-#endif
     int i, j;
     double v[4], res[4],	/* Homogeneous coords. vectors. */
      w = trans_mat[3][3];
@@ -1041,16 +942,9 @@ map3d_xy_double(
     if (w == 0)
 	w = 1e-5;
 
-#ifdef WITH_IMAGE
     *xt = ((res[0] * xscaler / w) + xmiddle);
     *yt = ((res[1] * yscaler / w) + ymiddle);
-#else
-    *xt = (unsigned int) ((res[0] * xscaler / w) + xmiddle);
-    *yt = (unsigned int) ((res[1] * yscaler / w) + ymiddle);
-#endif
 }
-
-#endif /* REPLICATE_CODE_FOR_BACKWARD_COMPATIBLE_ROUNDING */
 
 
 /* HBB 20020313: New routine, broken out of draw3d_point, to be used
@@ -1094,7 +988,7 @@ draw3d_line_unconditional(
 
     /* User-specified line styles */
     if (prefer_line_styles && linetype >= 0)
-	lp_use_properties(&ls, linetype+1, FALSE);
+	lp_use_properties(&ls, linetype+1);
 
     /* The usual case of auto-generated line types */
     else
@@ -1157,14 +1051,16 @@ polyline3d_start(p_vertex v1)
 	return;
 #endif /* LITE */
 
+    /* EAM - This may now be unneeded. But I'm not sure. */
+    /*       Perhaps the hidden3d code needs the move.   */
     TERMCOORD(v1, x1, y1);
-    /* HBB FIXME 20031219: no clipping!? */
     term->move(x1, y1);
 }
 
 void
 polyline3d_next(p_vertex v2, struct lp_style_type *lp)
 {
+    unsigned int x1, y1;
     unsigned int x2, y2;
 
     /* Copied from draw3d_line(): */
@@ -1189,9 +1085,8 @@ polyline3d_next(p_vertex v2, struct lp_style_type *lp)
 
     }
 
+    TERMCOORD(&polyline3d_previous_vertex, x1, y1);
     TERMCOORD(v2, x2, y2);
-    /* FIXME HBB 20031219: no clipping?! */
-    term->vector(x2, y2);
-
+    draw_clip_line(x1,y1,x2,y2);
     polyline3d_previous_vertex = *v2;
 }

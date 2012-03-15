@@ -1,5 +1,5 @@
 /*
- * $Id: graphics.h,v 1.34.2.2 2008/02/28 22:58:25 sfeam Exp $
+ * $Id: graphics.h,v 1.47 2009/03/26 00:49:16 sfeam Exp $
  */
 
 /* GNUPLOT - graphics.h */
@@ -47,54 +47,42 @@
 
 typedef struct curve_points {
     struct curve_points *next;	/* pointer to next plot in linked list */
-    int token;			/* last token nr., for second pass */
-    enum PLOT_TYPE plot_type;	/* data, function? 3D? */
-    enum PLOT_STYLE plot_style;	/* which "with" option in use? */
-    enum PLOT_SMOOTH plot_smooth; /* which "smooth" method to be used? */
+    int token;			/* last token used, for second parsing pass */
+    enum PLOT_TYPE plot_type;	/* DATA2D? DATA3D? FUNC2D FUNC3D? NODATA? */
+    enum PLOT_STYLE plot_style;	/* style set by "with" or by default */
     char *title;		/* plot title, a.k.a. key entry */
     TBOOLEAN title_no_enhanced;	/* don't typeset title in enhanced mode */
     TBOOLEAN title_is_filename;	/* TRUE if title was auto-generated from filename */
     TBOOLEAN title_is_suppressed;/* TRUE if 'notitle' was specified */
+    TBOOLEAN noautoscale;	/* ignore data from this plot during autoscaling */
     struct lp_style_type lp_properties;
     struct arrow_style_type arrow_properties;
     struct fill_style_type fill_properties;
+    struct text_label *labels;	/* Only used if plot_style == LABELPOINTS */
+    struct t_image image_properties;	/* only used if plot_style is IMAGE or RGB_IMAGE */
+
+    /* 2D and 3D plot structure fields overlay only to this point */
+
+    filledcurves_opts filledcurves_options;
+    struct histogram_style *histogram;	/* Only used if plot_style == HISTOGRAM */
+    int histogram_sequence;	/* Ordering of this dataset within the histogram */
+    enum PLOT_SMOOTH plot_smooth; /* which "smooth" method to be used? */
     int p_max;			/* how many points are allocated */
     int p_count;		/* count of points in points */
     int x_axis;			/* FIRST_X_AXIS or SECOND_X_AXIS */
     int y_axis;			/* FIRST_Y_AXIS or SECOND_Y_AXIS */
-    /* HBB 20000504: new field */
     int z_axis;			/* same as either x_axis or y_axis, for 5-column plot types */
-    /* pm 5.1.2002: new field */
-    filledcurves_opts filledcurves_options;
     struct coordinate GPHUGE *points;
-#ifdef EAM_DATASTRINGS
-    struct text_label *labels;	/* Only used if plot_style == LABELPOINTS */
-#endif
-#ifdef EAM_HISTOGRAMS
-    struct histogram_style *histogram;	/* Only used if plot_style == HISTOGRAM */
-    int histogram_sequence;	/* Ordering of this dataset within the histogram */
-#endif
 } curve_points;
-
-/* From ESR's "Actual code patch" :) */
-/* An exclusion box.
- * Right now, the only exclusion region is the key box, but that will
- * change when we support boxed labels.
- */
-struct clipbox {
-    int xl;
-    int xr;
-    int yt;
-    int yb;
-};
 
 /* externally visible variables of graphics.h */
 
 /* 'set offset' status variables */
-extern double loff, roff, toff, boff;
+extern t_position loff, roff, toff, boff;
 
 /* 'set bar' status */
 extern double bar_size;
+extern int bar_layer;
 
 /* function prototypes */
 
@@ -108,26 +96,17 @@ double CheckLog __PROTO((TBOOLEAN, double, double));
 #endif
 void apply_head_properties __PROTO((struct arrow_style_type *arrow_properties));
 
-#ifdef EAM_HISTOGRAMS
 void init_histogram __PROTO((struct histogram_style *hist, char *title));
 void free_histlist __PROTO((struct histogram_style *hist));
-#endif
 
-#ifdef WITH_IMAGE
-void plot_image_or_update_axes __PROTO((void *plot, t_imagecolor pixel_planes,
-					TBOOLEAN map_points, TBOOLEAN update_axes));
-#define PLOT_IMAGE(plot, pixel_planes) \
-	plot_image_or_update_axes(plot, pixel_planes, FALSE, FALSE)
-#define UPDATE_AXES_FOR_PLOT_IMAGE(plot, pixel_planes) \
-	plot_image_or_update_axes(plot, pixel_planes, FALSE, TRUE)
-#define SPLOT_IMAGE(plot, pixel_planes) \
-	plot_image_or_update_axes(plot, pixel_planes, TRUE, FALSE)
-#endif
+void plot_image_or_update_axes __PROTO((void *plot, TBOOLEAN update_axes));
 
 #ifdef EAM_OBJECTS
-void place_rectangles __PROTO((struct object *listhead, int layer, int dimensions, BoundingBox *clip_area));
+void place_objects __PROTO((struct object *listhead, int layer, int dimensions, BoundingBox *clip_area));
+void do_ellipse __PROTO((int dimensions, t_ellipse *e, int style ));
+void do_polygon __PROTO((int dimensions, t_polygon *p, int style ));
 #else
-#define place_rectangles(listhead,layer,dimensions,clip_area) /* void() */
+#define place_objects(listhead,layer,dimensions,clip_area) /* void() */
 #endif
 
 #endif /* GNUPLOT_GRAPHICS_H */

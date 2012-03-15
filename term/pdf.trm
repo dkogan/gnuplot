@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: pdf.trm,v 1.68.2.9 2008/12/12 07:14:11 sfeam Exp $
+ * $Id: pdf.trm,v 1.83.2.4 2010/03/04 07:15:48 sfeam Exp $
  */
 
 /*------------------------------
@@ -57,9 +57,7 @@ TERM_PUBLIC void PDF_linewidth __PROTO ((double linewidth));
 TERM_PUBLIC int PDF_make_palette __PROTO((t_sm_palette *));
 TERM_PUBLIC void PDF_previous_palette __PROTO((void));
 TERM_PUBLIC void PDF_set_color __PROTO((t_colorspec *));
-#ifdef WITH_IMAGE
-TERM_PUBLIC void PDF_image __PROTO((unsigned, unsigned, coordval *, gpiPoint *, t_imagecolor));
-#endif
+TERM_PUBLIC void PDF_image __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
 
 TERM_PUBLIC void PDF_filled_polygon __PROTO((int, gpiPoint *));
 
@@ -193,6 +191,8 @@ PDF_SetFont ()
         pdfenc = "iso8859-1";
     } else if (encoding == S_ENC_ISO8859_2) {
         pdfenc = "iso8859-2";
+    } else if (encoding == S_ENC_ISO8859_9) {
+        pdfenc = "iso8859-9";
     } else if (encoding == S_ENC_ISO8859_15) {
         pdfenc = "iso8859-15";
     } else if (encoding == S_ENC_CP1250) {
@@ -326,8 +326,6 @@ PDF_DefinePatterns()
 TERM_PUBLIC void
 PDF_options ()
 {
-    struct value a;
-
     /* Annoying hack to handle the case of 'set termoption' after */
     /* we have already initialized the terminal.                  */
     if (c_token != 2)
@@ -367,7 +365,7 @@ PDF_options ()
 
 	    if (END_OF_COMMAND)
 		int_error(c_token,"fsize: expecting font size");
-	    PDF_fontSizeDef = real (const_express (&a));
+	    PDF_fontSizeDef = real_expression();
 	    continue;
 	}
 
@@ -376,7 +374,7 @@ PDF_options ()
 
 	    if (END_OF_COMMAND)
 		int_error(c_token, "expecting line width");
-	    PDF_linewidth_factor = real (const_express (&a));
+	    PDF_linewidth_factor = real_expression();
 	    if (PDF_linewidth_factor <= 0)
 		PDF_linewidth_factor = 0.1;
 	    continue;
@@ -396,12 +394,14 @@ PDF_options ()
 	if (equals(c_token, "color") || almost_equals(c_token, "col$our")) {
 	    c_token++;
 	    PDF_monochrome = FALSE;
+	    term->flags &= ~TERM_MONOCHROME;
 	    continue;
 	}   
 
 	if (almost_equals(c_token, "mono$chrome")) {
 	    c_token++;
 	    PDF_monochrome = TRUE;
+	    term->flags |= TERM_MONOCHROME;
 	    continue;
 	}   
 
@@ -409,7 +409,7 @@ PDF_options ()
 	    c_token++;
 	    if (END_OF_COMMAND)
 		int_error(c_token, "expecting dashlength multiplier");
-	    PDF_dashlength_factor = real(const_express(&a));
+	    PDF_dashlength_factor = real_expression();
 	    if (PDF_dashlength_factor < 0.0)
 		PDF_dashlength_factor = 1.0;
 	    continue;
@@ -428,7 +428,7 @@ PDF_options ()
 	    pdf_explicit_units = parse_term_size(&xmax_t, &ymax_t, INCHES);
 	    term->xmax = xmax_t*PDF_RESOLUTION*72./gp_resolution;
 	    term->ymax = ymax_t*PDF_RESOLUTION*72./gp_resolution;
-	    break;
+	    continue;
 	}
 
 #ifdef HAVE_NODASH_LIBPDF
@@ -619,10 +619,10 @@ PDF_linetype (int linetype)
 	PDF_current_gray = 0.0;
 	PDF_setgray(myPDF, PDF_current_gray);
     } else {
-	struct rgb *this_color = web_color_rgbs + 1 + linetype;
-	PDF_current_rgb.r = this_color->r / 255.0;
-	PDF_current_rgb.g = this_color->g / 255.0;
-	PDF_current_rgb.b = this_color->b / 255.0;
+	unsigned int irgb = pm3d_color_names_tbl[1+linetype].value;
+	PDF_current_rgb.r = (double)((irgb >> 16) & 0xff) / 255.;
+	PDF_current_rgb.g = (double)((irgb >>  8) & 0xff) / 255.;
+	PDF_current_rgb.b = (double)((irgb      ) & 0xff) / 255.;
 	PDF_setrgbcolor(myPDF, PDF_current_rgb.r, PDF_current_rgb.g, PDF_current_rgb.b);
     }
 
@@ -695,7 +695,11 @@ PDF_vector (unsigned int x, unsigned int y)
     if (PDF_pathIsOpen && x == PDF_xLast && y == PDF_yLast)
 	return;
 
-    PDF_PathOpen ();
+    if (!PDF_pathIsOpen) {
+	PDF_PathOpen ();
+	PDF_moveto(myPDF, PDF_xLast, PDF_yLast);
+    }
+
     PDF_lineto(myPDF, x, y);
 
     PDF_xLast = x;
@@ -1273,6 +1277,26 @@ PDF_filled_polygon(int points, gpiPoint* corners)
 	case FS_EMPTY: /* fill with white */
 	    PDF_setgray(myPDF, 1);
 	    break;
+	case FS_TRANSPARENT_SOLID:
+#if !HAVE_OLD_LIBPDF
+	    {
+		/* FIXME: This attribute will be in effect until the end of   */
+		/* the current page. We should explicitly reset it to restore */
+		/* opaque fill areas as the default. But when should it be?   */
+		char density[18];
+		double red   = PDF_current_rgb.r;
+		double green = PDF_current_rgb.g;
+		double blue  = PDF_current_rgb.b;
+		sprintf(density,"opacityfill=%4.2f", (double)fillpar*0.01);
+		i = PDF_create_gstate(myPDF, density);
+		PDF_set_gstate(myPDF, i);
+		if (PDF_monochrome)
+		    PDF_setgray_fill(myPDF, PDF_current_gray);
+		else
+		    PDF_setrgbcolor_fill(myPDF, red, green, blue);
+		break;
+	    }
+#endif
 	case FS_SOLID:
 	    {
 		double fact = (double)fillpar * 0.01;
@@ -1286,8 +1310,26 @@ PDF_filled_polygon(int points, gpiPoint* corners)
 		    PDF_setrgbcolor_fill(myPDF, red, green, blue);
 	    }
 	    break;
+
 #if !HAVE_OLD_LIBPDF
 	case FS_PATTERN:
+	    fillpar = fillpar % (PDF_patterns + 1) /* 0 == white */;
+	    /* Fill in solid background before drawing pattern */
+	    /* NOTE:  kpdf/xpdf would accept this as part of the pattern definition */
+	    /*        but acroread does not. So for compatibility we do the fill in */
+	    /*        a separate step, despite its inefficiency.                    */
+	    if (fillpar != 0) {
+		PDF_setcolor(myPDF, "fill", "rgb", 1, 1, 1, 0 /* unused */);
+		PDF_moveto(myPDF, corners[0].x, corners[0].y);
+		for (i=1; i<points; i++)
+		    PDF_lineto(myPDF, corners[i].x, corners[i].y);
+		PDF_lineto(myPDF, corners[0].x, corners[0].y);
+		PDF_fill(myPDF);
+		PDF_restore(myPDF);
+		PDF_save(myPDF);
+	    }
+	    /* NOTE: Fall through to the actual pattern code */
+	case FS_TRANSPARENT_PATTERN:
 	    fillpar = fillpar % (PDF_patterns + 1) /* 0 == white */;
 	    switch (fillpar) {
 		case 0:
@@ -1299,6 +1341,7 @@ PDF_filled_polygon(int points, gpiPoint* corners)
 	    }
 	    break;
 #endif
+
 	default:
 	    break;
     }
@@ -1326,10 +1369,10 @@ TERM_PUBLIC void
 PDF_set_color(t_colorspec *colorspec)
 {
     if (colorspec->type == TC_LT) {
-        struct rgb *this_color = web_color_rgbs + 1 + PDF_Pen_RealID(colorspec->lt);
-	PDF_current_rgb.r = this_color->r / 255.0;
-	PDF_current_rgb.g = this_color->g / 255.0;
-	PDF_current_rgb.b = this_color->b / 255.0;
+	unsigned int irgb = pm3d_color_names_tbl[ 1 + PDF_Pen_RealID(colorspec->lt) ].value;
+	PDF_current_rgb.r = (double)((irgb >> 16) & 0xff) / 255.;
+	PDF_current_rgb.g = (double)((irgb >>  8) & 0xff) / 255.;
+	PDF_current_rgb.b = (double)((irgb      ) & 0xff) / 255.;
 	PDF_current_gray = 0.0; /* monochrome mode only */
     } else if (colorspec->type == TC_FRAC) {
 	rgb1maxcolors_from_gray( colorspec->value, &PDF_current_rgb);
@@ -1360,9 +1403,8 @@ PDF_previous_palette()
 {
 }
  
-#ifdef WITH_IMAGE
 TERM_PUBLIC void
-PDF_image (unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagecolor color_mode)
+PDF_image (unsigned int M, unsigned int N, coordval * image, gpiPoint * corner, t_imagecolor color_mode)
 {
     unsigned char *pixel;
     float xscale, yscale;
@@ -1386,11 +1428,18 @@ PDF_image (unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagec
 	}
     } else {
         for (i=0, pixel=rawrgb; i< N*M; i++) {
-	    rgb255_color rgb;
-	    rgb255maxcolors_from_gray(image[i], &rgb);
-	    *pixel++ = rgb.r;
-	    *pixel++ = rgb.g;
-	    *pixel++ = rgb.b;
+	    if (isnan(image[i])) {
+		/* Transparent would be better! */
+		*pixel++ = 255;
+		*pixel++ = 255;
+		*pixel++ = 255;
+	    } else {
+		rgb255_color rgb;
+		rgb255maxcolors_from_gray(image[i], &rgb);
+		*pixel++ = rgb.r;
+		*pixel++ = rgb.g;
+		*pixel++ = rgb.b;
+	    }
 	}
     }
       
@@ -1423,8 +1472,6 @@ PDF_image (unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagec
 	free(rawrgb);
 
 }
-#endif 
-
 
 /*
  * Ethan A Merritt November 2003
@@ -1573,8 +1620,6 @@ ENHPDF_put_text(unsigned int x, unsigned int y, const char *str)
      */
 
     /* set up the global variables needed by enhanced_recursion() */
-    enhanced_max_height = -1000;
-    enhanced_min_height = 1000;
     enhanced_fontscale = 1.0;
     strncpy(enhanced_escape_format,"%c",sizeof(enhanced_escape_format));
 
@@ -1606,8 +1651,6 @@ ENHPDF_put_text(unsigned int x, unsigned int y, const char *str)
     }
 
     PDF_restore(myPDF);
-
-    enhanced_max_height += enhanced_min_height;
 
     /* We can do text justification by running the entire top level string */
     /* through 2 times, with the ENHpdf_sizeonly flag set the first time.   */
@@ -1643,7 +1686,7 @@ TERM_TABLE_START (pdf_driver)
     PDF_options, PDF_init, PDF_reset, PDF_text, null_scale, PDF_graphics,
     PDF_move, PDF_vector, PDF_linetype, PDF_put_text, PDF_text_angle,
     PDF_justify_text, PDF_point, do_arrow, PDF_set_font, do_pointsize,
-    TERM_BINARY,
+    TERM_BINARY|TERM_CAN_DASH|TERM_LINEWIDTH,
     0 /* suspend */, 0 /* resume */ , PDF_boxfill, PDF_linewidth
 #   ifdef USE_MOUSE
    , 0, 0, 0, 0, 0 /* no mouse support for pdf */
@@ -1652,9 +1695,7 @@ TERM_TABLE_START (pdf_driver)
    PDF_previous_palette,
    PDF_set_color,
    PDF_filled_polygon
-#ifdef WITH_IMAGE
    , PDF_image
-#endif
    , ENHPDF_OPEN, ENHPDF_FLUSH, do_enh_writec
 TERM_TABLE_END (pdf_driver)
 #undef LAST_TERM

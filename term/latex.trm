@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: latex.trm,v 1.30.2.2 2007/05/27 05:15:28 sfeam Exp $
+ * $Id: latex.trm,v 1.34.2.1 2009/10/10 06:07:05 sfeam Exp $
  *
  */
 
@@ -74,6 +74,13 @@
  * - drd, Sept 1996
  */
 
+/* E A Merritt Feb 2007 - change sequence of point types to match
+ * PostScript and other terminals. Uses symbols from amssymb package.
+ */
+
+/* T.Sefzick Oct 2009 - rotate text when option 'rotated' is given.
+ * needs graphics or graphicx package.
+ */
 #include "driver.h"
 
 #ifdef TERM_REGISTER
@@ -97,6 +104,8 @@ TERM_PUBLIC void LATEX_arrow __PROTO((unsigned int sx, unsigned int sy, unsigned
 TERM_PUBLIC int LATEX_justify_text __PROTO((enum JUSTIFY mode));
 TERM_PUBLIC int LATEX_text_angle __PROTO((int ang));
 TERM_PUBLIC void LATEX_reset __PROTO((void));
+TERM_PUBLIC void LATEX_fillbox __PROTO((int style, unsigned int x1, unsigned int y1, 
+					unsigned int width, unsigned int height));
 
 #ifdef EMTEX
 TERM_PUBLIC void EMTEX_init __PROTO((void));
@@ -135,6 +144,7 @@ static int LATEX_fontsize = 10;
 static char LATEX_font[MAX_ID_LEN+1] = "doc";
 static enum JUSTIFY latex_justify = LEFT;
 static int latex_angle = 0;
+static TBOOLEAN latex_rotate = FALSE;
 
 static TBOOLEAN latex_explicit_size = FALSE;
 static size_units latex_explicit_units = INCHES;
@@ -145,17 +155,24 @@ static size_units latex_explicit_units = INCHES;
 #define LATEX_TINY_DOT "\\rule{1pt}{1pt}"	/* for dots plot style */
 
 /* POINTS */
-#define LATEX_POINT_TYPES 12	/* we supply more point types */
+#define LATEX_POINT_TYPES 15	/* we supply more point types */
 
 static const char GPFAR *GPFAR LATEX_points[] = {
-    "\\raisebox{-.8pt}{\\makebox(0,0){$\\Diamond$}}",
     "\\makebox(0,0){$+$}",
-    "\\raisebox{-.8pt}{\\makebox(0,0){$\\Box$}}",
     "\\makebox(0,0){$\\times$}",
+    "\\makebox(0,0){$\\ast$}",
+    "\\raisebox{-.8pt}{\\makebox(0,0){$\\Box$}}",
+    "\\makebox(0,0){$\\blacksquare$}",
+    "\\makebox(0,0){$\\circ$}",
+    "\\makebox(0,0){$\\bullet$}",
     "\\makebox(0,0){$\\triangle$}",
-    "\\makebox(0,0){$\\star$}",
-    "\\circle{12}", "\\circle{18}", "\\circle{24}",
-    "\\circle*{12}", "\\circle*{18}", "\\circle*{24}"
+    "\\makebox(0,0){$\\blacktriangle$}",
+    "\\makebox(0,0){$\\triangledown$}",
+    "\\makebox(0,0){$\\blacktriangledown$}",
+    "\\makebox(0,0){$\\lozenge$}",
+    "\\makebox(0,0){$\\blacklozenge$}",
+    "\\makebox(0,0){$\\heartsuit$}",
+    "\\makebox(0,0){$\\spadesuit$}",
 };
 
 /* LINES */
@@ -217,7 +234,7 @@ static struct vslope {
 /* figure out the best arrow */
 static void best_latex_arrow __PROTO((int, int, int, int, int, int));
 
-enum LATEX_id { LATEX_COURIER, LATEX_ROMAN, LATEX_DEFAULT, LATEX_SIZE, LATEX_OTHER };
+enum LATEX_id { LATEX_COURIER, LATEX_ROMAN, LATEX_DEFAULT, LATEX_SIZE, LATEX_ROTATE, LATEX_NOROTATE, LATEX_OTHER };
 
 static struct gen_table LATEX_opts[] =
 {
@@ -225,6 +242,8 @@ static struct gen_table LATEX_opts[] =
     { "r$oman", LATEX_ROMAN },
     { "d$efault", LATEX_DEFAULT },
     { "si$ze", LATEX_SIZE },
+    { "rot$ate", LATEX_ROTATE },
+    { "no$rotate", LATEX_NOROTATE },
     { NULL, LATEX_OTHER }
 };
 
@@ -232,7 +251,6 @@ static struct gen_table LATEX_opts[] =
 TERM_PUBLIC void
 LATEX_options()
 {
-    struct value a;
     latex_explicit_size = FALSE;
 
     while (!END_OF_COMMAND) {
@@ -259,10 +277,18 @@ LATEX_options()
 	    term->ymax = ymax_t * DOTS_PER_INCH/72;
 	    break;
 	    }
+	case LATEX_ROTATE:
+	    latex_rotate = TRUE;
+	    c_token++;
+	    break;
+	case LATEX_NOROTATE:
+	    latex_rotate = FALSE;
+	    c_token++;
+	    break;
 	case LATEX_OTHER:
 	default:
 	    /* if isannumber? */
-	    LATEX_fontsize = (int) real(const_express(&a));
+	    LATEX_fontsize = int_expression();
 	}
     }
 
@@ -287,6 +313,12 @@ LATEX_options()
 	    sprintf(&(term_options[strlen(term_options)]), "size %.2fin, %.2fin ",
 		(float)term->xmax/(DOTS_PER_INCH),
 		(float)term->ymax/(DOTS_PER_INCH));
+    }
+
+    if (latex_rotate) {
+	sprintf(&(term_options[strlen(term_options)]), " rotate");
+    } else {
+	sprintf(&(term_options[strlen(term_options)]), " norotate");
     }
 
 }
@@ -761,10 +793,13 @@ LATEX_put_text(unsigned int x, unsigned int y, const char str[])
     if (str[0] == NUL)
 	return;
 
+    if (!latex_rotate)
     for (flag = FALSE, i = 0; str[i] && !flag;)
 	flag = (str[i++] == '\\') && (str[i++] == '\\');
 
     fprintf(gpoutfile, "\\put(%d,%d)", x, y);
+    if (latex_rotate && latex_angle)
+    	fprintf (gpoutfile, "{\\rotatebox{%d}", latex_angle);
     if ((str[0] == '{') || (str[0] == '[')) {
 	fprintf(gpoutfile, "{\\makebox(0,0)%s}\n", str);
     } else if (flag)
@@ -773,6 +808,8 @@ LATEX_put_text(unsigned int x, unsigned int y, const char str[])
     else
 	fprintf(gpoutfile, "{\\makebox(0,0)%s{%s}}\n",
 		justify[latex_justify], str);
+    if (latex_rotate && latex_angle)
+    	fprintf (gpoutfile, "}");
 }
 
 TERM_PUBLIC int
@@ -788,7 +825,9 @@ LATEX_text_angle(int ang)
     /* we can't really write text vertically, but this will
        put the ylabel centred at the left of the plot, and
        then we'll make a \shortstack */
-    latex_angle = (ang ? 1 : 0);
+    /* latex_angle is not used elsewhere, so we use it for
+       'real' text rotation using '\rotatebox' */
+    latex_angle = ang;
     return (TRUE);
 }
 
@@ -797,6 +836,23 @@ LATEX_reset()
 {
     LATEX_posx = LATEX_posy = 0;	/* current position */
     LATEX_moved = TRUE;		/* pen is up after move */
+}
+
+
+TERM_PUBLIC void
+LATEX_fillbox(int style, unsigned int x1, unsigned int y1, unsigned
+int width, unsigned int height)
+{
+    /* TODO: Something other than black/white */
+    if ((style & 0xf) == FS_EMPTY)
+	return;
+    if ((style & 0xf) == FS_SOLID && (style >> 4) < 50)
+	return;
+    if ((style & 0xf) == FS_PATTERN && ((style >> 4) & 1) == 0)
+	return;
+
+    fprintf(gpoutfile, "\\put(%d,%d){\\rule{%gpt}{%gpt}}\n", x1, y1,
+	    width*LATEX_UNIT, height*LATEX_UNIT);
 }
 
 
@@ -858,9 +914,17 @@ TERM_TABLE_START(latex_driver)
     LATEX_VTIC, LATEX_HTIC, LATEX_options, LATEX_init, LATEX_reset,
     LATEX_text, null_scale, LATEX_graphics, LATEX_move, LATEX_vector,
     LATEX_linetype, LATEX_put_text, LATEX_text_angle,
-    LATEX_justify_text, LATEX_point, LATEX_arrow, set_font_null
+    LATEX_justify_text, LATEX_point, LATEX_arrow, set_font_null,
+    NULL,      /* pointsize */
+    0,         /* flags */
+    NULL, NULL, /* suspend, resume */
+    LATEX_fillbox, NULL, /* linewidth */
+#ifdef USE_MOUSE
+    NULL, NULL, NULL, NULL, NULL,
+#endif
+    NULL /* Color stuff */
 TERM_TABLE_END(latex_driver)
-
+ 
 #undef LAST_TERM
 #define LAST_TERM latex_driver
 
@@ -899,7 +963,7 @@ START_HELP(latex)
 "?latex",
 " Syntax:",
 "       set terminal {latex | emtex} {default | {courier|roman} {<fontsize>}}",
-"                    {size <XX>{unit}, <YY>{unit}}",
+"                    {size <XX>{unit}, <YY>{unit}} {rotate | norotate}",
 "",
 " By default the plot will inherit font settings from the embedding document.",
 " You have the option of forcing either Courier (cmtt) or Roman (cmr) fonts",
@@ -921,10 +985,15 @@ START_HELP(latex)
 " \"\\Box\".  These commands no longer belong to the LaTeX2e core; they are included",
 " in the latexsym package, which is part of the base distribution and thus part",
 " of any LaTeX implementation.  Please do not forget to use this package.",
+" Other point types use symbols from the amssymb package.",
 "",
 " The default size for the plot is 5 inches by 3 inches. The `size` option",
 " changes this to whatever the user requests. By default the X and Y sizes",
 " are taken to be in inches, but other units are possible (currently only cm).",
+"",
+" If 'rotate' is specified, rotated text, especially a rotated y-axis label,",
+" is possible (the packages graphics or graphicx are needed). The 'stacked'",
+" y-axis label mechanism is then deactivated.",
 "",
 " Examples:",
 " About label positioning:",
