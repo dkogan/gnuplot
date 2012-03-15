@@ -56,6 +56,9 @@ gnuplot_x11                     PREFIX/libexec/gnuplot/$VERSION
 gnuplot.1                       PREFIX/man/man1
 gnuplot.gih                     PREFIX/share/gnuplot/$VERSION
 
+Gnuplot				PREFIX/share/gnuplot/$VERSION/app-defaults
+				(please copy to system app-defaults location)
+
    The only files where the runtime location is defined at compile time are
 gnuplot.gih and show.c. This is important if gnuplot is not installed 
 by running 'make install'.
@@ -151,7 +154,7 @@ to change.  A complete list of options is available through
 
 $ ./configure --help
 
-   The options relevant to gnuplot are listed below:
+   Some options relevant to gnuplot are listed below:
 
   --prefix=PREFIX         Install architecture-independent files in PREFIX
                           [/usr/local]
@@ -167,51 +170,25 @@ $ ./configure --help
   --libdir=DIR            object code libraries in DIR [EPREFIX/lib]
   --includedir=DIR        C header files in DIR [PREFIX/include]
   --mandir=DIR            Man documentation in DIR [PREFIX/man]
+
   --disable-history-file  do not use history file
   --disable-mouse         disable mouse for interactive terminals
+  --disable-with-image    disable image support
   --disable-x11-mbfonts   disable multi-byte font support for x11
-  --disable-binary-data-file          disable binary_data_file
-  --disable-with-image          disable image support
-  --disable-binary-x11-polygon        disable binary_x11_polygon
+  --disable-binary-x11-polygon  disable binary_x11_polygon
+  --disable-x11-external  disable drawing to windows belonging to external apps
   --enable-thin-splines   enable thin plate splines
-  --disable-datastrings   disable reading strings from datafiles
-  --disable-histograms    disable histograms plot style
+  --disable-volatile-data disable zooming of volatile data
+  --disable-raise-console spacebar in plot window does not raise console
   --disable-objects       disable rectangles and other objects
-  --disable-stringvariables   disable string variables
   --disable-macros        disable command line macros
-  --enable-iris           enable IRIS terminal (IRIS4D only)
   --enable-mgr            enable MGR terminal
-  --disable-fiterrvars    enable fitting error variables
+  --disable-fiterrvars    disable fitting error variables
   --enable-rgip           enable Redwood Graphics Interface Protocol
-  --disable-h3d-quadtree   disable quadtree optimization in hidden3d code
+  --disable-h3d-quadtree  disable quadtree optimization in hidden3d code
   --enable-h3d-gridbox    enable gridbox optimization in hidden3d code
-  --disable-wxwidgets      wxWidgets terminal (default enabled)
-  --with-kpsexpand        search for kpsexpand at run-time
-  --with-x (*)            use the X Window System
-  --with-lasergnu         install lasergnu printer script
-  --with-gihdir=DIR       location of .gih file
-                          (default PREFIX/share/PACKAGE/VERSION)
-  --with-linux-vga        use the Linux SVGA console driver
-                          (requires /usr/lib/libvga)
-  --with-ggi=DIR          enable the ggi driver (EXPERIMENTAL)
-  --with-xmi=DIR          ggi's xmi support for pm3d (EXPERIMENTAL)
-  --with-readline (*)     use the builtin minimal readline function (default)
-  --without-readline      do not use the builtin readline function
-  --with-readline=gnu     use the GNU readline library (4.2 or newer required)
-  --with-readline=DIR     Specify the location of GNU readline
-  --with-plot=DIR       use the Unix plot library
-  --with-gd=DIR (*)     where to find Tom Boutell's gd library
-  --with-pdf=DIR (*)      enable pdf terminal
-                          (requires PDFLib)
-  --with-cwdrc            check current directory for .gnuplot file,
-                          normally disabled for security reasons
-  --without-lisp-files    do not build emacs lisp files
-  --with-row-help         format help and subtopic tables by row (default)
-  --without-row-help (*)  format help and subtopic tables by column
-  --without-tutorial      do not build LaTeX tutorial
-  --with-wx-config=PATH   Use the given path to wx-config, the wxWidgets configuration program
-    (default search in $PATH)
-
+  --disable-wxwidgets     wxWidgets terminal (default enabled)
+  --enable-backwards-compatibility       enable deprecated syntax
 
 Options marked with (*) are enabled by default, ie. these features or
 packages are used if configure detects them even if the corresponding
@@ -222,6 +199,61 @@ options can have additional arguments:
  o `--with-PACKAGE=no' disables checking for PACKAGE. It has the same
    effect as `--without-PACKAGE'.
  o `--with-PACKAGE=DIR' checks for PACKAGE in DIR
+
+
+Linux
+-----
+
+Ubuntu:
+	./configure fails to find lua support because Ubuntu packages it as
+	"lua5.1" rather than "lua".  You can fix this by adding a symlink
+	prior to running ./configure
+	    ln -s /usr/lib/pkgconfig/lua5.1.pc  /usr/lib/pkgconfig/lua.pc
+
+
+Mac OSX
+-------
+
+Default ./configure; ./make  fails on OSX with error messages like these:
+
+  /Undefined symbols:
+    /"_rl_forced_update_display", referenced from:
+    /_restore_prompt in command.o
+    /"_rl_ding", referenced from:
+    /_alert in mouse.o
+    /"_history_list", referenced from:
+    /_write_history_list in history.o
+    /"_rl_complete_with_tilde_expansion", referenced from:
+    /_rl_complete_with_tilde_expansion$non_lazy_ptr in plot.o
+    /ld: symbol(s) not found
+    /collect2: ld returned 1 exit status
+
+As I understand the situation, the story seems to be that Apple have provided
+a "fake" libreadline shared library. The file /usr/lib/libreadline.dylib is
+really a symlink to a compatibility layer over the BSD libedit library.
+But the compatibility isn't complete, and in particular it is missing many of
+the routines used for readline support by gnuplot.
+
+If the configure script can't find libreadline then it is supposed to fall
+back to using built-in routines. But the "fake" libreadline fools the
+configure script into thinking it really is present, and then the build
+fails later when it turns out that routines are missing.
+
+Alternative work-arounds:
+
+1) Explicitly tell gnuplot libreadline is not available:
+./configure --with-readline=builtin
+
+2) Delete the fake libreadline libraries from OSX and install
+the real gnu libreadline as a system library.
+
+3) Install the real gnu libreadline into your personal account and
+tell gnuplot to use it:
+./configure --with-readline=/my/private/readline/installdir
+This may require some playing around with additional -L and -I
+definitions in CFLAGS, and is probably harder than replacing the
+system copy of the library.
+
 
 
 VMS
@@ -265,39 +297,6 @@ the compiler you want to use (default DECC).
   Alternatively, put the help in the main system help library.
 
 
-AmigaOS
--------
-
-Using Aztec C 5.2a
-      make -f makefile.ami
-Using SAS/C 6.1 or later versions
-      smake -f makefile.amg
-      You can also copy makefile.amg to smakefile and just type `smake'.
-
-      At the beginning of makefile.amg you will find a configuration
-      section where you have to adjust all settings which control the build
-      process. Most important is probably to select the terminal devices
-      which should be supported. You can create a version offering
-      png graphics as well as gif support. Use the appropriate settings
-      for CPU and MATH to compile for a specific machine type.
-      Be sure to enable only those devices for which you have the 
-      necessary software already installed. Also ensure that the
-      libraries and the sources are all compiled using the same
-      settings for CPU and MATH.
-Using gcc: see Unix
-
-Atari/TOS
----------
-
-Using gcc 2.x as unix cross- or native compiler
-	make -f makefile.st
-(Edit top of makefile.st for name of crosscompiler or choose native setting)
-Using PureC
-	use gnuplot.prj
-Using TurboC
-	use gnuplot.prj
-(Edit gnuplot.prj according to notes at the beginning)
-
 MS-Windows
 ----------
 
@@ -323,18 +322,9 @@ Using Visual C++ and compiling for Windows (32-bit, i.e. 9x and NT family)
       copy ..\config\makefile.nt makefile
       nmake
 
-Using the MinGW32 port of gcc: you need parts of the Micrsoft SDK for the
-moment.
-      copy ..\config\makefile.mgw makefile
-  Look through the Makefile to see if you need to make any changes.
-      make 
-      make install
+Using the MinGW32 port of gcc:  Instructions are given in config/makefile.mgw
 
-Using the Cygwin port of gcc, which includes MinGW32: you need parts of
-the Microsoft SDK for the moment.
-      copy ..\config\makefile.cyg makefile
-  Look through the Makefile to see if you need to make any changes.
-      make
+Using the Cygwin port of gcc:  Instructions are given in config/makefile.cyg
 
 Using Borland C++ 32 bit compilers, like the freely downloadable BCC55:
       copy ..\config\makefile.win makefile.win
@@ -342,19 +332,7 @@ Using Borland C++ 32 bit compilers, like the freely downloadable BCC55:
   You'll probably have to change TC and some others.
       make -fmakefile.win WIN32=1
       
-[NOTE: the 16-bit Windows version no longer work.  gnuplot has become
-too large.]
-
-Using Microsoft C 7.0 and compiling for MS-Windows (16-bit)
-      copy ..\config\makefile.msw makefile
-  Look through the Makefile to see if you need to make any changes.
-      nmake
-
-Using Borland C++ 3.1 and compiling for MS-Windows (16-bit)
-      copy ..\config\makefile.win makefile.win
-  Look through the Makefile to see if you need to make any changes.
-  You'll probably have to change TC and some others.
-      make -fmakefile.win
+[NOTE: gnuplot can no longer be built for 16-bit Windows versions.]
 
 
 MSDOS
@@ -371,23 +349,6 @@ Using DJGPP (32-bit DOS port of GNU CC)
 
 [NOTE: the 16-bit DOS versions of gnuplot no longer work.  gnuplot has
 outgrown this platform.]
-
-Using Microsoft C 7.0 targetting 16-bit DOS
-      copy makefile.msc makefile
-      nmake 
-
-Using Borland C++ 3.0 targetting 16-bit DOS
-      copy makefile.tc makefile
-  Edit makefile to change TC, BIN, BGI, BGIOBJ. You may also want to turn
-  off overlays (See manual for more on overlays).
-      make
-
-You'll want to copy the compiled executable and gnuplot.gih to a
-directory on your PATH to make them easily usable.
-
-The file gnuplot.gih is needed for help on the PC.
-If the file gnuplot.gih is not in the default directory, then use:
-    set GNUHELP={full path name of gnuplot.gih}
 
 OS/2
 ----
@@ -418,10 +379,10 @@ See other sections of the manuals for more information about installing/using
 gnuplot on OS/2.
 
 
-Ultrix
-------
+Ultrix, SunOS, other systems with a SysV-like sprintf() function
+----------------------------------------------------------------
 
-The mousing code requires a patch in order to compile properly under Ultrix.
+The mousing code requires a patch in order to compile properly on these.
 You can download this patch from the contributed scripts section of the
 gnuplot project pages on SourceForge: http://gnuplot.sourceforge.net/scripts/
 Or you can avoid the problem via        ./configure --disable-mouse
@@ -460,7 +421,7 @@ non-default location that is not searched by the preprocessor or linker.
    Use the GNU readline library instead of gnuplot's builtin readline.
    Version 4.2 or better is required.
 
-   Please note that there is a bug in GNU readline up to and including 4.3
+   Please note that there was a bug in GNU readline up to and including 4.3
    that makes gnuplot exit if the terminal window is resized. A fix is
    described at
    http://sourceforge.net/tracker/index.php?func=detail&aid=608874&group_id=2055&atid=102055 .
@@ -493,13 +454,6 @@ non-default location that is not searched by the preprocessor or linker.
     UNIX plot library, if available. If used with the DIR argument,
     configure looks for the plot library from GNU plotutils version 2.2
     or better. The option is off by default.
-
-   --with-gif=png
-
-    If specified, the gif driver produces png images instead of gif.
-    Other arguments to this option are ignored! This feature exists
-    mainly for backwards compatibility with old plot scripts, and is
-    off by default.
 
 
 Platform compiler problems
@@ -570,11 +524,6 @@ whenever you re-run configure.
 
   As of 1998-11-18, gnuplot compiles again with the native compiler cc.
 
- - System V.2/Ultrix 4.x/M88 SysV.3
-   An ANSI/ISO C compiler should be used to compile gnuplot. It is
-  recommended to install gcc. If this is not an option, the system
-  compiler cc can be made to work with Wietse Venema's unproto tool.
-
   Note that as of gnuplot-4.0, the alternative tool ansi2knr is
   included with the gnuplot source distribution and should
   automatically be used by automake to do this job for you, so you
@@ -601,6 +550,8 @@ whenever you re-run configure.
   is the full path name of the directory where unproto is installed. It is
   not necessary to "install" unproto, one can just create a subdirectory
   in gnuplot's source directory and use it from there.
+
+  SunOS 4.1 also needs the Ultrix mousing code patch mentioned above.
 
 Environment variables
 =====================
@@ -718,7 +669,7 @@ $ GNUPLOT_DRIVER_DIR=../src ../src/gnuplot simple.dem </dev/null
 
 $ gnuplot all.dem </dev/null
 $ GNUPLOT_DRIVER_DIR=../src ../src/gnuplot all.dem </dev/null
-   For convencience, the special make target 'check' will run the above
+   For convenience, the special make target 'check' will run the above
    if you run it from the demo directory of the source tree:
 $ make check
 
@@ -794,20 +745,4 @@ Cairo backend.
 On Unix, use the usual `./configure; make; make install' build process to
 compile this terminal. On Windows, please use the MinGW/MSYS makefile, namely
 config/makefile.mgw. MinGW and MSYS can be found on http://www.mingw.org.
-
-
-Front-ends for gnuplot
-======================
-
- o See gnuplot web page
-	http://gnuplot.sourceforge.net/links.html
-   for an up-to-date version of gnuplot front-ends
-
- o Bruce Ravel <ravel@phys.washington.edu> has written a new version of
-   gnuplot-mode for GNU emacs and XEmacs. This version is based on
-   the gnuplot.el file by Gershon Elber which used to be included with 
-   earlier versions of gnuplot's source distribution. The package is
-   available from http://feff.phys.washington.edu/~ravel/gnuplot/.
-   As of gnuplot 4.0 Bruce's version of gnuplot-mode is included 
-   with the gnuplot distribution, so you should already have it.
 

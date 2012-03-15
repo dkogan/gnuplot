@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: interpol.c,v 1.31 2004/07/25 12:25:01 broeker Exp $"); }
+static char *RCSid() { return RCSid("$Id: interpol.c,v 1.38 2008/11/12 02:29:43 janert Exp $"); }
 #endif
 
 /* GNUPLOT - interpol.c */
@@ -136,10 +136,6 @@ static char *RCSid() { return RCSid("$Id: interpol.c,v 1.31 2004/07/25 12:25:01 
 /*
  * IMHO, code is getting too cluttered with repeated chunks of
  * code. Some macros to simplify, I hope.
- *
- * do { } while(0) is comp.lang.c recommendation for complex macros
- * also means that break can be specified as an action, and it will
- *
  */
 
 
@@ -187,6 +183,11 @@ typedef double five_diag[5];
 
 static int next_curve __PROTO((struct curve_points * plot, int *curve_start));
 static int num_curves __PROTO((struct curve_points * plot));
+static void eval_kdensity __PROTO((struct curve_points *cp, 
+				   int first_point, int num_points, double sr,
+				   coordval *px, coordval *py));
+static void do_kdensity __PROTO((struct curve_points *cp, int first_point,
+				 int num_points, struct coordinate *dest));
 static double *cp_binomial __PROTO((int points));
 static void eval_bezier __PROTO((struct curve_points * cp, int first_point,
 				 int num_points, double sr, coordval * px,
@@ -249,6 +250,133 @@ num_curves(struct curve_points *plot)
     return (curves);
 }
 
+
+/* PKJ - May 2008 
+   kdensity (short for Kernel Density) builds histograms using
+   "Kernel Density Estimation" using Gaussian Kernels.
+   Check: L. Wassermann: "All of Statistics" for example.
+
+   The implementation is based closely on the implementation for Bezier
+   curves, except for the way the actual interpolation is generated.
+*/
+
+/* eval_kdensity is a modification of eval_bezier */
+static void 
+eval_kdensity ( 
+    struct curve_points *cp,
+    int first_point,	/* where to start in plot->points (to find x-range) */
+    int num_points,	/* to determine end in plot->points */
+    double sr,		/* position inside curve, range [0:1] */
+    coordval *px,	/* OUTPUT: x and y */
+    coordval *py ) {
+
+    unsigned int i;
+    unsigned int n = num_points - 1;
+    struct coordinate GPHUGE *this_points = (cp->points) + first_point;
+  
+    double x, y, tmp;
+    double avg, sigma;
+    double min =  DBL_MAX;
+    double max = -DBL_MAX;
+    double bandwidth, default_bandwidth;
+
+    avg = 0.0;
+    sigma = 0.0;
+    for (i = 0; i <= n; i++) {
+      avg   += this_points[i].x;
+      sigma += this_points[i].x * this_points[i].x;
+
+      /* Find min and max of x-range. Necessary since points not sorted! */
+      min = this_points[i].x < min ? this_points[i].x : min;
+      max = this_points[i].x > max ? this_points[i].x : max;
+    }
+    avg /= (double)n;
+    sigma = sqrt( sigma/(double)n - avg*avg ); /* Standard Deviation */
+    
+    /* This is the optimal bandwidth if the point distribution is Gaussian.
+       (Applied Smoothing Techniques for Data Analysis
+       by Adrian W, Bowman & Adelchi Azzalini (1997)) */
+    default_bandwidth = pow( 4.0/(3.0*num_points), 1.0/5.0 )*sigma;
+
+    /* If the supplied bandwidth is zero of less, the default bandwidth
+       is used. If only two columns have been specified in the using
+       declaration, the value of the third column (z-value) is set to
+       the value of '-1' in plot2d.c::get_data(). Therefore, a negative
+       value of z indicates that the default bandwidth should be used.
+       (I would prefer that a different magic value would be used to
+       indicate a missing third column, so that we we could fail if 
+       the user supplies a negative bandwidth, but the -1 seems too
+       deeply ingrained.) */
+
+    x = min + sr*(max-min); /* The current x-value */
+
+    y = 0;
+    for (i = 0; i <= n; i++) {
+      if ( this_points[i].z <= 0 ) {
+	bandwidth = default_bandwidth;
+      } else {
+	bandwidth = this_points[i].z;
+      }
+      
+      tmp = ( x - this_points[i].x )/bandwidth;
+      y += this_points[i].y * exp( - 0.5*tmp*tmp ) / bandwidth;
+    }
+    y /= sqrt(2.0*M_PI);
+
+    *px = x;
+    *py = y;
+}
+
+/* do_kdensity is based on do_bezier, except for the call to eval_bezier */
+static void 
+do_kdensity( 
+    struct curve_points *cp,
+    int first_point,		/* where to start in plot->points */
+    int num_points,		/* to determine end in plot->points */
+    struct coordinate *dest)	/* where to put the interpolated data */
+{
+    int i;
+    coordval x, y;
+
+    /* min and max in internal (eg logged) co-ordinates. We update
+     * these, then update the external extrema in user co-ordinates
+     * at the end.
+     */
+
+    double ixmin, ixmax, iymin, iymax;
+    double sxmin, sxmax, symin, symax;	/* starting values of above */
+
+    x_axis = cp->x_axis;
+    y_axis = cp->y_axis;
+
+    ixmin = sxmin = AXIS_LOG_VALUE(x_axis, X_AXIS.min);
+    ixmax = sxmax = AXIS_LOG_VALUE(x_axis, X_AXIS.max);
+    iymin = symin = AXIS_LOG_VALUE(y_axis, Y_AXIS.min);
+    iymax = symax = AXIS_LOG_VALUE(y_axis, Y_AXIS.max);
+
+    for (i = 0; i < samples_1; i++) {
+        eval_kdensity( cp, first_point, num_points,
+		       (double) i / (double) (samples_1 - 1),
+		       &x, &y );
+
+	/* now we have to store the points and adjust the ranges */
+	dest[i].type = INRANGE;
+	STORE_AND_FIXUP_RANGE( dest[i].x, x, dest[i].type, ixmin, ixmax, 
+			       X_AXIS.autoscale, NOOP, continue);
+	STORE_AND_FIXUP_RANGE( dest[i].y, y, dest[i].type, iymin, iymax, 
+			       Y_AXIS.autoscale, NOOP, NOOP);
+
+	dest[i].xlow = dest[i].xhigh = dest[i].x;
+	dest[i].ylow = dest[i].yhigh = dest[i].y;
+
+	dest[i].z = -1;
+    }
+
+    UPDATE_RANGE(ixmax > sxmax, X_AXIS.max, ixmax, x_axis);
+    UPDATE_RANGE(ixmin < sxmin, X_AXIS.min, ixmin, x_axis);
+    UPDATE_RANGE(iymax > symax, Y_AXIS.max, iymax, y_axis);
+    UPDATE_RANGE(iymin < symin, Y_AXIS.min, iymin, y_axis);
+}
 
 
 /*
@@ -867,17 +995,32 @@ do_freq(
 void
 gen_interp_frequency(struct curve_points *plot)
 {
-
-    int i, curves;
+    int i, j, curves;
     int first_point, num_points;
+    double y;
 
     curves = num_curves(plot);
 
     first_point = 0;
     for (i = 0; i < curves; i++) {
-	num_points = next_curve(plot, &first_point);
-	do_freq(plot, first_point, num_points);
-	first_point += num_points + 1;
+        num_points = next_curve(plot, &first_point);
+
+        /* If cumulative, replace the current y-value with the
+           sum of all previous y-values. This assumes that the
+           data has already been sorted by x-values. */
+        if( plot->plot_smooth == SMOOTH_CUMULATIVE ) {
+            y = 0;
+            for (j = first_point; j < first_point + num_points; j++) {
+                if (plot->points[j].type == UNDEFINED) 
+                    continue;
+
+                y += plot->points[j].y;
+                plot->points[j].y = y;
+            }
+        }
+
+        do_freq(plot, first_point, num_points);
+        first_point += num_points + 1;
     }
     return;
 }
@@ -925,6 +1068,10 @@ gen_interp(struct curve_points *plot)
 		      new_points + i * (samples_1 + 1));
 	    free((char *) bc);
 	    break;
+	case SMOOTH_KDENSITY:
+	  do_kdensity( plot, first_point, num_points, 
+		       new_points + i * (samples_1 + 1));
+	  break;
 	default:		/* keep gcc -Wall quiet */
 	    ;
 	}
@@ -1032,7 +1179,8 @@ cp_implode(struct curve_points *cp)
 		k++;
 	    } else {
 		cp->points[j].x = x;
- 		if ( cp->plot_smooth == SMOOTH_FREQUENCY )
+ 		if ( cp->plot_smooth == SMOOTH_FREQUENCY ||
+ 		     cp->plot_smooth == SMOOTH_CUMULATIVE )
 		    k = 1;
 		cp->points[j].y = y /= (double) k;
 		cp->points[j].xhigh = sux / (double) k;
@@ -1082,7 +1230,8 @@ cp_implode(struct curve_points *cp)
 
 	if (k) {
 	    cp->points[j].x = x;
-	    if ( cp->plot_smooth == SMOOTH_FREQUENCY )
+	    if ( cp->plot_smooth == SMOOTH_FREQUENCY ||
+		 cp->plot_smooth == SMOOTH_CUMULATIVE )
 		k = 1;
 	    cp->points[j].y = y /= (double) k;
 	    cp->points[j].xhigh = sux / (double) k;

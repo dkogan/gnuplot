@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_term.h,v 1.5 2006/06/18 07:45:43 tlecomte Exp $
+ * $Id: wxt_term.h,v 1.11 2009/03/26 00:49:18 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_term.h */
@@ -73,9 +73,8 @@ int wxt_text_angle(int ang);
 void wxt_fillbox(int style, unsigned int x1, unsigned int y1, unsigned int width, unsigned int height);
 int wxt_set_font __PROTO ((const char *font));
 void wxt_pointsize(double ptsize);
-#ifdef WITH_IMAGE
-void wxt_image(unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagecolor color_mode);
-#endif /*WITH_IMAGE*/
+void wxt_image(unsigned int M, unsigned int N, coordval * image, gpiPoint * corner, t_imagecolor color_mode);
+
 # ifdef USE_MOUSE
 int wxt_waitforinput(void);
 void wxt_put_tmptext(int, const char str[]);
@@ -87,12 +86,17 @@ int wxt_make_palette(t_sm_palette *palette);
 void wxt_set_color(t_colorspec *colorspec);
 void wxt_filled_polygon(int n, gpiPoint * corners);
 
+void wxt_enhanced_flush();
+void wxt_enhanced_writec(int c);
+void wxt_enhanced_open(char* fontname, double fontsize, double base, TBOOLEAN widthflag, TBOOLEAN showflag, int overprint);
+
 void wxt_raise_terminal_window __PROTO((int));
 void wxt_raise_terminal_group __PROTO((void));
 void wxt_lower_terminal_window __PROTO((int));
 void wxt_lower_terminal_group __PROTO((void));
 void wxt_close_terminal_window __PROTO((int number));
 void wxt_update_title __PROTO((int number));
+void wxt_update_size __PROTO((int number));
 
 /* state variables shared between wxt.trm and wxt_gui.cpp */
 extern int wxt_window_number;
@@ -102,7 +106,20 @@ extern int wxt_raise;
 extern int wxt_ctrl;
 extern char wxt_set_fontname[MAX_ID_LEN + 1];
 extern int wxt_set_fontsize;
+extern int wxt_rounded;
 extern char wxt_title[MAX_ID_LEN + 1];
+extern int wxt_width;
+extern int wxt_height;
+
+extern int wxt_axis_mask;
+typedef struct wxt_axis_state_t {
+	double min;
+	double term_lower;
+	double term_scale;
+	double logbase;
+} wxt_axis_state_t;
+extern wxt_axis_state_t wxt_axis_state[4];
+
 
 #ifdef __cplusplus
 }

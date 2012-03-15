@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.236.2.20 2009/09/01 16:38:55 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.299.2.7 2010/02/13 06:35:21 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -121,7 +121,7 @@ static void set_polar __PROTO((void));
 static void set_print __PROTO((void));
 #ifdef EAM_OBJECTS
 static void set_object __PROTO((void));
-static void set_rectangle __PROTO((int));
+static void set_obj __PROTO((int, int));
 #endif
 static void set_samples __PROTO((void));
 static void set_size __PROTO((void));
@@ -132,13 +132,14 @@ static void set_terminal __PROTO((void));
 static void set_termoptions __PROTO((void));
 static void set_tics __PROTO((void));
 static void set_ticscale __PROTO((void));
-static void set_ticslevel __PROTO((void));
 static void set_timefmt __PROTO((void));
 static void set_timestamp __PROTO((void));
 static void set_view __PROTO((void));
 static void set_zero __PROTO((void));
 static void set_timedata __PROTO((AXIS_INDEX));
 static void set_range __PROTO((AXIS_INDEX));
+static void set_xyplane __PROTO((void));
+static void set_ticslevel __PROTO((void));
 static void set_zeroaxis __PROTO((AXIS_INDEX));
 static void set_allzeroaxis __PROTO((void));
 
@@ -149,10 +150,8 @@ static void set_xyzlabel __PROTO((text_label * label));
 static void load_tics __PROTO((AXIS_INDEX axis));
 static void load_tic_user __PROTO((AXIS_INDEX axis));
 static void load_tic_series __PROTO((AXIS_INDEX axis));
-static void load_offsets __PROTO((double *a, double *b, double *c, double *d));
 
 static void set_linestyle __PROTO((void));
-static int assign_linestyle_tag __PROTO((void));
 static void set_arrowstyle __PROTO((void));
 static int assign_arrowstyle_tag __PROTO((void));
 static int looks_like_numeric __PROTO((char *));
@@ -163,35 +162,20 @@ static void check_palette_grayscale __PROTO((void));
 static int set_palette_defined __PROTO((void));
 static void set_palette_file __PROTO((void));
 static void set_palette_function __PROTO((void));
-#ifdef EAM_HISTOGRAMS
 static void parse_histogramstyle __PROTO((histogram_style *hs, 
 		t_histogram_type def_type, int def_gap));
-#endif
 
 static struct position default_position
 	= {first_axes, first_axes, first_axes, 0., 0., 0.};
 
-/* Backwards compatibility ... */
+#ifdef BACKWARDS_COMPATIBLE
 static void set_nolinestyle __PROTO((void));
+#endif
 
 /******** The 'set' command ********/
 void
 set_command()
 {
-    static char GPFAR setmess[] =
-    "valid set options:  [] = choose one, {} means optional\n\n\
-\t'angles', 'arrow', 'autoscale', 'bars', 'border', 'boxwidth',\n\
-\t'clabel', 'clip', 'cntrparam', 'colorbox', 'contour', 'decimalsign',\n\
-\t'dgrid3d', 'dummy', 'encoding', 'fit', 'format', 'grid',\n\
-\t'hidden3d', 'historysize', 'isosamples', 'key', 'label', 'locale',\n\
-\t'logscale', 'macros', '[blrt]margin', 'mapping', 'mouse', 'multiplot',\n\
-\t'offsets', 'origin', 'output', 'palette', 'parametric', 'pm3d',\n\
-\t'pointsize', 'polar', 'print', '[rtuv]range', 'samples', 'size',\n\
-\t'style', 'surface', 'terminal', 'tics', 'ticscale', 'ticslevel',\n\
-\t'timestamp', 'timefmt', 'title', 'view', 'xyplane', '[xyz]{2}data',\n\
-\t'[xyz]{2}label', '[xyz]{2}range', '{no}{m}[xyz]{2}tics',\n\
-\t'[xyz]{2}[md]tics', '{[xyz]{2}}zeroaxis', 'zero'";
-
     c_token++;
 
 #ifdef BACKWARDS_COMPATIBLE
@@ -217,10 +201,8 @@ set_command()
 
 	    if (temp_style & PLOT_STYLE_HAS_ERRORBAR)
 		int_error(c_token, "style not usable for function plots, left unchanged");
-#ifdef EAM_HISTOGRAMS
 	    else if (temp_style == HISTOGRAMS)
 		int_error(c_token, "style not usable for function plots, left unchanged");
-#endif
 	    else
 		func_style = temp_style;
 	}
@@ -246,7 +228,24 @@ set_command()
 	set_missing();
     } else {
 
+#else	/* Milder form of backwards compatibility */
+	/* Allow "set no{foo}" rather than "unset foo" */ 
+    if (gp_input_line[token[c_token].start_index] == 'n' &&
+	       gp_input_line[token[c_token].start_index+1] == 'o') {
+	if (interactive)
+	    int_warn(c_token, "deprecated syntax, use \"unset\"");
+	token[c_token].start_index += 2;
+	token[c_token].length -= 2;
+	c_token--;
+	unset_command();
+    } else {
+
 #endif /* BACKWARDS_COMPATIBLE */
+
+	int save_token;
+	check_for_iteration();
+	save_token = c_token;
+	ITERATE:
 
 	switch(lookup_table(&set_tbl[0],c_token)) {
 	case S_ANGLES:
@@ -361,15 +360,19 @@ set_command()
 		set_separator();
 	    else if (almost_equals(c_token,"com$mentschars"))
 		set_datafile_commentschars();
-#ifdef BINARY_DATA_FILE
 	    else if (almost_equals(c_token,"bin$ary"))
 		df_set_datafile_binary();
-#endif
 	    else if (almost_equals(c_token,"fort$ran")) {
 		df_fortran_constants = TRUE;
 		c_token++;
 	    } else if (almost_equals(c_token,"nofort$ran")) {
 		df_fortran_constants = FALSE;
+		c_token++;
+	    } else if (almost_equals(c_token,"fpe_trap")) {
+		df_nofpe_trap = FALSE;
+		c_token++;
+	    } else if (almost_equals(c_token,"nofpe_trap")) {
+		df_nofpe_trap = TRUE;
 		c_token++;
 	    } else
 		int_error(c_token,"expecting datafile modifier");
@@ -444,9 +447,6 @@ set_command()
 	case S_TICSCALE:
 	    set_ticscale();
 	    break;
-	case S_TICSLEVEL:
-	    set_ticslevel();
-	    break;
 	case S_TIMEFMT:
 	    set_timefmt();
 	    break;
@@ -462,7 +462,7 @@ set_command()
 	case S_ZERO:
 	    set_zero();
 	    break;
-/* FIXME */
+
 	case S_MXTICS:
 	case S_NOMXTICS:
 	case S_XTICS:
@@ -617,15 +617,26 @@ set_command()
 	case S_ZEROAXIS:
 	    set_allzeroaxis();
 	    break;
+	case S_XYPLANE:
+	    set_xyplane();
+	    break;
+	case S_TICSLEVEL:
+	    set_ticslevel();
+	    break;
 	default:
-	    int_error(c_token, setmess);
+	    int_error(c_token, "Unrecognized option.  See 'help set'.");
 	    break;
 	}
 
-#ifdef BACKWARDS_COMPATIBLE
+    	if (next_iteration()) {
+	    c_token = save_token;
+	    goto ITERATE;
+	}
+
     }
-#endif
-    update_gpval_variables(0); /* update GPVAL_ inner variables */
+
+    /* FIXME - Should this be inside the iteration loop? */
+    update_gpval_variables(0);
 
 }
 
@@ -667,7 +678,6 @@ set_arrow()
     TBOOLEAN duplication = FALSE;
     TBOOLEAN set_start = FALSE;
     TBOOLEAN set_end = FALSE;
-    struct value a;
     int save_token;
     int tag;
     
@@ -683,7 +693,7 @@ set_arrow()
 	tag = assign_arrow_tag();
 
     } else
-	tag = (int) real(const_express(&a));
+	tag = int_expression();
 
     if (tag <= 0)
 	int_error(c_token, "tag must be > 0");
@@ -869,23 +879,33 @@ set_autoscale()
 static void
 set_bars()
 {
-    struct value a;
 
-    c_token++;
-    if(END_OF_COMMAND) {
-	bar_size = 1.0;
-    } else if(almost_equals(c_token,"s$mall")) {
-	bar_size = 0.0;
-	++c_token;
-    } else if(almost_equals(c_token,"l$arge")) {
-	bar_size = 1.0;
-	++c_token;
-    } else if(almost_equals(c_token,"full$width")) {
-	bar_size = -1.0;
-	++c_token;
-    } else {
-	bar_size = real(const_express(&a));
+    int save_token = ++c_token;
+
+    while (!END_OF_COMMAND) {
+	if (almost_equals(c_token,"s$mall")) {
+	    bar_size = 0.0;
+	    ++c_token;
+	} else if (almost_equals(c_token,"l$arge")) {
+	    bar_size = 1.0;
+	    ++c_token;
+	} else if (almost_equals(c_token,"full$width")) {
+	    bar_size = -1.0;
+	    ++c_token;
+	} else if (equals(c_token,"front")) {
+	    bar_layer = LAYER_FRONT;
+	    ++c_token;
+	} else if (equals(c_token,"back")) {
+	    bar_layer = LAYER_BACK;
+	    ++c_token;
+	} else {
+	    bar_size = real_expression();
+	}
     }
+
+    if (save_token == c_token)
+	bar_size = 1.0;
+	
 }
 
 
@@ -893,8 +913,6 @@ set_bars()
 static void
 set_border()
 {
-    struct value a;
-
     c_token++;
     if(END_OF_COMMAND){
 	draw_border = 31;
@@ -914,9 +932,14 @@ set_border()
 	    lp_parse(&border_lp, TRUE, FALSE);
 	    if (save_token != c_token)
 		continue;
-	    draw_border = (int)real(const_express(&a));
+	    draw_border = int_expression();
 	}
     }
+
+    /* This is the only place the user can change the border	*/
+    /* so remember what he set.  If draw_border is later changed*/
+    /* internally, we can still recover the user's preference.	*/
+    user_border = draw_border;
 }
 
 
@@ -924,14 +947,12 @@ set_border()
 static void
 set_boxwidth()
 {
-    struct value a;
-
     c_token++;
     if (END_OF_COMMAND) {
 	boxwidth = -1.0;
 	boxwidth_is_absolute = TRUE;
     } else {
-	boxwidth = real(const_express(&a));
+	boxwidth = real_expression();
     }
     if (END_OF_COMMAND)
 	return;
@@ -985,8 +1006,6 @@ set_clip()
 static void
 set_cntrparam()
 {
-    struct value a;
-
     c_token++;
     if (END_OF_COMMAND) {
 	/* assuming same as defaults */
@@ -997,7 +1016,7 @@ set_cntrparam()
 	contour_levels_kind = LEVELS_AUTO;
     } else if (almost_equals(c_token, "p$oints")) {
 	c_token++;
-	contour_pts = (int) real(const_express(&a));
+	contour_pts = int_expression();
     } else if (almost_equals(c_token, "li$near")) {
 	c_token++;
 	contour_kind = CONTOUR_KIND_LINEAR;
@@ -1010,8 +1029,10 @@ set_cntrparam()
     } else if (almost_equals(c_token, "le$vels")) {
 	c_token++;
 
-	free_dynarray(&dyn_contour_levels_list);
-	init_dynarray(&dyn_contour_levels_list, sizeof(double), 5, 10);
+	if (!iteration) {
+	    free_dynarray(&dyn_contour_levels_list);
+	    init_dynarray(&dyn_contour_levels_list, sizeof(double), 5, 10);
+	}
 
 	/*  RKC: I have modified the next two:
 	 *   to use commas to separate list elements as in xtics
@@ -1024,7 +1045,7 @@ set_cntrparam()
 		int_error(c_token, "expecting discrete level");
 	    else
 		*(double *)nextfrom_dynarray(&dyn_contour_levels_list) =
-		    real(const_express(&a));
+		    real_expression();
 
 	    while(!END_OF_COMMAND) {
 		if (!equals(c_token, ","))
@@ -1032,7 +1053,7 @@ set_cntrparam()
 			      "expecting comma to separate discrete levels");
 		c_token++;
 		*(double *)nextfrom_dynarray(&dyn_contour_levels_list) =
-		    real(const_express(&a));
+		    real_expression();
 	    }
 	    contour_levels = dyn_contour_levels_list.end;
 	} else if (almost_equals(c_token, "in$cremental")) {
@@ -1040,12 +1061,12 @@ set_cntrparam()
 
 	    contour_levels_kind = LEVELS_INCREMENTAL;
 	    c_token++;
-	    contour_levels_list[i++] = real(const_express(&a));
+	    contour_levels_list[i++] = real_expression();
 	    if (!equals(c_token, ","))
 		int_error(c_token,
 			  "expecting comma to separate start,incr levels");
 	    c_token++;
-	    if((contour_levels_list[i++] = real(const_express(&a))) == 0)
+	    if((contour_levels_list[i++] = real_expression()) == 0)
 		int_error(c_token, "increment cannot be 0");
 	    if(!END_OF_COMMAND) {
 		if (!equals(c_token, ","))
@@ -1056,22 +1077,22 @@ set_cntrparam()
 		 * but 10,10,49 is four
 		 */
 		dyn_contour_levels_list.end = i;
-		contour_levels = (int) ( (real(const_express(&a))-contour_levels_list[0])/contour_levels_list[1] + 1.0);
+		contour_levels = (int) ( (real_expression()-contour_levels_list[0])/contour_levels_list[1] + 1.0);
 	    }
 	} else if (almost_equals(c_token, "au$to")) {
 	    contour_levels_kind = LEVELS_AUTO;
 	    c_token++;
 	    if(!END_OF_COMMAND)
-		contour_levels = (int) real(const_express(&a));
+		contour_levels = int_expression();
 	} else {
 	    if(contour_levels_kind == LEVELS_DISCRETE)
 		int_error(c_token, "Levels type is discrete, ignoring new number of contour levels");
-	    contour_levels = (int) real(const_express(&a));
+	    contour_levels = int_expression();
 	}
     } else if (almost_equals(c_token, "o$rder")) {
 	int order;
 	c_token++;
-	order = (int) real(const_express(&a));
+	order = int_expression();
 	if ( order < 2 || order > MAX_BSPLINE_ORDER )
 	    int_error(c_token, "bspline order must be in [2..10] range.");
 	contour_order = order;
@@ -1106,40 +1127,84 @@ set_contour()
 static void
 set_dgrid3d()
 {
-    struct value a;
-    int local_vals[3];
-    int i;
-    TBOOLEAN was_comma = TRUE;
+    int token_cnt = 0; /* Number of comma-separated values read in */
+  
+    int gridx     = dgrid3d_row_fineness;
+    int gridy     = dgrid3d_col_fineness;
+    int normval   = dgrid3d_norm_value;
+    double scalex = dgrid3d_x_scale;
+    double scaley = dgrid3d_y_scale;
+
+    /* dgrid3d has two different syntax alternatives: classic and new.
+       If there is a "mode" keyword, the syntax is new, otherwise it is classic.*/
+    dgrid3d_mode  = DGRID3D_DEFAULT;
 
     c_token++;
-    local_vals[0] = dgrid3d_row_fineness;
-    local_vals[1] = dgrid3d_col_fineness;
-    local_vals[2] = dgrid3d_norm_value;
-
-    for (i = 0; i < 3 && !(END_OF_COMMAND);) {
-	if (equals(c_token,",")) {
-	    if (was_comma) i++;
-	    was_comma = TRUE;
+    while ( !(END_OF_COMMAND) ) { 
+        int tmp_mode = lookup_table(&dgrid3d_mode_tbl[0],c_token);
+	if (tmp_mode != DGRID3D_OTHER) {
+	    dgrid3d_mode = tmp_mode;
 	    c_token++;
-	} else {
-	    if (!was_comma)
-		int_error(c_token, "',' expected");
-	    local_vals[i] = real(const_express(&a));
-	    i++;
-	    was_comma = FALSE;
 	}
+
+	switch (tmp_mode) {
+	case DGRID3D_QNORM:
+				if (!(END_OF_COMMAND)) normval = int_expression();
+				break;
+	case DGRID3D_SPLINES:
+				break;
+	case DGRID3D_GAUSS:
+	case DGRID3D_CAUCHY:
+	case DGRID3D_EXP:
+	case DGRID3D_BOX:
+	case DGRID3D_HANN:
+				if (!(END_OF_COMMAND)) {
+					scalex = real_expression();
+					scaley = scalex;
+					if (equals(c_token, ",")) {
+						c_token++;
+						scaley = real_expression();
+					}
+				}
+				break;
+
+	default:		/* {rows}{,cols{,norm}}} */
+
+			if  ( equals( c_token, "," )) {
+				c_token++;
+				token_cnt++;
+			} else if( token_cnt == 0) {
+		        	gridx = int_expression();
+		        	gridy = gridx; /* gridy defaults to gridx, unless overridden below */
+			} else if( token_cnt == 1) {
+		        	gridy = int_expression();
+			} else if( token_cnt == 2) {
+		        	normval = int_expression();
+			} else
+				int_error(c_token,"Unrecognize keyword or unexpected value");
+			break;
+	}
+		
     }
 
-    if (local_vals[0] < 2 || local_vals[0] > 1000)
-	int_error(c_token, "Row size must be in [2:1000] range; size unchanged");
-    if (local_vals[1] < 2 || local_vals[1] > 1000)
-	int_error(c_token, "Col size must be in [2:1000] range; size unchanged");
-    if (local_vals[2] < 1 || local_vals[2] > 100)
-	int_error(c_token, "Norm must be in [1:100] range; norm unchanged");
+    /* we could warn here about floating point values being truncated... */  
+    if( gridx < 2 || gridx > 1000 || gridy < 2 || gridy > 1000 )
+        int_error( NO_CARET, 
+                   "Number of grid points must be in [2:1000] - not changed!");
 
-    dgrid3d_row_fineness = local_vals[0];
-    dgrid3d_col_fineness = local_vals[1];
-    dgrid3d_norm_value = local_vals[2];
+    /* no mode token found: classic format */
+    if( dgrid3d_mode == DGRID3D_DEFAULT )
+        dgrid3d_mode = DGRID3D_QNORM;
+
+    if( scalex < 0.0 || scaley < 0.0 )
+        int_error( NO_CARET, 
+                   "Scale factors must be greater than zero - not changed!" );
+
+    dgrid3d_row_fineness = gridx;
+    dgrid3d_col_fineness = gridy;
+    dgrid3d_norm_value = normval;
+    dgrid3d_x_scale = scalex;
+    dgrid3d_y_scale = scaley;
     dgrid3d = TRUE;
 }
 
@@ -1155,8 +1220,10 @@ set_decimalsign()
 	decimalsign=NULL;
 
     if (END_OF_COMMAND) {
+	reset_numeric_locale();
+	free(numeric_locale);
+	numeric_locale = NULL;
 #ifdef HAVE_LOCALE_H
-	setlocale(LC_NUMERIC,"C");
     } else if (equals(c_token,"locale")) {
 	char *newlocale = NULL;
 	c_token++;
@@ -1169,9 +1236,12 @@ set_decimalsign()
 	    newlocale = gp_strdup(getenv("LANG"));
 	if (!setlocale(LC_NUMERIC, newlocale ? newlocale : ""))
 	    int_error(c_token-1, "Could not find requested locale");
-	decimalsign = gp_strdup(localeconv()->decimal_point);
+	decimalsign = gp_strdup(get_decimal_locale());
 	fprintf(stderr,"decimal_sign in locale is %s\n", decimalsign);
-	free(newlocale);
+	/* Save this locale for later use, but return to "C" for now */
+	free(numeric_locale);
+	numeric_locale = newlocale;
+	setlocale(LC_NUMERIC,"C");
 #endif
     } else if (!(decimalsign = try_to_get_string()))
 	int_error(c_token, "expecting string");
@@ -1201,20 +1271,25 @@ set_dummy()
 static void
 set_encoding()
 {
-    int temp;
-
     c_token++;
 
-    if(END_OF_COMMAND)
-	temp = S_ENC_DEFAULT;
-    else {
-	temp = lookup_table(&set_encoding_tbl[0],c_token);
+    if (END_OF_COMMAND) {
+	encoding = S_ENC_DEFAULT;
+#ifdef HAVE_LOCALE_H
+    } else if (equals(c_token,"locale")) {
+	char *l = setlocale(LC_CTYPE,"");
+	if (l && (strstr(l,"utf") || strstr(l,"UTF")))
+	    encoding = S_ENC_UTF8;
+	c_token++;
+#endif
+    } else {
+	int temp = lookup_table(&set_encoding_tbl[0],c_token);
 
 	if (temp == S_ENC_INVALID)
-	    int_error(c_token, "expecting one of 'default', 'iso_8859_1', 'iso_8859_2', 'iso_8859_15', 'cp437', 'cp850', 'cp852', 'koi8r' or 'koi8u'");
+	    int_error(c_token, "unrecognized encoding specification; see 'help encoding'.");
+	encoding = temp;
 	c_token++;
     }
-    encoding = temp;
 }
 
 
@@ -1282,23 +1357,21 @@ set_format()
 	char *format = try_to_get_string();
 	if (!format)
 	    int_error(c_token, "expecting format string");
-	else {
 
 #define SET_FORMATSTRING(axis)							\
-	    if (set_for_axis[axis]) {						\
+	if (set_for_axis[axis]) {						\
 		strncpy(axis_array[axis].formatstring, format, MAX_ID_LEN);	\
 		axis_array[axis].format_is_numeric = looks_like_numeric(format);\
-	    }
-	    SET_FORMATSTRING(FIRST_X_AXIS);
-	    SET_FORMATSTRING(FIRST_Y_AXIS);
-	    SET_FORMATSTRING(FIRST_Z_AXIS);
-	    SET_FORMATSTRING(SECOND_X_AXIS);
-	    SET_FORMATSTRING(SECOND_Y_AXIS);
-	    SET_FORMATSTRING(COLOR_AXIS);
+	}
+	SET_FORMATSTRING(FIRST_X_AXIS);
+	SET_FORMATSTRING(FIRST_Y_AXIS);
+	SET_FORMATSTRING(FIRST_Z_AXIS);
+	SET_FORMATSTRING(SECOND_X_AXIS);
+	SET_FORMATSTRING(SECOND_Y_AXIS);
+	SET_FORMATSTRING(COLOR_AXIS);
 #undef SET_FORMATSTRING
 
-	    free(format);
-	}
+	free(format);
     }
 }
 
@@ -1349,8 +1422,7 @@ set_grid()
 		polar_grid_angle = 30*DEG2RAD;
 	    } else {
 		/* get radial interval */
-		struct value a;
-		polar_grid_angle = ang2rad*real(const_express(&a));
+		polar_grid_angle = ang2rad*real_expression();
 	    }
 	} else if (almost_equals(c_token,"nopo$lar")) {
 	    polar_grid_angle = 0; /* not polar grid */
@@ -1369,12 +1441,11 @@ set_grid()
     }
 
     if (!END_OF_COMMAND) {
-	struct value a;
 	int old_token = c_token;
 
 	lp_parse(&grid_lp, TRUE, FALSE);
 	if (c_token == old_token) { /* nothing parseable found... */
-	    grid_lp.l_type = real(const_express(&a)) - 1;
+	    grid_lp.l_type = int_expression() - 1;
 	}
 
 	/* probably just  set grid <linetype> */
@@ -1387,7 +1458,7 @@ set_grid()
 	    old_token = c_token;
 	    lp_parse(&mgrid_lp, TRUE, FALSE);
 	    if (c_token == old_token) {
-		mgrid_lp.l_type = real(const_express(&a)) -1;
+		mgrid_lp.l_type = int_expression() - 1;
 	    }
 	}
     }
@@ -1420,11 +1491,9 @@ set_hidden3d()
 static void
 set_historysize()
 {
-    struct value a;
-
     c_token++;
 
-    gnuplot_history_size = (int) real(const_express(&a));
+    gnuplot_history_size = int_expression();
     if (gnuplot_history_size < 0) {
 	gnuplot_history_size = 0;
     }
@@ -1437,16 +1506,15 @@ static void
 set_isosamples()
 {
     int tsamp1, tsamp2;
-    struct value a;
 
     c_token++;
-    tsamp1 = (int)magnitude(const_express(&a));
+    tsamp1 = abs(int_expression());
     tsamp2 = tsamp1;
     if (!END_OF_COMMAND) {
 	if (!equals(c_token,","))
 	    int_error(c_token, "',' expected");
 	c_token++;
-	tsamp2 = (int)magnitude(const_express(&a));
+	tsamp2 = abs(int_expression());
     }
     if (tsamp1 < 2 || tsamp2 < 2)
 	int_error(c_token, "sampling rate must be > 1; sampling unchanged");
@@ -1515,7 +1583,6 @@ set_key()
     char *hpos_warn = "Multiple horizontal position settings";
     char *reg_warn = "Multiple location region settings";
     char *sdir_warn = "Multiple stack direction settings";
-    struct value a;
     legend_key *key = &keyT;
 
     c_token++;
@@ -1523,8 +1590,8 @@ set_key()
 
 #ifdef BACKWARDS_COMPATIBLE
     if (END_OF_COMMAND) {
+	free(key->font);
 	reset_key();
-	key->title[0] = '\0';
 	if (interactive)
 	    int_warn(c_token, "deprecated syntax, use \"set key default\"");
     }
@@ -1539,8 +1606,8 @@ set_key()
 	    key->visible = FALSE;
 	    break;
 	case S_KEY_DEFAULT:
+	    free(key->font);
 	    reset_key();
-	    key->title[0] = '\0';
 	    break;
 	case S_KEY_TOP:
 	    if (vpos_set)
@@ -1687,7 +1754,7 @@ set_key()
 		int old_token = c_token;
 		lp_parse(&key->box, TRUE, FALSE);
 		if (old_token == c_token && isanumber(c_token)) {
-		    key->box.l_type = real(const_express(&a)) - 1;
+		    key->box.l_type = int_expression() - 1;
 		    c_token++;
 		}
 	    }
@@ -1698,24 +1765,24 @@ set_key()
 	    break;
 	case S_KEY_SAMPLEN:
 	    c_token++;
-	    key->swidth = real(const_express(&a));
+	    key->swidth = real_expression();
 	    c_token--; /* it is incremented after loop */
 	    break;
 	case S_KEY_SPACING:
 	    c_token++;
-	    key->vert_factor = real(const_express(&a));
+	    key->vert_factor = real_expression();
 	    if (key->vert_factor < 0.0)
 		key->vert_factor = 0.0;
 	    c_token--; /* it is incremented after loop */
 	    break;
 	case S_KEY_WIDTH:
 	    c_token++;
-	    key->width_fix = real(const_express(&a));
+	    key->width_fix = real_expression();
 	    c_token--; /* it is incremented after loop */
 	    break;
 	case S_KEY_HEIGHT:
 	    c_token++;
-	    key->height_fix = real(const_express(&a));
+	    key->height_fix = real_expression();
 	    c_token--; /* it is incremented after loop */
 	    break;
 	case S_KEY_AUTOTITLES:
@@ -1741,6 +1808,29 @@ set_key()
 		c_token--;
 	    }
 	    break;
+	case S_KEY_NOTITLE:
+	    key->title[0] = '\0';
+	    break;
+	case S_KEY_FONT:
+	    c_token++;
+	    /* Make sure they've specified a font */
+	    if (!isstringvalue(c_token))
+		int_error(c_token,"expected font");
+	    else {
+		free(key->font);
+		key->font = try_to_get_string();
+		c_token--;
+	    }
+	    break;
+	case S_KEY_TEXTCOLOR:
+	    {
+	    struct t_colorspec lcolor = DEFAULT_COLORSPEC;
+	    parse_colorspec(&lcolor, TC_FRAC);
+	    key->textcolor = lcolor;
+	    }
+	    c_token--;
+	    break;
+
 	case S_KEY_MANUAL:
 	    c_token++;
 #ifdef BACKWARDS_COMPATIBLE
@@ -1831,7 +1921,6 @@ set_label()
 	&& !equals(c_token, "font")) {
 
 	/* must be an expression, but is it a tag or is it the label itself? */
-#ifdef GP_STRING_VARS
 	int save_token = c_token;
 	const_express(&a);
 	if (a.type == STRING) {
@@ -1840,9 +1929,6 @@ set_label()
 	    gpfree_string(&a);
 	} else
 	    tag = (int) real(&a);
-#else
-	tag = (int) real(const_express(&a));
-#endif
 
     } else
 	tag = assign_label_tag();	/* default next tag */
@@ -1871,7 +1957,6 @@ set_label()
 	this_label = new_label;
     }
 
-#ifdef GP_STRING_VARS
     if (!END_OF_COMMAND) {
 	char* text;
 	parse_label_options( this_label );
@@ -1880,14 +1965,7 @@ set_label()
 	    free(this_label->text);
 	    this_label->text = text;
 	}
-#else
-    /* get text from string */
-    if (!END_OF_COMMAND && isstring(c_token)) {
-	char *text = gp_alloc (token_len(c_token), "text_label->text");
-	quote_str(text, c_token, token_len(c_token));
-	c_token++;
-	this_label->text = text;
-#endif
+
 	/* HBB 20001021: new functionality. If next token is a ','
 	 * treat it as a numeric expression whose value is to be
 	 * sprintf()ed into the label string (which contains an
@@ -2045,8 +2123,7 @@ set_logscale()
 	c_token++;
 
 	if (!END_OF_COMMAND) {
-	    struct value a;
-	    newbase = magnitude(const_express(&a));
+	    newbase = fabs(real_expression());
 	    if (newbase < 1.1)
 		int_error(c_token,
 			  "log base must be >= 1.1; logscale unchanged");
@@ -2058,6 +2135,12 @@ set_logscale()
 		axis_array[axis].base = newbase;
 	}
     }
+
+#ifdef VOLATILE_REFRESH
+    /* Because the log scaling is applied during data input, a quick refresh */
+    /* using existing stored data will not work if the log setting changes.  */
+    refresh_ok = 0;
+#endif
 }
 
 #ifdef GP_MACROS
@@ -2094,8 +2177,6 @@ set_mapping()
 static void
 set_margin(t_position *margin)
 {
-    struct value a;
-
     margin->scalex = character;
     margin->x = -1;
     c_token++;
@@ -2110,9 +2191,17 @@ set_margin(t_position *margin)
 	c_token++;
     }
 
-    margin->x = real(const_express(&a));
+    margin->x = real_expression();
     if (margin->x < 0)
 	margin->x = -1;
+
+    if (margin->scalex == screen) {
+	if (margin->x < 0)
+	    margin->x = 0;
+	if (margin->x > 1)
+	    margin->x = 1;
+    }
+
 }
 
 static void
@@ -2175,9 +2264,8 @@ set_mouse()
 
     while (!END_OF_COMMAND) {
 	if (almost_equals(c_token, "do$ubleclick")) {
-	    struct value a;
 	    ++c_token;
-	    mouse_setting.doubleclick = real(const_express(&a));
+	    mouse_setting.doubleclick = real_expression();
 	    if (mouse_setting.doubleclick < 0)
 		mouse_setting.doubleclick = 0;
 	} else if (almost_equals(c_token, "nodo$ubleclick")) {
@@ -2201,18 +2289,13 @@ set_mouse()
 	    mouse_setting.polardistance = 0;
 	    UpdateStatusline();
 	    ++c_token;
-	} else if (equals(c_token, "labels")) {
+	} else if (almost_equals(c_token, "label$s")) {
 	    mouse_setting.label = 1;
 	    ++c_token;
 	    /* check if the optional argument "<label options>" is present */
-	    if (isstring(c_token)) {
-		if (token_len(c_token) >= sizeof(mouse_setting.labelopts)) {
-		    int_error(c_token, "option string too long");
-		} else {
-		    quote_str(mouse_setting.labelopts,
-			c_token, token_len(c_token));
-		}
-		++c_token;
+	    if (isstringvalue(c_token)) {
+		free(mouse_setting.labelopts);
+		mouse_setting.labelopts = try_to_get_string();
 	    }
 	} else if (almost_equals(c_token, "nola$bels")) {
 	    mouse_setting.label = 0;
@@ -2231,37 +2314,27 @@ set_mouse()
 	    ++c_token;
 	} else if (almost_equals(c_token, "fo$rmat")) {
 	    ++c_token;
-	    if (isstring(c_token)) {
-		if (token_len(c_token) >= sizeof(mouse_setting.fmt)) {
-		    int_error(c_token, "format string too long");
-		} else {
-		    quote_str(mouse_setting.fmt, c_token, token_len(c_token));
-		}
-	    } else {
-		int_error(c_token, "expecting string format");
-	    }
-	    ++c_token;
+	    if (isstringvalue(c_token)) {
+		if (mouse_setting.fmt != mouse_fmt_default)
+		    free(mouse_setting.fmt);
+		mouse_setting.fmt = try_to_get_string();
+	    } else
+		mouse_setting.fmt = mouse_fmt_default;
 	} else if (almost_equals(c_token, "cl$ipboardformat")) {
 	    ++c_token;
-	    if (isstring(c_token)) {
-		if (clipboard_alt_string)
+	    if (isstringvalue(c_token)) {
+		free(clipboard_alt_string);
+		clipboard_alt_string = try_to_get_string();
+		if (!strlen(clipboard_alt_string)) {
 		    free(clipboard_alt_string);
-		clipboard_alt_string = gp_alloc
-		    (token_len(c_token), "set->mouse->clipboardformat");
-		quote_str(clipboard_alt_string, c_token, token_len(c_token));
-		if (clipboard_alt_string && !strlen(clipboard_alt_string)) {
-		    free(clipboard_alt_string);
-		    clipboard_alt_string = (char*) 0;
-		    if (MOUSE_COORDINATES_ALT == mouse_mode) {
+		    clipboard_alt_string = NULL;
+		    if (MOUSE_COORDINATES_ALT == mouse_mode)
 			mouse_mode = MOUSE_COORDINATES_REAL;
-		    }
 		} else {
 		    clipboard_mode = MOUSE_COORDINATES_ALT;
 		}
-		c_token++;
 	    } else {
-		struct value a;
-		int itmp = (int) real(const_express(&a));
+		int itmp = int_expression();
 		if (itmp >= MOUSE_COORDINATES_REAL
 		    && itmp <= MOUSE_COORDINATES_XDATETIME) {
 		    if (MOUSE_COORDINATES_ALT == itmp
@@ -2278,25 +2351,20 @@ set_mouse()
 	    }
 	} else if (almost_equals(c_token, "mo$useformat")) {
 	    ++c_token;
-	    if (isstring(c_token)) {
-		if (mouse_alt_string)
+	    if (isstringvalue(c_token)) {
+		free(mouse_alt_string);
+		mouse_alt_string = try_to_get_string();
+		if (!strlen(mouse_alt_string)) {
 		    free(mouse_alt_string);
-		mouse_alt_string = gp_alloc
-		    (token_len(c_token), "set->mouse->mouseformat");
-		quote_str(mouse_alt_string, c_token, token_len(c_token));
-		if (mouse_alt_string && !strlen(mouse_alt_string)) {
-		    free(mouse_alt_string);
-		    mouse_alt_string = (char*) 0;
-		    if (MOUSE_COORDINATES_ALT == mouse_mode) {
+		    mouse_alt_string = NULL;
+		    if (MOUSE_COORDINATES_ALT == mouse_mode)
 			mouse_mode = MOUSE_COORDINATES_REAL;
-		    }
 		} else {
 		    mouse_mode = MOUSE_COORDINATES_ALT;
 		}
 		c_token++;
 	    } else {
-		struct value a;
-		int itmp = (int) real(const_express(&a));
+		int itmp = int_expression();
 		if (itmp >= MOUSE_COORDINATES_REAL
 		    && itmp <= MOUSE_COORDINATES_XDATETIME) {
 		    if (MOUSE_COORDINATES_ALT == itmp && !mouse_alt_string) {
@@ -2345,10 +2413,43 @@ set_offsets()
 {
     c_token++;
     if (END_OF_COMMAND) {
-	loff = roff = toff = boff = 0.0;  /* Reset offsets */
-    } else {
-	load_offsets (&loff,&roff,&toff,&boff);
+	loff.x = roff.x = toff.y = boff.y = 0.0;
+	return;
     }
+
+    loff.scalex = first_axes;
+    if (almost_equals(c_token,"gr$aph")) {
+	loff.scalex = graph;
+	c_token++;
+    }
+    loff.x = real_expression();
+    if (!equals(c_token, ","))
+	return;
+
+    roff.scalex = first_axes;
+    if (almost_equals(++c_token,"gr$aph")) {
+	roff.scalex = graph;
+	c_token++;
+    }
+    roff.x = real_expression();
+    if (!equals(c_token, ","))
+	return;
+
+    toff.scaley = first_axes;
+    if (almost_equals(++c_token,"gr$aph")) {
+	toff.scaley = graph;
+	c_token++;
+    }
+    toff.y = real_expression();
+    if (!equals(c_token, ","))
+	return;
+
+    boff.scaley = first_axes;
+    if (almost_equals(++c_token,"gr$aph")) {
+	boff.scaley = graph;
+	c_token++;
+    }
+    boff.y = real_expression();
 }
 
 
@@ -2356,18 +2457,16 @@ set_offsets()
 static void
 set_origin()
 {
-    struct value a;
-
     c_token++;
     if (END_OF_COMMAND) {
 	xoffset = 0.0;
 	yoffset = 0.0;
     } else {
-	xoffset = real(const_express(&a));
+	xoffset = real_expression();
 	if (!equals(c_token,","))
 	    int_error(c_token, "',' expected");
 	c_token++;
-	yoffset = real(const_express(&a));
+	yoffset = real_expression();
     }
 }
 
@@ -2492,7 +2591,6 @@ reset_palette()
 static int
 set_palette_defined()
 {
-    struct value a;
     double p=0, r=0, g=0, b=0;
     int num, named_colors=0;
     int actual_size=8;
@@ -2529,7 +2627,7 @@ set_palette_defined()
 
     while (!END_OF_COMMAND) {
 	char *col_str;
-	p = real(const_express(&a));
+	p = real_expression();
 	col_str = try_to_get_string();
 	if (col_str) {
 	    /* either color name or X-style rgb value "#rrggbb" */
@@ -2567,11 +2665,11 @@ set_palette_defined()
 	    free(col_str);
 	} else {
 	    /* numerical rgb, hsv, xyz, ... values  [0,1] */
-	    r = real(const_express(&a));
+	    r = real_expression();
 	    if (r<0 || r>1 )  int_error(c_token-1,"Value out of range [0,1].");
-	    g = real(const_express(&a));
+	    g = real_expression();
 	    if (g<0 || g>1 )  int_error(c_token-1,"Value out of range [0,1].");
-	    b = real(const_express(&a));
+	    b = real_expression();
 	    if (b<0 || b>1 )  int_error(c_token-1,"Value out of range [0,1].");
 	}
 	++num;
@@ -2619,7 +2717,7 @@ set_palette_file()
 	int_error(c_token, "missing filename");
 
     df_set_plot_mode(MODE_QUERY);	/* Needed only for binary datafiles */
-    specs = df_open(file_name, 4);
+    specs = df_open(file_name, 4, NULL);
     free(file_name);
 
     if (specs > 0 && specs < 3)
@@ -2790,7 +2888,7 @@ check_palette_grayscale()
 
 #define SCAN_RGBFORMULA(formula) do {								       \
     c_token++;											       \
-    i = (int) real(const_express(&a));								       \
+    i = int_expression();										       \
     if (abs(i) >= sm_palette.colorFormulae)							       \
 	int_error(c_token,									       \
 		  "color formula out of range (use `show palette rgbformulae' to display the range)"); \
@@ -2808,7 +2906,6 @@ check_palette_grayscale()
 static void
 set_palette()
 {
-    struct value a;
     int transform_defined, named_color;
     transform_defined = named_color = 0;
     c_token++;
@@ -2832,7 +2929,7 @@ set_palette()
 		continue;
 	    case S_PALETTE_GAMMA: /* "gamma" */
 		++c_token;
-		sm_palette.gamma = real(const_express(&a));
+		sm_palette.gamma = real_expression();
 		--c_token;
 		continue;
 	    case S_PALETTE_COLOR: /* "col$or" */
@@ -2902,11 +2999,10 @@ set_palette()
 		continue;
 	    /* max colors used */
 	    case S_PALETTE_MAXCOLORS: { /* "maxc$olors" */
-		struct value a;
 		int i;
 
 		c_token++;
-		i = (int)real(const_express(&a));
+		i = int_expression();
 		if (i<0) int_error(c_token,"non-negative number required");
 		sm_palette.use_maxcolors = i;
 		--c_token;
@@ -2969,8 +3065,7 @@ set_colorbox()
 
 		if (!END_OF_COMMAND) {
 		    /* expecting a border line type */
-		    struct value a;
-		    color_box.border_lt_tag = real(const_express(&a));
+		    color_box.border_lt_tag = int_expression();
 		    if (color_box.border_lt_tag <= 0) {
 			color_box.border_lt_tag = 0;
 			int_error(c_token, "tag must be strictly positive (see `help set style line')");
@@ -3044,16 +3139,11 @@ set_pm3d()
 		if (END_OF_COMMAND) {
 		    int_error(c_token, "expecting step values i,j");
 		} else {
-		    struct value a;
-		    pm3d.interp_i = real(const_express(&a));
-		    if(pm3d.interp_i < 1)
-			pm3d.interp_i = 1;
+		    pm3d.interp_i = int_expression();
 		    if (!equals(c_token,","))
 			int_error(c_token, "',' expected");
 		    c_token++;
-		    pm3d.interp_j = real(const_express(&a));
-		    if (pm3d.interp_j < 1)
-			pm3d.interp_j = 1;
+		    pm3d.interp_j = int_expression();
 		    c_token--;
                 }
 		continue;
@@ -3105,9 +3195,8 @@ set_pm3d()
 		continue;
 	    /* pm3d-specific hidden line overwrite */
 	    case S_PM3D_HIDDEN: { /* "hi$dden3d" */
-		struct value a;
 		c_token++;
-		pm3d.hidden3d_tag = real(const_express(&a));
+		pm3d.hidden3d_tag = int_expression();
 		--c_token;
 		if (pm3d.hidden3d_tag <= 0) {
 		    pm3d.hidden3d_tag = 0;
@@ -3120,23 +3209,10 @@ set_pm3d()
 		continue;
 	    case S_PM3D_SOLID: /* "so$lid" */
 	    case S_PM3D_NOTRANSPARENT: /* "notr$ansparent" */
-#if PM3D_HAVE_SOLID
-		pm3d.solid = 1;
-
-#else
-		if (interactive)
-		    int_warn(c_token, "Deprecated syntax --- ignored");
-#endif
-		continue;
 	    case S_PM3D_NOSOLID: /* "noso$lid" */
 	    case S_PM3D_TRANSPARENT: /* "tr$ansparent" */
-#if PM3D_HAVE_SOLID
-		pm3d.solid = 0;
-		continue;
-#else
 		if (interactive)
 		    int_warn(c_token, "Deprecated syntax --- ignored");
-#endif
 	    case S_PM3D_IMPLICIT: /* "i$mplicit" */
 	    case S_PM3D_NOEXPLICIT: /* "noe$xplicit" */
 		pm3d.implicit = PM3D_IMPLICIT;
@@ -3191,13 +3267,11 @@ set_pm3d()
 static void
 set_pointsize()
 {
-    struct value a;
-
     c_token++;
     if (END_OF_COMMAND)
 	pointsize = 1.0;
     else
-	pointsize = real(const_express(&a));
+	pointsize = real_expression();
     if(pointsize <= 0) pointsize = 1;
 }
 
@@ -3226,7 +3300,7 @@ set_polar()
 
 #ifdef EAM_OBJECTS
 /* 
- * Process 'set object <tag> rectangle' command
+ * Process command     'set object <tag> {rectangle|ellipse|circle|polygon}'
  * set object {tag} rectangle {from <bottom_left> {to|rto} <top_right>}
  *                     {{at|center} <xcen>,<ycen> size <w>,<h>}
  *                     {fc|fillcolor <colorspec>} {lw|linewidth <lw>}
@@ -3238,21 +3312,30 @@ set_polar()
 static void
 set_object()
 {
-    struct value a;
     int tag;
 
     /* The next token must either be a tag or the object type */
     c_token++;
-    if (almost_equals(c_token, "rect$angle"))
+    if (almost_equals(c_token, "rect$angle") || equals(c_token, "ellipse") 
+    ||  equals(c_token, "circle") || almost_equals(c_token, "poly$gon"))
 	tag = -1; /* We'll figure out what it really is later */
     else {
-	tag = (int) real(const_express(&a));
+	tag = int_expression();
 	if (tag <= 0)
 	    int_error(c_token, "tag must be > zero");
     }
 
     if (almost_equals(c_token, "rect$angle")) {
-	set_rectangle(tag);
+	set_obj(tag, OBJ_RECTANGLE);
+
+    } else if (equals(c_token, "ellipse")) {
+	set_obj(tag, OBJ_ELLIPSE);
+
+    } else if (equals(c_token, "circle")) {
+	set_obj(tag, OBJ_CIRCLE);
+
+    } else if (almost_equals(c_token, "poly$gon")) {
+	set_obj(tag, OBJ_POLYGON);
 
     } else if (tag > 0) {
 	/* Look for existing object with this tag */
@@ -3260,10 +3343,9 @@ set_object()
 	for (; this_object != NULL; this_object = this_object->next)
 	     if (tag == this_object->tag)
 		break;
-	if (this_object && tag == this_object->tag
-			&& this_object->object_type == OBJ_RECTANGLE) {
+	if (this_object && tag == this_object->tag) {
 	    c_token--;
-	    set_rectangle(tag);
+	    set_obj(tag, this_object->object_type);
 	} else
 	    int_error(c_token, "unknown object");
 
@@ -3273,49 +3355,71 @@ set_object()
 }
 
 static t_object *
-new_object(int tag, int object_type)
+new_object(int tag, int object_type, t_object *new)
 {
-    t_object *new = gp_alloc(sizeof(struct object), "object");
+    t_object def_rect = DEFAULT_RECTANGLE_STYLE;
+    t_object def_ellipse = DEFAULT_ELLIPSE_STYLE;
+    t_object def_circle = DEFAULT_CIRCLE_STYLE;
+    t_object def_polygon = DEFAULT_POLYGON_STYLE;
+
+    if (!new)
+	new = gp_alloc(sizeof(struct object), "object");
+    else if (new->object_type == OBJ_POLYGON)
+	free(new->o.polygon.vertex);
+
     if (object_type == OBJ_RECTANGLE) {
-	t_object def = DEFAULT_RECTANGLE_STYLE;
-	*new = def;
-	new->tag = tag;
-	new->object_type = object_type;
+	*new = def_rect;
 	new->lp_properties.l_type = LT_DEFAULT; /* Use default rectangle color */
 	new->fillstyle.fillstyle = FS_DEFAULT;  /* and default fill style */
-    } else
-	fprintf(stderr,"object initialization failure\n");
+    } else if (object_type == OBJ_ELLIPSE)
+	*new = def_ellipse;
+    else if (object_type == OBJ_CIRCLE)
+	*new = def_circle;
+    else if (object_type == OBJ_POLYGON)
+	*new = def_polygon;
+    else
+	int_error(NO_CARET,"object initialization failure");
+
+    new->tag = tag;
+    new->object_type = object_type;
+
     return new;
 }
 
 static void
-set_rectangle(int tag)
+set_obj(int tag, int obj_type)
 {
     t_rectangle *this_rect = NULL;
+    t_ellipse *this_ellipse = NULL;
+    t_circle *this_circle = NULL;
+    t_polygon *this_polygon = NULL;
     t_object *this_object = NULL;
     t_object *new_obj = NULL;
     t_object *prev_object = NULL;
-    struct value a;
     TBOOLEAN got_fill = FALSE;
     TBOOLEAN got_lt = FALSE;
     TBOOLEAN got_lw = FALSE;
     TBOOLEAN got_corners = FALSE;
     TBOOLEAN got_center = FALSE;
+    TBOOLEAN got_origin = FALSE;
     double lw = 1.0;
 
     c_token++;
     
     /* We are setting the default, not any particular rectangle */
     if (tag < -1) {
-	this_object = &default_rectangle;
-	this_rect = &default_rectangle.o.rectangle;
 	c_token--;
+	if (obj_type == OBJ_RECTANGLE) {
+	    this_object = &default_rectangle;
+	    this_rect = &this_object->o.rectangle;
+	} else
+	    int_error(c_token, "Unknown object type");
 
     } else {
-	/* Look for existing rectangle with this tag */
+	/* Look for existing object with this tag */
 	for (this_object = first_object; this_object != NULL;
 	     prev_object = this_object, this_object = this_object->next)
-	     /* is this the rect we want? */
+	     /* is this the one we want? */
 	     if (0 < tag  &&  tag <= this_object->tag)
 		break;
 
@@ -3323,7 +3427,7 @@ set_rectangle(int tag)
 	if (this_object == NULL || tag != this_object->tag) {
 	    if (tag == -1)
 		tag = (prev_object) ? prev_object->tag+1 : 1;
-	    new_obj = new_object(tag, OBJ_RECTANGLE);
+	    new_obj = new_object(tag, obj_type, NULL);
 	    if (prev_object == NULL)
 		first_object = new_obj;
 	    else
@@ -3331,49 +3435,177 @@ set_rectangle(int tag)
 	    new_obj->next = this_object;
 	    this_object = new_obj;
 	}
+
+	/* Over-write old object if the type has changed */
+	else if (this_object->object_type != obj_type) {
+	    t_object *save_link = this_object->next;
+	    new_obj = new_object(tag, obj_type, this_object);
+	    this_object->next = save_link;
+	}
+
 	this_rect = &this_object->o.rectangle;
+	this_ellipse = &this_object->o.ellipse;
+	this_circle = &this_object->o.circle;
+	this_polygon = &this_object->o.polygon;
+
     }
 
     while (!END_OF_COMMAND) {
 	int save_token = c_token;
 
-	if (equals(c_token,"from")) {
-	    /* Read in the bottom left and upper right corners */
-	    c_token++;
-	    get_position(&this_rect->bl);
-	    if (equals(c_token,"to")) {
-		c_token++;
-		get_position(&this_rect->tr);
-	    } else if (equals(c_token,"rto")) {
-		c_token++;
-		get_position_default(&this_rect->tr,this_rect->bl.scalex);
-		if (this_rect->bl.scalex != this_rect->tr.scalex
-		||  this_rect->bl.scaley != this_rect->tr.scaley)
-		    int_error(c_token,"relative coordinates must match in type");
-		this_rect->tr.x += this_rect->bl.x;
-		this_rect->tr.y += this_rect->bl.y;
-	    } else
-		int_error(c_token,"Expecting to or rto");
-	    got_corners = TRUE;
-	    this_rect->type = 0;
-	    continue;
+	switch (obj_type) {
+	case OBJ_RECTANGLE:
+		if (equals(c_token,"from")) {
+		    /* Read in the bottom left and upper right corners */
+		    c_token++;
+		    get_position(&this_rect->bl);
+		    if (equals(c_token,"to")) {
+			c_token++;
+			get_position(&this_rect->tr);
+		    } else if (equals(c_token,"rto")) {
+			c_token++;
+			get_position_default(&this_rect->tr,this_rect->bl.scalex);
+			if (this_rect->bl.scalex != this_rect->tr.scalex
+			||  this_rect->bl.scaley != this_rect->tr.scaley)
+			    int_error(c_token,"relative coordinates must match in type");
+			this_rect->tr.x += this_rect->bl.x;
+			this_rect->tr.y += this_rect->bl.y;
+		    } else
+			int_error(c_token,"Expecting to or rto");
+		    got_corners = TRUE;
+		    this_rect->type = 0;
+		    continue;
+	
+		} else if (equals(c_token,"at") || almost_equals(c_token,"cen$ter")) {
+		    /* Read in the center position */
+		    c_token++;
+		    get_position(&this_rect->center);
+		    got_center = TRUE;
+		    this_rect->type = 1;
+		    continue;
+	
+		} else if (equals(c_token,"size")) {
+		    /* Read in the width and height */
+		    c_token++;
+		    get_position(&this_rect->extent);
+		    got_center = TRUE;
+		    this_rect->type = 1;
+		    continue;
+		}
+		break;
 
-	} else if (equals(c_token,"at") || almost_equals(c_token,"cen$ter")) {
-	    /* Read in the center position */
-	    c_token++;
-	    get_position(&this_rect->center);
-	    got_center = TRUE;
-	    this_rect->type = 1;
-	    continue;
-	} else if (equals(c_token,"size")) {
-	    /* Read in the width and height */
-	    c_token++;
-	    get_position(&this_rect->extent);
-	    got_center = TRUE;
-	    this_rect->type = 1;
-	    continue;
+	case OBJ_CIRCLE:
+		if (equals(c_token,"at") || almost_equals(c_token,"cen$ter")) {
+		    /* Read in the center position */
+		    c_token++;
+		    get_position(&this_circle->center);
+		    continue;
+	
+		} else if (equals(c_token,"size") || equals(c_token,"radius")) {
+		    /* Read in the radius */
+		    c_token++;
+		    get_position(&this_circle->extent);
+		    continue;
+	
+		} else if (equals(c_token, "arc")) {
+		    /* Start and end angle for arc */
+		    if (equals(++c_token,"[")) {
+			double arc;
+			c_token++;
+			arc = real_expression();
+			if (fabs(arc) > 1000.)
+			    int_error(c_token-1,"Angle out of range");
+			else
+			    this_circle->arc_begin = arc;
+			if (equals(c_token++, ":")) {
+			    arc = real_expression();
+			    if (fabs(arc) > 1000.)
+				int_error(c_token-1,"Angle out of range");
+			    else
+				this_circle->arc_end = arc;
+			    if (equals(c_token++,"]"))
+				continue;
+			}
+		    }
+		    int_error(--c_token, "Expecting arc [<begin>:<end>]");
+		}
+		break;
 
-	} else if (equals(c_token,"front")) {
+	case OBJ_ELLIPSE:
+		if (equals(c_token,"at") || almost_equals(c_token,"cen$ter")) {
+		    /* Read in the center position */
+		    c_token++;
+		    get_position(&this_ellipse->center);
+		    continue;
+	
+		} else if (equals(c_token,"size")) {
+		    /* Read in the width and height */
+		    c_token++;
+		    get_position(&this_ellipse->extent);
+		    continue;
+	
+		} else if (equals(c_token,"angle")) {
+		    c_token++;
+		    this_ellipse->orientation = real_expression();
+		    continue;
+		}
+		break;
+
+	case OBJ_POLYGON:
+		if (equals(c_token,"from")) {
+		    c_token++;
+		    this_polygon->vertex = gp_realloc(this_polygon->vertex,
+					sizeof(struct position),
+					"polygon vertex");
+		    get_position(&this_polygon->vertex[0]);
+		    this_polygon->type = 1;
+		    got_origin = TRUE;
+		}
+		while (equals(c_token,"to") || equals(c_token,"rto")) {
+		    if (!got_origin)
+			goto polygon_error;
+		    this_polygon->vertex = gp_realloc(this_polygon->vertex,
+					(this_polygon->type+1) * sizeof(struct position),
+					"polygon vertex");
+		    if (equals(c_token++,"to")) {
+			get_position(&this_polygon->vertex[this_polygon->type]);
+		    } else /* "rto" */ {
+			int v = this_polygon->type;
+			get_position_default(&this_polygon->vertex[v],
+					      this_polygon->vertex->scalex);
+			if (this_polygon->vertex[v].scalex != this_polygon->vertex[v-1].scalex
+			||  this_polygon->vertex[v].scaley != this_polygon->vertex[v-1].scaley)
+			    int_error(c_token,"relative coordinates must match in type");
+			this_polygon->vertex[v].x += this_polygon->vertex[v-1].x;
+			this_polygon->vertex[v].y += this_polygon->vertex[v-1].y;
+		    }
+		    this_polygon->type++;
+		    got_corners = TRUE;
+		}
+		if (got_corners && memcmp(&this_polygon->vertex[this_polygon->type-1],
+					  &this_polygon->vertex[0],sizeof(struct position))) {
+		    fprintf(stderr,"Polygon is not closed - adding extra vertex\n");
+		    this_polygon->vertex = gp_realloc(this_polygon->vertex,
+					(this_polygon->type+1) * sizeof(struct position),
+					"polygon vertex");
+		    memcpy(&this_polygon->vertex[this_polygon->type],
+					&this_polygon->vertex[0],sizeof(struct position));
+		    this_polygon->type++;
+		}
+		break;
+		polygon_error:
+			free(this_polygon->vertex);
+			this_polygon->vertex = NULL;
+			this_polygon->type = 0;
+			int_error(c_token, "Unrecognized polygon syntax");
+
+	default:
+		int_error(c_token, "Unrecoginized object type");
+	} /* End of object-specific options */
+
+	/* The rest of the options apply to any type of object */
+
+	if (equals(c_token,"front")) {
 	    this_object->layer = 1;
 	    c_token++;
 	    continue;
@@ -3400,14 +3632,20 @@ set_rectangle(int tag)
 
 	/* Now parse the style options; default to whatever the global style is  */
 	if (!got_fill) {
+	    fill_style_type *default_style;
+	    if (this_object->object_type == OBJ_RECTANGLE)
+		default_style = &default_rectangle.fillstyle;
+	    else
+		default_style = &default_fillstyle;
+
 	    if (new_obj)
-		parse_fillstyle(&this_object->fillstyle, default_rectangle.fillstyle.fillstyle,
-			default_rectangle.fillstyle.filldensity, default_rectangle.fillstyle.fillpattern,
-			default_rectangle.fillstyle.border_linetype);
+		parse_fillstyle(&this_object->fillstyle, default_style->fillstyle,
+			default_style->filldensity, default_style->fillpattern,
+			default_style->border_color);
 	    else
 		parse_fillstyle(&this_object->fillstyle, this_object->fillstyle.fillstyle,
 			this_object->fillstyle.filldensity, this_object->fillstyle.fillpattern,
-			this_object->fillstyle.border_linetype);
+			this_object->fillstyle.border_color);
 	    if (c_token != save_token) {
 		got_fill = TRUE;
 		continue;
@@ -3434,7 +3672,7 @@ set_rectangle(int tag)
 	if (!got_lw) {
 	    if (equals(c_token,"lw") || almost_equals(c_token,"linew$idth")) {
 		c_token++;
-		lw = real(const_express(&a));
+		lw = real_expression();
 	    }
 	    if (c_token != save_token) {
 		got_lw = TRUE;
@@ -3459,16 +3697,15 @@ static void
 set_samples()
 {
     int tsamp1, tsamp2;
-    struct value a;
 
     c_token++;
-    tsamp1 = (int)magnitude(const_express(&a));
+    tsamp1 = abs(int_expression());
     tsamp2 = tsamp1;
     if (!END_OF_COMMAND) {
 	if (!equals(c_token,","))
 	    int_error(c_token, "',' expected");
 	c_token++;
-	tsamp2 = (int)magnitude(const_express(&a));
+	tsamp2 = abs(int_expression());
     }
     if (tsamp1 < 2 || tsamp2 < 2)
 	int_error(c_token, "sampling rate must be > 1; sampling unchanged");
@@ -3488,8 +3725,6 @@ set_samples()
 static void
 set_size()
 {
-    struct value s;
-
     c_token++;
     if (END_OF_COMMAND) {
 	xsize = 1.0;
@@ -3500,17 +3735,17 @@ set_size()
 	    ++c_token;
 	} else if (almost_equals(c_token,"ra$tio")) {
 	    ++c_token;
-	    aspect_ratio = real(const_express(&s));
+	    aspect_ratio = real_expression();
 	} else if (almost_equals(c_token, "nora$tio") || almost_equals(c_token, "nosq$uare")) {
 	    aspect_ratio = 0.0;
 	    ++c_token;
 	}
 
 	if (!END_OF_COMMAND) {
-	    xsize = real(const_express(&s));
+	    xsize = real_expression();
 	    if (equals(c_token,",")) {
 		c_token++;
-		ysize = real(const_express(&s));
+		ysize = real_expression();
 	    } else {
 		ysize = xsize;
 	    }
@@ -3542,14 +3777,8 @@ set_style()
 	{
 	    enum PLOT_STYLE temp_style = get_style();
 
-	    if (temp_style & PLOT_STYLE_HAS_ERRORBAR
-#ifdef EAM_DATASTRINGS
-	       || (temp_style == LABELPOINTS)
-#endif
-#ifdef EAM_HISTOGRAMS
-		|| (temp_style == HISTOGRAMS)
-#endif
-	        )
+	    if ((temp_style & PLOT_STYLE_HAS_ERRORBAR)
+	    ||  (temp_style == LABELPOINTS) || (temp_style == HISTOGRAMS))
 		int_error(c_token, "style not usable for function plots, left unchanged");
 	    else
 		func_style = temp_style;
@@ -3568,7 +3797,7 @@ set_style()
 			default_fillstyle.fillstyle,
 			default_fillstyle.filldensity,
 			default_fillstyle.fillpattern,
-			default_fillstyle.border_linetype);
+			default_fillstyle.border_color);
 	break;
     case SHOW_STYLE_ARROW:
 	set_arrowstyle();
@@ -3576,14 +3805,12 @@ set_style()
 #ifdef EAM_OBJECTS
     case SHOW_STYLE_RECTANGLE:
 	c_token++;
-	set_rectangle(-2);
+	set_obj(-2, OBJ_RECTANGLE);
 	break;
 #endif
-#ifdef EAM_HISTOGRAMS
     case SHOW_STYLE_HISTOGRAM:
 	parse_histogramstyle(&histogram_opts,HT_CLUSTERED,histogram_opts.gap);
 	break;
-#endif
     case SHOW_STYLE_INCREMENT:
 	c_token++;
 	if (END_OF_COMMAND || almost_equals(c_token,"def$ault"))
@@ -3594,7 +3821,7 @@ set_style()
 	break;
     default:
 	int_error(c_token,
-		  "expecting 'data', 'function', 'line', 'fill' or 'arrow'" );
+		  "expecting 'data', 'function', 'line', 'fill', 'rectangle', or 'arrow'" );
     }
 }
 
@@ -3684,8 +3911,7 @@ set_terminal()
 
     /* `set term <normal terminal>' */
     term = 0; /* in case set_term() fails */
-    term = set_term(c_token);
-    c_token++;
+    term = set_term();
     /* get optional mode parameters
      * not all drivers reset the option string before
      * strcat-ing to it, so we reset it for them
@@ -3699,12 +3925,9 @@ set_terminal()
 
 
 /* 
- * Accept a single terminal option to apply to the current terminal if
- * possible.  The options are intended to be limited to those which apply
- * to a large number of terminals.  It would be nice also to limit it to
- * options for which we can test in advance to see if the terminal will
- * support it; that allows us to silently ignore the command rather than
- * issuing an error when the current terminal would not be affected anyhow.
+ * Accept a single terminal option to apply to the current terminal if possible.
+ * If the current terminal cannot support this option, we silently ignore it.
+ * Only reasonably common terminal options are supported.
  *
  * If necessary, the code in term->options() can detect that it was called
  * from here because in this case (c_token == 2), whereas when called from 
@@ -3714,32 +3937,46 @@ set_terminal()
 static void
 set_termoptions()
 {
+    TBOOLEAN ok_to_call_terminal = FALSE;
     int save_end_of_line = num_tokens;
     c_token++;
 
-    if (END_OF_COMMAND || !term) {
+    if (END_OF_COMMAND || !term)
 	return;
-    } else if (almost_equals(c_token,"enh$anced")
+    
+    if (almost_equals(c_token,"enh$anced")
            ||  almost_equals(c_token,"noenh$anced")) {
 	num_tokens = GPMIN(num_tokens,c_token+1);
-	if (term->enhanced_open) {
-	    *term_options = 0;
-	    (term->options)();
-	} else
+	if (term->enhanced_open)
+	    ok_to_call_terminal = TRUE;
+	else
 	    c_token++;
-    } else if (almost_equals(c_token,"font")
-           ||  almost_equals(c_token,"fname")) {
+    } else if (equals(c_token,"font") ||  equals(c_token,"fname")) {
 	num_tokens = GPMIN(num_tokens,c_token+2);
-	if (term->set_font) {
-	    *term_options = 0;
-	    (term->options)();
-	} else
+	if (term->set_font)
+	    ok_to_call_terminal = TRUE;
+	else
 	    c_token += 2;
+    } else if (equals(c_token,"lw") || almost_equals(c_token,"linew$idth")) {
+	if (term->flags & TERM_LINEWIDTH)
+	    ok_to_call_terminal = TRUE;
+	else {
+	    c_token++;
+	    real_expression();   /* Silently ignore the request */
+	}
+    } else if (almost_equals(c_token,"dash$ed") || equals(c_token,"solid")) {
+	if (term->flags & TERM_CAN_DASH)
+	    ok_to_call_terminal = TRUE;
+	else
+	    c_token++;
     } else if (!strcmp(term->name,"gif") && equals(c_token,"delay") && num_tokens==4) {
-	*term_options = 0;
-	(term->options)();
+	ok_to_call_terminal = TRUE;
     } else {
 	int_error(c_token,"This option cannot be changed using 'set termoption'");
+    }
+    if (ok_to_call_terminal) {
+	*term_options = 0;
+	(term->options)();
     }
     num_tokens = save_end_of_line;
 }
@@ -3793,7 +4030,6 @@ set_tics()
 		axis_array[i].tic_in = FALSE;
 	    ++c_token;
 	} else if (almost_equals(c_token, "sc$ale")) {
-	    struct value a;
 	    ++c_token;
 	    if (almost_equals(c_token, "def$ault")) {
 		for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
@@ -3803,10 +4039,10 @@ set_tics()
 		++c_token;
 	    } else {
 		double lticscale, lminiticscale;
-		lticscale = real(const_express(&a));
+		lticscale = real_expression();
 		if (equals(c_token, ",")) {
 		    ++c_token;
-		    lminiticscale = real(const_express(&a));
+		    lminiticscale = real_expression();
 		} else
 		    lminiticscale = 0.5 * lticscale;
 		for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
@@ -3818,10 +4054,9 @@ set_tics()
 	    axis_array[i].tic_rotate = TEXT_VERTICAL;
 	    ++c_token;
 	    if (equals(c_token, "by")) {
-		struct value a;
 		int langle;
 		++c_token;
-		langle = (int)real(const_express(&a));
+		langle = int_expression();
 		for (i = 0; i < AXIS_ARRAY_SIZE; ++i)
 		    axis_array[i].tic_rotate = langle;
 	    }
@@ -3891,7 +4126,6 @@ set_tics()
 static void
 set_ticscale()
 {
-    struct value tscl;
     double lticscale, lminiticscale;
     unsigned int i;
 
@@ -3903,13 +4137,13 @@ set_ticscale()
 	lticscale = 1.0;
 	lminiticscale = 0.5;
     } else {
-	lticscale = real(const_express(&tscl));
+	lticscale = real_expression();
 	if (END_OF_COMMAND) {
 	    lminiticscale = lticscale*0.5;
 	} else {
 	    if (equals(c_token, ","))
 		++c_token;
-	    lminiticscale = real(const_express(&tscl));
+	    lminiticscale = real_expression();
 	}
     }
     for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
@@ -3919,21 +4153,32 @@ set_ticscale()
 }
 
 
-/* process 'set ticslevel' or 'set xyplane' command */
+/* process 'set ticslevel' command */
 /* is datatype 'time' relevant here ? */
 static void
 set_ticslevel()
 {
-    struct value a;
+    c_token++;
+    xyplane.z = real_expression();
+    xyplane.absolute = FALSE;
+}
 
+
+/* process 'set xyplane' command */
+/* is datatype 'time' relevant here ? */
+static void
+set_xyplane()
+{
     if (equals(++c_token, "at")) {
 	c_token++;
-	xyplane.xyplane_z = real(const_express(&a));
+	xyplane.z = real_expression();
 	xyplane.absolute = TRUE;
-    } else {
-	xyplane.ticslevel = real(const_express(&a));
-	xyplane.absolute = FALSE;
+	return;
+    } else if (!almost_equals(c_token,"rel$ative")) {
+	c_token--;
+	/* int_warn(NO_CARET, "deprecated syntax"); */
     }
+    set_ticslevel();
 }
 
 
@@ -4054,7 +4299,6 @@ set_view()
     static const char errmsg1[] = "rot_%c must be in [0:%d] degrees range; view unchanged";
     static const char errmsg2[] = "%sscale must be > 0; view unchanged";
     double local_vals[4];
-    struct value a;
 
     c_token++;
     if (equals(c_token,"map")) {
@@ -4096,7 +4340,7 @@ set_view()
 	} else {
 	    if (!was_comma)
 		int_error(c_token, "',' expected");
-	    local_vals[i] = real(const_express(&a));
+	    local_vals[i] = real_expression();
 	    i++;
 	    was_comma = FALSE;
 	}
@@ -4195,12 +4439,11 @@ set_zeroaxis(AXIS_INDEX axis)
     if (END_OF_COMMAND)
 	axis_array[axis].zeroaxis.l_type = -1;
     else {
-	struct value a;
 	int old_token = c_token;
 	axis_array[axis].zeroaxis.l_type = LT_AXIS;
 	lp_parse(&axis_array[axis].zeroaxis, TRUE, FALSE);
 	if (old_token == c_token)
-	    axis_array[axis].zeroaxis.l_type = real(const_express(&a)) - 1;
+	    axis_array[axis].zeroaxis.l_type = int_expression() - 1;
 	}
 
 }
@@ -4297,18 +4540,16 @@ set_tic_prop(AXIS_INDEX axis)
 		axis_array[axis].tic_in = FALSE;
 		++c_token;
 	    } else if (almost_equals(c_token, "sc$ale")) {
-		struct value a;
 		++c_token;
 		if (almost_equals(c_token, "def$ault")) {
 		    axis_array[axis].ticscale = 1.0;
 		    axis_array[axis].miniticscale = 0.5;
 		    ++c_token;
 		} else {
-		    axis_array[axis].ticscale = real(const_express(&a));
+		    axis_array[axis].ticscale = real_expression();
 		    if (equals(c_token, ",")) {
 			++c_token;
-			axis_array[axis].miniticscale =
-			    real(const_express(&a));
+			axis_array[axis].miniticscale = real_expression();
 		    } else
 			axis_array[axis].miniticscale =
 			    0.5 * axis_array[axis].ticscale;
@@ -4317,10 +4558,8 @@ set_tic_prop(AXIS_INDEX axis)
 		axis_array[axis].tic_rotate = TEXT_VERTICAL;
 		++c_token;
 		if (equals(c_token, "by")) {
-		    struct value a;
 		    c_token++;
-		    axis_array[axis].tic_rotate =
-			(int)real(const_express(&a));
+		    axis_array[axis].tic_rotate = int_expression();
 		}
 	    } else if (almost_equals(c_token, "noro$tate")) {
 		axis_array[axis].tic_rotate = 0;
@@ -4362,7 +4601,8 @@ set_tic_prop(AXIS_INDEX axis)
 			looks_like_numeric(axis_array[axis].formatstring);
 	    } else if (equals(c_token,"tc") ||
 		       almost_equals(c_token,"text$color")) {
-		parse_colorspec(&axis_array[axis].ticdef.textcolor, TC_FRAC);
+		parse_colorspec(&axis_array[axis].ticdef.textcolor,
+				axis == FIRST_Z_AXIS ? TC_Z : TC_FRAC);
 	    } else if (almost_equals(c_token, "au$tofreq")) {
 		/* auto tic interval */
 		++c_token;
@@ -4431,7 +4671,6 @@ set_tic_prop(AXIS_INDEX axis)
     (void) strcat(cmdptr, "t$ics");	/* MINISTRING */
 
     if (almost_equals(c_token, cmdptr)) {
-	struct value freq;
 	c_token++;
 	match = 1;
 	if (END_OF_COMMAND) {
@@ -4440,7 +4679,7 @@ set_tic_prop(AXIS_INDEX axis)
 	    axis_array[axis].minitics = MINI_DEFAULT;
 	    ++c_token;
 	} else {
-	    axis_array[axis].mtic_freq = floor(real(const_express(&freq)));
+	    axis_array[axis].mtic_freq = floor(real_expression());
 	    axis_array[axis].minitics = MINI_USER;
 	}
     }
@@ -4493,7 +4732,6 @@ set_xyzlabel(text_label *label)
 static void
 set_linestyle()
 {
-    struct value a;
     struct linestyle_def *this_linestyle = NULL;
     struct linestyle_def *new_linestyle = NULL;
     struct linestyle_def *prev_linestyle = NULL;
@@ -4503,13 +4741,8 @@ set_linestyle()
     c_token++;
 
     /* get tag */
-    if (!END_OF_COMMAND) {
-	/* must be a tag expression! */
-	tag = (int) real(const_express(&a));
-	if (tag <= 0)
-	    int_error(c_token, "tag must be > zero");
-    } else
-	tag = assign_linestyle_tag();	/* default next tag */
+    if (END_OF_COMMAND || ((tag = int_expression()) <= 0))
+	int_error(c_token, "tag must be > zero");
 
     /* Default style is based on linetype with the same tag id */
     loc_lp.l_type = tag - 1;
@@ -4537,11 +4770,8 @@ set_linestyle()
 	this_linestyle = new_linestyle;
     }
 
-    /* Reset to default values */
-    if (END_OF_COMMAND)
-	this_linestyle->lp_properties = loc_lp;
-    else if (almost_equals(c_token, "def$ault")) {
-	this_linestyle->lp_properties = loc_lp;
+    if (almost_equals(c_token, "def$ault")) {
+	delete_linestyle(&first_linestyle, prev_linestyle, this_linestyle);
 	c_token++;
     } else
 	/* pick up a line spec; dont allow ls, do allow point type */
@@ -4552,39 +4782,20 @@ set_linestyle()
 
 }
 
-/* assign a new linestyle tag
- * linestyles are kept sorted by tag number, so this is easy
- * returns the lowest unassigned tag number
- */
-static int
-assign_linestyle_tag()
-{
-    struct linestyle_def *this;
-    int last = 0;		/* previous tag value */
-
-    for (this = first_linestyle; this != NULL; this = this->next)
-	if (this->tag == last + 1)
-	    last++;
-	else
-	    break;
-
-    return (last + 1);
-}
-
-/* delete linestyle from linked list started by first_linestyle.
- * called with pointers to the previous linestyle (prev) and the
- * linestyle to delete (this).
- * If there is no previous linestyle (the linestyle to delete is
- * first_linestyle) then call with prev = NULL.
+/*
+ * Delete linestyle from linked list.
+ * Called with pointers to the head of the list,
+ * to the previous linestyle (not strictly necessary),
+ * and to the linestyle to delete.
  */
 void
-delete_linestyle(struct linestyle_def *prev, struct linestyle_def *this)
+delete_linestyle(struct linestyle_def **head, struct linestyle_def *prev, struct linestyle_def *this)
 {
     if (this != NULL) {		/* there really is something to delete */
-	if (prev != NULL)	/* there is a previous linestyle */
+	if (this == *head)
+	    *head = this->next;
+	else
 	    prev->next = this->next;
-	else			/* this = first_linestyle so change first_linestyle */
-	    first_linestyle = this->next;
 	free(this);
     }
 }
@@ -4596,7 +4807,6 @@ delete_linestyle(struct linestyle_def *prev, struct linestyle_def *this)
 static void
 set_arrowstyle()
 {
-    struct value a;
     struct arrowstyle_def *this_arrowstyle = NULL;
     struct arrowstyle_def *new_arrowstyle = NULL;
     struct arrowstyle_def *prev_arrowstyle = NULL;
@@ -4610,7 +4820,7 @@ set_arrowstyle()
     /* get tag */
     if (!END_OF_COMMAND) {
 	/* must be a tag expression! */
-	tag = (int) real(const_express(&a));
+	tag = int_expression();
 	if (tag <= 0)
 	    int_error(c_token, "tag must be > zero");
     } else
@@ -4699,7 +4909,7 @@ load_tic_user(AXIS_INDEX axis)
     double ticposition;
 
     /* Free any old tic labels */
-    if (!axis_array[axis].ticdef.def.mix) {
+    if (!axis_array[axis].ticdef.def.mix && !iteration) {
 	free_marklist(axis_array[axis].ticdef.def.user);
 	axis_array[axis].ticdef.def.user = NULL;
     }
@@ -4728,8 +4938,7 @@ load_tic_user(AXIS_INDEX axis)
 	if (!END_OF_COMMAND &&
 	    !equals(c_token, ",") &&
 	    !equals(c_token, ")")) {
-	  struct value value;
-	  ticlevel = (int) real(const_express(&value)); /* tic level */
+	  ticlevel = int_expression(); /* tic level */
 	}
 
 	/* add to list */
@@ -4843,28 +5052,6 @@ load_tic_series(AXIS_INDEX axis)
     tdef->def.series.end = end;
 }
 
-static void
-load_offsets(double *a, double *b, double *c, double *d)
-{
-    struct value t;
-
-    *a = real(const_express(&t));	/* loff value */
-    if (!equals(c_token, ","))
-	return;
-
-    c_token++;
-    *b = real(const_express(&t));	/* roff value */
-    if (!equals(c_token, ","))
-	return;
-
-    c_token++;
-    *c = real(const_express(&t));	/* toff value */
-    if (!equals(c_token, ","))
-	return;
-
-    c_token++;
-    *d = real(const_express(&t));	/* boff value */
-}
 
 /* return 1 if format looks like a numeric format
  * ie more than one %{efg}, or %something-else
@@ -4890,36 +5077,36 @@ looks_like_numeric(char *format)
     return (*format == 'f' || *format == 'g' || *format == 'e');
 }
 
-
+#ifdef BACKWARDS_COMPATIBLE
 /*
  * Backwards compatibility ...
  */
 static void set_nolinestyle()
 {
-    struct value a;
     struct linestyle_def *this, *prev;
     int tag;
 
     if (END_OF_COMMAND) {
 	/* delete all linestyles */
 	while (first_linestyle != NULL)
-	    delete_linestyle((struct linestyle_def *) NULL, first_linestyle);
+	    delete_linestyle(&first_linestyle, NULL, first_linestyle);
     } else {
 	/* get tag */
-	tag = (int) real(const_express(&a));
+	tag = int_expression();
 	if (!END_OF_COMMAND)
 	    int_error(c_token, "extraneous arguments to set nolinestyle");
 	for (this = first_linestyle, prev = NULL;
 	     this != NULL;
 	     prev = this, this = this->next) {
 	    if (this->tag == tag) {
-		delete_linestyle(prev, this);
+		delete_linestyle(&first_linestyle, prev, this);
 		return;         /* exit, our job is done */
 	    }
 	}
 	int_error(c_token, "linestyle not found");
     }
 }
+#endif
 
 
 /* HBB 20001021: new function: make label texts decoratable with numbers */
@@ -4932,7 +5119,6 @@ fill_numbers_into_string(char *pattern)
     size_t output_end = 0;
 
     do {			/* loop over string/value pairs */
-	struct value a;
 	double value;
 
 	if (isstring(++c_token)) {
@@ -4944,7 +5130,7 @@ fill_numbers_into_string(char *pattern)
 	/* assume it's a numeric expression, concatenate it to output
 	 * string: parse value, enlarge output buffer, and gprintf()
 	 * it. */
-	value = real(const_express(&a));
+	value = real_expression();
 	newlen += pattern_length + 30;
 	output = gp_realloc(output, newlen, "fill_numbers next number");
 	gprintf(output + output_end, newlen - output_end,
@@ -5023,7 +5209,6 @@ new_text_label(int tag)
 void
 parse_label_options( struct text_label *this_label )
 {
-    struct value a;
     struct position pos;
     char *font = NULL;
     enum JUSTIFY just = LEFT;
@@ -5077,7 +5262,7 @@ parse_label_options( struct text_label *this_label )
 		set_rot = TRUE;
 		if (equals(c_token, "by")) {
 		    c_token++;
-		    rotate = (int)real(const_express(&a));
+		    rotate = int_expression();
 		}
 		continue;
 	    } else if (almost_equals(c_token, "norot$ate")) {
@@ -5144,8 +5329,6 @@ parse_label_options( struct text_label *this_label )
 	    continue;
 	}
 
-	/* EAM FIXME: Option to disable enhanced text processing currently not */
-	/* documented for ordinary labels. */
 	if (almost_equals(c_token,"noenh$anced")) {
 	    this_label->noenhanced = TRUE;
 	    c_token++;
@@ -5161,14 +5344,7 @@ parse_label_options( struct text_label *this_label )
 	 * line is forbidden by the 'set label' command syntax.
 	 * On the other hand, 'plot with labels' may have additional stuff coming up.
 	 */
-#ifdef GP_STRING_VARS
 	break;
-#else
-	if (this_label->tag == -1 || this_label->tag == -2)
-	    break;
-	else
-	    int_error(c_token, "extraneous or contradicting arguments in label options");
-#endif
 
     } /* while(!END_OF_COMMAND) */
 
@@ -5202,7 +5378,6 @@ parse_label_options( struct text_label *this_label )
 }
 
 
-#ifdef EAM_HISTOGRAMS
 /* <histogramstyle> = {clustered {gap <n>} | rowstacked | columnstacked */
 /*                     errorbars {gap <n>} {linewidth <lw>}}            */
 /*                    {title <title_options>}                           */
@@ -5211,7 +5386,6 @@ parse_histogramstyle( histogram_style *hs,
 		t_histogram_type def_type,
 		int def_gap)
 {
-    struct value a;
     text_label title_specs = EMPTY_LABELSTRUCT;
 
     /* Set defaults */
@@ -5239,7 +5413,7 @@ parse_histogramstyle( histogram_style *hs,
 	    c_token++;
 	} else if (equals(c_token, "gap")) {
 	    if (isanumber(++c_token))
-		hs->gap = (int)real(const_express(&a));
+		hs->gap = int_expression();
 	    else
 		int_error(c_token,"expected gap value");
 	} else if (almost_equals(c_token, "ti$tle")) {
@@ -5252,12 +5426,11 @@ parse_histogramstyle( histogram_style *hs,
 	} else if ((equals(c_token,"lw") || almost_equals(c_token,"linew$idth"))
 		  && (hs->type == HT_ERRORBARS)) {
 	    c_token++;
-	    hs->bar_lw = real(const_express(&a));
-	    if (hs->bar_lw < 0)
-		hs->bar_lw = 0;
+	    hs->bar_lw = real_expression();
+	    if (hs->bar_lw <= 0)
+		hs->bar_lw = 1;
 	} else
 	    /* We hit something unexpected */
 	    break;
     }
 }
-#endif /* EAM_HISTOGRAMS */

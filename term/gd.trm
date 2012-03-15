@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: gd.trm,v 1.95.2.16 2009/03/03 02:43:52 sfeam Exp $
+ * $Id: gd.trm,v 1.136.2.10 2010/02/24 20:33:57 sfeam Exp $
  * based on gif.trm,v 1.26.2.1 2000/05/01 00:17:20 joze
  */
 
@@ -64,6 +64,8 @@
  * color borders, then the X & Y axis, then the plotting colors.
  * (The wierd color spec is in order to get around limitations
  * in gnuplot's scanner.)
+ * EAM Feb 2010: This mechanism is totally obsolete except for setting the
+ * background color.  Revise the documentation accordingly.
  *
  * This driver is modeled after the PBM driver pbm.trm.
  *
@@ -76,30 +78,28 @@
  *  Alfred Reibenschuh <alfred.reibenschuh@it-austria.com> or <fredo@blackbox.at>
  *  Ben Laurie <ben@algroup.co.uk>
  *
- * This version outputs either color or monochrome PNGs.
- * The default is 640x480 pixels.
+ * This version outputs either indexed or truecolor (24-bit RGB) images
+ * The default size is 640x480 pixels.
  *
  ******************************************************************************
  * PLEASE READ                                                                *
- * This driver uses the gd library, available from http://www.boutell.com/gd/ *
- * Earlier versions of the gd library produced GIF images, but starting with  *
- * version 1.6 the gd library no longer supports creation of GIF images due   *
- * to licensing issues. Hence this modified driver, which uses the old gd/gif *
- * code to produce PNG images instead.                                        *
- *                                                                            *
- * requires:                                                                  *
- *      libgd version 1.8 or greater     http://www.boutell.com/gd/           *
- *      libfreetype version 2            http://www.freetype.org/             *
- *                                                                            *
- * This driver allows you to use TrueType fonts.  You can use this driver     *
- * without having any TrueType fonts installed, but the default fonts are     *
- * comparatively limited.                                                     *
+ * This driver uses the gd library, available from http://www.libgd.org       *
+ * This driver allows you to use TrueType, OpenType, or Adobe Type 1 fonts.   *
+ * If you have libgd version 2.0.36 or later, you may also be able to access  *
+ * any fonts that are managed by the fontconfig utility.                      *
+ * You can use this driver without having any TrueType fonts installed,       *
+ * but the default fonts are comparatively limited.                           *
  ******************************************************************************
  *
  * Petr Mikulik, Jan 1999: terminal entries for PM3D functionality
  * Ethan Merritt, May 2001: modified gd/gif driver to produce png instead;
  *                          added support for line width and TrueType fonts
  */
+
+/* Approximate "fillstyle solid FRAC " for indexed palettes */
+#define PASTEL_PALETTE
+
+#define GD_DEFINED_COLORS	96	/* Must not exceed size of pm3d_color_names_tbl[] */
 
 #include "driver.h"
 
@@ -128,9 +128,7 @@ TERM_PUBLIC int PNG_make_palette (t_sm_palette *);
 /* TERM_PUBLIC void PNG_previous_palette (void); */
 TERM_PUBLIC void PNG_set_color (t_colorspec *);
 TERM_PUBLIC void PNG_filled_polygon (int, gpiPoint *);
-#ifdef WITH_IMAGE
-TERM_PUBLIC void PNG_image __PROTO((unsigned, unsigned, coordval *, gpiPoint *, t_imagecolor));
-#endif
+TERM_PUBLIC void PNG_image __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
 
 /* To support "set term png enhanced" */
 TERM_PUBLIC void ENHGD_put_text __PROTO((unsigned int x, unsigned int y, const char str[]));
@@ -141,6 +139,17 @@ TERM_PUBLIC void ENHGD_FLUSH __PROTO((void));
 
 
 #include "gd.h"
+
+/* Before version 2.0.36, the libgd function gdFTUseFontConfig() didn't */
+/* do what we need.  Test for earlier versions and ignore it.           */
+#ifdef GD_MAJOR_VERSION
+#  if (GD_MINOR_VERSION > 0  ||  GD_RELEASE_VERSION > 35)
+#    define gdUseFontConfig(x) gdFTUseFontConfig(x)
+#  endif
+#endif
+#ifndef gdUseFontConfig
+#define gdUseFontConfig(x) 0
+#endif
 
 #if defined(WIN32) && !defined(NONDLL)
   /* static font pointers are recommended when using bgd.dll */
@@ -181,6 +190,7 @@ static void PNG_Triangle(unsigned int x, unsigned int y, int direction,
 	void (*draw_func)(gdImagePtr, gdPointPtr, int, int));
 static void PNG_Diamond(unsigned int x, unsigned int y,
 	void (*draw_func)(gdImagePtr, gdPointPtr, int, int));
+static void PNG_init_brush __PROTO((int));
 
 #ifndef GD_NEED_LOCAL_FONT_POINTERS
 BGD_EXPORT_DATA_PROT gdFontPtr gdFontSmall;	/* 6x12 */
@@ -232,6 +242,7 @@ static struct {
     int linetype;
     int linewidth;
     TBOOLEAN capbutt;  /* use capbutt on lines with GD2, 20051205 MWS*/
+    TBOOLEAN use_builtin;
     int ttfsize;
     char *ttffont;
     gdFontPtr default_font;
@@ -261,16 +272,10 @@ enum PNG_id {
     PNG_SIZE,
     PNG_ENHANCED, PNG_NOENHANCED,
     PNG_TRUECOLOR, PNG_NOTRUECOLOR,
-    PNG_LINEWIDTH, PNG_BUTT, PNG_ROUNDED,
+    PNG_LINEWIDTH, PNG_BUTT, PNG_ROUNDED, PNG_DASHLENGTH,
     GIF_ANIMATE, GIF_DELAY, GIF_LOOP, GIF_NOOPT, GIF_OPT,
     PNG_OTHER
 };
-
-/* Only needed for dubious backwards compatibility with 'set size'
- * in pre-4.0 versions that didn't support 'set term size'
- */
-static TBOOLEAN PNG_explicit_size = FALSE;
-
 
 #ifdef Y
 #   undef Y
@@ -310,15 +315,18 @@ static struct gen_table PNG_opts[] =
     { "lw", PNG_LINEWIDTH },
     { "butt", PNG_BUTT},
     { "round$ed", PNG_ROUNDED},
+    { "dashl$ength", PNG_DASHLENGTH},
+    { "dl", PNG_DASHLENGTH},
     { NULL, PNG_OTHER }
 };
 
 #undef MAXLINEWIDTH
-#define MAXLINEWIDTH 12
+#define MAXLINEWIDTH 100
 static double PNG_linewidth_factor = 1.0;
+static double PNG_dashlength_factor = 1.0;
 
 /* EAM - gdImage structure to hold brushes for linewidth */
-/* We only use brushes 2 through MAXLINEWIDTH            */
+/* We will allocate and initialize these on demand */
 typedef struct {
     gdImagePtr im;
     unsigned int last_rgb;
@@ -326,7 +334,7 @@ typedef struct {
     int fgnd;
 }   PNG_BRUSH;
 
-static PNG_BRUSH PNG_brush[MAXLINEWIDTH+1];
+static PNG_BRUSH *PNG_brush[MAXLINEWIDTH+1];
 
 typedef struct {
     gdImagePtr im;
@@ -421,6 +429,7 @@ image_do_crop ()
 
 static int PNG_FillSolid __PROTO((int fillpar));
 static int PNG_FillPattern __PROTO((int fillpar));
+static int PNG_FillTransparent __PROTO((int fillpar));
 
 static int
 PNG_FillSolid(int fillpar)
@@ -452,10 +461,23 @@ PNG_FillSolid(int fillpar)
 }
 
 static int
-PNG_FillPattern(int fillpar)
+PNG_FillTransparent(int fillpar)
+{
+    int red   = (png_state.rgb >> 16) & 0xff;
+    int green = (png_state.rgb >> 8) & 0xff;
+    int blue  = png_state.rgb & 0xff;
+    int alpha = 127 * (float)(100-fillpar) / 100.;
+
+    return  gdImageColorExactAlpha(png_state.image, red, green, blue, alpha);
+}
+
+static int
+PNG_FillPattern(int style)
 {
     int rgb = png_state.rgb;
-    fillpar %= 8;
+    int brgb = png_state.rgb_table[0];
+    int fillpar = (style >> 4) % 8;
+    style = style & 0xf;
 
     if (!PNG_fill_tile.im || rgb != PNG_fill_tile.last_rgb || PNG_fill_tile.fillpar != fillpar) {
 
@@ -471,13 +493,13 @@ PNG_FillPattern(int fillpar)
 	PNG_fill_tile.last_rgb = rgb;
 
 	/* create new tile */
-	PNG_fill_tile.im = gdImageCreate(8, 8);
-	if (!PNG_fill_tile.im)
+	if (!((PNG_fill_tile.im = gdImageCreate(8, 8))))
 	    int_error(NO_CARET,"libgd: failed to create pattern-fill tile");
 
-	/* background */
-	background = gdImageColorAllocate(PNG_fill_tile.im, 255, 255, 255);
-	/* gdImageColorTransparent(PNG_fill_tile.im, background); */
+	background = gdImageColorAllocate(PNG_fill_tile.im,
+		(brgb >> 16) & 0xff, (brgb >> 8) & 0xff, brgb & 0xff);
+	if (style == FS_TRANSPARENT_PATTERN)
+	    gdImageColorTransparent(PNG_fill_tile.im, background);
 	gdImageFilledRectangle(PNG_fill_tile.im, 0, 0, 7, 7, background);
 
 	/* foreground */
@@ -600,7 +622,6 @@ PNG_Diamond(
 TERM_PUBLIC void
 PNG_options()
 {
-    struct value s;
     int i;
     char *string;
     unsigned long color;
@@ -614,12 +635,14 @@ PNG_options()
 	png_state.default_font = gdfont;
 	png_state.n_colors = 0;
 	png_state.flags = 0;
+	png_state.use_builtin = FALSE;
 	png_state.ttffont = NULL;
 	png_state.default_ttffont = NULL;
 	png_state.default_ttfsize = 0;
 	png_state.justify = CENTRE;
 	png_state.TrueColor = FALSE;
 	PNG_linewidth_factor = 1.0;
+	PNG_dashlength_factor = 1.0;
 	png_state.capbutt = FALSE; /* to preserve previous default behavior */
 #ifdef GD_NEED_LOCAL_FONT_POINTERS
 	gdFontSmall = gdFontGetSmall();
@@ -651,6 +674,8 @@ PNG_options()
 	/* And default font size */
 	term->h_char = PNG_HCHAR;
 	png_state.default_ttfsize = 0;
+	PNG_linewidth_factor = 1.0;
+	PNG_dashlength_factor = 1.0;
     }
 
     while (!END_OF_COMMAND) {
@@ -679,16 +704,19 @@ PNG_options()
 	    png_state.flags &= ~PNG_USE_CROP;
 	    ++c_token;
 	    break;
-	case PNG_TINY:
+
 #ifdef HAVE_GD_TTF
 # define UNSET_TTF_FONT \
 	    free(png_state.ttffont); \
 	    png_state.ttffont = NULL; \
-	    png_state.default_ttfsize = 2 * term->h_char - 2;
+	    png_state.default_ttfsize = 2 * term->h_char - 2; \
+	    png_state.use_builtin = TRUE;
 #else
 # define UNSET_TTF_FONT \
 	    ; /* nothing to do */
 #endif
+
+	case PNG_TINY:
 	    png_state.default_font=gdFontTiny;
 	    term->v_char = png_state.default_font->h;
 	    term->h_char = png_state.default_font->w;
@@ -723,6 +751,7 @@ PNG_options()
 	    ++c_token;
 	    UNSET_TTF_FONT;
 	    break;
+
 	case PNG_FONT:
 	    c_token++;
 #ifdef HAVE_GD_TTF
@@ -757,41 +786,53 @@ PNG_options()
 		}
 		free(png_state.default_ttffont);
 		png_state.default_ttffont = gp_strdup(png_state.ttffont);
+
+		/* First try the old GDFONTPATH mechanism for locating fonts */
+		(void)gdUseFontConfig(0);
 		err = gdImageStringFT(NULL, &brect[0], 0,
-			png_state.ttffont, (double)png_state.ttfsize,
+			png_state.ttffont, (double)png_state.default_ttfsize,
 			0.0, 0, 0, "test");
-		if (err) {
-			fprintf(stderr,
-				"%s when opening font %s, trying default\n",
-				err, png_state.ttffont);
-			free(png_state.ttffont);
-			free(png_state.default_ttffont);
-			png_state.ttffont = NULL;
-			png_state.default_ttffont = NULL;
+	
+		/* If that didn't work, try again using the fontconfig mechanism */
+		if (err && gdUseFontConfig(1)) {
+		    err = gdImageStringFT(NULL, &brect[0], 0,
+			png_state.ttffont, (double)png_state.default_ttfsize,
+			0.0, 0, 0, "test");
 		}
+
+		/* If we still haven't found the font, punt to the internal non-TTF default set */
+		if (err) {
+		    fprintf(stderr, "%s when opening font %s, trying default\n",
+				err, png_state.ttffont);
+		    free(png_state.ttffont);
+		    free(png_state.default_ttffont);
+		    png_state.ttffont = NULL;
+		    png_state.default_ttffont = NULL;
+		}
+
 	    }
 #else
 	    c_token++;
 	    fprintf(stderr,"No TTF font support, using internal non-scalable font\n");
 #endif
 	    break;
+# undef UNSET_TTF_FONT
+
 	case PNG_SIZE:
 	    c_token++;
 	    if (END_OF_COMMAND) {
 		PNG_XMAX = GREG_XMAX;
 		PNG_YMAX = GREG_YMAX;
-		PNG_explicit_size = FALSE;
 	    } else {
-		PNG_XMAX = real(const_express(&s));
+		PNG_XMAX = real_expression();
 		if (equals(c_token, ",")) {
 		    c_token++;
-		    PNG_YMAX = real(const_express(&s));
+		    PNG_YMAX = real_expression();
 		}
 		if (PNG_XMAX < 0)
 		    PNG_XMAX = GREG_XMAX;
 		if (PNG_YMAX < 0)
 		    PNG_YMAX = GREG_YMAX;
-		PNG_explicit_size = TRUE;
 	    }
 	    term->ymax = PNG_YMAX;
 	    term->xmax = PNG_XMAX;
@@ -813,17 +854,25 @@ PNG_options()
 	    break;
 	case PNG_TRUECOLOR:
 	    png_state.TrueColor = TRUE;
+	    term->flags |= TERM_ALPHA_CHANNEL;
 	    c_token++;
 	    break;
 	case PNG_NOTRUECOLOR:
 	    png_state.TrueColor = FALSE;
+	    term->flags &= ~TERM_ALPHA_CHANNEL;
 	    c_token++;
 	    break;
 	case PNG_LINEWIDTH:
 	    c_token++;
-	    PNG_linewidth_factor = real(const_express(&s));
+	    PNG_linewidth_factor = real_expression();
 	    if (PNG_linewidth_factor < 0)
 		PNG_linewidth_factor = 1.0;
+	    break;
+	case PNG_DASHLENGTH:
+	    c_token++;
+	    PNG_dashlength_factor = real_expression();
+	    if (PNG_dashlength_factor <= 0.2)
+		PNG_dashlength_factor = 1.0;
 	    break;
 
 	/* parse gif animation options */
@@ -841,7 +890,7 @@ PNG_options()
 	    if (strncmp("gif",term->name,3))
 		int_error(c_token,"Only the gif terminal supports animation");
 	    c_token++;
-	    png_state.frame_delay = (int)real(const_express(&s));
+	    png_state.frame_delay = int_expression();
 	    if (png_state.frame_delay <= 0)
 		png_state.frame_delay = 10;
 	    gif_anim_option = 1;
@@ -850,7 +899,7 @@ PNG_options()
 	    if (strncmp("gif",term->name,3))
 		int_error(c_token,"Only the gif terminal supports animation");
 	    c_token++;
-	    png_state.loop_count = (int)real(const_express(&s));
+	    png_state.loop_count = int_expression();
 	    gif_anim_option = 1;
 	    break;
 	case GIF_NOOPT:
@@ -921,22 +970,35 @@ PNG_options()
 
 #ifdef HAVE_GD_TTF
     /* If no font has been chosen but there is a default, use it */
-    if (!png_state.ttffont) {
+    if (!png_state.ttffont && !png_state.use_builtin) {
 	char *external_default = getenv("GNUPLOT_DEFAULT_GDFONT");
 	int brect[8];
 	char *err;
 
 	if (external_default)
-	    png_state.ttffont = gp_strdup(external_default);
+		png_state.ttffont = gp_strdup(external_default);
 	else	/* Might as well try some plausible font; it's no worse than failing immediately */
-	    png_state.ttffont = gp_strdup("arial");
+		png_state.ttffont = gp_strdup("arial");
 
 	free(png_state.default_ttffont);
 	png_state.default_ttffont = gp_strdup(png_state.ttffont);
-	png_state.default_ttfsize = 2 * term->h_char - 2;
+	if (png_state.default_ttfsize == 0)
+		png_state.default_ttfsize = 2 * term->h_char - 2;
+
+	/* First try the old GDFONTPATH mechanism for locating fonts */
+	(void)gdUseFontConfig(0);
 	err = gdImageStringFT(NULL, &brect[0], 0,
 		png_state.ttffont, (double)png_state.default_ttfsize,
 		0.0, 0, 0, "test");
+
+	/* If that didn't work, try again using fontconfig mechanism */
+	if (err && gdUseFontConfig(1)) {
+	    err = gdImageStringFT(NULL, &brect[0], 0,
+		png_state.ttffont, (double)png_state.default_ttfsize,
+		0.0, 0, 0, "test");
+	}
+
+	/* If we still haven't found the font, punt to the internal non-TTF default set */
 	if (err) {
 		fprintf(stderr,"%s when opening font \"%s\", using internal non-scalable font\n",
 			err, png_state.ttffont);
@@ -945,6 +1007,7 @@ PNG_options()
 		png_state.ttffont = NULL;
 		png_state.default_ttffont = NULL;
 	}
+
     }
 
     /* If no explicit TTF font size found, generate default */
@@ -980,9 +1043,10 @@ PNG_options()
 	strcat(term_options, "interlace ");
     }
     /* JPEG files are always 24-bit color */
-    if (strcmp(term->name, "jpeg") == 0)
+    if (strcmp(term->name, "jpeg") == 0) {
 	png_state.TrueColor = TRUE;
-    else if (png_state.TrueColor) {
+	term->flags |= TERM_ALPHA_CHANNEL;
+    } else if (png_state.TrueColor) {
 	strcat(term_options, "truecolor ");
     }
     if (!(png_state.flags & PNG_USE_CROP)) {
@@ -1020,6 +1084,10 @@ PNG_options()
 	sprintf(term_options + strlen(term_options),
 	    "linewidth %3.1f ", PNG_linewidth_factor);
 
+    if (PNG_dashlength_factor != 1.0)
+	sprintf(term_options + strlen(term_options),
+	    "dashlength %3.1f ", PNG_dashlength_factor);
+
     if (png_state.capbutt) {
 	sprintf(term_options + strlen(term_options),
 	    "butt ");
@@ -1032,15 +1100,15 @@ PNG_options()
 	    png_state.frame_optimization ? "" : "no");
     }
 
-    if (PNG_explicit_size)
-	sprintf(term_options + strlen(term_options),
+    sprintf(term_options + strlen(term_options),
 	    "size %d,%d ", PNG_XMAX, PNG_YMAX);
 
-    for (i = 0; strlen(term_options) + 9 < MAX_LINE_LEN &&
-           i < png_state.n_colors; i++) {
-	sprintf(term_options + strlen(term_options),
+    if (new_colors)
+	for (i = 0; strlen(term_options) + 9 < MAX_LINE_LEN &&
+	     i < png_state.n_colors; i++) {
+	    sprintf(term_options + strlen(term_options),
 		"x%06x ", png_state.rgb_table[i]);
-    }
+	}
 }
 
 
@@ -1056,23 +1124,43 @@ int i;
 
     png_state.linetype = 0;
     png_state.linewidth = 1;
-    /* EAM - pre-define brushes to implement linewidth */
-    for (i=2; i<=MAXLINEWIDTH; i++) {
-	if (!((PNG_brush[i].im = gdImageCreate(i,i))))
+
+    /* Clear brush array, then initialize a few small ones */
+    for (i=2; i<=MAXLINEWIDTH; i++)
+	PNG_brush[i] = NULL;
+}
+
+/*
+ * Internal helper routine to initialize brushes used for stroking linewidth > 1
+ */
+static void
+PNG_init_brush(int width)
+{
+    PNG_BRUSH *brush = PNG_brush[width];
+
+    if (!brush) {
+	brush = gp_alloc(sizeof(PNG_BRUSH),"gd brush");
+	PNG_brush[width] = brush;
+	brush->last_rgb = -99;  /* Something invalid */
+	if (!((brush->im = gdImageCreate(width,width))))
 	    int_error(NO_CARET,"libgd: failed to create brush structure");
-	PNG_brush[i].bgnd = gdImageColorAllocate( PNG_brush[i].im, 255, 255, 255 );
-	gdImageFill( PNG_brush[i].im, 0, 0, PNG_brush[i].bgnd );
-	gdImageColorTransparent( PNG_brush[i].im, PNG_brush[i].bgnd );
-	PNG_brush[i].fgnd = gdImageColorAllocate( PNG_brush[i].im, 0, 0, 0 );
-	PNG_brush[i].last_rgb = -99;  /* invalid index will force update on first use */
-    }
-    /* EAM - quick and dirty is to fill the entire brush (square nib).    */
-    /*       might be better to approximate a circular nib by selectively */
-    /*       coloring the individual pixels of the brush image.           */
-    for (i=2; i<=MAXLINEWIDTH; i++) {
-	gdImageFilledRectangle( PNG_brush[i].im, 0, 0, i-1, i-1, PNG_brush[i].fgnd );
+	brush->bgnd = gdImageColorAllocate( brush->im, 255, 255, 255 );
+	gdImageFill(brush->im, 0, 0, brush->bgnd);
+	gdImageColorTransparent(brush->im, brush->bgnd);
     }
 
+    if (png_state.color != brush->last_rgb) {
+	brush->fgnd = gdImageColorResolve(brush->im,
+	    gdImageRed(png_state.image,png_state.color),
+	    gdImageGreen(png_state.image,png_state.color),
+	    gdImageBlue(png_state.image,png_state.color) );
+	brush->last_rgb = png_state.color;
+
+	/* EAM - quick and dirty is to fill the entire brush (square nib)  */
+	/* It might be better to approximate a circular nib by selectively */
+	/* coloring the individual pixels of the brush image.          	   */
+	gdImageFilledRectangle(brush->im, 0, 0, width-1, width-1, brush->fgnd);
+    }
 }
 
 /*
@@ -1086,9 +1174,11 @@ PNG_reset()
     int i;
     /* EAM - Clean up the brushes used for linewidth */
     for (i=2; i<=MAXLINEWIDTH; i++) {
-	if (PNG_brush[i].im)
-	    gdImageDestroy(PNG_brush[i].im);
-	PNG_brush[i].im = 0;
+	if (PNG_brush[i]) {
+	    if (PNG_brush[i]->im)
+		gdImageDestroy(PNG_brush[i]->im);
+	    PNG_brush[i] = NULL;
+	}
     }
     if (PNG_fill_tile.im) {
 	gdImageDestroy(PNG_fill_tile.im);
@@ -1132,9 +1222,9 @@ from ColorAllocate
 */
 static int png_smooth_color[gdMaxColors];
 
-#if (0)
+#ifdef PASTEL_PALETTE
 /*
- * This is only needed in order to maintain png_state_rgb for pattern-fill,
+ * This is only needed in order to maintain png_state_rgb for fillstyle variants,
  * and only for palette-based coloring. It doesn't seem worth the space or effort.
  * EAM November 2004
  */
@@ -1175,7 +1265,7 @@ TERM_PUBLIC int PNG_make_palette (t_sm_palette *palette)
 	    (int)( palette->color[i].r * 255 + 0.5 ), /* r,g,b values for png */
 	    (int)( palette->color[i].g * 255 + 0.5 ), /* terminal are [0;255] */
 	    (int)( palette->color[i].b * 255 + 0.5 ) );
-#if (0)
+#ifdef PASTEL_PALETTE
 	png_smooth_rgb[i] = (((int)(palette->color[i].r * 255.) & 0xff) << 16)
 	                  + (((int)(palette->color[i].g * 255.) & 0xff) << 8)
 			  +  ((int)(palette->color[i].b * 255.) & 0xff);
@@ -1228,7 +1318,7 @@ void PNG_set_color (t_colorspec *colorspec)
 	    png_color = sm_palette.colors - 1;
 	/* map [0;1] to interval [0;png_smooth_colors-1] */
 	png_state.color = png_smooth_color[ png_color ];
-#if (0)
+#ifdef PASTEL_PALETTE
 	png_state.rgb = png_smooth_rgb[ png_color ];
 #endif
     }
@@ -1264,8 +1354,15 @@ void PNG_filled_polygon(int points, gpiPoint *corners)
 	case FS_SOLID: /* solid fill */
 	    color = PNG_FillSolid(fillpar);
 	    break;
+	case FS_TRANSPARENT_SOLID:
+	    if (png_state.TrueColor)
+		color = PNG_FillTransparent(fillpar);
+	    else
+		color = PNG_FillSolid(fillpar);
+	    break;
 	case FS_PATTERN: /* pattern fill */
-	    color = PNG_FillPattern(fillpar);
+	case FS_TRANSPARENT_PATTERN:
+	    color = PNG_FillPattern(corners->style);
 	    break;
 	default:
 	    color = png_state.color;
@@ -1273,14 +1370,6 @@ void PNG_filled_polygon(int points, gpiPoint *corners)
     }
 
     gdImageFilledPolygon(png_state.image, gd_corners, points, color);
-
-    /* easy, since gdPointPtr is the same as (gdiPoint*) */
-    /* if someone someday needs this routine to be NON-DESTRUCTIVE, then change
-       the following line to #if 1 */
-#if 0
-    for (i = 0; i < points; i++)
-	corners[i].y = Y(corners[i].y);
-#endif
 }
 
 /*
@@ -1302,17 +1391,22 @@ PNG_boxfill(
      */
     int fillpar = style >> 4;
 
-    style &= 0xf;
-
-    switch (style) {
+    switch (style & 0xf) {
 	case FS_EMPTY: /* fill with background color */
 	    color = png_state.color_table[0];
 	    break;
 	case FS_SOLID: /* solid fill */
 	    color = PNG_FillSolid(fillpar);
 	    break;
+	case FS_TRANSPARENT_SOLID:
+	    if (png_state.TrueColor)
+		color = PNG_FillTransparent(fillpar);
+	    else
+		color = PNG_FillSolid(fillpar);
+	    break;
 	case FS_PATTERN: /* pattern fill */
-	    color = PNG_FillPattern(fillpar);
+	case FS_TRANSPARENT_PATTERN:
+	    color = PNG_FillPattern(style);
 	    break;
 	default:
 	    /* should never happen */
@@ -1338,46 +1432,45 @@ PNG_graphics()
 {
     int i;
     unsigned int rgb;
-    double xscale = 1.;
-    double yscale = 1.;
-
-#ifdef BACKWARDS_COMPATIBLE
-    /* We are deprecating the use of 'set size' to change the actual	*/
-    /* canvas size, in this case the size of the output file in pixels.	*/
-    if (!PNG_explicit_size) {
-	xscale *= xsize;
-	yscale *= ysize;
-    }
-#endif
+ 
+    for (i = png_state.n_colors; i < GD_DEFINED_COLORS; i++)
+	png_state.rgb_table[i] = pm3d_color_names_tbl[i].value;
+    if (png_state.n_colors < GD_DEFINED_COLORS)
+	png_state.n_colors = GD_DEFINED_COLORS;
 
 #if (GD2_VERS >= 2)
-    /* TrueColor images default to a black background; load white instead */
+    /* TrueColor images default to a black background; load white instead.	*/
+    /* If PNG_USE_TRANSPARENT, store the background alpha in the output file	*/
+    /* but apply alpha for the rest of the image internally. Otherwise you	*/
+    /* see only background through the topmost transparent layer.		*/
     if (png_state.TrueColor) {
-	png_state.image = gdImageCreateTrueColor(
-			(int) (xscale * PNG_XMAX), (int) (yscale * PNG_YMAX));
+        unsigned int brgb = png_state.rgb_table[0];
+	png_state.image = gdImageCreateTrueColor(PNG_XMAX, PNG_YMAX);
 	if (!png_state.image)
 	    int_error(NO_CARET,"libgd: failed to create output image structure");
-	rgb = gdImageColorAllocate(png_state.image, 255, 255, 255);
+	if (png_state.flags & PNG_USE_TRANSPARENT) {
+	    rgb = gdImageColorAllocateAlpha(png_state.image,
+		(brgb >> 16) & 0xff, (brgb >> 8) & 0xff, brgb & 0xff, 127);
+	    gdImageSaveAlpha(png_state.image, 1);
+	    gdImageAlphaBlending(png_state.image, 0);
+	} else {
+	    rgb = gdImageColorAllocate(png_state.image,
+		(brgb >> 16) & 0xff, (brgb >> 8) & 0xff, brgb & 0xff);
+	}
 	gdImageFill(png_state.image, 1, 1, rgb);
+	gdImageAlphaBlending(png_state.image, 1);
     } else
 #endif
-	png_state.image = gdImageCreate(
-			(int) (xscale * PNG_XMAX), (int) (yscale * PNG_YMAX));
-	if (!png_state.image)
-	    int_error(NO_CARET,"libgd: failed to create output image structure");
+	png_state.image = gdImageCreate(PNG_XMAX, PNG_YMAX);
+    if (!png_state.image)
+	int_error(NO_CARET,"libgd: failed to create output image structure");
 
-    png_state.height = (yscale * PNG_YMAX) - 1;
+    png_state.height = PNG_YMAX - 1;
     png_state.charw = term->h_char;	/* png_state.font->w; */
     png_state.charh = term->v_char;	/* png_state.font->h; */
     png_state.font = png_state.default_font;
     png_state.color = 0;
-    for (i = png_state.n_colors; i < WEB_N_COLORS; i++)
-	png_state.rgb_table[i] =
-	    (web_color_rgbs[i].r << 16) |
-	    (web_color_rgbs[i].g << 8) |
-	    web_color_rgbs[i].b;
-    if (png_state.n_colors < WEB_N_COLORS)
-	png_state.n_colors = WEB_N_COLORS;
+
     for (i = 0; i < png_state.n_colors; i++) {
 	rgb = png_state.rgb_table[i];
 	png_state.color_table[i] =
@@ -1385,8 +1478,7 @@ PNG_graphics()
 				 (rgb >> 8) & 0xff, rgb & 0xff);
     }
     if (png_state.flags & PNG_USE_TRANSPARENT)
-	gdImageColorTransparent(png_state.image,
-				png_state.color_table[0]);
+	gdImageColorTransparent(png_state.image, png_state.color_table[0]);
     else
 	gdImageColorTransparent(png_state.image, -1);
 
@@ -1425,19 +1517,47 @@ PNG_move(unsigned int x, unsigned int y)
 TERM_PUBLIC void
 PNG_vector(unsigned int x, unsigned int y)
 {
-    int lw;
+    int lw = png_state.linewidth;
 
+    /* Dashed line style; used only for the x/y grid */
     if (png_state.linetype == -1) {
-	int png_linetype_dotted[5];
-	png_linetype_dotted[0] = png_state.color;
-	png_linetype_dotted[1] = png_state.color;
-	png_linetype_dotted[2] = gdTransparent;
-	png_linetype_dotted[3] = gdTransparent;
-	png_linetype_dotted[4] = gdTransparent;
+	static int last_lw = -1;
+	static double last_dl = -1;
+	static int last_color = -1;
+	static int *png_linetype_dotted = NULL;
+	static int ssize;
 
-	gdImageSetStyle(png_state.image, png_linetype_dotted, 5);
-	gdImageLine(png_state.image, png_state.x, Y(png_state.y),
-		    x, Y(y), gdStyled);
+	/* Adjust the style when linewidth or dashlength has changed. */
+	if (lw != last_lw || PNG_dashlength_factor != last_dl || last_color != png_state.color) {
+	    int i;
+	    int dashlength = 2 * PNG_dashlength_factor;
+	    int spacelength = 3 * PNG_dashlength_factor;
+	    int psize = lw*lw*dashlength;
+	    
+	    ssize = lw*lw*(spacelength + dashlength);
+	    png_linetype_dotted = gp_realloc( png_linetype_dotted, ssize*sizeof(int), "dashes");
+
+	    /* Fill style with with color then transparent.
+	     * The style is 2 on / 3 off and scales with linewidth and dashlength.
+	     */
+	    for(i = 0;i < psize; i++)
+		png_linetype_dotted[i] = png_state.color;
+	    for (;i < ssize; i++)
+		png_linetype_dotted[i] = gdTransparent;
+	    last_lw = lw;
+	    last_dl = PNG_dashlength_factor;
+	    last_color = png_state.color;
+	}
+	/* This driver does not in general use gd's built-in SetThickness command,
+	 * because it only works right for purely horizontal or vertical lines.
+	 * But that's OK for a 2D grid.
+	 */
+	gdImageSetStyle(png_state.image, png_linetype_dotted, ssize);
+	gdImageSetThickness(png_state.image,lw);
+	gdImageLine(png_state.image, png_state.x, Y(png_state.y), x, Y(y), gdStyled);
+	gdImageSetThickness(png_state.image,1);
+
+    /* All other (not dashed) vectors */
     } else {
 	if (png_state.linewidth == 1) {
 #if (GD2_VERS >= 2) && defined(gdAntiAliased) 
@@ -1456,24 +1576,15 @@ PNG_vector(unsigned int x, unsigned int y)
 	    gdImageLine(png_state.image, png_state.x, Y(png_state.y),
 			x, Y(y), png_state.color);
 #endif
-	}else{
-
-	    /* EAM - Implement linewidth by selecting a pre-defined brush */
-	    /* The tricky bit is re-coloring the brush to the current color */
-	    lw   = png_state.linewidth;
-	    if (png_state.color != PNG_brush[lw].last_rgb) {
-		PNG_brush[lw].fgnd = gdImageColorResolve(PNG_brush[lw].im,
-		    gdImageRed(png_state.image,png_state.color),
-		    gdImageGreen(png_state.image,png_state.color),
-		    gdImageBlue(png_state.image,png_state.color) );
-		PNG_brush[lw].last_rgb = png_state.color;
-	    }
-	    gdImageFilledRectangle( PNG_brush[lw].im, 0, 0, lw-1, lw-1, PNG_brush[lw].fgnd );
-	    gdImageSetBrush(png_state.image, PNG_brush[lw].im);
+	} else {
+	    /* EAM - Implement linewidth by using a brush */
+	    PNG_init_brush(lw);
+	    gdImageSetBrush(png_state.image, PNG_brush[lw]->im);
 	    gdImageLine(png_state.image, png_state.x, Y(png_state.y),
 			x, Y(y), gdBrushed );
 	}
     }
+
     png_state.x = x;
     png_state.y = y;
 }
@@ -1629,24 +1740,16 @@ PNG_point(unsigned int x, unsigned int y, int number)
 {
     int save_color = png_state.color;
 
-    if (number < 0) {
+    if (number < 0) { /* Dot */
 	gdImageSetPixel(png_state.image, x, Y(y), png_state.color);
 	return;
     }
     /* Use current linewidth to draw the point symbol */
     if (png_state.linewidth > 1) {
-	/* EAM - Implement linewidth by selecting a pre-defined brush */
-	/* The tricky bit is re-coloring the brush to the current color */
+	/* EAM - Implement linewidth by using a brush */
 	int lw   = png_state.linewidth;
-	if (png_state.color != PNG_brush[lw].last_rgb) {
-	    PNG_brush[lw].fgnd = gdImageColorResolve(PNG_brush[lw].im,
-		gdImageRed(png_state.image,png_state.color),
-		gdImageGreen(png_state.image,png_state.color),
-		gdImageBlue(png_state.image,png_state.color) );
-	    PNG_brush[lw].last_rgb = png_state.color;
-	}
-	gdImageFilledRectangle( PNG_brush[lw].im, 0, 0, lw-1, lw-1, PNG_brush[lw].fgnd );
-	gdImageSetBrush(png_state.image, PNG_brush[lw].im);
+	PNG_init_brush(lw);
+	gdImageSetBrush(png_state.image, PNG_brush[lw]->im);
 	png_state.color = gdBrushed;
     }
 
@@ -1861,7 +1964,7 @@ ENHGD_FLUSH()
 #ifdef gdFTEX_Adobe_Custom
 	    /* libgd defaults to UTF-8 encodings. We have limited options for	*/
 	    /* over-riding this, but we can try					*/
-	    if (ENHgd_font && !strcmp(ENHgd_font,"Symbol")) {
+	    if (encoding != S_ENC_UTF8 && ENHgd_font && !strcmp(ENHgd_font,"Symbol")) {
 		PNG_FONT_INFO.flags |= gdFTEX_CHARMAP;
 		PNG_FONT_INFO.charmap = gdFTEX_Adobe_Custom;
 	    } else {
@@ -1923,8 +2026,6 @@ ENHGD_put_text(unsigned int x, unsigned int y, const char *str)
     PNG_move(x,y);
 
     /* set up the global variables needed by enhanced_recursion() */
-    enhanced_max_height = -1000;
-    enhanced_min_height = 1000;
     enhanced_fontscale = 1.0;
     strncpy(enhanced_escape_format,"&#x%2.2x;",sizeof(enhanced_escape_format));
 
@@ -1961,8 +2062,6 @@ ENHGD_put_text(unsigned int x, unsigned int y, const char *str)
 	/* else carry on and process the rest of the string */
     }
 
-    enhanced_max_height += enhanced_min_height;
-
     /* We can do text justification by running the entire top level string */
     /* through 2 times, with the ENHgd_sizeonly flag set the first time.   */
     /* After seeing where the final position is, we then offset the start  */
@@ -1989,10 +2088,8 @@ ENHGD_put_text(unsigned int x, unsigned int y, const char *str)
 
 #undef gdfont
 
-#ifdef WITH_IMAGE
-
 TERM_PUBLIC void
-PNG_image (unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagecolor color_mode)
+PNG_image (unsigned int M, unsigned int N, coordval * image, gpiPoint * corner, t_imagecolor color_mode)
 {
     int m, n, mout, nout;
     int x1,y1,x2,y2;
@@ -2007,15 +2104,55 @@ PNG_image (unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagec
 	    int_error(NO_CARET,"libgd: failed to create image structure");
     } else
 #endif
-	{
+    {
 	im = gdImageCreate(M, N);
 	if (!im)
 	    int_error(NO_CARET,"libgd: failed to create image structure");
 	gdImagePaletteCopy(im, png_state.image);
     }
 
-    /* TrueColor 24-bit color mode */
-    if (color_mode == IC_RGB) {
+#if (GD2_VERS >= 2)
+    /* Set clipping bound for area into which we will copy */
+    xclip1 = GPMIN(corner[2].x, corner[3].x);
+    xclip2 = GPMAX(corner[2].x, corner[3].x);
+    yclip1 = GPMIN(Y(corner[2].y), Y(corner[3].y));
+    yclip2 = GPMAX(Y(corner[2].y), Y(corner[3].y));
+    gdImageGetClip(png_state.image, &x1, &y1, &x2, &y2);
+    gdImageSetClip(png_state.image, xclip1, yclip1, xclip2, yclip2);
+#endif
+
+    /* Initialize image area with current contents of plot. */
+    mout = abs( (int)corner[1].x - (int)corner[0].x );
+    nout = abs( (int)corner[1].y - (int)corner[0].y );
+
+    if (color_mode == IC_RGBA) {
+	/* RGB + Alpha channel
+	 * Resize explicitly in a loop rather than calling a library
+	 * routine in order not to apply the alpha correction more than
+	 * once when building up any given output pixel.
+	 */
+	for (n=0; n<nout; n++) {
+	for (m=0; m<mout; m++) {
+	    rgb_color rgb1;
+	    rgb255_color rgb255;
+	    int alpha;
+	    int msrc = (m*(long)(M-1))/(mout-1);
+	    int nsrc = (n*(long)(N-1))/(nout-1);
+	    coordval *cval = image + 4*(M*nsrc + msrc);
+	    rgb1.r = *cval++;
+	    rgb1.g = *cval++;
+	    rgb1.b = *cval++;
+	    alpha  = *cval++;
+	    alpha  = 127 - (alpha>>1);	/* input is [0:255] but gd wants [127:0] */
+	    rgb255_from_rgb1( rgb1, &rgb255 );
+	    pixel = gdImageColorResolveAlpha( png_state.image,
+		(int)rgb255.r, (int)rgb255.g, (int)rgb255.b, alpha);
+	    gdImageSetPixel( png_state.image, m + corner[0].x, n + Y(corner[0].y), pixel );
+	}
+	}
+
+    } else if (color_mode == IC_RGB) {
+	/* TrueColor 24-bit color mode */
 	for (n=0; n<N; n++) {
 	for (m=0; m<M; m++) {
 	    rgb_color rgb1;
@@ -2029,39 +2166,34 @@ PNG_image (unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagec
 	    gdImageSetPixel( im, m, n, pixel );
 	}
 	}
-    /* Palette color lookup from gray value */
-    } else {
+
+    } else if (color_mode == IC_PALETTE) {
+	/* Palette color lookup from gray value */
 	for (n=0; n<N; n++) {
 	for (m=0; m<M; m++) {
 	    rgb255_color rgb;
-	    rgb255maxcolors_from_gray( *image++, &rgb );
-	    pixel = gdImageColorResolve( im,
-		(int)rgb.r, (int)rgb.g, (int)rgb.b );
+	    if (isnan(*image)) {
+		/* Transparent would be even better */
+		pixel = png_state.color_table[0];
+		image++;
+	    } else {
+		rgb255maxcolors_from_gray( *image++, &rgb );
+		pixel = gdImageColorResolve( im,
+		    (int)rgb.r, (int)rgb.g, (int)rgb.b );
+	    }
 	    gdImageSetPixel( im, m, n, pixel );
 	}
 	}
     }
 
-#if (GD2_VERS >= 2)
-    /* Set clipping bound for area into which we will copy */
-    xclip1 = GPMIN(corner[2].x, corner[3].x);
-    xclip2 = GPMAX(corner[2].x, corner[3].x);
-    yclip1 = GPMIN(Y(corner[2].y), Y(corner[3].y));
-    yclip2 = GPMAX(Y(corner[2].y), Y(corner[3].y));
-    gdImageGetClip(png_state.image, &x1, &y1, &x2, &y2);
-    gdImageSetClip(png_state.image, xclip1, yclip1, xclip2, yclip2);
-#endif
-
     /* Copy and resize onto requested region of plot */
-    /* FIXME - WOULD gdImageCopyResampled() do a nicer job ??? */
-    mout = abs( (int)corner[1].x - (int)corner[0].x );
-    nout = abs( (int)corner[1].y - (int)corner[0].y );
-    gdImageCopyResized(png_state.image, im,
-	(corner[0].x), Y(corner[0].y),	/* Destination X, Y */
-	0, 0, 				/* Source X, Y */
-	mout, nout,			/* Destination Width, Height */
-	M, N				/* Source Width, Height */
-	);
+    if (color_mode != IC_RGBA)
+	gdImageCopyResized(png_state.image, im,
+		(corner[0].x), Y(corner[0].y),	/* Destination X, Y */
+		0, 0, 				/* Source X, Y */
+		mout, nout,			/* Destination Width, Height */
+		M, N				/* Source Width, Height */
+		);
     gdImageDestroy(im);
 
 #if (GD2_VERS >= 2)
@@ -2071,7 +2203,6 @@ PNG_image (unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagec
 
 }
 
-#endif
 #undef MAXLINEWIDTH
 #undef Y
 
@@ -2086,7 +2217,7 @@ TERM_TABLE_START(png_driver)
     PNG_linetype, PNG_put_text, PNG_text_angle,
     PNG_justify_text, PNG_point, do_arrow, PNG_set_font,
     PNG_pointsize,
-    TERM_BINARY,
+    TERM_CAN_MULTIPLOT|TERM_BINARY|TERM_LINEWIDTH, /* TERM_ALPHA_CHANNEL only if truecolor */
     0 /*suspend*/, 0 /*resume*/,
     PNG_boxfill /*EAM - fillbox*/,
     PNG_linewidth /*EAM - linewidth*/
@@ -2097,9 +2228,7 @@ TERM_TABLE_START(png_driver)
     0, /* previous_palette() ... no, single array of 256 colours for PNG */
     PNG_set_color,
     PNG_filled_polygon
-#ifdef WITH_IMAGE
     , PNG_image
-#endif
     , ENHGD_OPEN, ENHGD_FLUSH, do_enh_writec
 TERM_TABLE_END(png_driver)
 
@@ -2123,92 +2252,74 @@ START_HELP(png)
 "       set terminal png ",
 "              {{no}transparent} {{no}interlace}",
 "              {{no}truecolor} {rounded|butt}",
+"              {linewidth <lw>} {dashlength <dl>}",
 "              {tiny | small | medium | large | giant}",
-"              {font <face> {<pointsize>}}",
+"              {font \"<face> {,<pointsize>}\"} {{no}enhanced}",
 "              {size <x>,<y>} {{no}crop}",
-"              {{no}enhanced}",
-"              {<color0> <color1> <color2> ...}",
+"              {<background_color>}",
 "",
-" PNG images are created using libgd, with optional support for TrueType",
-" and Adobe Type 1 fonts via libfreetype. Version 1.8 or greater of libgd",
-" is required.",
+" PNG, JPEG and GIF images are created using the external library libgd.",
+" PNG plots may be viewed interactively by piping the output to the",
+" 'display' program from the ImageMagick package as follows:",
+"                set term png",
+"                set output '| display png:-'",
+" You can view the output from successive plot commands interactively by typing",
+" <space> in the display window.  To save the current plot to a file,",
+" left click in the display window and choose `save`.",
 "",
-" `transparent` instructs the driver to generate transparent PNGs.  The first",
-" color will be the transparent one. Default is `notransparent`.",
+" `transparent` instructs the driver to make the background color transparent.",
+" Default is `notransparent`.",
 "",
 " `interlace` instructs the driver to generate interlaced PNGs.",
 " Default is `nointerlace`.",
+"",
+" The `linewidth` and `dashlength` options are scaling factors that affect all",
+" lines drawn, i.e. they are multiplied by values requested in various drawing",
+" commands.",
+"",
+" By default output png images use 256 indexed colors. The `truecolor` option",
+" instead creates TrueColor images with 24 bits of color information per pixel.",
+" Transparent fill styles require the `truecolor` option. See `fillstyle`.",
+" A transparent background is possible in either indexed or TrueColor images.",
 "",
 " `butt` instructs the driver to use a line drawing method that does",
 " not overshoot the desired end point of a line.  This setting is only",
 " applicable for line widths greater than 1.  This setting is most useful when",
 " drawing horizontal or vertical lines.  Default is `rounded`.",
-" Version 2.0 or greater of libgd is required.",
 "",
-" PNG plots may be conveniently viewed by piping the output to the",
-" 'display' program from the ImageMagick package as follows:",
-"                set term png",
-"                set output '| display png:-'",
+" The details of font selection are complicated.",
+" Two equivalent simple examples are given below:",
+"      set term png font arial 11",
+"      set term png font \"arial,11\"",
+" For more information please see the separate section under `fonts`.",
 "",
-" View the output from successive plot commands interactively by hitting",
-" <space> in the display window.  To save a particular one to disk, left",
-" click in the display window and choose `save`.",
+" The output plot size <x,y> is given in pixels---it defaults to 640x480.",
+" Please see additional information under `canvas` and `set size`.",
+" Blank space at the edges of the finished plot may be trimmed using the `crop`",
+" option, resulting in a smaller final image size. Default is `nocrop`.",
 "",
-" Five basic fonts are supported directly by the gd library. These are",
-" `tiny` (5x8 pixels), `small` (6x12 pixels), `medium`, (7x13 Bold), ",
-" `large` (8x16) or `giant` (9x15 pixels). These fonts cannot be scaled",
-" or rotated (pure horizontal or vertical text only).",
+" The background color must be given in the form 'xrrggbb', where x is the",
+" literal character 'x' and 'rrggbb' are the red, green and blue components",
+" in hexadecimal.  For example, 'x00ff00' is green.  The specification of",
+" additional colors other than the background is deprecated.",
 "",
-"=fonts",
-" If gnuplot was built with support for TrueType (*.ttf) or Adobe Type 1 ",
-" (*.pfa) fonts, they may be selected using the 'font <face> {<pointsize>}' ",
-" option. <face> is either the full pathname to the font file, or a font ",
-" face name that is assumed to be the first part of a filename in one of the ",
-" directories listed in the GDFONTPATH environmental variable. That is, ",
-" 'set term png font \"Face\"' will look for a font file named either ",
-" <somedirectory>/Face.ttf or <somedirectory>/Face.pfa. Both TrueType and ",
-" Adobe Type 1 fonts are fully scalable and may be rotated through any angle.",
-" If no font is specified, gnuplot checks the environmental variable ",
-" GNUPLOT_DEFAULT_GDFONT to see if there is a preferred default font. ",
+"2 examples",
+"?set term png examples",
+"       set terminal png medium size 640,480 xffffff",
 "",
-" `enhanced` enables the enhanced text processing features, (subscripts, ",
-" superscripts and mixed fonts). See `enhanced` for more information. ",
-" The full enhanced mode syntax is supported by the PNG/JPEG driver itself,",
-" but some of these features are dependent on which version of the ",
-" underlying libgd library is present, and which fonts are available.",
-"",
-" The size <x,y> is given in pixels---it defaults to 640x480.  The number of",
-" pixels can be also modified by scaling with the `set size` command.",
-" `crop` trims blank space from the edges of the completed plot, resulting",
-" in a smaller final image size. Default is `nocrop`.",
-"",
-" Each color must be of the form 'xrrggbb', where x is the literal character",
-" 'x' and 'rrggbb' are the red, green and blue components in hex.  For example,",
-" 'x00ff00' is green.  The background color is set first, then the border",
-" colors, then the X & Y axis colors, then the plotting colors.  The maximum",
-" number of colors that can be set is 256.",
-"",
-" Examples:",
-"       set terminal png medium size 640,480 \\",
-"                        xffffff x000000 x404040 \\",
-"                        xff0000 xffa500 x66cdaa xcdb5cd \\",
-"                        xadd8e6 x0000ff xdda0dd x9500d3    # defaults",
-"",
-" which uses white for the non-transparent background, black for borders, gray",
-" for the axes, and red, orange, medium aquamarine, thistle 3, light blue, blue,",
-" plum and dark violet for eight plotting colors.",
+" Use the medium size built-in non-scaleable, non-rotatable font.",
+" Use white (xffffff) for the non-transparent background.",
 "",
 "       set terminal png font arial 14 size 800,600",
 "",
-" which searches for a TrueType font with face name 'arial' in the directory",
-" specified by the environment variable GDFONTPATH and 14pt font size.",
+" Searches for a scalable font with face name 'arial' and sets the font",
+" size to 14pt.  Please see `fonts` for details of how the font search",
+" is done.",
 "",
-"       set terminal png transparent xffffff \\",
-"                        x000000 x202020 x404040 x606060 \\",
-"                        x808080 xA0A0A0 xC0C0C0 xE0E0E0",
+"       set terminal png transparent truecolor enhanced",
 "",
-" which uses white for the transparent background, black for borders, dark",
-" gray for axes, and a gray-scale for the six plotting colors.",
+" Use 24 bits of color information per pixel, with a transparent background.",
+" Use the `enhanced text` mode to control the layout of strings to be printed.",
 ""
 END_HELP(png)
 #endif /* TERM_HELP */
@@ -2262,7 +2373,7 @@ TERM_TABLE_START(jpeg_driver)
     PNG_linetype, PNG_put_text, PNG_text_angle,
     PNG_justify_text, PNG_point, do_arrow, PNG_set_font,
     PNG_pointsize,
-    TERM_CAN_MULTIPLOT | TERM_BINARY,
+    TERM_CAN_MULTIPLOT|TERM_BINARY|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH,
     0 /*suspend*/, 0 /*resume*/,
     PNG_boxfill /*EAM - fillbox*/,
     PNG_linewidth /*EAM - linewidth*/
@@ -2273,9 +2384,7 @@ TERM_TABLE_START(jpeg_driver)
     0, /* previous_palette() ... no, single array of 256 colours for PNG */
     PNG_set_color,
     PNG_filled_polygon
-#ifdef WITH_IMAGE
     , PNG_image
-#endif
     , ENHGD_OPEN, ENHGD_FLUSH, do_enh_writec
 TERM_TABLE_END(jpeg_driver)
 
@@ -2284,7 +2393,6 @@ TERM_TABLE_END(jpeg_driver)
 
 #endif /* TERM_TABLE */
 #endif /* TERM_PROTO_ONLY */
-
 
 #ifdef TERM_HELP
 START_HELP(jpeg)
@@ -2295,70 +2403,49 @@ START_HELP(jpeg)
 "?terminal jpeg",
 "?term jpeg",
 "?jpeg",
-"",
 " Syntax:",
 "       set terminal jpeg ",
-"                        {{no}interlace}",
-"                        {tiny | small | medium | large | giant}",
-"                        {font <face> {<pointsize>}}",
-"                        {size <x>,<y>} {{no}crop}",
-"                        {{no}enhanced}",
-"                        {<color0> <color1> <color2> ...}",
+"              {{no}interlace}",
+"              {linewidth <lw>} {dashlength <dl>} {rounded|butt}",
+"              {tiny | small | medium | large | giant}",
+"              {font \"<face> {,<pointsize>}\"} {{no}enhanced}",
+"              {size <x>,<y>} {{no}crop}",
+"              {<background_color>}",
 "",
-" JPEG images are created using libgd, with optional support for TrueType",
-" fonts via libfreetype.",
+" PNG, JPEG and GIF images are created using the external library libgd.",
+" In most cases, PNG is to be preferred for single plots, and GIF for",
+" animations.  Both are loss-less image formats, and produce better image",
+" quality than the lossy JPEG format. This is in particular noticeable",
+" for solid color lines against a solid background, i.e. exactly the sort",
+" of image typically created by gnuplot.",
 "",
 " The `interlace` option creates a progressive JPEG image.",
 " Default is `nointerlace`.",
 "",
-" Five basic fonts are supported directly by the gd library. These are",
-" `tiny` (5x8 pixels), `small` (6x12 pixels), `medium`, (7x13 Bold), ",
-" `large` (8x16) or `giant` (9x15 pixels). These fonts cannot be scaled",
-" or rotated (pure horizontal or vertical text only).",
+" The `linewidth` and `dashlength` options are scaling factors that affect all",
+" lines drawn, i.e. they are multiplied by values requested in various drawing",
+" commands.",
 "",
-"=fonts",
-" If gnuplot was built with support for TrueType (*.ttf) or Adobe Type 1 ",
-" (*.pfa) fonts, they may be selected using the 'font <face> {<pointsize>}' ",
-" option. <face> is either the full pathname to the font file, or a font ",
-" face name that is assumed to be the first part of a filename in one of the ",
-" directories listed in the GDFONTPATH environmental variable. That is, ",
-" 'set term jpeg font \"Face\"' will look for a font file named either ",
-" <somedirectory>/Face.ttf or <somedirectory>/Face.pfa. Both TrueType and ",
-" Adobe Type 1 fonts are fully scalable and may be rotated through any angle.",
-" If no font is specified, gnuplot checks the environmental variable ",
-" GNUPLOT_DEFAULT_GDFONT to see if there is a preferred default font. ",
+" `butt` instructs the driver to use a line drawing method that does",
+" not overshoot the desired end point of a line.  This setting is only",
+" applicable for line widths greater than 1.  This setting is most useful when",
+" drawing horizontal or vertical lines.  Default is `rounded`.",
 "",
-" `enhanced` enables the enhanced text processing features, (subscripts, ",
-" superscripts and mixed fonts). See `enhanced` for more information. ",
-" The full enhanced mode syntax is supported by the PNG/JPEG driver itself,",
-" but some of these features are dependent on which version of the ",
-" underlying libgd library is present, and which fonts are available.",
+" The details of font selection are complicated.",
+" Two equivalent simple examples are given below:",
+"      set term jpeg font arial 11",
+"      set term jpeg font \"arial,11\"",
+" For more information please see the separate section under `fonts`.",
 "",
-" The size <x,y> is given in pixels---it defaults to 640x480.  The number of",
-" pixels can be also modified by scaling with the `set size` command.",
-" `crop` trims blank space from the edges of the completed plot, resulting",
-" in a smaller final image size. Default is `nocrop`.",
+" The output plot size <x,y> is given in pixels---it defaults to 640x480.",
+" Please see additional information under `canvas` and `set size`.",
+" Blank space at the edges of the finished plot may be trimmed using the `crop`",
+" option, resulting in a smaller final image size. Default is `nocrop`.",
 "",
-" Each color must be of the form 'xrrggbb', where x is the literal character",
-" 'x' and 'rrggbb' are the red, green and blue components in hex.  For example,",
-" 'x00ff00' is green.  The background color is set first, then the border",
-" colors, then the X & Y axis colors, then the plotting colors.  The maximum",
-" number of colors that can be set is 256.",
-"",
-" Examples:",
-"       set terminal jpeg medium size 640,480 \\",
-"                        xffffff x000000 x404040 \\",
-"                        xff0000 xffa500 x66cdaa xcdb5cd \\",
-"                        xadd8e6 x0000ff xdda0dd x9500d3    # defaults",
-"",
-" which uses white for the non-transparent background, black for borders, gray",
-" for the axes, and red, orange, medium aquamarine, thistle 3, light blue, blue,",
-" plum and dark violet for eight plotting colors.",
-"",
-"       set terminal jpeg large font arial size 800,600",
-"",
-" which searches for a TrueType font with face name 'arial' in the directory",
-" specified by the environment variable GDFONTPATH and large (14pt) font size.",
+" The background color must be given in the form 'xrrggbb', where x is the",
+" literal character 'x' and 'rrggbb' are the red, green and blue components",
+" in hexadecimal.  For example, 'x00ff00' is green.  The specification of",
+" additional colors other than the background is deprecated.",
 ""
 END_HELP(jpeg)
 #endif /* TERM_HELP */
@@ -2438,7 +2525,7 @@ TERM_TABLE_START(gif_driver)
     PNG_linetype, PNG_put_text, PNG_text_angle,
     PNG_justify_text, PNG_point, do_arrow, PNG_set_font,
     PNG_pointsize,
-    TERM_CAN_MULTIPLOT | TERM_BINARY,
+    TERM_CAN_MULTIPLOT|TERM_BINARY|TERM_LINEWIDTH,
     0 /*suspend*/, 0 /*resume*/,
     PNG_boxfill /*EAM - fillbox*/,
     PNG_linewidth /*EAM - linewidth*/
@@ -2449,9 +2536,7 @@ TERM_TABLE_START(gif_driver)
     0, /* previous_palette() ... no, single array of 256 colours for PNG */
     PNG_set_color,
     PNG_filled_polygon
-#ifdef WITH_IMAGE
     , PNG_image
-#endif
     , ENHGD_OPEN, ENHGD_FLUSH, do_enh_writec
 TERM_TABLE_END(gif_driver)
 
@@ -2471,58 +2556,48 @@ START_HELP(gif)
 "?terminal gif",
 "?term gif",
 "?gif",
-"",
 " Syntax:",
 "       set terminal gif ",
-"                        {tiny | small | medium | large | giant}",
-"                        {{no}transparent} {{no}enhanced}",
-"                        {font <face> {<pointsize>}}",
-"                        {animate {delay <time>} {{no}optimize}}",
-"                        {size <x>,<y>} {{no}crop}",
-"                        {<color0> <color1> <color2> ...}",
+"              {{no}transparent} {rounded|butt}",
+"              {linewidth <lw>} {dashlength <dl>}",
+"              {tiny | small | medium | large | giant}",
+"              {font \"<face> {,<pointsize>}\"} {{no}enhanced}",
+"              {size <x>,<y>} {{no}crop}",
+"              {animate {delay <d>} {loop <n>} {{no}optimize}}",
+"              {<background_color>}",
 "",
-" GIF images are created using libgd, with optional support for TrueType",
-" fonts via libfreetype.",
-"",
-" GIF plots may be conveniently viewed by piping the output to the",
+" PNG, JPEG and GIF images are created using the external library libgd.",
+" GIF plots may be viewed interactively by piping the output to the",
 " 'display' program from the ImageMagick package as follows:",
 "                set term gif",
 "                set output '| display gif:-'",
+" You can view the output from successive plot commands interactively by typing",
+" <space> in the display window.  To save the current plot to a file,",
+" left click in the display window and choose `save`.",
 "",
-" View the output from successive plot commands interactively by hitting",
-" <space> in the display window.  To save a particular one to disk, left",
-" click in the display window and choose `save`.",
+" `transparent` instructs the driver to make the background color transparent.",
+" Default is `notransparent`.",
 "",
-" Five basic fonts are supported directly by the gd library. These are",
-" `tiny` (5x8 pixels), `small` (6x12 pixels), `medium`, (7x13 Bold), ",
-" `large` (8x16) or `giant` (9x15 pixels). These fonts cannot be scaled",
-" or rotated (pure horizontal or vertical text only).",
+" The `linewidth` and `dashlength` options are scaling factors that affect all",
+" lines drawn, i.e. they are multiplied by values requested in various drawing",
+" commands.",
 "",
-" `transparent` instructs the driver to generate transparent GIFs.  The first",
-" color will be the transparent one. Default is `notransparent`.",
+" `butt` instructs the driver to use a line drawing method that does",
+" not overshoot the desired end point of a line.  This setting is only",
+" applicable for line widths greater than 1.  This setting is most useful when",
+" drawing horizontal or vertical lines.  Default is `rounded`.",
 "",
-" `enhanced` enables the enhanced text processing features, (subscripts, ",
-" superscripts and mixed fonts). See `enhanced` for more information. ",
-" The full enhanced mode syntax is supported by the PNG/GIF driver itself,",
-" but some of these features are dependent on which version of the ",
-" underlying libgd library is present, and which fonts are available.",
-"",
-"=fonts",
-" If your local gd library was built with support for TrueType  and Adobe",
-" Type 1 fonts, they may be selected using the 'font <face> {<pointsize>}' ",
-" option. <face> is either the full pathname to the font file, or a font ",
-" face name that is assumed to be the first part of a filename in one of the ",
-" directories listed in the GDFONTPATH environmental variable. That is, ",
-" 'set term gif font \"Face\"' will look for a font file named either ",
-" <somedirectory>/Face.ttf or <somedirectory>/Face.pfa. Both TrueType and ",
-" Adobe Type 1 fonts are fully scalable and may be rotated through any angle.",
-" If no font is specified, gnuplot checks the environmental variable ",
-" GNUPLOT_DEFAULT_GDFONT to see if there is a preferred default font. ",
+" The details of font selection are complicated.",
+" Two equivalent simple examples are given below:",
+"      set term gif font arial 11",
+"      set term gif font \"arial,11\"",
+" For more information please see the separate section under `fonts`.",
 "",
 " The `animate` option is available only if your local gd library supports",
 " the creation of animated gifs. The default delay between display of",
 " successive images may be specified in units of 1/100 second (default 5).",
 " The actual delay may vary depending on the program used as a viewer.",
+" Number of animation loops can be specified, default 0 means infinity.",
 " An animation sequence is terminated by the next `set output` or `set term`",
 " command.  The `optimize` option has two effects on the animation.",
 "",
@@ -2544,31 +2619,35 @@ START_HELP(gif)
 " file than gnuplot's internal optimization mode.",
 " The default is `nooptimize`.",
 "",
-" The size <x,y> is given in pixels---it defaults to 640x480.  The number of",
-" pixels can be also modified by scaling with the `set size` command.",
-" `crop` trims blank space from the edges of the completed plot, resulting",
-" in a smaller final image size. Default is `nocrop`.",
+" The output plot size <x,y> is given in pixels---it defaults to 640x480.",
+" Please see additional information under `canvas` and `set size`.",
+" Blank space at the edges of the finished plot may be trimmed using the `crop`",
+" option, resulting in a smaller final image size. Default is `nocrop`.",
 "",
-" Each color must be of the form 'xrrggbb', where x is the literal character",
-" 'x' and 'rrggbb' are the red, green and blue components in hex.  For example,",
-" 'x00ff00' is green.  The background color is set first, then the border",
-" colors, then the X & Y axis colors, then the plotting colors.  The maximum",
-" number of colors that can be set is 256.",
+" The background color must be given in the form 'xrrggbb', where x is the",
+" literal character 'x' and 'rrggbb' are the red, green and blue components",
+" in hexadecimal.  For example, 'x00ff00' is green.  The specification of",
+" additional colors other than the background is deprecated.",
 "",
-" Examples:",
-"       set terminal gif medium size 640,480 \\",
-"                        xffffff x000000 x404040 \\",
-"                        xff0000 xffa500 x66cdaa xcdb5cd \\",
-"                        xadd8e6 x0000ff xdda0dd x9500d3    # defaults",
+"2 examples",
+"?set term gif examples",
+"       set terminal gif medium size 640,480 xffffff",
 "",
-" which uses white for the non-transparent background, black for borders, gray",
-" for the axes, and red, orange, medium aquamarine, thistle 3, light blue, blue,",
-" plum and dark violet for eight plotting colors.",
+" Use the medium size built-in non-scaleable, non-rotatable font.",
+" Use white (xffffff) for the non-transparent background.",
 "",
-"       set terminal gif font 'arial' 14 size 800,600",
+"       set terminal gif font arial 14 enhanced",
 "",
-" which searches for a TrueType font with face name 'arial' in the directory",
-" specified by the environment variable GDFONTPATH and 14pt font size.",
+" Searches for a scalable font with face name 'arial' and sets the font",
+" size to 14pt.  Please see `fonts` for details of how the font search",
+" is done.  Because this is a scalable font, we can use enhanced text mode.",
+"",
+"       set term gif animate transparent opt delay 10 size 200,200 x000000",
+"       load \"animate2.dem\"",
+"",
+" Open the gif terminal for creation of an animated gif file.  The individual",
+" frames of the animation sequence are created by the script file animate2.dem",
+" from the standard collection of demos.",
 ""
 END_HELP(gif)
 #endif /* TERM_HELP */

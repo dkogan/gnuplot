@@ -3,7 +3,7 @@ AUTOMAKE_OPTIONS = foreign 1.2h
 
 SUBDIRS = config m4 term src docs $(LISPDIR) man demo tutorial share
 
-EXTRA_DIST = BUGS CodeStyle Copyright FAQ GNUmakefile INSTALL INSTALL.gnu \
+EXTRA_DIST = BUGS CodeStyle Copyright FAQ.pdf GNUmakefile INSTALL INSTALL.gnu \
 Makefile.maint PATCHLEVEL PGPKEYS PORTING README README.1ST \
 VERSION configure.vms pm3d
 
@@ -19,3 +19,7 @@ dist-hook:
 	@find $(distdir) -type d -name .deps -print | xargs rm -rf
 	@find $(distdir) -type f -name .cvsignore -print | xargs rm -f
 	@(cd $(distdir)/lisp && rm -f $(LISP_DISTCLEANFILES))
+
+gnuplot:
+	cd src; make binonly
+

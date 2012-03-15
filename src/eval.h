@@ -1,5 +1,5 @@
 /*
- * $Id: eval.h,v 1.26 2006/07/21 05:19:51 sfeam Exp $
+ * $Id: eval.h,v 1.32 2008/07/21 20:19:25 sfeam Exp $
  */
 
 /* GNUPLOT - eval.h */
@@ -52,14 +52,13 @@
 /* HBB 20010725: Moved here, from parse.h */
 enum operators {
     /* keep this in line with table in eval.c */
-    PUSH, PUSHC, PUSHD1, PUSHD2, PUSHD,
+    PUSH, PUSHC, PUSHD1, PUSHD2, PUSHD, POP,
     CALL, CALLN, LNOT, BNOT, UMINUS,
     LOR, LAND, BOR, XOR, BAND, EQ, NE, GT, LT, GE, LE, PLUS, MINUS, MULT,
     DIV, MOD, POWER, FACTORIAL, BOOLE,
     DOLLARS, /* for using extension - div */
-#ifdef GP_STRING_VARS
     CONCATENATE, EQS, NES, RANGE,
-#endif
+    ASSIGN,
     /* only jump operators go between jump and sf_start, for is_jump() */
     JUMP, JUMPZ, JUMPNZ, JTERN, SF_START
 };
@@ -141,10 +140,8 @@ double magnitude __PROTO((struct value *));
 double angle __PROTO((struct value *));
 struct value * Gcomplex __PROTO((struct value *, double, double));
 struct value * Ginteger __PROTO((struct value *, int));
-#ifdef GP_STRING_VARS
 struct value * Gstring __PROTO((struct value *, char *));
 struct value * pop_or_convert_from_string __PROTO((struct value *));
-#endif
 struct value * gpfree_string __PROTO((struct value *a));
 
 void reset_stack __PROTO((void));
@@ -170,5 +167,14 @@ struct udvt_entry * add_udv_by_name __PROTO((char *key));
 
 /* update GPVAL_ variables available to user */
 void update_gpval_variables __PROTO((int from_plot_command));
+/* note: the routines below work for any variable name, not just those beginning GPVAL_ */
+void fill_gpval_string __PROTO((char *var, const char *value));
+void fill_gpval_integer __PROTO((char *var, int value));
+void fill_gpval_float __PROTO((char *var, double value));
+void fill_gpval_complex __PROTO((char *var, double areal, double aimag));
+
+/* C-callable versions of internal gnuplot functions word() and words() */
+char * gp_word __PROTO((char *string, int i));
+int gp_words __PROTO((char *string));
 
 #endif /* GNUPLOT_EVAL_H */

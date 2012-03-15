@@ -1,5 +1,5 @@
 /* -*- objc -*-
- * $Id: aquaterm.trm,v 1.31.2.2 2009/07/03 05:36:28 sfeam Exp $
+ * $Id: aquaterm.trm,v 1.40.2.2 2009/07/04 21:18:07 sfeam Exp $
  *
  */
 
@@ -66,9 +66,7 @@ TERM_PUBLIC int AQUA_make_palette __PROTO((t_sm_palette *palette));
 TERM_PUBLIC void AQUA_previous_palette __PROTO((void));
 TERM_PUBLIC void AQUA_set_color __PROTO((t_colorspec *));
 TERM_PUBLIC void AQUA_filled_polygon __PROTO((int points, gpiPoint *corners));
-# ifdef WITH_IMAGE
 TERM_PUBLIC void AQUA_image __PROTO((unsigned, unsigned, coordval *, gpiPoint *, t_imagecolor));
-# endif
 TERM_PUBLIC void ENHAQUA_put_text __PROTO((unsigned int x, unsigned int y, const char str[]));
 TERM_PUBLIC void ENHAQUA_open __PROTO((char * fontname, double fontsize,
 				       double base, TBOOLEAN widthflag, TBOOLEAN showflag,
@@ -118,6 +116,9 @@ static NSAutoreleasePool *arpool;
 static NSAutoreleasePool *loopPool;
 static AQTAdapter *adapter;
 
+/* Supported features */
+static TBOOLEAN AQUA_hasAlphaSupport = FALSE;
+
 /* Internal state */
 static int AQUA_plotRef = 0; /* A ref to the current plot */
 static char AQUA_title[MAX_LINE_LEN + 1] = "Figure 0"; /* Plot title (in windowbar) */
@@ -166,7 +167,6 @@ static NSString* AQUA_convert_using_encoding __PROTO((const char *string));
 TERM_PUBLIC void
 AQUA_options()
 {
-  struct value a;
   char *s;
   TBOOLEAN set_number = FALSE;
   
@@ -191,7 +191,7 @@ AQUA_options()
 
 	if (END_OF_COMMAND)
 	    int_error(c_token,"expecting x size");
-	value = real(const_express (&a));
+	value = real_expression();
 	if (value < 2 || value > 2048)
 	    int_error(c_token,"x size out of range");
 	AQUA_xSize = (unsigned int) value * AQUA_RESOLUTION;
@@ -200,7 +200,7 @@ AQUA_options()
 	    int_error(c_token,"expecting y size");
 	if (equals(c_token, ","))
 	    c_token++;
-	value = real(const_express (&a));
+	value = real_expression();
 	if (value < 2 || value > 2048)
 	    int_error(c_token,"y size out of range");
 	AQUA_ySize = (unsigned int) value * AQUA_RESOLUTION;
@@ -227,7 +227,7 @@ AQUA_options()
 
 	if (END_OF_COMMAND)
 	    int_error(c_token,"expecting font size");
-	AQUA_fontSizeCur = real (const_express (&a));
+	AQUA_fontSizeCur = real_expression();
 	continue;
     }
 
@@ -247,7 +247,7 @@ AQUA_options()
 	    c_token++;
 	    if (END_OF_COMMAND)
 		int_error(c_token, "expecting dashlength multiplier");
-	    AQUA_dashlength_factor = real(const_express(&a));
+	    AQUA_dashlength_factor = real_expression();
 	    if (AQUA_dashlength_factor < 0.0)
 		AQUA_dashlength_factor = AQUA_DEFAULT_DASHLENGTH_FACTOR;
 	    continue;
@@ -267,8 +267,8 @@ AQUA_options()
       continue;
     }
 
-    if (!set_number) { /* plot ref number */
-	AQUA_plotRef = (int) real (const_express (&a));
+    if (!set_number) { /* plot ref number*/
+	AQUA_plotRef = int_expression();
 	set_number = TRUE;
 	continue;
     }
@@ -311,6 +311,9 @@ AQUA_convert_using_encoding(const char *string)
   case S_ENC_ISO8859_2:
     currentEncoding = NSISOLatin2StringEncoding;
     break;
+  case S_ENC_ISO8859_9:
+    currentEncoding = NSWindowsCP1254StringEncoding;
+    break;
   case S_ENC_CP1250:
     currentEncoding = NSWindowsCP1250StringEncoding;
     break;
@@ -351,6 +354,9 @@ AQUA_init()
 
   /* Must open plot before all other commands */
   [adapter openPlotWithIndex:AQUA_plotRef];
+
+  /* Check for support of version-dependent features */
+   AQUA_hasAlphaSupport = [AQTAdapter respondsToSelector:@selector(setColorRed:green:blue:alpha:)];
 
   /* set xmax, ymax*/
   term->xmax = AQUA_xSize;
@@ -564,7 +570,6 @@ AQUA_boxfill(int style, unsigned int x1, unsigned int y1, unsigned int width, un
    * - pattern : 0 - 100
    */
   int fillpar = style >> 4;
-
   style &= 0xf;
 
   switch (style) {
@@ -575,9 +580,15 @@ AQUA_boxfill(int style, unsigned int x1, unsigned int y1, unsigned int width, un
       [adapter setColorRed:rb green:gb blue:bb];
     }
     break;
+  case FS_TRANSPARENT_SOLID:
+    if (AQUA_hasAlphaSupport) {
+      float alpha = fillpar * 0.01;
+      [adapter setColorRed:r green:g blue:b alpha:alpha];
+      break;
+    } else
+      /* fall through */
   case FS_SOLID: /* solid fill */
     {
-      /* Alpha channel? RGB -> HSV -> R'G'B'? */
       float density = (100 - fillpar)*0.01;
       [adapter setColorRed:r*(1-density) + density
 	             green:g*(1-density) + density
@@ -585,6 +596,7 @@ AQUA_boxfill(int style, unsigned int x1, unsigned int y1, unsigned int width, un
     }
     break;
   case FS_PATTERN: /* pattern fill */
+  case FS_TRANSPARENT_PATTERN:
     /* Can't do pattern easily, using colors. */
     [adapter takeColorFromColormapEntry:(fillpar%CYCLIC_COLORS)+SPECIAL_COLORS];
     break;
@@ -651,6 +663,44 @@ TERM_PUBLIC void
 AQUA_filled_polygon(int pc, gpiPoint *corners)
 {
   int i;
+  int fillpar = corners->style >> 4;
+  float r,g,b;
+
+  [adapter getColorRed:&r green:&g blue:&b];
+ 
+  /* This switch is a clone of the one in AQUA_boxfill() */
+  switch (corners->style & 0xf) {
+  case 0: /* fill with background color */
+    {
+      float rb, gb, bb;
+      [adapter getBackgroundColorRed:&rb green:&gb blue:&bb];
+      [adapter setColorRed:rb green:gb blue:bb];
+    }
+    break;
+  case FS_TRANSPARENT_SOLID:
+    if (AQUA_hasAlphaSupport) {
+      float alpha = fillpar * 0.01;
+      [adapter setColorRed:r green:g blue:b alpha:alpha];
+      break;
+    } else
+      /* fall through */
+  case FS_SOLID: /* solid fill */
+    {
+      float density = (100 - fillpar)*0.01;
+      [adapter setColorRed:r*(1-density) + density
+	             green:g*(1-density) + density
+	              blue:b*(1-density) + density];
+    }
+    break;
+  case FS_PATTERN: /* pattern fill */
+  case FS_TRANSPARENT_PATTERN:
+    /* Can't do pattern easily, using colors. */
+    [adapter takeColorFromColormapEntry:(fillpar%CYCLIC_COLORS)+SPECIAL_COLORS];
+    break;
+  default:
+    break;
+  }
+
   [adapter moveToVertexPoint:NSMakePoint(corners[0].x/AQUA_RESOLUTION,
 					 corners[0].y/AQUA_RESOLUTION)];
   for (i=1; i<pc; i++) {
@@ -663,8 +713,6 @@ TERM_PUBLIC void
 AQUA_previous_palette()
 {
 }
-
-#ifdef WITH_IMAGE
 
 TERM_PUBLIC void
 AQUA_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_imagecolor color_mode)
@@ -710,8 +758,6 @@ AQUA_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t
   return;
 }
 
-#endif /* WITH_IMAGE */
-
 /*
  * Per Persson 20041019
  * Support for enhanced text mode
@@ -734,8 +780,6 @@ ENHAQUA_put_text(unsigned int x, unsigned int y, const char str[])
       return;
     }
   /* set up the global variables needed by enhanced_recursion() */
-  enhanced_max_height = -1000;
-  enhanced_min_height = 1000;
   enhanced_fontscale = 1;
   strncpy(enhanced_escape_format,"\\%o",sizeof(enhanced_escape_format));
   
@@ -837,7 +881,7 @@ TERM_TABLE_START(aqua_driver)
   /* optionals */
   AQUA_text_angle,
   AQUA_justify_text, AQUA_point, do_arrow, AQUA_set_font,
-  AQUA_pointsize, TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE,
+  AQUA_pointsize, TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_CAN_DASH,
   AQUA_suspend, AQUA_resume,
   AQUA_boxfill, AQUA_linewidth
 #ifdef USE_MOUSE
@@ -846,11 +890,9 @@ TERM_TABLE_START(aqua_driver)
   , AQUA_make_palette,
   AQUA_previous_palette,
   AQUA_set_color,
-  AQUA_filled_polygon
-#ifdef WITH_IMAGE
-  , AQUA_image
-#endif
-    , ENHAQUA_open, ENHAQUA_flush, ENHAQUA_writec
+  AQUA_filled_polygon,
+  AQUA_image,
+  ENHAQUA_open, ENHAQUA_flush, ENHAQUA_writec
 TERM_TABLE_END(aqua_driver)
 
 #undef LAST_TERM

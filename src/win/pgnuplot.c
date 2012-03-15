@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: pgnuplot.c,v 1.15.2.2 2008/10/10 21:17:29 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: pgnuplot.c,v 1.16 2008/10/10 21:24:30 mikulik Exp $"); }
 #endif
 
 /*
@@ -251,7 +251,7 @@ main (int argc, char *argv[])
 		    "  -                   allow work in interactive mode after executing FILE\n"
 		    "Only on Windows, -persist and - have the same effect.\n"
 		    "This is gnuplot %s patchlevel %s\n"
-		    "Report bugs to <http://sourceforge.net/projects/gnuplot>\n",
+		    "Report bugs to <info-gnuplot-beta@lists.sourceforge.net>\n",
 		    gnuplot_version, gnuplot_patchlevel);
 	    return 0;
 	}

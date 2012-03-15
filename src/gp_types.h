@@ -1,5 +1,5 @@
 /*
- * $Id: gp_types.h,v 1.32 2005/10/22 05:50:13 sfeam Exp $
+ * $Id: gp_types.h,v 1.44 2009/03/26 00:49:13 sfeam Exp $
  */
 
 /* GNUPLOT - gp_types.h */
@@ -48,9 +48,7 @@
 enum DATA_TYPES {
 	INTGR=1,
 	CMPLX
-#ifdef GP_STRING_VARS
 	, STRING
-#endif
 };
 
 enum MODE_PLOT_TYPE {
@@ -100,16 +98,12 @@ typedef enum PLOT_STYLE {
     XYERRORLINES = 19*PLOT_STYLE_BITS + (PLOT_STYLE_HAS_LINE | PLOT_STYLE_HAS_POINT | PLOT_STYLE_HAS_ERRORBAR)
     , FILLEDCURVES = 21*PLOT_STYLE_BITS + PLOT_STYLE_HAS_LINE + PLOT_STYLE_HAS_FILL
     , PM3DSURFACE  = 22*PLOT_STYLE_BITS + 0
-#ifdef EAM_DATASTRINGS
     , LABELPOINTS  = 23*PLOT_STYLE_BITS + 0
-#endif
-#ifdef EAM_HISTOGRAMS
     , HISTOGRAMS   = 24*PLOT_STYLE_BITS + PLOT_STYLE_HAS_FILL
-#endif
-#ifdef WITH_IMAGE
     , IMAGE        = 25*PLOT_STYLE_BITS + 0
     , RGBIMAGE     = 26*PLOT_STYLE_BITS + 0
-#endif
+    , RGBA_IMAGE   = 27*PLOT_STYLE_BITS + 0
+    , CIRCLES      = 28*PLOT_STYLE_BITS + PLOT_STYLE_HAS_LINE + PLOT_STYLE_HAS_FILL
 } PLOT_STYLE;
 
 typedef enum PLOT_SMOOTH {
@@ -119,27 +113,25 @@ typedef enum PLOT_SMOOTH {
     SMOOTH_CSPLINES,
     SMOOTH_SBEZIER,
     SMOOTH_UNIQUE,
-    SMOOTH_FREQUENCY
+    SMOOTH_FREQUENCY,
+    SMOOTH_CUMULATIVE,
+    SMOOTH_KDENSITY
 } PLOT_SMOOTH;
 
 /* FIXME HBB 20000521: 'struct value' and its part, 'cmplx', should go
  * into one of scanner/internal/standard/util .h, but I've yet to
  * decide which of them */
 
-#if !(defined(ATARI)&&defined(__GNUC__)&&defined(_MATH_H)) &&  !(defined(MTOS)&&defined(__GNUC__)&&defined(_MATH_H)) /* FF's math.h has the type already */
 struct cmplx {
 	double real, imag;
 };
-#endif
 
 typedef struct value {
     enum DATA_TYPES type;
     union {
 	int int_val;
 	struct cmplx cmplx_val;
-#ifdef GP_STRING_VARS
 	char *string_val;
-#endif
     } v;
 } t_value;
 
@@ -152,10 +144,14 @@ typedef enum coord_type {
 } coord_type;
 
 
-/* The field of 'struct coordinate' used for storing the color of 3D data
+/* These fields of 'struct coordinate' used for storing the color of 3D data
  * points (if requested by NEED_PALETTE(this_plot), for instance).
  */
 #define CRD_COLOR ylow
+#define CRD_R yhigh
+#define CRD_G xlow
+#define CRD_B xhigh
+#define CRD_A ylow
 /* The field of 'struct coordinate' used for storing the point size in plot
  * style POINTSTYLE with variable point size
  */
@@ -168,12 +164,10 @@ typedef struct coordinate {
     coordval ylow, yhigh;	/* ignored in 3d */
     coordval xlow, xhigh;	/* also ignored in 3d */
 #if 0
-    /* color as a separate field can be only useful if colors are really
-     * used everywhere, but not in 3D, where CRD_COLOR maps it to the first
-     * 2D field unused by 3D. This saves 8 B, which may be finally a lot of
-     * memory for large surfaces.
-     * Another proposal is to completely separate 2d and 3d coordinates and
-     * change the data storage.
+    /* Currently color information is overloaded onto yhigh by the defintion
+     * of CRD_COLOR. This saves 8 bytes, but limits the use of variable color
+     * data to plot styles that do not already use the full set of coordinate
+     * fields (e.g. candlesticks, boxxyerror).
      */
     coordval color;		/* PM3D's color value to be used */
 				/* Note: accessed only if NEED_PALETTE(this_plot) */

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.99.2.7 2008/12/15 03:44:22 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.128.2.1 2009/12/09 05:56:16 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -53,9 +53,6 @@ static char *RCSid() { return RCSid("$Id: unset.c,v 1.99.2.7 2008/12/15 03:44:22
 #include "util.h"
 #include "variable.h"
 #include "pm3d.h"
-#ifdef BINARY_DATA_FILE
-#  include "datafile.h"
-#endif
 
 static void unset_angles __PROTO((void));
 static void unset_arrow __PROTO((void));
@@ -80,9 +77,7 @@ static void unset_fit __PROTO((void));
 static void unset_format __PROTO((void));
 static void unset_grid __PROTO((void));
 static void unset_hidden3d __PROTO((void));
-#ifdef EAM_HISTOGRAMS
 static void unset_histogram __PROTO((void));
-#endif
 static void unset_historysize __PROTO((void));
 static void unset_isosamples __PROTO((void));
 static void unset_key __PROTO((void));
@@ -107,15 +102,9 @@ static void unset_missing __PROTO((void));
 #ifdef USE_MOUSE
 static void unset_mouse __PROTO((void));
 #endif
-#if 0
-static void unset_multiplot __PROTO((void));
-#endif
 
 static void unset_month_day_tics __PROTO((AXIS_INDEX));
 static void unset_minitics __PROTO((AXIS_INDEX));
-#ifdef OLDUNSETTICS
-static void unset_tics_in __PROTO((void));
-#endif /* OLDUNSETTICS */
 
 static void unset_offsets __PROTO((void));
 static void unset_origin __PROTO((void));
@@ -153,29 +142,21 @@ static void unset_axislabel __PROTO((AXIS_INDEX));
 void
 unset_command()
 {
-    static char GPFAR unsetmess[] =
-    "valid unset options:  [] = choose one, {} means optional\n\n\
-\t'angles', 'arrow', 'autoscale', 'bar', 'border', 'boxwidth', 'clabel',\n\
-\t'clip', 'cntrparam', 'colorbox', 'contour', 'dgrid3d', 'decimalsign',\n\
-\t'dummy', 'encoding', 'fit', 'format', 'grid', 'hidden3d', 'historysize',\n\
-\t'isosamples', 'key', 'label', 'loadpath', 'locale', 'logscale',\n\
-\t'[blrt]margin', 'mapping', 'missing', 'mouse', 'multiplot', 'offsets',\n\
-\t'origin', 'output', 'palette', 'parametric', 'pm3d', 'pointsize',\n\
-\t'polar', 'print', '[rtuv]range', 'samples', 'size', 'style', 'surface',\n\
-\t'terminal', 'tics', 'ticscale', 'ticslevel', 'timestamp', 'timefmt',\n\
-\t'title', 'view', '[xyz,cb]{2}data', '[xyz,cb]{2}label',\n\
-\t'[xyz,cb]{2}range', '{m}[xyz,cb]{2}tics', '[xyz,cb]{2}[md]tics',\n\
-\t'{[xyz]{2}}zeroaxis', 'zero'";
-
     int found_token;
+    int save_token;
 
     c_token++;
+
+    check_for_iteration();
 
     found_token = lookup_table(&set_tbl[0],c_token);
 
     /* HBB 20000506: rationalize occurences of c_token++ ... */
     if (found_token != S_INVALID)
 	c_token++;
+
+    save_token = c_token;
+    ITERATE:
 
     switch(found_token) {
     case S_ANGLES:
@@ -287,9 +268,7 @@ unset_command()
 	df_separator = '\0';
 	free(df_commentschars);
 	df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
-#ifdef BINARY_DATA_FILE
 	df_unset_datafile_binary();
-#endif
 	break;
 #ifdef USE_MOUSE
     case S_MOUSE:
@@ -354,16 +333,13 @@ unset_command()
 	unset_terminal();
 	break;
     case S_TICS:
-#ifdef OLDUNSETTICS
-	unset_tics_in();
-#else
 	unset_tics(AXIS_ARRAY_SIZE);
-#endif /* OLDUNSETTICS */
 	break;
     case S_TICSCALE:
 	unset_ticscale();
 	break;
     case S_TICSLEVEL:
+    case S_XYPLANE:
 	unset_ticslevel();
 	break;
     case S_TIMEFMT:
@@ -535,10 +511,17 @@ unset_command()
 	break;
     case S_INVALID:
     default:
-	int_error(c_token, unsetmess);
+	int_error(c_token, "Unrecognized option.  See 'help unset'.");
 	break;
     }
-    update_gpval_variables(0); /* update GPVAL_ inner variables */
+
+    if (next_iteration()) {
+	c_token = save_token;
+	goto ITERATE;
+    }
+
+    /* FIXME - Should this be inside the iteration loop? */
+    update_gpval_variables(0);
 }
 
 
@@ -554,7 +537,6 @@ unset_angles()
 static void
 unset_arrow()
 {
-    struct value a;
     struct arrow_def *this_arrow;
     struct arrow_def *prev_arrow;
     int tag;
@@ -565,7 +547,7 @@ unset_arrow()
 	    delete_arrow((struct arrow_def *) NULL, first_arrow);
     } else {
 	/* get tag */
-	tag = (int) real(const_express(&a));
+	tag = int_expression();
 	if (!END_OF_COMMAND)
 	    int_error(c_token, "extraneous arguments to unset arrow");
 	for (this_arrow = first_arrow, prev_arrow = NULL;
@@ -672,7 +654,7 @@ unset_fillstyle()
     default_fillstyle.fillstyle = FS_EMPTY;
     default_fillstyle.filldensity = 100;
     default_fillstyle.fillpattern = 0;
-    default_fillstyle.border_linetype = LT_UNDEFINED;
+    default_fillstyle.border_color.type = TC_DEFAULT;
 }
 
 
@@ -733,6 +715,9 @@ unset_dgrid3d()
     dgrid3d_row_fineness = 10;
     dgrid3d_col_fineness = 10;
     dgrid3d_norm_value = 1;
+    dgrid3d_mode = DGRID3D_QNORM;
+    dgrid3d_x_scale = 1.0;
+    dgrid3d_y_scale = 1.0;
     dgrid3d = FALSE;
 }
 
@@ -761,9 +746,8 @@ unset_decimalsign()
     if (decimalsign != NULL)
 	free(decimalsign);
     decimalsign = NULL;
-#ifdef HAVE_LOCALE_H
-    setlocale(LC_NUMERIC,"C");
-#endif
+    free(numeric_locale);
+    numeric_locale = NULL;
 }
 
 
@@ -840,14 +824,12 @@ unset_hidden3d()
 #endif
 }
 
-#ifdef EAM_HISTOGRAMS
 static void
 unset_histogram()
 {
     histogram_opts.type = HT_CLUSTERED;
     histogram_opts.gap = 2;
 }
-#endif
 
 /* process 'unset historysize' command */
 static void
@@ -905,7 +887,6 @@ unset_keytitle()
 static void
 unset_label()
 {
-    struct value a;
     struct text_label *this_label;
     struct text_label *prev_label;
     int tag;
@@ -916,7 +897,7 @@ unset_label()
 	    delete_label((struct text_label *) NULL, first_label);
     } else {
 	/* get tag */
-	tag = (int) real(const_express(&a));
+	tag = int_expression();
 	if (!END_OF_COMMAND)
 	    int_error(c_token, "extraneous arguments to unset label");
 	for (this_label = first_label, prev_label = NULL;
@@ -957,7 +938,6 @@ delete_label(struct text_label *prev, struct text_label *this)
 static void
 unset_object()
 {
-    struct value a;
     struct object *this_object;
     struct object *prev_object;
     int tag;
@@ -968,7 +948,7 @@ unset_object()
 	    delete_object((struct object *) NULL, first_object);
     } else {
 	/* get tag */
-	tag = (int) real(const_express(&a));
+	tag = int_expression();
 	if (!END_OF_COMMAND)
 	    int_error(c_token, "extraneous arguments to unset rectangle");
 	for (this_object = first_object, prev_object = NULL;
@@ -998,7 +978,9 @@ delete_object(struct object *prev, struct object *this)
 	    prev->next = this->next;
 	else			/* this = first_object so change first_object */
 	    first_object = this->next;
-	/* FIXME:  Must free contents as well */
+	/* NOTE:  Must free contents as well */
+	if (this->object_type == OBJ_POLYGON)
+	    free(this->o.polygon.vertex);
 	free (this);
     }
 }
@@ -1055,6 +1037,12 @@ unset_logscale()
 	}
 	++c_token;
     }
+
+#ifdef VOLATILE_REFRESH
+    /* Because the log scaling is applied during data input, a quick refresh */
+    /* using existing stored data will not work if the log setting changes.  */
+    refresh_ok = 0;
+#endif
 }
 
 #ifdef GP_MACROS
@@ -1158,7 +1146,8 @@ unset_month_day_tics(AXIS_INDEX axis)
 static void
 unset_offsets()
 {
-    loff = roff = toff = boff = 0.0;
+    loff.x = roff.x = 0.0;
+    toff.y = boff.y = 0.0;
 }
 
 
@@ -1311,14 +1300,12 @@ unset_style()
 	data_style = POINTSTYLE;
 	func_style = LINES;
 	while (first_linestyle != NULL)
-	    delete_linestyle((struct linestyle_def *) NULL, first_linestyle);
+	    delete_linestyle(&first_linestyle, NULL, first_linestyle);
 	unset_fillstyle();
 #ifdef EAM_OBJECTS
 	unset_style_rectangle();
 #endif
-#ifdef EAM_HISTOGRAMS
 	unset_histogram();
-#endif
 	c_token++;
 	return;
     }
@@ -1336,15 +1323,14 @@ unset_style()
 	c_token++;
 	if (END_OF_COMMAND) {
 	    while (first_linestyle != NULL)
-		delete_linestyle((struct linestyle_def *) NULL, first_linestyle);
+		delete_linestyle(&first_linestyle, NULL, first_linestyle);
 	} else {
-	    struct value a;
-	    int tag = (int) real(const_express(&a));
+	    int tag = int_expression();
 	    struct linestyle_def *this, *prev;
 	    for (this = first_linestyle, prev = NULL; this != NULL; 
 		 prev = this, this = this->next) {
 		if (this->tag == tag) {
-		    delete_linestyle(prev, this);
+		    delete_linestyle(&first_linestyle, prev, this);
 		    break;
 		}
 	    }
@@ -1354,12 +1340,10 @@ unset_style()
 	unset_fillstyle();
 	c_token++;
 	break;
-#ifdef EAM_HISTOGRAMS
     case SHOW_STYLE_HISTOGRAM:
 	unset_histogram();
 	c_token++;
 	break;
-#endif
     case SHOW_STYLE_ARROW:
 	unset_arrowstyles();
 	c_token++;
@@ -1409,39 +1393,6 @@ unset_terminal()
 }
 
 
-#ifdef OLDUNSETTICS
-/* process 'unset tics' command */
-static void
-unset_tics_in()
-{
-    unsigned int i = AXIS_ARRAY_SIZE;
-    c_token++;
-
-    if (equals(c_token,"x"))
-	i = FIRST_X_AXIS;
-    else if (equals(c_token,"y"))
-	i = FIRST_Y_AXIS;
-    else if (equals(c_token,"z"))
-	i = FIRST_Z_AXIS;
-    else if (equals(c_token,"x2"))
-	i = SECOND_X_AXIS;
-    else if (equals(c_token,"y2"))
-	i = SECOND_Y_AXIS;
-    else if (equals(c_token,"cb"))
-	i = COLOR_AXIS;
-    if (i < AXIS_ARRAY_SIZE)
-	c_token++;
-
-    if (i < AXIS_ARRAY_SIZE)
-	axis_array[i].tic_in = TRUE;
-    else {
-	for (i = 0; i < AXIS_ARRAY_SIZE; ++i)
-	    axis_array[i].tic_in = TRUE;
-    }
-}
-#endif /* OLDUNSETTICS */
-
-
 /* process 'unset ticscale' command */
 static void
 unset_ticscale()
@@ -1462,7 +1413,7 @@ unset_ticscale()
 static void
 unset_ticslevel()
 {
-    xyplane.ticslevel = 0.5;
+    xyplane.z = 0.5;
     xyplane.absolute = FALSE;
 }
 
@@ -1598,6 +1549,22 @@ reset_command()
 
     c_token++;
 
+    /* Reset error state (only?) */
+    update_gpval_variables(4);
+    if (almost_equals(c_token,"err$orstate")) {
+	c_token++;
+	return;
+    }
+
+#ifdef USE_MOUSE
+    /* Reset key bindings only */
+    if (equals(c_token, "bind")) {
+	bind_remove_all();
+	c_token++;
+	return;
+    }
+#endif
+
     /* Kludge alert, HBB 20000506: set to noninteractive mode, to
      * suppress some of the commentary output by the individual
      * unset_...() routines. */
@@ -1615,7 +1582,7 @@ reset_command()
 	delete_label((struct text_label *) NULL, first_label);
     /* delete linestyles */
     while (first_linestyle != NULL)
-	delete_linestyle((struct linestyle_def *) NULL, first_linestyle);
+	delete_linestyle(&first_linestyle, NULL, first_linestyle);
 #ifdef EAM_OBJECTS
     /* delete objects */
     while (first_object != NULL)
@@ -1669,18 +1636,27 @@ reset_command()
     border_lp = default_border_lp;
     draw_border = 31;
 
-    draw_surface = 1.0;
+    draw_surface = TRUE;
 
     data_style = POINTSTYLE;
     func_style = LINES;
 
+    /* Reset individual plot style options to the default */
+    filledcurves_opts_data.closeto = FILLEDCURVES_CLOSED;
+    filledcurves_opts_func.closeto = FILLEDCURVES_CLOSED;
+
     bar_size = 1.0;
+    bar_layer = LAYER_FRONT;
 
     unset_grid();
     grid_lp = default_grid_lp;
     mgrid_lp = default_grid_lp;
     polar_grid_angle = 0;
     grid_layer = -1;
+
+#ifdef VOLATILE_REFRESH
+    refresh_ok = 0;
+#endif
 
     reset_hidden3doptions();
     hidden3d = FALSE;
@@ -1702,49 +1678,24 @@ reset_command()
     unset_zero();
     unset_dgrid3d();
     unset_ticslevel();
-#ifdef OLDUNSETTICS
-    unset_tics_in();
-#endif /* OLDUNSETTICS */
     unset_margin(&bmargin);
     unset_margin(&lmargin);
     unset_margin(&rmargin);
     unset_margin(&tmargin);
     unset_pointsize();
-    unset_encoding();
-    unset_decimalsign();
     pm3d_reset();
     reset_colorbox();
     reset_palette();
-#ifdef BINARY_DATA_FILE
     df_unset_datafile_binary();
-#endif
     unset_fillstyle();
-#ifdef EAM_HISTOGRAMS
     unset_histogram();
-#endif
 
     unset_missing();
     df_separator = '\0';
     free(df_commentschars);
     df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
 
-    unset_locale();
-#if 0
-    /* 2003-18-04: Don't reset non-graphics settings, like set term, out,
-     * loadpath and fontpath. */
-    unset_loadpath();
-#endif
     unset_fit();
-
-#if 0
-    /* 01-Jun-2006: Deleting undefined user variables can break user functions.
-     * E.g.    f(x) = a + b;  reset;
-     * f(x) is still defined, sort of, but it holds pointers to a and b, which
-     * have been deleted. Evaluation after a reset can trigger a segfault.
-     */
-    /* Garbage collection on space allocated for user variables */
-    cleanup_udvlist();
-#endif
 
     update_gpval_variables(0); /* update GPVAL_ inner variables */
 

@@ -1,5 +1,5 @@
 /*
- * $Id: util.h,v 1.27 2005/10/22 05:50:13 sfeam Exp $
+ * $Id: util.h,v 1.31 2008/03/18 00:16:33 sfeam Exp $
  */
 
 /* GNUPLOT - util.h */
@@ -56,6 +56,8 @@ extern TBOOLEAN screen_ok;
 
 /* decimal sign */
 extern char *decimalsign;
+extern char *numeric_locale;	/* LC_NUMERIC */
+extern char *current_locale;	/* LC_TIME */
 
 extern const char *current_prompt; /* needed by is_error() and friends */
 
@@ -81,12 +83,8 @@ char *try_to_get_string __PROTO((void));
 void parse_esc __PROTO((char *));
 int type_udv __PROTO((int));
 
-#ifdef GP_STRING_VARS
 char *gp_stradd __PROTO((const char *, const char *));
 #define isstringvalue(c_token) (isstring(c_token) || type_udv(c_token)==STRING)
-#else
-#define isstringvalue(c_token) isstring(c_token)
-#endif
 
 /* HBB 20010726: IMHO this one belongs into alloc.c: */
 char *gp_strdup __PROTO((const char *));
@@ -117,5 +115,8 @@ void squash_spaces __PROTO((char *));
 TBOOLEAN existdir __PROTO((const char *));
 
 char *getusername __PROTO((void));
+
+TBOOLEAN contains8bit __PROTO((const char *s));
+TBOOLEAN utf8toulong __PROTO((unsigned long * wch, const char ** str));
 
 #endif /* GNUPLOT_UTIL_H */

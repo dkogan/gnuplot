@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: dumb.trm,v 1.26.2.1 2008/08/16 18:11:53 sfeam Exp $
+ * $Id: dumb.trm,v 1.30 2009/03/26 00:49:19 sfeam Exp $
  *
  */
 
@@ -134,7 +134,6 @@ TERM_PUBLIC void
 DUMB_options()
 {
     int x, y;
-    struct value a;
 
     while (!END_OF_COMMAND) {
 	switch(lookup_table(&DUMB_opts[0],c_token)) {
@@ -164,11 +163,11 @@ DUMB_options()
 
 	case DUMB_OTHER:
 	default:
-	    x = (int) real(const_express(&a));
+	    x = int_expression();
 	    if (!END_OF_COMMAND) {
 		if (equals(c_token,","))
 		    c_token++;
-		y = (int) real(const_express(&a));
+		y = int_expression();
 		dumb_xmax = term->xmax = x;
 		dumb_ymax = term->ymax = y;
 	    }
@@ -176,7 +175,7 @@ DUMB_options()
 	}
     }
 
-    sprintf(term_options, "%sfeed %s %d %d",
+    sprintf(term_options, "%sfeed %s size %d, %d",
 	    dumb_feed ? "" : "no",
 	    term->put_text == ENHdumb_put_text ? "enhanced" : "",
 	    dumb_xmax, dumb_ymax);
@@ -186,8 +185,8 @@ DUMB_options()
 static void
 dumb_set_pixel(int x, int y, int v, int p)
 {
-    if ((unsigned) x <= dumb_xmax &&	/* ie x>=0 && x<=dumb_xmax */
-	(unsigned) y <= dumb_ymax &&
+    if ((unsigned int) x <= dumb_xmax &&	/* ie x>=0 && x<=dumb_xmax */
+	(unsigned int) y <= dumb_ymax &&
 	p > dumb_priority[dumb_xmax * y + x]) {
 	dumb_matrix[dumb_xmax * y + x] = v;
 	dumb_priority[dumb_xmax * y + x] = p;
@@ -552,9 +551,7 @@ TERM_TABLE_START(dumb_driver)
     , NULL, NULL, NULL, NULL, NULL
 #endif
     , NULL, NULL, NULL, NULL
-#ifdef WITH_IMAGE
-    , NULL
-#endif
+    , NULL /* image */
 #ifndef NO_DUMB_ENHANCED_SUPPORT
     , ENHdumb_OPEN, ENHdumb_FLUSH, do_enh_writec
 #endif /* NO_DUMB_ENHANCED_SUPPORT */

@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: pm.trm,v 1.53 2006/07/21 02:35:47 sfeam Exp $
+ * $Id: pm.trm,v 1.55 2009/03/26 00:49:22 sfeam Exp $
  */
 
 /* GNUPLOT - pm.trm */
@@ -81,9 +81,8 @@ TERM_PUBLIC void PM_previous_palette (void);
 #endif
 TERM_PUBLIC void PM_set_color (t_colorspec *);
 TERM_PUBLIC void PM_filled_polygon (int, gpiPoint *);
-#ifdef WITH_IMAGE
 TERM_PUBLIC void PM_image __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
-#endif
+
 #ifndef PM_OLD_ENHANCED_TEXT
 /* To support "set term pm enhanced" */
 TERM_PUBLIC void PM_enhanced_put_text __PROTO((unsigned int x, unsigned int y, const char *str));
@@ -921,8 +920,6 @@ PM_set_clipboard(const char s[])
 #endif /* USE_MOUSE */
 
 
-#ifdef WITH_IMAGE
-
 TERM_PUBLIC void
 PM_image(unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_imagecolor color_mode)
 {
@@ -993,8 +990,6 @@ PM_image(unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_im
 
     free(rgb_image);
 }
-
-#endif /* WITH_IMAGE */
 
 
 #ifndef PM_OLD_ENHANCED_TEXT
@@ -1269,9 +1264,7 @@ TERM_TABLE_START(PM_driver)
     0, /* PM_previous_palette */
     PM_set_color,
     PM_filled_polygon
-#ifdef WITH_IMAGE
     , PM_image
-#endif
 #ifndef PM_OLD_ENHANCED_TEXT
     , PM_enhanced_open, PM_enhanced_flush, do_enh_writec
 #endif
@@ -1308,10 +1301,10 @@ START_HELP(pm)
 " same time.",
 "",
 " If `widelines` is specified, all plots will be drawn with wide lines.  If",
-" `enhanced` is specified, sub- and superscripts and multiple fonts are",
-" enabled using the same syntax as the `enhanced postscript` option (see",
-" `set terminal postscript enhanced` for details).  Font names for the basic",
-" PostScript fonts may be abbreviated to single letters.",
+" `enhanced` is specified, sub- and superscripts and multiple fonts are enabled",
+" (see `enhanced text` for details).  Font names for the core PostScript fonts",
+" may be abbreviated to a single letter ",
+" (T/H/C/S for Times/Helvetica/Courier/Symbol).",
 "",
 " If `title` is specified, it will be used as the title of the plot window.",
 " It will also be used as the name of the server instance, and will override",

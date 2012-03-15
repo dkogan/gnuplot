@@ -1,5 +1,5 @@
 /*
- * $Id: hidden3d.h,v 1.9.2.1 2008/06/02 19:40:23 sfeam Exp $
+ * $Id: hidden3d.h,v 1.10 2008/06/02 19:18:32 sfeam Exp $
  */
 
 /* GNUPLOT - hidden3d.h */

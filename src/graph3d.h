@@ -1,5 +1,5 @@
 /*
- * $Id: graph3d.h,v 1.24.2.2 2008/12/15 03:44:22 sfeam Exp $
+ * $Id: graph3d.h,v 1.38.2.1 2009/12/20 03:54:42 sfeam Exp $
  */
 
 /* GNUPLOT - graph3d.h */
@@ -52,6 +52,18 @@
 
 /* Type definitions */
 
+typedef enum en_dgrid3d_mode {
+    DGRID3D_DEFAULT,
+    DGRID3D_QNORM,
+    DGRID3D_SPLINES,
+    DGRID3D_GAUSS,
+    DGRID3D_EXP,
+    DGRID3D_CAUCHY,
+    DGRID3D_BOX,
+    DGRID3D_HANN,
+    DGRID3D_OTHER
+} t_dgrid3d_mode;
+
 typedef enum en_contour_placement {
     /* Where to place contour maps if at all. */
     CONTOUR_NONE,
@@ -79,28 +91,36 @@ typedef struct iso_curve {
 } iso_curve;
 
 typedef struct surface_points {
-    struct surface_points *next_sp; /* linked list */
-    int token;			/* last token nr, for second pass */
-    enum PLOT_TYPE plot_type;
-    enum PLOT_STYLE plot_style;
-    char *title;
+
+    struct surface_points *next_sp; /* pointer to next plot in linked list */
+    int token;			/* last token used, for second parsing pass */
+    enum PLOT_TYPE plot_type;	/* DATA2D? DATA3D? FUNC2D FUNC3D? NODATA? */
+    enum PLOT_STYLE plot_style;	/* style set by "with" or by default */
+    char *title;		/* plot title, a.k.a. key entry */
     TBOOLEAN title_no_enhanced;	/* don't typeset title in enhanced mode */
-    TBOOLEAN opt_out_of_hidden3d; /* set by "with nohidden" opeion */
+    TBOOLEAN title_is_filename;	/* not used in 3D */
+    TBOOLEAN title_is_suppressed;/* TRUE if 'notitle' was specified */
+    TBOOLEAN noautoscale;	/* ignore data from this plot during autoscaling */
     struct lp_style_type lp_properties;
     struct arrow_style_type arrow_properties;
-    int has_grid_topology;
+    struct fill_style_type fill_properties;	/* FIXME: ignored in 3D */
+    struct text_label *labels;	/* Only used if plot_style == LABELPOINTS */
+    struct t_image image_properties;	/* only used if plot_style is IMAGE or RGB_IMAGE */
 
-    /* Data files only - num of isolines read from file. For
-     * functions, num_iso_read is the number of 'primary' isolines (in
-     * x direction) */
+    /* 2D and 3D plot structure fields overlay only to this point */
+
+    TBOOLEAN opt_out_of_hidden3d; /* set by "nohidden" option to splot command */
+    TBOOLEAN opt_out_of_contours; /* set by "nocontours" option to splot command */
+    TBOOLEAN opt_out_of_surface;  /* set by "nosurface" option to splot command */
+    TBOOLEAN pm3d_color_from_column;
+    int has_grid_topology;
+    int iteration;		/* needed for tracking iteration */
+
+    /* Data files only - num of isolines read from file. For functions,  */
+    /* num_iso_read is the number of 'primary' isolines (in x direction) */
     int num_iso_read;
     struct gnuplot_contours *contours; /* NULL if not doing contours. */
     struct iso_curve *iso_crvs;	/* the actual data */
-#ifdef EAM_DATASTRINGS
-    struct text_label *labels;	/* Only used if plot_style == LABELPOINTS */
-#endif
-    TBOOLEAN opt_out_of_contours; /* set by "nocontours" option to splot command */
-    TBOOLEAN pm3d_color_from_column;
     char pm3d_where[7];		/* explicitly given base, top, surface */
 
 } surface_points;
@@ -121,6 +141,7 @@ extern TBOOLEAN	draw_surface;
 
 /* is hidden3d display wanted? */
 extern TBOOLEAN	hidden3d;
+extern int hidden3d_layer;	/* LAYER_FRONT or LAYER_BACK */
 
 extern float surface_rot_z;
 extern float surface_rot_x;
@@ -129,8 +150,7 @@ extern float surface_zscale;
 extern int splot_map;
 
 typedef struct { 
-    double ticslevel; 
-    double xyplane_z; 
+    double z; 
     TBOOLEAN absolute;
 } t_xyplane;
 

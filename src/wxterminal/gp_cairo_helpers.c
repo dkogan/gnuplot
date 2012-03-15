@@ -1,11 +1,11 @@
 /*
- * $Id: gp_cairo_term.h,v 1.2 2006/06/04 23:16:04 tlecomte Exp $
+ * $Id: gp_cairo_helpers.c,v 1.1.2.1 2009/08/26 19:12:44 sfeam Exp $
  */
 
-/* GNUPLOT - gp_cairo_term.h */
+/* GNUPLOT - gp_cairo_helpers.c */
 
 /*[
- * Copyright 2005   Timothee Lecomte
+ * Copyright 2009   Timothee Lecomte
  *
  * Permission to use, copy, and distribute this software and its
  * documentation for any purpose with or without fee is hereby granted,
@@ -45,26 +45,65 @@
  * under either the GPL or the gnuplot license.
 ]*/
 
-/* ------------------------------------------------------
- * This is a specific header for enhanced text functions implemented with cairo.
- *
- * It aims at being included in *.trm files.
- * ------------------------------------------------------*/
+#include "gp_cairo_helpers.h"
 
+/* for rgb functions */
+# include "getcolor.h"
 
-#ifndef GNUPLOT_WXT_CAIRO_TERM_H
-# define GNUPLOT_WXT_CAIRO_TERM_H
+unsigned int * gp_cairo_helper_coordval_to_chars(coordval* image, int M, int N, t_imagecolor color_mode)
+{
+	int m,n;
+	unsigned int *image255, *image255copy;
+	rgb_color rgb1;
+	rgb255_color rgb255;
 
-#ifdef __cplusplus
-extern "C" {
-#endif /*__cplusplus*/
+	/* cairo image buffer, upper bits are alpha, then r, g and b
+	 * Depends on endianess */
+	image255 = (unsigned int*) malloc(M*N*sizeof(unsigned int));
+	if (!image255) { fprintf(stderr,"cairo terminal: out of memory!\n"); exit(-1);}
+	image255copy = image255;
 
-extern void gp_cairo_enhanced_open(char* fontname, double fontsize, double base, TBOOLEAN widthflag, TBOOLEAN showflag, int overprint);
+	/* TrueColor 24-bit plot->color mode */
+	if (color_mode == IC_RGB) {
+		for (n=0; n<N; n++) {
+		for (m=0; m<M; m++) {
+			rgb1.r = *image++;
+			rgb1.g = *image++;
+			rgb1.b = *image++;
+			rgb255_from_rgb1( rgb1, &rgb255 );
+			*image255copy++ = (0xFF<<24) + (rgb255.r<<16) + (rgb255.g<<8) + rgb255.b;
+		}
+		}
+	} else if (color_mode == IC_RGBA) {
+		unsigned char alpha255;
+		double alpha1;
+		for (n=0; n<N; n++) {
+		for (m=0; m<M; m++) {
+			alpha255 = *(image+3);
+			alpha1 = (float)alpha255 / 255.;
+			rgb1.r = alpha1 * (*image++);
+			rgb1.g = alpha1 * (*image++);
+			rgb1.b = alpha1 * (*image++);
+			image++;
+			rgb255_from_rgb1( rgb1, &rgb255 );
+			*image255copy++ = (alpha255<<24)
+					+ (rgb255.r<<16) + (rgb255.g<<8) + rgb255.b;
+		}
+		}
+	/* Palette plot->color lookup from gray value */
+	} else {
+		for (n=0; n<N; n++) {
+		for (m=0; m<M; m++) {
+			if (isnan(*image)) {
+				image++;
+				*image255copy++ = 0x00000000;
+			} else {
+				rgb255maxcolors_from_gray( *image++, &rgb255 );
+				*image255copy++ = (0xFF<<24) + (rgb255.r<<16) + (rgb255.g<<8) + rgb255.b;
+			}
+		}
+		}
+	}
 
-extern void gp_cairo_enhanced_flush();
-
-#ifdef __cplusplus
+	return image255;
 }
-#endif
-
-#endif /* gnuplot_wxt_cairo_term_h */

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: scanner.c,v 1.23 2005/11/23 23:33:37 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: scanner.c,v 1.27.2.1 2010/01/30 05:07:52 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - scanner.c */
@@ -99,6 +99,11 @@ static int t_num;		/* number of token I'm working on */
  *      8.  `           (command substitution: all characters through the
  *                      matching backtic are replaced by the output of
  *                      the contained command, then scanning is restarted.)
+ * EAM Jan 2010:	Bugfix. No rule covered an initial period. This caused
+ *			string concatenation to fail for variables whose first
+ *			character is 'E' or 'e'.  Now we add a 9th rule:
+ *	9.  .		A period may be a token by itself (string concatenation)
+ *			or the start of a decimal number continuing with a digit
  *
  *                      white space between tokens is ignored
  */
@@ -131,15 +136,19 @@ scanner(char **expressionp, size_t *expressionlenp)
 	if (isalpha((unsigned char) expression[current])
 	    || expression[current] == '_') {
 	    SCAN_IDENTIFIER;
-	} else if (isdigit((unsigned char) expression[current])
-		   || expression[current] == '.') {
+	} else if (isdigit((unsigned char) expression[current])) {
 	    token[t_num].is_token = FALSE;
 	    token[t_num].length = get_num(&expression[current]);
 	    current += (token[t_num].length - 1);
-#ifdef GP_STRING_VARS
-	    if (token[t_num].length == 1 && expression[current] == '.')
-		token[t_num].is_token = TRUE;
-#endif
+
+	} else if (expression[current] == '.') {
+	    /* Rule 9 */
+	    if (isdigit(expression[current+1])) {
+		token[t_num].is_token = FALSE;
+		token[t_num].length = get_num(&expression[current]);
+		current += (token[t_num].length - 1);
+	    } /* do nothing if the . is a token by itself */
+
 	} else if (expression[current] == LBRACE) {
 	    token[t_num].is_token = FALSE;
 	    token[t_num].l_val.type = CMPLX;
@@ -254,7 +263,6 @@ static int
 get_num(char str[])
 {
     int count = 0;
-    long lval;
 
     token[t_num].is_token = FALSE;
     token[t_num].l_val.type = INTGR;	/* assume unless . or E found */
@@ -268,8 +276,6 @@ get_num(char str[])
     }
     if (str[count] == 'e' || str[count] == 'E') {
 	token[t_num].l_val.type = CMPLX;
-/* modified if statement to allow + sign in exponent
-   rjl 26 July 1988 */
 	count++;
 	if (str[count] == '-' || str[count] == '+')
 	    count++;
@@ -280,23 +286,19 @@ get_num(char str[])
 	while (isdigit((unsigned char) str[++count]));
     }
     if (token[t_num].l_val.type == INTGR) {
-	lval = atol(str);
-	if ((token[t_num].l_val.v.int_val = lval) != lval)
-	    int_error(t_num, "integer overflow; change to floating point");
-    } else {
-	token[t_num].l_val.v.cmplx_val.imag = 0.0;
-#ifdef HAVE_LOCALE_H
-	/* Always read numbers on command line as C locale */
-	if (strcmp(localeconv()->decimal_point,".")) {
-	    char *save_locale = gp_strdup(setlocale(LC_NUMERIC,NULL));
-	    setlocale(LC_NUMERIC,"C");
-	    token[t_num].l_val.v.cmplx_val.real = atof(str);
-	    setlocale(LC_NUMERIC,save_locale);
-	    free(save_locale);
-	} else
-#endif
-	    token[t_num].l_val.v.cmplx_val.real = atof(str);
+	long lval;
+	char *endptr;
+	errno = 0;
+	lval = strtol(str, &endptr, 0);
+	if (!errno &&
+	   ((token[t_num].l_val.v.int_val = lval) == lval))
+		return(endptr-str);
+	int_warn(t_num, "integer overflow; changing to floating point");
+	token[t_num].l_val.type = CMPLX;
+	/* Fall through */
     }
+    token[t_num].l_val.v.cmplx_val.imag = 0.0;
+    token[t_num].l_val.v.cmplx_val.real = atof(str);
     return (count);
 }
 

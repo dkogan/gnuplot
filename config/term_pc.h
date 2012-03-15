@@ -1,5 +1,5 @@
 /*
- * $Id: term_pc.h,v 1.5 2005/03/25 21:01:59 sfeam Exp $
+ * $Id: term_pc.h,v 1.7 2008/03/30 03:27:51 sfeam Exp $
  *
  */
 
@@ -73,16 +73,6 @@
 /* Amiga */
 #ifdef AMIGA
 # include "amiga.trm"
-#endif
-
-
-/* Atari ST and MTOS */
-#if defined(ATARI) || defined(MTOS)
-# include "atarivdi.trm"
-# ifdef MTOS
-#  include "multitos.trm"
-# endif
-# include "atariaes.trm"
 #endif
 
 
@@ -165,11 +155,6 @@
 #  endif
 #endif /* Apollo */
 
-/* Iris */
-#ifdef IRIS
-# include "iris4d.trm"
-#endif
-
 
 /* Linux VGA */
 #ifdef LINUXVGA
@@ -211,8 +196,8 @@
 #endif
 
 /****************************************************************************/
-/* Terminals not relevant for MSDOS, OS2, MS-Windows, ATARI or Amiga        */
-#if !(defined(MSDOS) || defined(OS2) || defined(_Windows) || defined(ATARI) || defined(MTOS) || defined(AMIGA))
+/* Terminals not relevant for MSDOS, OS2, MS-Windows, or Amiga        */
+#if !(defined(MSDOS) || defined(OS2) || defined(_Windows) || defined(AMIGA))
 
 /* AED 512 and AED 767 graphics terminals */
 # include "aed.trm"
@@ -240,7 +225,7 @@
 /* inboard terminal driver for X11 (dumps gnuplot_x11 commands) */
 # include "xlib.trm"
 
-#endif /* !(MSDOS || OS2 || _Windows || _ATARI || _MTOS || AMIGA) */
+#endif /* !(MSDOS || OS2 || _Windows || AMIGA) */
 /****************************************************************************/
 
 

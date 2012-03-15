@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: x11.trm,v 1.160.2.14 2009/05/29 03:25:29 sfeam Exp $
+ * $Id: x11.trm,v 1.184.2.1 2009/09/13 17:54:09 sfeam Exp $
  *
  */
 
@@ -81,11 +81,9 @@ TERM_PUBLIC void X11_put_text __PROTO((unsigned int x, unsigned int y, const cha
 TERM_PUBLIC int X11_text_angle __PROTO((int i));
 TERM_PUBLIC int X11_justify_text __PROTO((enum JUSTIFY mode));
 TERM_PUBLIC void X11_point __PROTO((unsigned int x, unsigned int y, int number));
-TERM_PUBLIC void X11_fillbox __PROTO((int style, unsigned int x, unsigned y, unsigned int width, unsigned int height));
+TERM_PUBLIC void X11_fillbox __PROTO((int style, unsigned int x, unsigned int y, unsigned int width, unsigned int height));
 
-#if defined(WITH_IMAGE) || defined(BINARY_X11_POLYGON)
 TERM_PUBLIC void X11_send_endianess __PROTO((void));
-#endif
 
 # ifdef USE_MOUSE
 TERM_PUBLIC int X11_waitforinput __PROTO((void));
@@ -100,9 +98,7 @@ TERM_PUBLIC int X11_make_palette __PROTO((t_sm_palette *));
 TERM_PUBLIC void X11_set_color __PROTO((t_colorspec *));
 TERM_PUBLIC void X11_filled_polygon __PROTO((int, gpiPoint *));
 
-# ifdef WITH_IMAGE
-TERM_PUBLIC void X11_image __PROTO((unsigned, unsigned, coordval *, gpiPoint *, t_imagecolor));
-# endif
+TERM_PUBLIC void X11_image __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
 
 /* To support "set term x11 enhanced" */
 TERM_PUBLIC void ENHX11_put_text __PROTO((unsigned int x, unsigned int y, const char str[]));
@@ -174,8 +170,7 @@ static struct x11opt {
     { "-selectionTimeout", hasArg}, { "-title", hasArg},
     { "-xnllanguage", hasArg}, { "-xrm", hasArg},
     { "-raise", hasNoArg}, { "-noraise", hasNoArg},
-    { "-solid", hasNoArg}, { "-dashed", hasNoArg},
-    { "-persist", hasNoArg}
+    { "-solid", hasNoArg}, { "-dashed", hasNoArg}
 #ifdef USE_MOUSE
     , { "-nofeedback", hasNoArg}
     , { "-noevents", hasNoArg}
@@ -320,7 +315,15 @@ X11_args(int argc, char *argv[])
     memcpy(xargv, argv, argc * sizeof(char *));
     i = parse_driver(X11_command);
 
+    if (persist_cl) {
+	optvec[i++] = "-persist";
+    }
+
     while (++argv, ++xargv, --argc > 0) {
+	if (!strcmp(*argv,"--persist") || !strncmp(*argv,"-p",2)) {
+	    nx11++;
+	    continue;
+	}
 	for (n = 0; n < X11_nopts; n++) {
 	    if (strcmp(*argv, X11_cmdopts[n].option) == 0) {
 		optvec[i++] = *xargv;
@@ -352,8 +355,6 @@ X11_args(int argc, char *argv[])
 }
 
 
-static unsigned int X11_plot_number;
-
 enum X11_id {
     X11_RESET,
     X11_CLOSE,
@@ -372,6 +373,9 @@ enum X11_id {
     X11_NOCTRLQ,
     X11_SIZE,
     X11_POSITION,
+#ifdef EXTERNAL_X11_WINDOW
+    X11_WINDOW,
+#endif
     X11_OTHER
 };
 
@@ -395,6 +399,9 @@ static struct gen_table X11_opts[] = {
     {"noctrl$q", X11_NOCTRLQ},
     {"si$ze", X11_SIZE},
     {"pos$ition", X11_POSITION},
+#ifdef EXTERNAL_X11_WINDOW
+    {"w$indow", X11_WINDOW},
+#endif
     {NULL, X11_OTHER}
 };
 
@@ -405,16 +412,20 @@ X11_options()
 
 #define NOT_PROCESS_IF_DUPLICATION 1
 
-    struct value a;
     int c_title_token = 0;
     int new_term_number = 0;
     TBOOLEAN duplication = FALSE;
     TBOOLEAN set_reset = FALSE, set_persist = FALSE, set_raise = FALSE, set_font = FALSE;
     TBOOLEAN set_ctrlq = FALSE;
     TBOOLEAN set_title = FALSE, set_number = FALSE, set_close = FALSE, set_solid = FALSE;
+#ifdef EXTERNAL_X11_WINDOW
+    unsigned long existing_X11_window_id = 0;
+    TBOOLEAN set_window = FALSE;
+#endif
 
-    persist = do_raise = dashedlines = ctrlq = UNSET;
+    do_raise = dashedlines = ctrlq = UNSET;
     set_size = set_position = UNSET;
+    persist = persist_cl;	/* previously set from command line */
 
     while (!END_OF_COMMAND) {
 	switch (lookup_table(&X11_opts[0], c_token)) {
@@ -466,7 +477,7 @@ X11_options()
 	    break;
 	case X11_LINEWIDTH:
 	    c_token++;
-	    X11_linewidth_multiplier = real(const_express(&a));
+	    X11_linewidth_multiplier = real_expression();
 	    if (X11_linewidth_multiplier <= 0)
 		X11_linewidth_multiplier = 1.0;
 	    break;
@@ -525,14 +536,14 @@ X11_options()
 		int_error(c_token, "expecting X[,Y]");
 	    } else {
 		int x_in, y_in;
-		x_in = (int) real(const_express(&a));
+		x_in = int_expression();
 		if (x_in > 0)
 		    X11_SIZE_X = x_in;
 		else
 		    int_error(c_token, "X size must be > 0");
 		if (equals(c_token, ",")) {
 		    c_token++;
-		    y_in = (int) real(const_express(&a));
+		    y_in = int_expression();
 		    if (y_in > 0)
 			X11_SIZE_Y = y_in;
 		    else
@@ -546,20 +557,38 @@ X11_options()
 	    if (END_OF_COMMAND) {
 		int_error(c_token, "expecting X[,Y]");
 	    } else {
-		X11_POSITION_X = (int) real(const_express(&a));
+		X11_POSITION_X = int_expression();
 		if (equals(c_token, ",")) {
 		    c_token++;
-		    X11_POSITION_Y = (int) real(const_express(&a));
+		    X11_POSITION_Y = int_expression();
 		}
 		set_position = yes;
 	    }
 	    break;
 
+#ifdef EXTERNAL_X11_WINDOW
+	case X11_WINDOW:
+	{
+	    char *windowid;
+	    c_token++;
+	    if (!(windowid = try_to_get_string()))
+		int_error(c_token, "expecting X window ID as string in hex");
+	    sscanf(windowid,"%lx",&existing_X11_window_id);
+	    free(windowid);
+	    if (!existing_X11_window_id)
+		int_error(c_token, "expecting X window ID as string in hex");
+	    if (set_window) duplication=TRUE;
+	    set_window = TRUE;
+	    break;
+	}
+#endif
 	case X11_OTHER:
 	default:
-	    /* let gnuplot_x11 check range */
-	    new_term_number = (int) real(const_express(&a));
 	    if (set_number) duplication=TRUE;
+	    /* let gnuplot_x11 check range */
+	    new_term_number = int_expression();
+	    if (new_term_number < 0)
+		int_error(c_token, "plot number must be non-negative");
 	    set_number = TRUE;
 	    break;
 	}
@@ -578,20 +607,33 @@ X11_options()
 	X11_atexit();	/* tell gnuplot_x11 to shut down */
 
     /* Leave the current window unchanged when closing an old window */
-    if (set_close) {
-	if (X11_ipc) {
+    if (X11_ipc) {
+	if (set_close) {
 	    fprintf(X11_ipc, (set_number ? "C%d\n" : "C\n"), new_term_number);
 	    fflush(X11_ipc);
-	}
-    } else if (set_number) {
-	X11_plot_number = new_term_number;
-	if (X11_ipc) {
-	    fprintf(X11_ipc, "N%d\n", X11_plot_number);
+	} else if (set_number) {
+#ifdef EXTERNAL_X11_WINDOW
+	    if (set_window)
+		int_error(NO_CARET,"an existing X11 window cannot be asigned to a plot number");
+#endif
+	    fprintf(X11_ipc, "N%d\n", new_term_number);
 	    fflush(X11_ipc);
+#ifdef EXTERNAL_X11_WINDOW
+	} else if (set_window) {
+	    fprintf(X11_ipc, "%c%lx\n", X11_GR_SET_WINDOW_ID, existing_X11_window_id);
+	    fflush(X11_ipc);
+#endif
 	}
     }
 
-    sprintf(term_options, "%d", X11_plot_number);
+#ifdef EXTERNAL_X11_WINDOW
+    if (set_window) {
+	sprintf(term_options, "XID 0x%lX", existing_X11_window_id);
+    } else
+#endif
+    if (set_number && new_term_number >= 0) {
+	sprintf(term_options, "%d", new_term_number);
+    }
     if (UNSET != do_raise) {
 	strcat(term_options, (yes == do_raise ? " raise" : " noraise"));
     }
@@ -991,9 +1033,7 @@ X11_init()
 	GP_ATEXIT(X11_atexit);
 	been_here++;
     }
-#if defined(WITH_IMAGE) || defined(BINARY_X11_POLYGON)
     X11_send_endianess();
-#endif
 #ifdef USE_MOUSE
     default_font_size_known = FALSE;
 #endif
@@ -1254,7 +1294,7 @@ X11_graphics()
 
 #ifndef USE_MOUSE
     /* for VMS sake, keep as separate prints */
-    PRINT1("G%d\n", X11_plot_number);
+    PRINT0("G\n");
 #else
 #ifdef PIPE_IPC
     /* if we know the outboard driver has stopped, restart it */
@@ -1271,9 +1311,9 @@ X11_graphics()
 	    sscanf(window_env, "%lu", &windowid);
     }
 #ifndef OS2
-    PRINT2("G%d %lu\n", X11_plot_number, windowid);
+    PRINT1("G%lu\n", windowid);
 #else
-    PRINT3("G%d %lu %i\n", X11_plot_number, windowid, getpid());
+    PRINT2("G%lu %i\n", windowid, getpid());
 #endif
 #endif /* USE_MOUSE */
 
@@ -1311,8 +1351,8 @@ X11_graphics()
 TERM_PUBLIC void
 X11_text()
 {
-    if (!X11_ipc)
-	return;
+     if (!X11_ipc)
+ 	return;
 
 #ifdef USE_MOUSE
     /* EAM July 2003:  send over a snapshot of the final axis scaling
@@ -1331,7 +1371,7 @@ X11_text()
 	    if (axis_array[i].ticmode != NO_TICS)
 		axis_mask |= (1 << i);
 	}
-	PRINT2("S %d %d\n", -2, ALMOST2D);
+	PRINT2("S %2d %d\n", -2, ALMOST2D);
 	PRINT2("S %2d %d\n", -1, axis_mask);
 	PRINT5("S %2d %14.3g %14d %14.3g %14.3g\n", FIRST_X_AXIS,
 		axis_array[FIRST_X_AXIS].min,
@@ -1546,7 +1586,7 @@ X11_make_palette(t_sm_palette *palette)
     case SMPAL_COLOR_MODE_FUNCTIONS: {
         int cnt=0;
 	gradient_struct *gradient;
-	gradient = approximate_palette(palette, -1, 0.01, &cnt);
+	gradient = approximate_palette(palette, -1, -1, &cnt);
 	transmit_gradient(gradient, cnt);
 	free(gradient);
 	break;
@@ -1603,18 +1643,12 @@ X11_set_color(t_colorspec *colorspec)
     if (colorspec->type != TC_FRAC)
 	return;
 
-#ifndef BINARY_X11_POLYGON
-    fputc(X11_GR_SET_COLOR, X11_ipc);
-    PRINT1("%f\n", colorspec->value);
-    FFLUSH();
-    return;
-#else
     {
     char *c_ptr;
     unsigned short byte_remaining;
     float fgray = colorspec->value;
 
-    fputc(X11_GR_SET_COLOR, X11_ipc);
+    fputc(X11_GR_BINARY_COLOR, X11_ipc);
     byte_remaining = sizeof(fgray);
     c_ptr = (char *) &fgray;
 
@@ -1635,50 +1669,23 @@ X11_set_color(t_colorspec *colorspec)
     fputc('\n', X11_ipc);
     FFLUSH();
     }
-#endif /* BINARY_X11_POLYGON */
 
 }
 
 TERM_PUBLIC void
 X11_filled_polygon(int points, gpiPoint *corners)
 {
-
-#ifndef BINARY_X11_POLYGON
-
-    int i;
-
-    fputc(X11_GR_FILLED_POLYGON, X11_ipc);
-    /* FIXME HBB 20010919: this %04d format somewhat arbitrarily
-     * limits us to 10000 vertices in the polygon */
-    PRINT2("%04d%04d", points, corners->style);
-    for (i = 0; i < points; i++) {
-	PRINT2("%04d%04d", corners[i].x, corners[i].y);
-	/* HBB 20010919: fix for buffer overflow problem: start
-	 * another line every 100 points, to avoid overflowing
-	 * fixed-size buffer in gplt_x11.  Number of points == -1
-	 * signals continuation line */
-	if ((i % 100) == 99) {
-	    PRINT1("xxxx\n%c-001", X11_GR_FILLED_POLYGON);
-	    FFLUSH();
-	}
-    }
-    fputc('\n', X11_ipc);
-    FFLUSH();
-    return;
-
-#else
-
     int int_cache[2];
     int i_corner;
     unsigned short i_buffer;
     unsigned short byte_remaining;
-    unsigned point_remaining;
+    unsigned int point_remaining;
 
     /* Encode and transfer data to the pipe, one character at a time. */
 
     if (!points) return;
 
-    fputc(X11_GR_FILLED_POLYGON, X11_ipc);
+    fputc(X11_GR_BINARY_POLYGON, X11_ipc);
     i_buffer = BINARY_MAX_CHAR_PER_TRANSFER;
 
     /* First put number of points into the buffer.  Initialize the "cache"
@@ -1712,7 +1719,7 @@ X11_filled_polygon(int points, gpiPoint *corners)
 		if (!i_buffer) {
 		    fputc('\n', X11_ipc);  FFLUSH();               /* End of chunk. */
 		    i_buffer = BINARY_MAX_CHAR_PER_TRANSFER;
-		    fputc(X11_GR_FILLED_POLYGON, X11_ipc);         /* Will be another chunk. */
+		    fputc(X11_GR_BINARY_POLYGON, X11_ipc);         /* Will be another chunk. */
 		}
 	    }
 
@@ -1724,7 +1731,7 @@ X11_filled_polygon(int points, gpiPoint *corners)
 		fputc('\n', X11_ipc);  FFLUSH();                   /* End of chunk. */
 		i_buffer = BINARY_MAX_CHAR_PER_TRANSFER;
 		if (point_remaining || byte_remaining)
-		    fputc(X11_GR_FILLED_POLYGON, X11_ipc);         /* Will be another chunk. */
+		    fputc(X11_GR_BINARY_POLYGON, X11_ipc);         /* Will be another chunk. */
 	    }
 
 	}
@@ -1744,8 +1751,6 @@ X11_filled_polygon(int points, gpiPoint *corners)
     }
 
     return;
-#endif
-
 }
 
 
@@ -1927,7 +1932,6 @@ PASS2:
 }
 
 
-#if defined(WITH_IMAGE) || defined(BINARY_X11_POLYGON)
 TERM_PUBLIC void
 X11_send_endianess(void)
 {
@@ -1942,12 +1946,10 @@ X11_send_endianess(void)
     fputc('\n', X11_ipc);
     fflush(X11_ipc);
 }
-#endif
 
-#ifdef WITH_IMAGE
 
 TERM_PUBLIC void
-X11_image(unsigned M, unsigned N, coordval *image, gpiPoint *corner, t_imagecolor color_mode)
+X11_image(unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_imagecolor color_mode)
 {
 
     /* Avoid using floats or formatted I/O.  That's too slow for image data.
@@ -1980,7 +1982,7 @@ X11_image(unsigned M, unsigned N, coordval *image, gpiPoint *corner, t_imagecolo
      */
 
     unsigned short i_buffer;
-    unsigned coord_remaining;
+    unsigned int coord_remaining;
     coordval *coord_ptr;
 
     /* Use formatted I/O to transfer image information.  Hexadecimal uses less characters.
@@ -1996,7 +1998,10 @@ X11_image(unsigned M, unsigned N, coordval *image, gpiPoint *corner, t_imagecolo
     /* Encode and transfer data to the pipe, one character at a time. */
 
     coord_remaining = M*N;
-    if (color_mode == IC_RGB) coord_remaining *= 3;
+    if (color_mode == IC_RGB)
+	coord_remaining *= 3;
+    else if (color_mode == IC_RGBA)
+	coord_remaining *= 4;
 
     if (!coord_remaining) return;
 
@@ -2010,12 +2015,14 @@ X11_image(unsigned M, unsigned N, coordval *image, gpiPoint *corner, t_imagecolo
 	unsigned short byte_remaining;
 	unsigned char *uc_ptr;
 
-	/* Convert coordinate value to an unsigned short.  Note that there
-	 * is no need for a range check because we are already using the
-	 * full range of the unsigned short value.  It is the C casting
-	 * routine that should do the range check.
+	/* Convert coordinate value to an unsigned short.
+	 * Palette and RGB values are on scale [0:1] at this point,
+	 * but alpha values run from [0:255].  Why? I don't know.
 	 */
-	us_tmp = (unsigned short) ((*coord_ptr++)*IMAGE_PALETTE_VALUE_MAX + 0.5);
+	if (color_mode == IC_RGBA && !((coord_remaining+3) % 4))
+	    us_tmp = (*coord_ptr++);
+	else
+	    us_tmp = (unsigned short) ((*coord_ptr++)*IMAGE_PALETTE_VALUE_MAX + 0.5);
 	coord_remaining--;
 
 	byte_remaining = sizeof(us_tmp);
@@ -2062,8 +2069,6 @@ X11_image(unsigned M, unsigned N, coordval *image, gpiPoint *corner, t_imagecolo
     return;
 }
 
-#endif /* WITH_IMAGE */
-
 #endif /* TERM_BODY */
 
 #ifdef TERM_TABLE
@@ -2075,7 +2080,8 @@ TERM_TABLE_START(x11_driver)
     X11_text, null_scale, X11_graphics, X11_move, X11_vector,
     X11_linetype, X11_put_text, X11_text_angle,
     X11_justify_text, X11_point, do_arrow, X11_set_font,
-    X11_pointsize, TERM_CAN_MULTIPLOT|TERM_INIT_ON_REPLOT|TERM_NO_OUTPUTFILE,
+    X11_pointsize, 
+    TERM_CAN_MULTIPLOT|TERM_INIT_ON_REPLOT|TERM_NO_OUTPUTFILE|TERM_CAN_DASH|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH,
     X11_text /* suspend can use same routine */ , 0 /* resume */ ,
     X11_fillbox, X11_linewidth
 #ifdef USE_MOUSE
@@ -2083,9 +2089,7 @@ TERM_TABLE_START(x11_driver)
 #endif
     , X11_make_palette, 0 /* X11_previous_palette */ ,
     X11_set_color, X11_filled_polygon
-#ifdef WITH_IMAGE
     , X11_image
-#endif
     , ENHX11_OPEN, ENHX11_FLUSH, do_enh_writec
 TERM_TABLE_END(x11_driver)
 
@@ -2112,7 +2116,7 @@ START_HELP(x11)
 " if the `-display` command line option is used.",
 "",
 " Syntax:",
-"    set terminal x11 {<n>}",
+"    set terminal x11 {<n> | window \"<string>\"}",
 "                     {title \"<string>\"}",
 "                     {{no}enhanced} {font <fontspec>}",
 "                     {linewidth LW} {solid|dashed}",
@@ -2127,7 +2131,16 @@ START_HELP(x11)
 " and the icon will be labeled `Gnuplot <n>`.  The active window may be",
 " distinguished by a change in cursor (from default to crosshair).",
 "",
-" The x11 terminal support enhanced text mode (see `enhanced`), subject",
+" The `x11` terminal can connect to X windows previously created by an outside",
+" application via the option `window` followed by a string containing the",
+" X ID for the window in hexadecimal format.  Gnuplot uses that external X",
+" window as a container since X does not allow for multiple clients selecting",
+" the ButtonPress event.  In this way, gnuplot's mouse features work within",
+" the contained plot window.",
+"",
+"    set term x11 window \"220001e\"",
+"",
+" The x11 terminal supports enhanced text mode (see `enhanced`), subject",
 " to the available fonts. In order for font size commands embedded in text",
 " to have any effect, the default x11 font must be scalable. Thus the first",
 " example below will work as expected, but the second will not.",
@@ -2353,12 +2366,12 @@ START_HELP(x11)
 "?x11 color_resources",
 "?color_resources",
 "=X resources",
-" For color displays, `gnuplot` honors the following resources (shown here",
-" with their default values) or the greyscale resources.  The values may be",
-" color names as listed in the X11 rgb.txt file on your system, hexadecimal",
-" RGB color specifications (see X11 documentation), or a color name followed",
-" by a comma and an `intensity` value from 0 to 1.  For example, `blue, 0.5`",
-" means a half intensity blue.",
+" The X11 terminal honors the following resources (shown here with their",
+" default values) or the greyscale resources.  The values may be color names",
+" as listed in the X11 rgb.txt file on your system, hexadecimal RGB color",
+" specifications (see X11 documentation), or a color name followed by a comma",
+" and an `intensity` value from 0 to 1.  For example, `blue, 0.5` means a half",
+" intensity blue.",
 "@start table - first is interactive cleartext form",
 "  gnuplot*background:  white",
 "  gnuplot*textColor:   black",

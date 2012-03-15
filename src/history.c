@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: history.c,v 1.21.2.4 2009/03/26 22:02:02 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: history.c,v 1.25 2009/03/26 22:00:53 mikulik Exp $"); }
 #endif
 
 /* GNUPLOT - history.c */
@@ -392,7 +392,7 @@ const char *mode;
 #ifdef HAVE_LIBREADLINE
     if (the_list)
 #endif
-        for (i = istart; list_entry = history_get(i); i++) {
+        for (i = istart; (list_entry = history_get(i)); i++) {
             /* don't add line numbers when writing to file to make file loadable */
             if (is_file)
                 fprintf(out, "%s\n", list_entry->line);

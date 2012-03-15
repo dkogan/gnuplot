@@ -1,5 +1,5 @@
 /*
- * $Id: axis.h,v 1.46.2.3 2008/10/30 22:26:23 sfeam Exp $
+ * $Id: axis.h,v 1.56.2.1 2009/08/02 23:38:51 sfeam Exp $
  *
  */
 
@@ -39,7 +39,7 @@
 #include "gp_types.h"		/* for TBOOLEAN */
 
 #include "gadgets.h"
-#include "parse.h"		/* for const_express() */
+#include "parse.h"		/* for const_*() */
 #include "tables.h"		/* for the axis name parse table */
 #include "term_api.h"		/* for lp_style_type */
 #include "util.h"		/* for int_error() */
@@ -68,6 +68,7 @@ typedef enum AXIS_INDEX {
     U_AXIS,			/* ditto */
     V_AXIS			/* ditto */
     ,COLOR_AXIS
+#define NO_AXIS 99
 } AXIS_INDEX;
 
 # define AXIS_ARRAY_SIZE 11
@@ -125,7 +126,8 @@ enum en_minitics_status {
 
 /* Function pointer type for callback functions doing operations for a
  * single ticmark */
-typedef void (*tic_callback) __PROTO((AXIS_INDEX, double, char *, struct lp_style_type ));
+typedef void (*tic_callback) __PROTO((AXIS_INDEX, double, char *, struct lp_style_type,
+					struct ticmark *));
 
 /* Values to put in the axis_tics[] variables that decides where the
  * ticmarks should be drawn: not at all, on one or both plot borders,
@@ -408,6 +410,32 @@ do {									\
     this->data_max = -VERYLARGE;					\
 } while(0)
 
+#ifdef VOLATILE_REFRESH
+#define AXIS_INIT2D_REFRESH(axis, infinite)				\
+do {									\
+    AXIS *this = axis_array + axis;					\
+									\
+    this->autoscale = this->set_autoscale;				\
+    this->min = (infinite && (this->set_autoscale & AUTOSCALE_MIN))	\
+	? VERYLARGE*1e-3 : AXIS_LOG_VALUE(axis, this->set_min);		\
+    this->max = (infinite && (this->set_autoscale & AUTOSCALE_MAX))	\
+	? -VERYLARGE*1e-3 : AXIS_LOG_VALUE(axis, this->set_max);	\
+    this->log_base = this->log ? log(this->base) : 0;			\
+} while(0)
+/* why multiply by 1e-3: if an already VERYLARGE x2 and y2 ranges are
+   calculated after zoom-out by mouse, then they would become even larger
+*/
+
+#define AXIS_UPDATE2D_REFRESH(axis)					\
+do {									\
+    AXIS *this_axis = axis_array + axis;				\
+    if ((this_axis->set_autoscale & AUTOSCALE_MIN) == 0)		\
+	this_axis->min = AXIS_LOG_VALUE(axis, this_axis->set_min);	\
+    if ((this_axis->set_autoscale & AUTOSCALE_MAX) == 0)		\
+	this_axis->max = AXIS_LOG_VALUE(axis, this_axis->set_max);				\
+} while (0)
+
+#endif
 /* handle reversed ranges */
 #define CHECK_REVERSE(axis) do {					\
     AXIS *this = axis_array + axis;					\
@@ -501,8 +529,7 @@ do {									\
 	    (store) = (double) gtimegm(&tm);				\
 	free(ss);							\
     } else {								\
-	struct value value;						\
-	(store) = real(const_express(&value));				\
+	(store) = real_expression();						\
     }									\
 } while(0)
 
@@ -520,15 +547,15 @@ do {							\
  * Do OUT_ACTION or UNDEF_ACTION as appropriate
  * adjust range provided type is INRANGE (ie dont adjust y if x is outrange
  * VALUE must not be same as STORE
+ * NOAUTOSCALE is per-plot property, whereas AUTOSCALE_XXX is per-axis.
  * Note: see the particular implementation for COLOR AXIS below.
  */
 
 #define STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,	  \
-				       OUT_ACTION, UNDEF_ACTION)	  \
+			        NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	  \
 do {									  \
-    /* HBB 20000726: new check, to avoid crashes with axis index -1 */	  \
-    if (AXIS==-1)							  \
-	break;								  \
+    if (AXIS == NO_AXIS)                                                  \
+	break;                                                            \
     /* HBB 20040304: new check to avoid storing infinities and NaNs */	  \
     if (! (VALUE > -VERYLARGE && VALUE < VERYLARGE)) {			  \
 	TYPE = UNDEFINED;						  \
@@ -550,6 +577,8 @@ do {									  \
 	}								  \
     } else								  \
 	STORE = VALUE;							  \
+    if (NOAUTOSCALE)							  \
+	break;  /* this plot is not being used for autoscaling */	  \
     if (TYPE != INRANGE)						  \
 	break;  /* don't set y range if x is outrange, for example */	  \
     if ((int)AXIS < 0)							  \
@@ -582,11 +611,11 @@ do {									  \
  * of the min or max color value).
  */
 #define COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,	  \
-				       OUT_ACTION, UNDEF_ACTION)	  \
+			       NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	  \
 {									  \
-    int c_type_tmp = TYPE;						  \
+    coord_type c_type_tmp = TYPE;						  \
     STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, c_type_tmp, AXIS,	  \
-				       OUT_ACTION, UNDEF_ACTION);	  \
+			       NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION);	  \
 }
 
 /* Empty macro arguments triggered NeXT cpp bug       */
@@ -646,7 +675,8 @@ void set_writeback_min __PROTO((AXIS_INDEX));
 void set_writeback_max __PROTO((AXIS_INDEX));
 
 /* set widest_tic_label: length of the longest tics label */
-void widest_tic_callback __PROTO((AXIS_INDEX, double place, char *text, struct lp_style_type grid));
+void widest_tic_callback __PROTO((AXIS_INDEX, double place, char *text, 
+			struct lp_style_type grid, struct ticmark *));
 
 void get_position __PROTO((struct position *pos));
 void get_position_default __PROTO((struct position *pos, enum position_type default_type));

@@ -54,7 +54,7 @@ legend_key keyT = DEFAULT_KEY_PROPS;
 
 /* Description of the color box associated with CB_AXIS */
 color_box_struct color_box; /* initialized in init_color() */
-color_box_struct default_color_box = {SMCOLOR_BOX_DEFAULT, 'v', 1, LT_BLACK, LAYER_FRONT,
+color_box_struct default_color_box = {SMCOLOR_BOX_DEFAULT, 'v', 1, LT_BLACK, LAYER_FRONT, 0,
 					{screen, screen, screen, 0.90, 0.2, 0.0},
 					{screen, screen, screen, 0.05, 0.6, 0.0}};
 
@@ -127,7 +127,8 @@ double zero = ZERO;
 double pointsize = 1.0;
 
 /* set border */
-int draw_border = 31;
+int draw_border = 31;	/* The current settings */
+int user_border = 31;	/* What the user last set explicitly */
 int border_layer = 1;
 # define DEFAULT_BORDER_LP { 0, -2, 0, 1.0, 1.0, 0 }
 struct lp_style_type border_lp = DEFAULT_BORDER_LP;
@@ -155,12 +156,16 @@ TBOOLEAN parametric = FALSE;
 /* If last plot was a 3d one. */
 TBOOLEAN is_3d_plot = FALSE;
 
-#ifdef WITH_IMAGE
-/* If last plot was one using color bus, e.g., image, map, pm3d. */
-TBOOLEAN is_cb_plot = FALSE;
+#ifdef VOLATILE_REFRESH
+/* Flag to signal that the existing data is valid for a quick refresh */
+int refresh_ok = 0;		/* 0 = no;  2 = 2D ok;  3 = 3D ok */
+/* FIXME: do_plot should be able to figure this out on its own! */
+int refresh_nplots = 0;
 #endif
+/* Flag to show that volatile input data is present */
+TBOOLEAN volatile_data = FALSE;
 
-fill_style_type default_fillstyle = { FS_EMPTY, 100, 0, LT_UNDEFINED } ;
+fill_style_type default_fillstyle = { FS_EMPTY, 100, 0, DEFAULT_COLORSPEC } ;
 
 #ifdef EAM_OBJECTS
 /* Default rectangle style - background fill, black border */
@@ -174,9 +179,10 @@ filledcurves_opts filledcurves_opts_func = EMPTY_FILLEDCURVES_OPTS;
 /* Prefer line styles over plain line types */
 TBOOLEAN prefer_line_styles = FALSE;
 
-#ifdef EAM_HISTOGRAMS
 histogram_style histogram_opts = DEFAULT_HISTOGRAM_STYLE;
-#endif
+
+/* WINDOWID to be filled by terminals running on X11 (x11, wxt, qt, ...) */
+int current_x11_windowid = 0;
 
 /*****************************************************************/
 /* Routines that deal with global objects defined in this module */
@@ -220,13 +226,6 @@ draw_clip_line(int x1, int y1, int x2, int y2)
 {
     struct termentry *t = term;
 
-#if defined(ATARI) || defined(MTOS)
-    /* HBB 20000522: why would this test be particular to ATARIs? And
-     * what was the bug this is supposed to fix? */
-    if (x1 < 0 || x2 < 0 || y1 < 0 || y2 < 0)
-	return;			/* temp bug fix */
-#endif
-
     /* HBB 20000522: I've made this routine use the clippling in
      * clip_line(), in a movement to reduce code duplication. There
      * was one very small difference between these two routines. See
@@ -236,20 +235,7 @@ draw_clip_line(int x1, int y1, int x2, int y2)
 	 * bounding box */
 	return;
 
-    /* HBB 20000617: there was a design error, here. By nature, this
-     * is a 2D routine. It should never have to check for hidden3d
-     * related variables, or call the hidden3d routine
-     * draw_line_hidden, like this. I've thrown this out. */
-
-    /* FIXME HBB 20000522: I strongly doubt this can work as
-     * advertised.  It's supposed to allow for continuous contour
-     * curves, but as soon as the contour curve moves outside the
-     * boundary, you get overpainting instead, as the contour curve
-     * walks along the border. Or worse artefacts.  */
-#if 0 /* UNUSED */
-    if (!suppressMove)
-#endif
-	(*t->move) (x1, y1);
+    (*t->move) (x1, y1);
     (*t->vector) (x2, y2);
 }
 
@@ -270,26 +256,13 @@ draw_clip_arrow( int sx, int sy, int ex, int ey, int head)
 		(unsigned int)ex, (unsigned int)ey, head);
 }
 
-
-/* And text clipping routine. */
-void
-clip_put_text(unsigned int x, unsigned y, char *str)
-{
-    struct termentry *t = term;
-
-    if (clip_point(x, y))
-	return;
-
-    (*t->put_text) (x, y, str);
-}
-
-
 /* Clip the given line to drawing coords defined by BoundingBox.
  *   This routine uses the cohen & sutherland bit mapping for fast clipping -
  * see "Principles of Interactive Computer Graphics" Newman & Sproull page 65.
+ * Return 0: entire line segment is outside bounding box
+ *        1: entire line segment is inside bounding box
+ *       -1: line segment has been clipped to bounding box
  */
-/* FIXME HBB 20000521: the parameters of this routine should become
- * unsigned ints. */
 int
 clip_line(int *x1, int *y1, int *x2, int *y2)
 {
@@ -357,10 +330,19 @@ clip_line(int *x1, int *y1, int *x2, int *y2)
     }
 
     if (pos1 && pos2) {		/* Both were out - update both */
-	*x1 = x_intr[0];
-	*y1 = y_intr[0];
-	*x2 = x_intr[1];
-	*y2 = y_intr[1];
+	/* EAM Sep 2008 - preserve direction of line segment */
+	if ((dx*(x_intr[1]-x_intr[0]) < 0)
+	||  (dy*(y_intr[1]-y_intr[0]) < 0)) {
+	    *x1 = x_intr[1];
+	    *y1 = y_intr[1];
+	    *x2 = x_intr[0];
+	    *y2 = y_intr[0];
+	} else {
+	    *x1 = x_intr[0];
+	    *y1 = y_intr[0];
+	    *x2 = x_intr[1];
+	    *y2 = y_intr[1];
+	}
     } else if (pos1) {		/* Only x1/y1 was out - update only it */
 	/* This is about the only real difference between this and
 	 * draw_clip_line(): it compares for '>0', here */
@@ -385,7 +367,7 @@ clip_line(int *x1, int *y1, int *x2, int *y2)
     if (*x1 < x_min || *x1 > x_max || *x2 < x_min || *x2 > x_max || *y1 < y_min || *y1 > y_max || *y2 < y_min || *y2 > y_max)
 	return 0;
 
-    return 1;
+    return -1;
 }
 
 
@@ -416,8 +398,7 @@ apply_pm3dcolor(struct t_colorspec *tc, const struct termentry *t)
     /* Replace colorspec with that of the requested line style */
     struct lp_style_type style;
     if (tc->type == TC_LINESTYLE) {
-	lp_use_properties(&style, tc->lt, 0);
-	(*t->linetype)(style.l_type);
+	lp_use_properties(&style, tc->lt);
 	tc = &style.pm3d_color;
     }
 
@@ -447,10 +428,6 @@ apply_pm3dcolor(struct t_colorspec *tc, const struct termentry *t)
 				tc->value : 1-tc->value);
 		      break;
     }
-    if (tc->type == TC_LT) {
-	(*t->linetype)(tc->lt);
-	return;
-    }
 }
 
 void
@@ -476,7 +453,6 @@ default_arrow_style(struct arrow_style_type *arrow)
     arrow->head_filled = 0;
 }
 
-#ifdef EAM_DATASTRINGS
 void
 free_labels(struct text_label *label)
 {
@@ -498,7 +474,6 @@ char *master_font = label->font;
     }
 
 }
-#endif
 
 void
 get_offsets(

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.144.2.11 2008/12/12 06:57:50 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.181.2.5 2010/02/24 20:41:29 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -64,6 +64,8 @@ static char *RCSid() { return RCSid("$Id: command.c,v 1.144.2.11 2008/12/12 06:5
  */
 
 #include "command.h"
+
+#include "axis.h"
 
 #include "alloc.h"
 #include "eval.h"
@@ -141,6 +143,7 @@ int vms_ktid;			/* key table id, for translating keystrokes */
 static void command __PROTO((void));
 static int changedir __PROTO((char *path));
 static char* fgets_ipc __PROTO((char* dest, int len));
+static char* gp_get_string __PROTO((char *, size_t, const char *));
 static int read_line __PROTO((const char *prompt));
 static void do_system __PROTO((const char *));
 static void test_palette_subcommand __PROTO((void));
@@ -189,6 +192,8 @@ int num_tokens, c_token;
 
 static int if_depth = 0;
 static TBOOLEAN if_condition = FALSE;
+
+static int eval_depth = 0;
 
 static int command_exit_status = 0;
 
@@ -396,23 +401,32 @@ do_line()
 
 
 void
-do_string(char *s)
+do_string(char *s, TBOOLEAN throwaway_s)
 {
-    char *orig_input_line = gp_strdup(gp_input_line);
-
-    while (gp_input_line_len < strlen(s) + 1)
-	extend_input_line();
-    strcpy(gp_input_line, s);
+    TBOOLEAN screen_was_ok = screen_ok;
 
 #ifdef USE_MOUSE
     if (display_ipc_commands())
 	fprintf(stderr, "%s\n", s);
 #endif
 
+    lf_push(NULL); /* save state for errors and recursion */
+    lf_head->c_token = c_token;
+    lf_head->num_tokens = num_tokens;
+    lf_head->tokens = gp_alloc(num_tokens * sizeof(struct lexical_unit),
+			       "lf tokens");
+    memcpy(lf_head->tokens, token, num_tokens * sizeof(struct lexical_unit));
+    lf_head->input_line = gp_strdup(gp_input_line);
+    while (gp_input_line_len < strlen(s) + 1)
+	extend_input_line();
+    strcpy(gp_input_line, s);
+    if (throwaway_s)
+	free(s);
+    screen_ok = FALSE;
     do_line();
+    screen_ok = screen_was_ok;
 
-    strcpy(gp_input_line, orig_input_line);
-    free(orig_input_line);
+    lf_pop();
 }
 
 
@@ -444,8 +458,19 @@ do_string_replot(char *s)
 	fprintf(stderr, "%s\n", s);
 
     do_line();
+
+#ifdef VOLATILE_REFRESH
+    if (volatile_data && refresh_ok) {
+	if (display_ipc_commands())
+	    fprintf(stderr, "refresh\n");
+	refresh_request();
+    } else
+#endif
+
     if (!replot_disabled)
 	replotrequest();
+    else
+	int_warn(NO_CARET, "refresh not possible and replot is disabled");
 
     strcpy(gp_input_line, orig_input_line);
     free(orig_input_line);
@@ -505,6 +530,15 @@ define()
 	memcpy(c_dummy_var, save_dummy, sizeof(save_dummy));
 	m_capture(&(udf->definition), start_token, c_token - 1);
 	dummy_func = NULL;	/* dont let anyone else use our workspace */
+
+	/* Save function definition in a user-accessible variable */
+	if (1) {
+	    char *tmpnam = gp_alloc(8+strlen(udf->udf_name), "varname");
+	    strcpy(tmpnam, "GPFUN_");
+	    strcat(tmpnam, udf->udf_name);
+	    fill_gpval_string(tmpnam, udf->definition);
+	    free(tmpnam);
+	}
     } else {
 	/* variable ! */
 	char *varname = gp_input_line + token[c_token].start_index;
@@ -514,11 +548,9 @@ define()
 	c_token += 2;
 	udv = add_udv(start_token);
 	(void) const_express(&result);
-#ifdef GP_STRING_VARS
 	/* Prevents memory leak if the variable name is re-used */
 	if (!udv->udv_undef)
 	    gpfree_string(&udv->udv_value);
-#endif
 	udv->udv_value = result;
 	udv->udv_undef = FALSE;
     }
@@ -607,8 +639,7 @@ raise_lower_command(int lower)
 
 	if (negative || equals(c_token, "+")) c_token++;
 	if (!END_OF_COMMAND && isanumber(c_token)) {
-	    struct value a;
-	    number = real(const_express(&a));
+	    number = real_expression();
 	    if (negative)
 	    number = -number;
 	    if (lower) {
@@ -760,14 +791,10 @@ call_command()
 
     if (!save_file)
 	int_error(c_token, "expecting filename");
-
     gp_expand_tilde(&save_file);
+
     /* Argument list follows filename */
     load_file(loadpath_fopen(save_file, "r"), save_file, TRUE);
-    /* gp_input_line[] and token[] now destroyed! */
-    c_token = 0;
-    num_tokens = 0;
-    free(save_file);
 }
 
 
@@ -785,6 +812,8 @@ changedir_command()
     gp_expand_tilde(&save_file);
     if (changedir(save_file))
 	int_error(c_token, "Can't change to this directory");
+    else
+	update_gpval_variables(5);
     free(save_file);
 }
 
@@ -810,6 +839,28 @@ clear_command()
 
 }
 
+/* process the 'evaluate' command */
+void
+eval_command()
+{
+    int save_token = ++c_token;
+    char *command;
+
+    if (++eval_depth > 4)
+	int_error(save_token, "Deep recursion in evaluate");
+    if (!(command = try_to_get_string()))
+	int_error(c_token, "Expected command string");
+
+    do_string(command, TRUE);
+    --eval_depth;
+}
+
+/* reset eval_depth counter */
+void
+reset_eval_depth()
+{
+    eval_depth = 0;
+}
 
 /* process the 'exit' and 'quit' commands */
 void
@@ -886,7 +937,6 @@ history_command()
 	c_token = c_token_copy + 1;
 
     } else {
-	struct value a;
 	int n = 0;		   /* print only <last> entries */
 	TBOOLEAN append = FALSE;   /* rewrite output file or append it */
 	static char *name = NULL;  /* name of the output file; NULL for stdout */
@@ -899,7 +949,7 @@ history_command()
 	}
 	/* show history entries */
 	if (!END_OF_COMMAND && isanumber(c_token)) {
-	    n = (int)real(const_express(&a));
+	    n = int_expression();
 	}
 	free(name);
 	if ((name = try_to_get_string())) {
@@ -945,13 +995,12 @@ void
 if_command()
 {
     double exprval;
-    struct value t;
 
     if_depth++;
 
     if (!equals(++c_token, "("))	/* no expression */
 	int_error(c_token, "expecting (expression)");
-    exprval = real(const_express(&t));
+    exprval = real_expression();
     if (exprval != 0.0) {
 	/* fake the condition of a ';' between commands */
 	int eolpos = token[num_tokens - 1].start_index + token[num_tokens - 1].length;
@@ -1013,19 +1062,10 @@ load_command()
     save_file = try_to_get_string();
     if (!save_file)
 	int_error(c_token, "expecting filename");
-    if (c_token < num_tokens) { /* not EOL */
-	if (!equals(c_token, ";"))
-	    int_error(c_token, "expecting end of line");
-	else if ( c_token + 1 < num_tokens ) /* not EOL even after ';' */
-	    int_warn(c_token + 1, "ignoring rest of line");
-    }
-
     gp_expand_tilde(&save_file);
+
     fp = strcmp(save_file, "-") ? loadpath_fopen(save_file, "r") : stdout;
     load_file(fp, save_file, FALSE);
-    /* gp_input_line[] and token[] now destroyed! */
-    c_token = num_tokens = 0;
-    free(save_file);
 }
 
 
@@ -1042,14 +1082,11 @@ null_command()
 void
 pause_command()
 {
-    struct value a;
     int text = 0;
     double sleep_time;
-    char *buf = gp_alloc(MAX_LINE_LEN+1, "pause argument");
+    static char *buf = NULL;
 
     c_token++;
-
-    *buf = NUL;
 
 #ifdef USE_MOUSE
     paused_for_mouse = 0;
@@ -1105,46 +1142,72 @@ pause_command()
 	    int_warn(NO_CARET,"Mousing not active");
     } else
 #endif
-	sleep_time = real(const_express(&a));
+	sleep_time = real_expression();
 
-    if (!(END_OF_COMMAND)) {
-	if (!isstring(c_token))
+    if (END_OF_COMMAND) {
+	free(buf); /* remove the previous message */
+	buf = gp_strdup("paused"); /* default message, used in Windows GUI pause dialog */
+    } else {
+	free(buf);
+	buf = try_to_get_string();
+	if (!buf)
 	    int_error(c_token, "expecting string");
 	else {
-	    quote_str(buf, c_token, MAX_LINE_LEN);
-	    ++c_token;
 #ifdef _Windows
 	    if (sleep_time >= 0)
 #elif defined(OS2)
 		if (strcmp(term->name, "pm") != 0 || sleep_time >= 0)
-#elif defined(MTOS)
-		    if (strcmp(term->name, "mtos") != 0 || sleep_time >= 0)
 #endif /* _Windows */
 			fputs(buf, stderr);
 	    text = 1;
 	}
     }
+
     if (sleep_time < 0) {
-#ifdef _Windows
-    if (paused_for_mouse && !graphwin.hWndGraph) {
-	if (interactive) { /* cannot wait for Enter in a non-interactive session without the graph window */
-	    char tmp[512];
-	    if (buf) fprintf(stderr,"%s\n", buf);
-	    fgets(tmp, 512, stdin); /* graphical window not yet initialized, wait for any key here */
-	}
-    } else { /* pausing via graphical windows */
-	int tmp = paused_for_mouse;
-	if (buf && paused_for_mouse) fprintf(stderr,"%s\n", buf);
-	if (!Pause(buf)) {
-	    if (!tmp) {
-		free(buf);
-		bail_to_command_line();
+#if defined(_Windows)
+# ifdef WXWIDGETS
+	if (!strcmp(term->name, "wxt")) {
+	    /* copy of the code below:  !(_Windows || OS2 || _Macintosh) */
+	    if (term && term->waitforinput && paused_for_mouse){
+		fprintf(stderr,"%s\n", buf);
+		term->waitforinput();
 	    } else {
-		if (!graphwin.hWndGraph) 
-		    bail_to_command_line();
+#  if defined(WGP_CONSOLE)
+		fprintf(stderr,"%s\n", buf);
+		if (term && term->waitforinput)
+		  while (term->waitforinput() != (int)'\r') {}; /* waiting for Enter*/
+#  else /* !WGP_CONSOLE */
+		if (!Pause(buf)) 
+		bail_to_command_line();
+#  endif
+	    }
+	} else
+# endif /* _Windows && WXWIDGETS */
+	{
+	    if (paused_for_mouse && !graphwin.hWndGraph) {
+		if (interactive) { /* cannot wait for Enter in a non-interactive session without the graph window */
+		    if (buf) fprintf(stderr,"%s\n", buf);
+		    fgets(buf, sizeof(buf), stdin); /* graphical window not yet initialized, wait for any key here */
+		}
+	    } else { /* pausing via graphical windows */
+		int tmp = paused_for_mouse;
+		if (buf && paused_for_mouse) fprintf(stderr,"%s\n", buf);
+		if (!tmp) {
+#  if defined(WGP_CONSOLE)
+		    fprintf(stderr,"%s\n", buf);
+			if (term && term->waitforinput)
+		      while (term->waitforinput() != (int)'\r') {}; /* waiting for Enter*/
+#  else
+		    if (!Pause(buf)) 
+		       bail_to_command_line();
+#  endif
+		} else {
+		    if (!Pause(buf)) 
+		      if (!graphwin.hWndGraph) 
+		        bail_to_command_line();
+		}
 	    }
 	}
-    }
 #elif defined(OS2)
 	if (strcmp(term->name, "pm") == 0 && sleep_time < 0) {
 	    int rc;
@@ -1153,7 +1216,6 @@ pause_command()
 		 * would help to stop REXX programs w/o raising an error message
 		 * in RexxInterface() ...
 		 */
-		free(buf);
 		bail_to_command_line();
 	    } else if (rc == 2) {
 		fputs(buf, stderr);
@@ -1164,32 +1226,7 @@ pause_command()
 #elif defined(_Macintosh)
 	if (strcmp(term->name, "macintosh") == 0 && sleep_time < 0)
 	    Pause( (int)sleep_time );
-#elif defined(MTOS)
-	if (strcmp(term->name, "mtos") == 0) {
-	    int MTOS_pause(char *buf);
-	    int rc;
-	    if ((rc = MTOS_pause(buf)) == 0)
-		free(buf);
-	    bail_to_command_line();
-	    else if (rc == 2) {
-		fputs(buf, stderr);
-		text = 1;
-		(void) fgets(buf, strlen(buf), stdin);
-	    }
-	} else if (strcmp(term->name, "atari") == 0) {
-	    char *line = readline("");
-	    if (line)
-		free(line);
-	} else
-	    (void) fgets(buf, strlen(buf), stdin);
-#elif defined(ATARI)
-	if (strcmp(term->name, "atari") == 0) {
-	    char *line = readline("");
-	    if (line)
-		free(line);
-	} else
-	    (void) fgets(buf, strlen(buf), stdin);
-#else /* !(_Windows || OS2 || _Macintosh || MTOS || ATARI) */
+#else /* !(_Windows || OS2 || _Macintosh) */
 #ifdef USE_MOUSE
 	if (term && term->waitforinput) {
 	    /* term->waitforinput() will return,
@@ -1202,7 +1239,7 @@ pause_command()
 #ifdef USE_MOUSE
 	}
 #endif /* USE_MOUSE */
-#endif /* !(_Windows || OS2 || _Macintosh || MTOS || ATARI) */
+#endif /* !(_Windows || OS2 || _Macintosh) */
     }
     if (sleep_time > 0)
 	GP_SLEEP(sleep_time);
@@ -1210,8 +1247,6 @@ pause_command()
     if (text != 0 && sleep_time >= 0)
 	fputc('\n', stderr);
     screen_ok = FALSE;
-
-    free(buf);
 
 }
 
@@ -1307,11 +1342,10 @@ print_command()
     int need_space = 0;
 
     if (!print_out) {
-        print_out = stderr;
+	print_out = stderr;
     }
     screen_ok = FALSE;
     do {
-#ifdef GP_STRING_VARS
 	++c_token;
 	const_express(&a);
 	if (a.type == STRING) {
@@ -1324,22 +1358,6 @@ print_command()
 	    disp_value(print_out, &a, FALSE);
 	    need_space = 1;
 	}
-#else
-	char *s;
-	++c_token;
-	s = try_to_get_string();
-	if (s) {
-	    fputs(s, print_out);
-	    free(s);
-	    need_space = 0;
-	} else {
-	    (void) const_express(&a);
-	    if (need_space)
-		putc(' ', print_out);
-	    disp_value(print_out, &a, FALSE);
-	    need_space = 1;
-	}
-#endif
     } while (!END_OF_COMMAND && equals(c_token, ","));
 
     (void) putc('\n', print_out);
@@ -1363,6 +1381,83 @@ pwd_command()
 }
 
 
+#ifdef VOLATILE_REFRESH
+/* EAM April 2007
+ * The "refresh" command replots the previous graph without going back to read
+ * the original data. This allows zooming or other operations on data that was
+ * only transiently available in the input stream.
+ */
+void
+refresh_command()
+{
+    c_token++;
+    refresh_request();
+}
+
+void
+refresh_request()
+{
+    FPRINTF((stderr,"refresh_request\n"));
+
+    if ((first_plot == NULL && refresh_ok == 2)
+    ||  (first_3dplot == NULL && refresh_ok == 3))
+	int_error(NO_CARET, "no active plot; cannot refresh");
+
+    if (refresh_ok == 0) {
+	int_warn(NO_CARET, "cannot refresh from this state. trying full replot");
+	replotrequest();
+	return;
+    }
+
+    /* If the state has been reset to autoscale since the last plot,
+     * initialize the axis limits.
+     */
+    AXIS_INIT2D_REFRESH(FIRST_X_AXIS,TRUE);
+    AXIS_INIT2D_REFRESH(FIRST_Y_AXIS,TRUE);
+    AXIS_INIT2D_REFRESH(SECOND_X_AXIS,TRUE);
+    AXIS_INIT2D_REFRESH(SECOND_Y_AXIS,TRUE);
+
+    AXIS_UPDATE2D_REFRESH(T_AXIS);  /* Untested: T and R want INIT2D or UPDATE2D?? */
+    AXIS_UPDATE2D_REFRESH(R_AXIS);  /* It doesn't matter, they are used for functions, not for data */
+
+    AXIS_UPDATE2D_REFRESH(FIRST_Z_AXIS);
+    AXIS_UPDATE2D_REFRESH(COLOR_AXIS);
+
+    if (refresh_ok == 2)
+	refresh_bounds(first_plot, refresh_nplots);
+    else if (refresh_ok == 3)
+	refresh_3dbounds(first_3dplot, refresh_nplots);
+
+/* FIXME EAM
+ * The existing mechanism defined in axis.h does not work here for some reason.
+ * The following defined check works empirically.  Most of the time.  Maybe.
+ */
+#undef CHECK_REVERSE
+#define CHECK_REVERSE(axis) do {		\
+    AXIS *ax = axis_array + axis;		\
+    if ((ax->range_flags & RANGE_REVERSE)) {	\
+	double temp = ax->max;			\
+	ax->max = ax->min; ax->min = temp;	\
+    } } while (0)
+
+
+    CHECK_REVERSE(FIRST_X_AXIS);
+    CHECK_REVERSE(FIRST_Y_AXIS);
+    CHECK_REVERSE(SECOND_X_AXIS);
+    CHECK_REVERSE(SECOND_Y_AXIS);
+#undef CHECK_REVERSE
+
+    if (refresh_ok == 2)
+	do_plot(first_plot, refresh_nplots);
+    else if (refresh_ok == 3)
+	do_3dplot(first_3dplot, refresh_nplots, 0);
+    else
+	int_error(NO_CARET, "Internal error - refresh of unknown plot type");
+
+}
+
+
+#endif
 /* process the 'replot' command */
 void
 replot_command()
@@ -1375,11 +1470,7 @@ replot_command()
     */
     if (replot_disabled) {
 	replot_disabled = FALSE;
-#if 1
 	bail_to_command_line(); /* be silent --- don't mess the screen */
-#else
-	int_error(c_token, "cannot replot data coming from stdin");
-#endif
     }
     if (!term) /* unknown terminal */
 	int_error(c_token, "use 'set term' to set terminal type first");
@@ -1411,7 +1502,6 @@ save_command()
 {
     FILE *fp;
     char *save_file = NULL;
-    char *save_locale = NULL;
     int what;
 
     c_token++;
@@ -1444,14 +1534,6 @@ save_command()
     if (!fp)
 	os_error(c_token, "Cannot open save file");
 
-#ifdef HAVE_LOCALE_H
-    /* Make sure that numbers in the saved gnuplot commands use standard form */
-    if (strcmp(localeconv()->decimal_point,".")) {
-	save_locale = gp_strdup(setlocale(LC_NUMERIC,NULL));
-	setlocale(LC_NUMERIC,"C");
-    }
-#endif
-
     switch (what) {
 	case SAVE_FUNCS:
 	    save_functions(fp);
@@ -1468,15 +1550,6 @@ save_command()
     default:
 	    save_all(fp);
     }
-
-#ifdef HAVE_LOCALE_H
-    if (save_locale) {
-	setlocale(LC_NUMERIC,save_locale);
-	free(save_locale);
-	fprintf(fp, "set decimalsign locale \"%s\"\n", setlocale(LC_NUMERIC,NULL));
-	fprintf(fp, "set decimalsign '%s'\n", decimalsign);
-    }
-#endif
 
     if (stdout != fp) {
 #ifdef PIPES
@@ -1559,27 +1632,25 @@ test_palette_subcommand()
     int i;
     static const char pre1[] = "\
 reset;set multi;\
-uns border;uns key;set tic out;uns xtics;uns ytics;\
-se cbtic 0,0.1,1;se cbtic nomirr;\
+uns border;uns key;set tic in;uns xtics;uns ytics;\
+se cbtic 0,0.1,1 mirr format '';\
 se xr[0:1];se yr[0:1];se zr[0:1];se cbr[0:1];\
-se pm3d map;set colorbox hor user orig 0.08,0.07 size 0.79,0.12;";
+se pm3d map;set colorbox hor user orig 0.05,0.02 size 0.925,0.12;";
     static const char pre2[] = "splot 1/0;\n\n\n";
 	/* note: those \n's are because of x11 terminal problems with blocking pipe */
     static const char pre3[] = "\
-se size 1,0.8;se orig 0,0.2;uns pm3d;\
-se key outside;se grid;se tics in;se xtics 0,0.1;se ytics 0,0.1;\
-se tit'R,G,B profiles of the current color palette';";
+uns pm3d;\
+se lmarg scre 0.05;se rmarg scre 0.975; se bmarg scre 0.22; se tmarg scre 0.86;\
+se grid;se tics scale 0; se xtics 0,0.1;se ytics 0,0.1;\
+se key top right at scre 0.975,0.975 horizontal \
+title 'R,G,B profiles of the current color palette';";
     static const char post[] = "\
-\n\n\nuns multi;se orig 0,0;se size 1,1;\n"; /* no final 'reset' in favour of mousing */
+\n\n\nuns multi;\n"; /* no final 'reset' in favour of mousing */
     int can_pm3d = (term->make_palette && term->set_color);
     char *order = "rgb";
     char *save_replot_line;
     TBOOLEAN save_is_3d_plot;
-#ifdef WITH_IMAGE
-    TBOOLEAN save_is_cb_plot;
-#endif
     FILE *f = tmpfile();
-    char *save_locale = NULL;
 
     c_token++;
     /* parse optional option */
@@ -1599,14 +1670,6 @@ se tit'R,G,B profiles of the current color palette';";
     if (!f)
 	int_error(NO_CARET, "cannot write temporary file");
 
-#ifdef HAVE_LOCALE_H
-    /* Make sure that numbers in the saved gnuplot commands use standard form */
-    if (strcmp(localeconv()->decimal_point,".")) {
-	save_locale = gp_strdup(setlocale(LC_NUMERIC,NULL));
-	setlocale(LC_NUMERIC,"C");
-    }
-#endif
-
     /* generate r,g,b curves */
     for (i = 0; i < test_palette_colors; i++) {
 	/* colours equidistantly from [0,1] */
@@ -1619,9 +1682,6 @@ se tit'R,G,B profiles of the current color palette';";
     enable_reset_palette = 0;
     save_replot_line = gp_strdup(replot_line);
     save_is_3d_plot = is_3d_plot;
-#ifdef WITH_IMAGE
-    save_is_cb_plot = is_cb_plot;
-#endif
     fputs(pre1, f);
     if (can_pm3d)
 	fputs(pre2, f);
@@ -1634,13 +1694,13 @@ se tit'R,G,B profiles of the current color palette';";
 	fputs("'-'tit'", f);
 	switch (order[i]) {
 	case 'r':
-	    fputs("red'w l 1", f);
+	    fputs("red'w l lt 1", f);
 	    break;
 	case 'g':
-	    fputs("green'w l 2", f);
+	    fputs("green'w l lt 2", f);
 	    break;
 	case 'b':
-	    fputs("blue'w l 3", f);
+	    fputs("blue'w l lt 3", f);
 	    break;
 	} /* switch(order[i]) */
     } /* for (i) */
@@ -1664,15 +1724,6 @@ se tit'R,G,B profiles of the current color palette';";
      */
     save_set(f);
 
-#ifdef HAVE_LOCALE_H
-    if (save_locale) {
-	setlocale(LC_NUMERIC,save_locale);
-	free(save_locale);
-	fprintf(f, "set decimalsign locale \"%s\"\n", setlocale(LC_NUMERIC,NULL));
-	fprintf(f, "set decimalsign '%s'\n", decimalsign);
-    }
-#endif
-
     /* execute all commands from the temporary file */
     rewind(f);
     load_file(f, NULL, FALSE); /* note: it does fclose(f) */
@@ -1682,9 +1733,6 @@ se tit'R,G,B profiles of the current color palette';";
     free(replot_line);
     replot_line = save_replot_line;
     is_3d_plot = save_is_3d_plot;
-#ifdef WITH_IMAGE
-    is_cb_plot = save_is_cb_plot;
-#endif
 
     /* further, gp_input_line[] and token[] now destroyed! */
     c_token = num_tokens = 0;
@@ -1748,12 +1796,7 @@ test_command()
 	case TEST_PALETTE: test_palette_subcommand(); break;
 	case TEST_TIME: test_time_subcommand(); break;
 	default:
-#if 1
-	    int_error(c_token, "none or keyword 'terminal' or 'palette' expected");
-#else
-	    /* don't document undocumented command :-) */
-	    int_error(c_token, "none or keyword 'terminal', 'palette' or 'time' expected");
-#endif
+	    int_error(c_token, "only keywords are 'terminal' and 'palette'");
     }
 }
 
@@ -1792,8 +1835,8 @@ invalid_command()
       rc = ExecuteMacro(gp_input_line + token[c_token].start_index,
 	      token[c_token].length);
       if (rc == 0) {
-         c_token = num_tokens = 0;
-         return;
+	 c_token = num_tokens = 0;
+	 return;
       }
     }
 #endif
@@ -1809,7 +1852,7 @@ invalid_command()
 static int
 changedir(char *path)
 {
-#if defined(MSDOS) || defined(WIN16) || defined(ATARI) || defined(DOS386)
+#if defined(MSDOS) || defined(WIN16) || defined(DOS386)
 # if defined(__ZTC__)
     unsigned dummy;		/* it's a parameter needed for dos_setdrive */
 # endif
@@ -1818,10 +1861,6 @@ changedir(char *path)
 
     if (isalpha(path[0]) && (path[1] == ':')) {
 	int driveno = toupper(path[0]) - 'A';	/* 0=A, 1=B, ... */
-
-# if defined(ATARI)
-	(void) Dsetdrv(driveno);
-# endif
 
 # if defined(__ZTC__)
 	(void) dos_setdrive(driveno + 1, &dummy);
@@ -1852,9 +1891,8 @@ changedir(char *path)
     return _chdir2(path);
 #else
     return chdir(path);
-#endif /* MSDOS, ATARI etc. */
+#endif /* MSDOS etc. */
 }
-
 
 /* used by replot_command() */
 void
@@ -1907,6 +1945,7 @@ replotrequest()
     screen_ok = FALSE;
     num_tokens = scanner(&gp_input_line, &gp_input_line_len);
     c_token = 1;		/* skip the 'plot' part */
+
     if (is_3d_plot)
 	plot3drequest();
     else
@@ -2117,8 +2156,8 @@ do_system(const char *cmd)
 #endif /* VMS */
 
 
-#ifdef _Windows
-# ifdef NO_GIH
+#ifdef NO_GIH
+#if defined(_Windows)
 void
 help_command()
 {
@@ -2134,8 +2173,16 @@ help_command()
 	WinHelp(textwin.hWndParent, (LPSTR) winhelpname, HELP_PARTIALKEY, (DWORD) buf);
     }
 }
-# endif				/* NO_GIH */
+#else  /* !_Windows */
+void
+help_command()
+{
+    while (!(END_OF_COMMAND))
+	c_token++;
+    fputs("This gnuplot was not built with inline help\n", stderr);
+}
 #endif /* _Windows */
+#endif /* NO_GIH */
 
 
 /*
@@ -2174,10 +2221,6 @@ help_command()
     static char help_fname[256] = "";	/* keep helpfilename across calls */
 # endif
 
-# if defined(ATARI) || defined(MTOS)
-    char const *const ext[] = { NULL };
-# endif
-
     if ((help_ptr = getenv("GNUHELP")) == (char *) NULL)
 # ifndef SHELFIND
 	/* if can't find environment variable then just use HELPFILE */
@@ -2185,19 +2228,9 @@ help_command()
 /* patch by David J. Liu for getting GNUHELP from home directory */
 #  if (defined(__TURBOC__) && (defined(MSDOS) || defined(DOS386))) || defined(__DJGPP__)
 	help_ptr = HelpFile;
-#  else
-#   if defined(ATARI) || defined(MTOS)
-    {
-	/* I hope findfile really can accept a NULL argument ... */
-	if ((help_ptr = findfile(HELPFILE, user_gnuplotpath, ext)) == NULL)
-	    help_ptr = findfile(HELPFILE, getenv("PATH"), ext);
-	if (!help_ptr)
-	    help_ptr = HELPFILE;
-    }
-#   else
-    help_ptr = HELPFILE;
-#   endif			/* ATARI || MTOS */
-#  endif			/* __TURBOC__ */
+#  else			/* __TURBOC__ */
+	help_ptr = HELPFILE;
+#  endif
 #ifdef OS2
   {
   /* look in the path where the executable lives */
@@ -2338,29 +2371,11 @@ do_system(const char *cmd)
 	return;
     getparms(input_line + 1, parms);
     fexecv(parms[0], parms);
-# elif (defined(ATARI) && defined(__GNUC__))
-/* || (defined(MTOS) && defined(__GNUC__)) */
-    /* use preloaded shell, if available */
-    short (*shell_p) (char *command);
-    void *ssp;
-
-    if (!cmd)
-	return;
-
-    ssp = (void *) Super(NULL);
-    shell_p = *(short (**)(char *)) 0x4f6;
-    Super(ssp);
-
-    /* this is a bit strange, but we have to have a single if */
-    if (shell_p)
-	(*shell_p) (cmd);
-    else
-	system(cmd);
 # elif defined(_Windows) && defined(USE_OWN_WINSYSTEM_FUNCTION)
     if (!cmd)
 	return;
     winsystem(cmd);
-# else /* !(AMIGA_AC_5 || ATARI && __GNUC__ || _Windows) */
+# else /* !(AMIGA_AC_5 || _Windows) */
 /* (am, 19980929)
  * OS/2 related note: cmd.exe returns 255 if called w/o argument.
  * i.e. calling a shell by "!" will always end with an error message.
@@ -2370,7 +2385,7 @@ do_system(const char *cmd)
     if (!cmd)
 	return;
     system(cmd);
-# endif /* !(AMIGA_AC_5 || ATARI&&__GNUC__ || _Windows) */
+# endif /* !(AMIGA_AC_5 || _Windows) */
 }
 
 
@@ -2680,6 +2695,23 @@ fgets_ipc(
 	return fgets(dest, len, stdin);
 }
 
+/* get a line from stdin, and display a prompt if interactive */
+static char*
+gp_get_string(char * buffer, size_t len, const char * prompt)
+{
+# if defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
+    if (interactive)
+	return rlgets(buffer, len, prompt);
+    else
+	return fgets_ipc(buffer, len);
+# else /* !(READLINE || HAVE_LIBREADLINE) */
+    if (interactive)
+	PUT_STRING(prompt);
+
+    return GET_STRING(buffer, len);
+# endif /* !(READLINE || HAVE_LIBREADLINE) */
+}
+
 /* Non-VMS version */
 static int
 read_line(const char *prompt)
@@ -2690,23 +2722,11 @@ read_line(const char *prompt)
 
     current_prompt = prompt;	/* HBB NEW 20040727 */
 
-# if !defined(READLINE) && !defined(HAVE_LIBREADLINE) && !defined(HAVE_LIBEDITLINE)
-    if (interactive)
-	PUT_STRING(prompt);
-# endif				/* no READLINE */
-
     do {
 	/* grab some input */
-# if defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
-	if (((interactive)
-	     ? rlgets(gp_input_line + start, gp_input_line_len - start,
-		     ((more) ? "> " : prompt))
-	     : fgets_ipc(gp_input_line + start, gp_input_line_len - start)
-	    ) == (char *) NULL)
-# else /* !(READLINE || HAVE_LIBREADLINE) */
-	if (GET_STRING(gp_input_line + start, gp_input_line_len - start)
+	if (gp_get_string(gp_input_line + start, gp_input_line_len - start,
+                         ((more) ? ">" : prompt))
 	    == (char *) NULL)
-# endif /* !(READLINE || HAVE_LIBREADLINE) */
 	{
 	    /* end-of-file */
 	    if (interactive)
@@ -2725,6 +2745,9 @@ read_line(const char *prompt)
 	    if (last >= 0) {
 		if (gp_input_line[last] == '\n') {	/* remove any newline */
 		    gp_input_line[last] = NUL;
+		    if (last > 0 && gp_input_line[last-1] == '\r') {
+		        gp_input_line[--last] = NUL;
+		    }
 		    /* Watch out that we don't backup beyond 0 (1-1-1) */
 		    if (last > 0)
 			--last;
@@ -2745,10 +2768,6 @@ read_line(const char *prompt)
 	    } else
 		more = FALSE;
 	}
-# if !defined(READLINE) && !defined(HAVE_LIBREADLINE) && !defined(HAVE_LIBEDITLINE)
-	if (more && interactive)
-	    PUT_STRING("> ");
-# endif
     } while (more);
     return (0);
 }
@@ -2917,7 +2936,7 @@ int
 do_system_func(const char *cmd, char **output)
 {
 
-#if defined(VMS) || defined(PIPES) || (defined(ATARI) || defined(MTOS)) && defined(__PUREC__)
+#if defined(VMS) || defined(PIPES)
     int c;
     FILE *f;
     size_t cmd_len;
@@ -2926,8 +2945,6 @@ do_system_func(const char *cmd, char **output)
     int ierr = 0;
 # ifdef AMIGA_AC_5
     int fd;
-# elif (defined(ATARI) || defined(MTOS)) && defined(__PUREC__)
-    char *atari_tmpfile, *atari_cmd;
 # elif defined(VMS)
     int chan, one = 1;
     struct dsc$descriptor_s pgmdsc = {0, DSC$K_DTYPE_T, DSC$K_CLASS_S, 0};
@@ -2948,18 +2965,6 @@ do_system_func(const char *cmd, char **output)
 
     if ((f = fopen("PLOT$MAILBOX", "r")) == NULL)
 	os_error(NO_CARET, "mailbox open failed");
-# elif (defined(ATARI) || defined(MTOS)) && defined(__PUREC__)
-    if (system(NULL) == 0)
-	os_error(NO_CARET, "no command shell");
-    atari_tmpfile = tmpnam(NULL);
-    atari_cmd = gp_alloc(cmd_len + 5 + strlen(atari_tmpfile),
-			 "command string");
-    strcpy(atari_cmd, cmd);
-    strcat(atari_cmd, " >> ");
-    strcat(atari_cmd, atari_tmpfile);
-    system(atari_cmd);
-    free(atari_cmd);
-    if ((f = fopen(atari_tmpfile, "r")) == NULL)
 # elif defined(AMIGA_AC_5)
 	if ((fd = open(cmd, "O_RDONLY")) == -1)
 # else	/* everyone else */
@@ -3002,9 +3007,6 @@ do_system_func(const char *cmd, char **output)
     /* close stream */
 # ifdef AMIGA_AC_5
     (void) close(fd);
-# elif (defined(ATARI) || defined(MTOS)) && defined(__PUREC__)
-    (void) fclose(f);
-    (void) unlink(atari_tmpfile);
 # else				/* Rest of the world */
     ierr = pclose(f);
 # endif
@@ -3013,12 +3015,12 @@ do_system_func(const char *cmd, char **output)
     *output = result;
     return ierr;
 
-#else /* VMS || PIPES || ATARI && PUREC */
+#else /* VMS || PIPES */
 
     int_warn(NO_CARET, "system evaluation not supported by %s", OS);
     *output = gp_strdup("");
     return 0;
 
-#endif /* VMS || PIPES || ATARI && PUREC */
+#endif /* VMS || PIPES */
 
 }

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.60.2.14 2009/06/12 05:05:44 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.77.2.4 2009/11/04 16:11:25 mikulik Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -601,7 +601,7 @@ make_tics(AXIS_INDEX axis, int guide)
 
     xr = fabs(axis_array[axis].min - axis_array[axis].max);
     if (xr == 0)
-	return 1;       /* Anything will do, since we'll never use it */
+	return 1;	/* Anything will do, since we'll never use it */
     if (xr >= VERYLARGE)
 	int_error(NO_CARET,"%s axis range undefined or overflow",
 		axis_defaults[axis].name);
@@ -882,7 +882,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	    else
 		gprintf(label, sizeof(label), mark->label ? mark->label : ticfmt[axis], log10_base, mark->position);
 	    /* use NULL instead of label for minitic */
-	    (*callback) (axis, internal, (mark->level>0)?NULL:label, (mark->level>0)?mgrd:lgrd);
+	    (*callback) (axis, internal, (mark->level>0)?NULL:label, (mark->level>0)?mgrd:lgrd, NULL);
 	}
 	if (def->type == TIC_USER)
 	    return;
@@ -987,8 +987,6 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 		if (minifreq <= 0)
 		    minitics = 0;	/* not much else we can do */
  		else if (axis_array[axis].log) {
-		    /* Sep 2005 - This case has been commented out since v3.7 */
-		    /* but in fact it seems correct, and fixes but #1223149 */
  		    ministart = ministep = step / minifreq * axis_array[axis].base;
  		    miniend = step * axis_array[axis].base;
  		} else {
@@ -1103,23 +1101,22 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	    if (internal > internal_max)
 		break;		/* gone too far - end of series = VERYLARGE perhaps */
 	    if (internal >= internal_min) {
-#if 0 /* maybe minitics!!!. user series starts below min ? */
-		continue;
-#endif
 		/* {{{  draw tick via callback */
 		switch (def->type) {
 		case TIC_DAY:{
 			int d = (long) floor(user + 0.5) % 7;
 			if (d < 0)
 			    d += 7;
-			(*callback) (axis, internal, abbrev_day_names[d], lgrd);
+			(*callback) (axis, internal, abbrev_day_names[d], lgrd,
+					def->def.user);
 			break;
 		    }
 		case TIC_MONTH:{
 			int m = (long) floor(user - 1) % 12;
 			if (m < 0)
 			    m += 12;
-			(*callback) (axis, internal, abbrev_month_names[m], lgrd);
+			(*callback) (axis, internal, abbrev_month_names[m], lgrd,
+					def->def.user);
 			break;
 		    }
 		default:{	/* comp or series */
@@ -1129,17 +1126,9 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			    gstrftime(label, 24, ticfmt[axis], (double) user);
 			} else if (polar) {
 			    /* if rmin is set, we stored internally with r-rmin */
-			    /* HBB 990327: reverted to 'pre-Igor' version... */
-#if 1				/* Igor's polar-grid patch */
 			    double r = fabs(user) +
 				((axis_array[R_AXIS].autoscale & AUTOSCALE_MIN)
 				 ? 0 : axis_array[R_AXIS].min);
-#else
-			    /* Igor removed fabs to allow -ve labels */
-			    double r = user +
-				((axis_array[R_AXIS].autoscale & AUTOSCALE_MIN)
-				 ? 0 : axis_array[R_AXIS].min);
-#endif
 			    gprintf(label, sizeof(label), ticfmt[axis], log10_base, r);
 			} else {
 			    gprintf(label, sizeof(label), ticfmt[axis], log10_base, user);
@@ -1150,7 +1139,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			&&  !inrange(internal,axis_array[axis].data_min,axis_array[axis].data_max))
 			    continue;
 
-			(*callback) (axis, internal, label, lgrd);
+			(*callback) (axis, internal, label, lgrd, def->def.user);
 		    }
 		}
 		/* }}} */
@@ -1170,7 +1159,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			       : mplace);
 		    if (inrange(mtic, internal_min, internal_max)
 			&& inrange(mtic, start - step * SIGNIF, end + step * SIGNIF))
-			(*callback) (axis, mtic, NULL, mgrd);
+			(*callback) (axis, mtic, NULL, mgrd, NULL);
 		}
 		/* }}} */
 	    }
@@ -1443,16 +1432,13 @@ load_range(AXIS_INDEX axis, double *a, double *b, t_autoscale autoscale)
 
     /* HBB 20030127: If range input backwards, automatically turn on
        the "reverse" option, too. */
-    /* HBB 20040315: ... and clear it automatically if a fixed range
-     * was given the "right" way round! */
     if ((autoscale & AUTOSCALE_BOTH) == AUTOSCALE_NONE) {
       if (*b < *a) {
 	double temp = *a;
 
 	*a = *b; *b = temp;
 	axis_array[axis].range_flags |= RANGE_REVERSE;
-      } else 
-	axis_array[axis].range_flags &= ~RANGE_REVERSE;
+      }
     }
 
     return (autoscale);
@@ -1466,7 +1452,9 @@ load_range(AXIS_INDEX axis, double *a, double *b, t_autoscale autoscale)
  */
 
 void
-widest_tic_callback(AXIS_INDEX axis, double place, char *text, struct lp_style_type grid)
+widest_tic_callback(AXIS_INDEX axis, double place, char *text,
+    struct lp_style_type grid,
+    struct ticmark *userlabels)
 {
     (void) axis;		/* avoid "unused parameter" warnings */
     (void) place;
@@ -1534,10 +1522,6 @@ some_grid_selected()
 int
 set_cbminmax()
 {
-#if 0
-    printf("ENTER set_cbminmax:  Z_AXIS.min=%g\t Z_AXIS.max=%g\n",Z_AXIS.min,Z_AXIS.max);
-    printf("ENTER set_cbminmax: CB_AXIS.min=%g\tCB_AXIS.max=%g\n",CB_AXIS.min,CB_AXIS.max);
-#endif
     if (CB_AXIS.set_autoscale & AUTOSCALE_MIN) {
 	/* -VERYLARGE according to AXIS_INI3D */
 	if (CB_AXIS.min >= VERYLARGE)
@@ -1552,22 +1536,13 @@ set_cbminmax()
     }
     CB_AXIS.max = axis_log_value_checked(COLOR_AXIS, CB_AXIS.max, "color axis");
 
-#if 0
-    if (CB_AXIS.min == CB_AXIS.max) {
-	int_error(NO_CARET, "cannot display empty color axis range");
-	return 0;
-    }
-#endif
     if (CB_AXIS.min > CB_AXIS.max) {
 	/* exchange min and max values */
 	double tmp = CB_AXIS.max;
 	CB_AXIS.max = CB_AXIS.min;
 	CB_AXIS.min = tmp;
     }
-#if 0
-    printf("EXIT  set_cbminmax:  Z_AXIS.min=%g\t Z_AXIS.max=%g\n",Z_AXIS.min,Z_AXIS.max);
-    printf("EXIT  set_cbminmax: CB_AXIS.min=%g\tCB_AXIS.max=%g\n",CB_AXIS.min,CB_AXIS.max);
-#endif
+
     return 1;
 }
 
@@ -1620,6 +1595,8 @@ get_position_default(struct position *pos, enum position_type default_type)
     int axes;
     enum position_type type = default_type;
 
+    memset(pos, 0, sizeof(struct position));
+
     get_position_type(&type, &axes);
     pos->scalex = type;
     GET_NUMBER_OR_TIME(pos->x, axes, FIRST_X_AXIS);
@@ -1637,7 +1614,8 @@ get_position_default(struct position *pos, enum position_type default_type)
     /* z is not really allowed for a screen co-ordinate, but keep it simple ! */
     if (equals(c_token, ",")
        /* Partial fix for ambiguous syntax when trailing comma ends a plot command */
-	&& !(isstringvalue(c_token+1))
+	&& !(isstringvalue(c_token+1)) && !(almost_equals(c_token+1,"newhist$ogram"))
+	&& !(almost_equals(c_token+1,"for"))
        ) {
 	++c_token;
 	get_position_type(&type, &axes);
@@ -1689,7 +1667,7 @@ add_tic_user(AXIS_INDEX axis, char *label, double position, int level)
     } else {
 	/* The new tic must duplicate position of tic->next */
 	if (position != tic->next->position)
-	    fprintf(stderr,"add_tic_user: list sort error\n");
+	    int_warn(NO_CARET, "add_tic_user: list sort error");
 	newtic = tic->next;
 	/* Don't over-write a major tic with a minor tic */
 	if (newtic->level < level)

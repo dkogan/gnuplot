@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.59.2.1 2008/12/12 06:57:50 sfeam Exp $
+ * $Id: term_api.h,v 1.80.2.3 2009/09/13 17:43:41 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -59,9 +59,10 @@
 #define LT_DEFAULT    (-7)
 
 /* Constant value passed to (term->text_angle)(ang) to generate vertical
- * text. Current implementation has ang equal to rotation in degrees.
+ * text corresponding to old keyword "rotate", which produced the equivalent
+ * of "rotate by 90 right-justified".
  */
-#define TEXT_VERTICAL (90)
+#define TEXT_VERTICAL (-270)
 
 
 /* Type definitions */
@@ -87,6 +88,7 @@ typedef struct lp_style_type {	/* contains all Line and Point properties */
     int     pointflag;		/* 0 if points not used, otherwise 1 */
     int     l_type;
     int	    p_type;
+    int     p_interval;		/* Every Nth point in style LINESPOINTS */
     double  l_width;
     double  p_size;
     TBOOLEAN use_palette;
@@ -94,7 +96,7 @@ typedef struct lp_style_type {	/* contains all Line and Point properties */
     /* ... more to come ? */
 } lp_style_type;
 
-#define DEFAULT_LP_STYLE_TYPE {0, -2, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
+#define DEFAULT_LP_STYLE_TYPE {0, -2, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
 
 typedef enum e_arrow_head {
 	NOHEAD = 0,
@@ -124,26 +126,33 @@ typedef enum termlayer {
 	TERM_LAYER_RESET,
 	TERM_LAYER_BACKTEXT,
 	TERM_LAYER_FRONTTEXT,
-	TERM_LAYER_END_TEXT
+	TERM_LAYER_BEGIN_GRID,
+	TERM_LAYER_END_GRID,
+	TERM_LAYER_END_TEXT,
+	TERM_LAYER_BEFORE_PLOT,
+	TERM_LAYER_AFTER_PLOT
 } t_termlayer;
 
 typedef struct fill_style_type {
     int fillstyle;
     int filldensity;
     int fillpattern;
-    int border_linetype;
+    t_colorspec border_color;
 } fill_style_type;
 
-typedef enum t_fillstyle { FS_EMPTY, FS_SOLID, FS_PATTERN, FS_DEFAULT }
+typedef enum t_fillstyle { FS_EMPTY, FS_SOLID, FS_PATTERN, FS_DEFAULT, 
+			   FS_TRANSPARENT_SOLID, FS_TRANSPARENT_PATTERN }
 	     t_fillstyle;
 #define FS_OPAQUE (FS_SOLID + (100<<4))
 
-#ifdef WITH_IMAGE
-/* Color construction for an image, palette lookup or rgb components.
- */
-typedef enum t_imagecolor { IC_PALETTE, IC_RGB }
+/* Color construction for an image, palette lookup or rgb components. */
+typedef enum t_imagecolor { IC_PALETTE, IC_RGB, IC_RGBA }
 	     t_imagecolor;
-#endif
+/* Holder for various image properties */
+typedef struct t_image {
+    t_imagecolor type; /* See above */
+    TBOOLEAN fallback; /* true == don't use terminal-specific code */
+} t_image;
 
 /* values for the optional flags field - choose sensible defaults
  * these aren't really very sensible names - multiplot attributes
@@ -159,6 +168,10 @@ typedef enum t_imagecolor { IC_PALETTE, IC_RGB }
 #define TERM_ENHANCED_TEXT   32  /* enhanced text mode is enabled   */
 #define TERM_NO_OUTPUTFILE   64  /* terminal doesnt write to a file */
 #define TERM_CAN_CLIP       128  /* terminal does its own clipping  */
+#define TERM_CAN_DASH       256  /* terminal supports dashed lines  */
+#define TERM_ALPHA_CHANNEL  512  /* alpha channel transparency      */
+#define TERM_MONOCHROME    1024  /* term is running in mono mode    */
+#define TERM_LINEWIDTH     2048  /* support for set term linewidth  */
 
 /* The terminal interface structure --- heart of the terminal layer.
  *
@@ -230,9 +243,7 @@ typedef struct TERMENTRY {
        specifying color.
      */
     void (*filled_polygon) __PROTO((int points, gpiPoint *corners));
-#ifdef WITH_IMAGE
-    void (*image) __PROTO((unsigned, unsigned, coordval *, gpiPoint *, t_imagecolor));
-#endif
+    void (*image) __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
 
 /* Enhanced text mode driver call-backs */
     void (*enhanced_open) __PROTO((char * fontname, double fontsize,
@@ -254,6 +265,11 @@ typedef struct TERMENTRY {
  */
     void (*path) __PROTO((int p));
 
+/* Scale factor for converting terminal coordinates to output
+ * pixel coordinates.  Used to provide data for external mousing code.
+ */
+    double tscale;
+
 } TERMENTRY;
 
 #ifdef WIN16
@@ -263,9 +279,10 @@ typedef struct TERMENTRY {
 #endif
 
 enum set_encoding_id {
-   S_ENC_DEFAULT, S_ENC_ISO8859_1, S_ENC_ISO8859_2, S_ENC_ISO8859_15,
-   S_ENC_CP437, S_ENC_CP850, S_ENC_CP852, S_ENC_CP1250,
-   S_ENC_KOI8_R, S_ENC_KOI8_U, 
+   S_ENC_DEFAULT, S_ENC_ISO8859_1, S_ENC_ISO8859_2, S_ENC_ISO8859_9, S_ENC_ISO8859_15,
+   S_ENC_CP437, S_ENC_CP850, S_ENC_CP852, S_ENC_CP1250, S_ENC_CP1254,
+   S_ENC_KOI8_R, S_ENC_KOI8_U,
+   S_ENC_UTF8,
    S_ENC_INVALID
 };
 
@@ -354,7 +371,6 @@ extern char *enhanced_cur_text;
 extern double enhanced_fontscale;
 /* give array size to allow the use of sizeof */
 extern char enhanced_escape_format[16];
-extern double enhanced_max_height, enhanced_min_height;
 extern TBOOLEAN ignore_enhanced_text;
 
 
@@ -377,7 +393,8 @@ int estimate_strlen __PROTO((char *));
 int term_count __PROTO((void));
 #endif /* UNUSED */
 void list_terms __PROTO((void));
-struct termentry *set_term __PROTO((int));
+char* get_terminals_names __PROTO((void));
+struct termentry *set_term __PROTO((void));
 void init_terminal __PROTO((void));
 void test_term __PROTO((void));
 
@@ -395,6 +412,15 @@ void ignore_enhanced __PROTO((TBOOLEAN flag));
 
 /* Simple-minded test that point is with drawable area */
 TBOOLEAN on_page __PROTO((int x, int y));
+
+/* Convert a fill style into a backwards compatible packed form */
+int style_from_fill __PROTO((struct fill_style_type *));
+
+#ifdef EAM_OBJECTS
+/* Terminal-independent routine to draw a circle or arc */
+void do_arc __PROTO(( unsigned int cx, unsigned int cy, double radius,
+                      double arc_start, double arc_end, int style));
+#endif
 
 #ifdef LINUXVGA
 void LINUX_setup __PROTO((void));
@@ -417,8 +443,8 @@ void PM_set_gpPMmenu __PROTO((struct t_gpPMmenu * gpPMmenu));
 # endif
 #endif
 
-/* in set.c (used in pm3d.c) */
-void lp_use_properties __PROTO((struct lp_style_type *lp, int tag, int pointflag));
+/* in misc.c */
+void lp_use_properties __PROTO((struct lp_style_type *lp, int tag));
 
 /* Wrappers for term->path() */
 void newpath __PROTO((void));

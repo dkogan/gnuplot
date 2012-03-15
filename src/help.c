@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: help.c,v 1.19 2006/07/07 18:06:30 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: help.c,v 1.24 2008/03/30 03:27:54 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - help.c */
@@ -35,6 +35,13 @@ static char *RCSid() { return RCSid("$Id: help.c,v 1.19 2006/07/07 18:06:30 sfea
 ]*/
 
 #include "help.h"
+
+#ifdef NO_GIH
+#include <stdio.h>
+void EndOutput(){}
+void StartOutput(){}
+void OutLine(const char *M){fputs(M,stderr);}
+#else
 
 #include "alloc.h"
 #include "util.h"
@@ -150,11 +157,13 @@ static TBOOLEAN Ambiguous __PROTO((struct key_s * key, size_t len));
 /* Help output */
 static void PrintHelp __PROTO((struct key_s * key, TBOOLEAN *subtopics));
 static void ShowSubtopics __PROTO((struct key_s * key, TBOOLEAN *subtopics));
+static void OutLine_InternalPager __PROTO((const char *line));
 
 #if defined(PIPES)
 static FILE *outfile;		/* for unix pager, if any */
 #endif
 static int pagelines;		/* count for builtin pager */
+static int screensize;		/* lines on screen (got with env var) */
 #define SCREENSIZE 24		/* lines on screen (most have at least 24) */
 
 /* help:
@@ -510,7 +519,7 @@ PrintHelp(
 #endif
     }
     ShowSubtopics(key, subtopics);
-    OutLine("\n");
+    OutLine_InternalPager("\n");
 
     EndOutput();
 }
@@ -566,7 +575,7 @@ ShowSubtopics(
 			strcat(line, ":\n");
 		    } else
 			strcpy(line, "\nHelp topics available:\n");
-		    OutLine(line);
+		    OutLine_InternalPager(line);
 		    *line = NUL;
 		}
 		starts[stopics++] = start;
@@ -610,7 +619,7 @@ ShowSubtopics(
 	    pos++;
 	    if (pos >= PER_LINE) {
 		(void) strcat(line, "\n");
-		OutLine(line);
+		OutLine_InternalPager(line);
 		*line = NUL;
 		pos = 0;
 	    }
@@ -619,7 +628,7 @@ ShowSubtopics(
 	/* put out the last line */
 	if (subt > 0 && pos > 0) {
 	    (void) strcat(line, "\n");
-	    OutLine(line);
+	    OutLine_InternalPager(line);
 	}
     }
 #else /* COLUMN_HELP */
@@ -651,7 +660,7 @@ ShowSubtopics(
 		}
 	    }
 	    (void) strcat(line, "\n");
-	    OutLine(line);
+	    OutLine_InternalPager(line);
 	}
     }
 #endif /* COLUMN_HELP */
@@ -668,6 +677,8 @@ ShowSubtopics(
 void
 StartOutput()
 {
+    char *line_count = NULL;
+
 #if defined(PIPES)
     char *pager_name = getenv("PAGER");
 
@@ -677,6 +688,14 @@ StartOutput()
     outfile = stderr;
     /* fall through to built-in pager */
 #endif
+
+    /* buit-in dumb pager: use the line count provided by the terminal */
+    line_count = getenv("LINES");
+
+    if (line_count != NULL)
+	screensize = (int) strtol(line_count, NULL, 0);
+    if (line_count == NULL || screensize < 3)
+	screensize = SCREENSIZE;
 
     /* built-in pager */
     pagelines = 0;
@@ -698,17 +717,41 @@ OutLine(const char *line)
 
     /* built-in dumb pager */
     /* leave room for prompt line */
-    if (pagelines >= SCREENSIZE - 2) {
+    if (pagelines >= screensize - 2) {
 	fputs("Press return for more: ", stderr);
-#if defined(ATARI) || defined(MTOS)
-	do
-	    c = tos_getch();
-	while (c != '\x04' && c != '\r' && c != '\n');
-#else
 	do
 	    c = getchar();
 	while (c != EOF && c != '\n');
-#endif
+	pagelines = 0;
+    }
+    fputs(line, stderr);
+    pagelines++;
+}
+
+/* Same as Outline, but does not go through the external pager.
+ * Used for the list of available subtopics because if it would be passed to
+ * 'less' (for example), the list would not be displayed anymore after 'less'
+ * has exited and the user is asked for a subtopic */
+void
+OutLine_InternalPager(const char *line)
+{
+    int c;			/* dummy input char */
+
+#if defined(PIPES)
+    if (outfile != stderr) {
+	/* do not go through external pager */
+	fputs(line, stderr);
+	return;
+    }
+#endif /* PIPES */
+
+    /* built-in dumb pager */
+    /* leave room for prompt line */
+    if (pagelines >= screensize - 2) {
+	fputs("Press return for more: ", stderr);
+	do
+	    c = getchar();
+	while (c != EOF && c != '\n');
 	pagelines = 0;
     }
     fputs(line, stderr);
@@ -723,3 +766,5 @@ EndOutput()
 	(void) pclose(outfile);
 #endif
 }
+
+#endif  /* #ifdef NO_GIH */

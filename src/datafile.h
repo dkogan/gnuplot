@@ -1,5 +1,5 @@
 /*
- * $Id: datafile.h,v 1.20.2.1 2007/03/22 04:48:24 sfeam Exp $
+ * $Id: datafile.h,v 1.31 2009/03/13 05:10:56 sfeam Exp $
  */
 
 /* GNUPLOT - datafile.h */
@@ -53,10 +53,6 @@
 #define DF_FOUND_KEY_TITLE   (-6)
 #define DF_KEY_TITLE_MISSING (-7)
 #define DF_STRINGDATA	(-8)
-#ifdef EAM_HISTOGRAMS
-/* should really be a parameter to df_readline rather than a global */
-extern struct curve_points *df_current_plot;
-#endif
 
 
 #ifndef MAXINT			/* should there be one already defined ? */
@@ -82,15 +78,12 @@ extern TBOOLEAN df_matrix;
 /* is this a binary file? */
 extern TBOOLEAN df_binary;
 
-extern int df_eof;
 extern int df_line_number;
 extern AXIS_INDEX df_axis[];
 extern struct udft_entry ydata_func; /* HBB 990829: moved from command.h */
 
-#ifdef EAM_DATASTRINGS
 /* Returned to caller by df_readline() */
 extern char *df_tokens[];
-#endif
 
 /* string representing missing values, ascii datafiles */
 extern char *missing_val;
@@ -108,41 +101,38 @@ extern TBOOLEAN plotted_data_from_stdin;
 /* format constants in the input file. But it slows things down */
 extern TBOOLEAN df_fortran_constants;
 
+/* Setting this disables initialization of the floating point exception */
+/* handler before every expression evaluation in a using specifier.   	 */
+/* This can speed data input significantly, but assumes valid input.    */
+extern TBOOLEAN df_nofpe_trap;
+extern TBOOLEAN evaluate_inside_using;
+
 /* Prototypes of functions exported by datafile.c */
 
-int df_open __PROTO((const char *, int));
+int df_open __PROTO((const char *, int, struct curve_points *));
 int df_readline __PROTO((double [], int));
 void df_close __PROTO((void));
 void df_showdata __PROTO((void));
 int df_2dbinary __PROTO((struct curve_points *));
 int df_3dmatrix __PROTO((struct surface_points *, int));
-#ifdef EAM_DATASTRINGS
 void df_set_key_title __PROTO((struct curve_points *));
+void df_set_key_title_columnhead __PROTO((enum PLOT_TYPE));
 int expect_string __PROTO((const char column ));
-#endif
 
 void df_reset_after_error __PROTO((void));
 void f_dollars __PROTO((union argument *x));
 void f_column  __PROTO((union argument *x));
 void f_valid   __PROTO((union argument *x));
 void f_timecolumn   __PROTO((union argument *x));
-#ifdef GP_STRING_VARS
 void f_stringcolumn   __PROTO((union argument *x));
-#endif
 
 struct use_spec_s {
     int column;
-#ifdef EAM_DATASTRINGS
     int expected_type;
-#endif
     struct at_type *at;
 };
 
-#ifndef BINARY_DATA_FILE
-#define df_set_plot_mode(mode)	/* Not needed except for binary data files */
-#endif
 
-#ifdef BINARY_DATA_FILE
 /* Details about the records contained in a binary data file. */
 
 typedef enum df_translation_type {
@@ -170,6 +160,7 @@ typedef enum df_endianess_type {
 typedef enum df_data_type {
     DF_CHAR, DF_UCHAR, DF_SHORT, DF_USHORT, DF_INT,
     DF_UINT, DF_LONG,  DF_ULONG, DF_FLOAT,  DF_DOUBLE,
+    DF_LONGLONG, DF_ULONGLONG,
     DF_BAD_TYPE
 } df_data_type;
 #define DF_DEFAULT_TYPE DF_FLOAT
@@ -179,13 +170,15 @@ typedef enum df_data_type {
  * appropriately sized variable from a data file.
  */ 
 #define SIGNED_TEST(val) ((val)==sizeof(long) ? DF_LONG : \
+			 ((val)==sizeof(long long) ? DF_LONGLONG : \
 			 ((val)==sizeof(int) ? DF_INT : \
 			 ((val)==sizeof(short) ? DF_SHORT : \
-			 ((val)==sizeof(char) ? DF_CHAR : DF_BAD_TYPE))))
+			 ((val)==sizeof(char) ? DF_CHAR : DF_BAD_TYPE)))))
 #define UNSIGNED_TEST(val) ((val)==sizeof(unsigned long) ? DF_ULONG : \
+			   ((val)==sizeof(unsigned long long) ? DF_ULONGLONG : \
 			   ((val)==sizeof(unsigned int) ? DF_UINT : \
 			   ((val)==sizeof(unsigned short) ? DF_USHORT : \
-			   ((val)==sizeof(unsigned char) ? DF_UCHAR : DF_BAD_TYPE))))
+			   ((val)==sizeof(unsigned char) ? DF_UCHAR : DF_BAD_TYPE)))))
 #define FLOAT_TEST(val) ((val)==sizeof(float) ? DF_FLOAT : \
 			((val)==sizeof(double) ? DF_DOUBLE : DF_BAD_TYPE))
 
@@ -200,7 +193,7 @@ typedef struct df_binary_type_struct {
 } df_binary_type_struct;
 
 typedef struct df_column_bininfo_struct {
-    short skip_bytes;
+    long skip_bytes;
     df_binary_type_struct column;
 } df_column_bininfo_struct;
 
@@ -267,6 +260,5 @@ df_data_type df_get_read_type __PROTO((int col));                     /* Type of
 int df_get_read_size __PROTO((int col));                              /* Size of data in the binary column. */
 int df_get_num_matrix_cols __PROTO((void));
 void df_set_plot_mode __PROTO((int));
-#endif /* BINARY_DATA_FILE */
 
 #endif /* GNUPLOT_DATAFILE_H */

@@ -1,5 +1,5 @@
 /*
- * $Id: mouse.h,v 1.18 2006/07/06 23:11:09 mikulik Exp $
+ * $Id: mouse.h,v 1.21 2008/10/02 21:30:16 sfeam Exp $
  */
 
 /* GNUPLOT - mouse.h */
@@ -66,11 +66,12 @@ typedef struct mouse_setting_t {
     int polardistance;     /* display dist. to ruler in polar coordinates */
     int verbose;           /* display ipc commands                        */
     int warp_pointer;      /* warp pointer after starting a zoom box      */
-    char fmt[0xff];        /* fprintf format for printing numbers         */
-    char labelopts[0xff];  /* label options                               */
+    char *fmt;             /* fprintf format for printing numbers         */
+    char *labelopts;       /* label options                               */
 } mouse_setting_t;
 
 extern mouse_setting_t mouse_setting;
+extern char mouse_fmt_default[];
 
 
 /* enum of GP_ -keycodes has moved to mousecmn.h so that it can be
@@ -147,6 +148,7 @@ static char* special_keys[] = {
     "F10",
     "F11",
     "F12",
+    "Close",
     "GP_LAST_KEY",
     (char*) 0 /* must be the last line */
 };

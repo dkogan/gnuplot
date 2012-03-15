@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.131.2.6 2008/03/20 09:39:46 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.171.2.5 2010/02/27 21:52:38 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -47,21 +47,16 @@ static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.131.2.6 2008/03/20 09:39:
 #include "graph3d.h"
 #include "misc.h"
 #include "parse.h"
+#include "pm3d.h"
 #include "setshow.h"
 #include "term_api.h"
+#include "tabulate.h"
 #include "util.h"
-#include "pm3d.h"
-#ifdef BINARY_DATA_FILE
-#include "plot.h"
-#endif
+#include "variable.h" /* For locale handling */
 
-#ifdef EAM_DATASTRINGS
 #include "plot2d.h" /* Only for store_label() */
-#endif
 
-#ifdef THIN_PLATE_SPLINES_GRID
-# include "matrix.h"
-#endif
+#include "matrix.h" /* Used by thin-plate-splines in dgrid3d */
 
 #ifndef _Windows
 # include "help.h"
@@ -74,6 +69,9 @@ t_data_mapping mapping3d = MAP3D_CARTESIAN;
 int dgrid3d_row_fineness = 10;
 int dgrid3d_col_fineness = 10;
 int dgrid3d_norm_value = 1;
+int dgrid3d_mode = DGRID3D_QNORM;
+double dgrid3d_x_scale = 1.0;
+double dgrid3d_y_scale = 1.0;
 TBOOLEAN dgrid3d = FALSE;
 
 /* static prototypes */
@@ -82,16 +80,18 @@ static void calculate_set_of_isolines __PROTO((AXIS_INDEX value_axis, TBOOLEAN c
 					       AXIS_INDEX iso_axis, double iso_min, double iso_step, int num_iso_to_use,
 					       AXIS_INDEX sam_axis, double sam_min, double sam_step, int num_sam_to_use,
 					       TBOOLEAN need_palette));
-static void get_3ddata __PROTO((struct surface_points * this_plot));
-static void print_3dtable __PROTO((int pcount));
+static int get_3ddata __PROTO((struct surface_points * this_plot));
 static void eval_3dplots __PROTO((void));
 static void grid_nongrid_data __PROTO((struct surface_points * this_plot));
 static void parametric_3dfixup __PROTO((struct surface_points * start_plot, int *plot_num));
 static struct surface_points * sp_alloc __PROTO((int num_samp_1, int num_iso_1, int num_samp_2, int num_iso_2));
 static void sp_replace __PROTO((struct surface_points *sp, int num_samp_1, int num_iso_1, int num_samp_2, int num_iso_2));
-#ifdef THIN_PLATE_SPLINES_GRID
+
+/* helper functions for grid_nongrid_data() */
 static double splines_kernel __PROTO((double h));
-#endif
+static void thin_plate_splines_setup __PROTO(( struct iso_curve *old_iso_crvs, double **p_xx, int *p_numpoints ));
+static double qnorm __PROTO(( double dist_x, double dist_y, int q ));
+static double pythag __PROTO(( double dx, double dy ));
 
 /* the curves/surfaces of the plot */
 struct surface_points *first_3dplot = NULL;
@@ -203,12 +203,10 @@ sp_free(struct surface_points *sp)
 	    sp->iso_crvs = next_icrvs;
 	}
 
-#ifdef EAM_DATASTRINGS
 	if (sp->labels) {
 	    free_labels(sp->labels);
 	    sp->labels = (struct text_label *)NULL;
 	}
-#endif
 
 	free(sp);
 	sp = next;
@@ -276,6 +274,15 @@ plot3drequest()
     CHECK_REVERSE(FIRST_Y_AXIS);
     CHECK_REVERSE(FIRST_Z_AXIS);
 
+    /* Clear out any tick labels read from data files in previous plot */
+    for (u_axis=0; u_axis<AXIS_ARRAY_SIZE; u_axis++) {
+	struct ticdef *ticdef = &axis_array[u_axis].ticdef;
+	if (ticdef->def.user)
+	    ticdef->def.user = prune_dataticks(ticdef->def.user);
+	if (!ticdef->def.user && ticdef->type == TIC_USER)
+	    ticdef->type = TIC_COMPUTED;
+    }
+
     /* use the default dummy variable unless changed */
     if (dummy_token0 >= 0)
 	copy_str(c_dummy_var[0], dummy_token0, MAX_ID_LEN);
@@ -290,26 +297,213 @@ plot3drequest()
     eval_3dplots();
 }
 
-#ifdef THIN_PLATE_SPLINES_GRID
+
+#ifdef VOLATILE_REFRESH
+/* Helper function for refresh command.  Reexamine each data point and update the
+ * flags for INRANGE/OUTRANGE/UNDEFINED based on the current limits for that axis.
+ * Normally the axis limits are already known at this point. But if the user has
+ * forced "set autoscale" since the previous plot or refresh, we need to reset the
+ * axis limits and try to approximate the full auto-scaling behaviour.
+ */
+void
+refresh_3dbounds(struct surface_points *first_plot, int nplots)
+{
+    struct surface_points *this_plot = first_plot;
+    int iplot;		/* plot index */
+
+    for (iplot = 0;  iplot < nplots; iplot++, this_plot = this_plot->next_sp) {
+	int i;		/* point index */
+	struct axis *x_axis = &axis_array[FIRST_X_AXIS];
+	struct axis *y_axis = &axis_array[FIRST_Y_AXIS];
+	struct iso_curve *this_curve;
+
+	/* IMAGE clipping is done elsewhere, so we don't need INRANGE/OUTRANGE
+	 * checks.  
+	 */
+	if (this_plot->plot_style == IMAGE 
+	||  this_plot->plot_style == RGBIMAGE
+	||  this_plot->plot_style == RGBA_IMAGE) {
+	    if (x_axis->set_autoscale)
+		plot_image_or_update_axes(this_plot,TRUE);
+	    continue;
+	}
+
+	for ( this_curve = this_plot->iso_crvs; this_curve; this_curve = this_curve->next) {
+
+	for (i=0; i<this_curve->p_count; i++) {
+	    struct coordinate GPHUGE *point = &this_curve->points[i];
+
+	    if (point->type == UNDEFINED)
+		continue;
+	    else
+		point->type = INRANGE;
+
+	    /* If the state has been set to autoscale since the last plot,
+	     * mark everything INRANGE and re-evaluate the axis limits now.
+	     * Otherwise test INRANGE/OUTRANGE against previous axis limits.
+	     */
+	    if (x_axis->set_autoscale & (AUTOSCALE_MIN|AUTOSCALE_MAX)) {
+		if (point->x > x_axis->max) x_axis->max = point->x;
+		if (point->x < x_axis->min) x_axis->min = point->x;
+	    } else if (!inrange(point->x, x_axis->min, x_axis->max)) {
+		point->type = OUTRANGE;
+		continue;
+	    }
+
+	    if (y_axis->set_autoscale & (AUTOSCALE_MIN|AUTOSCALE_MAX)) {
+		if (point->y > y_axis->max) y_axis->max = point->y;
+		if (point->y < y_axis->min) y_axis->min = point->y;
+	    } else if (!inrange(point->y, y_axis->min, y_axis->max)) {
+		point->type = OUTRANGE;
+		continue;
+	    }
+	}	/* End of this curve */
+	}	/* End of this plot */
+
+    }
+}
+#endif
+
 
 static double
 splines_kernel(double h)
 {
-#if 0
-    /* this is normaly not useful ... */
-    h = fabs(h);
-
-    if (h != 0.0) {
-#else
-    if (h > 0) {
-#endif
-	return h * h * log(h);
-    } else {
-	return 0;
-    }
+    if (h > 0.0) { return h * h * log(h); }
+    return 0.0;
 }
 
-#endif
+/* PKJ:
+   This function has been hived off out of the original grid_nongrid_data().
+   No changes have been made, but variables only needed locally have moved
+   out of grid_nongrid_data() into this functin. */
+static void 
+thin_plate_splines_setup( struct iso_curve *old_iso_crvs,
+			  double **p_xx, int *p_numpoints )
+{
+    int i, j, k;
+    double *xx, *yy, *zz, *b, **K, d;
+    int numpoints, *indx;
+    struct iso_curve *oicrv;
+    
+    numpoints = 0;
+    for (oicrv = old_iso_crvs; oicrv != NULL; oicrv = oicrv->next) {
+        numpoints += oicrv->p_count;
+    }
+    xx = gp_alloc(sizeof(xx[0]) * (numpoints + 3) * (numpoints + 8),
+                  "thin plate splines in dgrid3d");
+    /* the memory needed is not really (n+3)*(n+8) for now,
+       but might be if I take into account errors ... */
+    K = gp_alloc(sizeof(K[0]) * (numpoints + 3),
+                 "matrix : thin plate splines 2d");
+    yy = xx + numpoints;
+    zz = yy + numpoints;
+    b = zz + numpoints;
+    
+    /* HBB 20010424: Count actual input points without the UNDEFINED
+     * ones, as we copy them */
+    numpoints = 0;
+    for (oicrv = old_iso_crvs; oicrv != NULL; oicrv = oicrv->next) {
+        struct coordinate GPHUGE *opoints = oicrv->points;
+        
+        for (k = 0; k < oicrv->p_count; k++, opoints++) {
+            /* HBB 20010424: avoid crashing for undefined input */
+            if (opoints->type == UNDEFINED)
+                continue;
+            xx[numpoints] = opoints->x;
+            yy[numpoints] = opoints->y;
+            zz[numpoints] = opoints->z;
+            numpoints++;
+        }
+    }
+    
+    for (i = 0; i < numpoints + 3; i++) {
+        K[i] = b + (numpoints + 3) * (i + 1);
+    }
+    
+    for (i = 0; i < numpoints; i++) {
+        for (j = i + 1; j < numpoints; j++) {
+            double dx = xx[i] - xx[j], dy = yy[i] - yy[j];
+            K[i][j] = K[j][i] = -splines_kernel(sqrt(dx * dx + dy * dy));
+        }
+        K[i][i] = 0.0;		/* here will come the weights for errors */
+        b[i] = zz[i];
+    }
+    for (i = 0; i < numpoints; i++) {
+        K[i][numpoints] = K[numpoints][i] = 1.0;
+        K[i][numpoints + 1] = K[numpoints + 1][i] = xx[i];
+        K[i][numpoints + 2] = K[numpoints + 2][i] = yy[i];
+    }
+    b[numpoints] = 0.0;
+    b[numpoints + 1] = 0.0;
+    b[numpoints + 2] = 0.0;
+    K[numpoints][numpoints] = 0.0;
+    K[numpoints][numpoints + 1] = 0.0;
+    K[numpoints][numpoints + 2] = 0.0;
+    K[numpoints + 1][numpoints] = 0.0;
+    K[numpoints + 1][numpoints + 1] = 0.0;
+    K[numpoints + 1][numpoints + 2] = 0.0;
+    K[numpoints + 2][numpoints] = 0.0;
+    K[numpoints + 2][numpoints + 1] = 0.0;
+    K[numpoints + 2][numpoints + 2] = 0.0;
+    indx = gp_alloc(sizeof(indx[0]) * (numpoints + 3), "indexes lu");
+    /* actually, K is *not* positive definite, but
+       has only non zero real eigenvalues ->
+       we can use an lu_decomp safely */
+    lu_decomp(K, numpoints + 3, indx, &d);
+    lu_backsubst(K, numpoints + 3, indx, b);
+    
+    free( K );
+    free( indx );
+    
+    *p_xx = xx;
+    *p_numpoints = numpoints;
+}
+
+static double
+qnorm( double dist_x, double dist_y, int q ) 
+{
+    double dist = 0.0;
+    switch (q) {
+    case 1:
+        dist = dist_x + dist_y;
+        break;
+    case 2:
+        dist = dist_x * dist_x + dist_y * dist_y;
+        break;
+    case 4:
+        dist = dist_x * dist_x + dist_y * dist_y;
+        dist *= dist;
+        break;
+    case 8:
+        dist = dist_x * dist_x + dist_y * dist_y;
+        dist *= dist;
+        dist *= dist;
+        break;
+    case 16:
+        dist = dist_x * dist_x + dist_y * dist_y;
+        dist *= dist;
+        dist *= dist;
+        dist *= dist;
+        break;
+    default:
+        dist = pow(dist_x, (double)q ) + pow(dist_y, (double)q );
+        break;
+    }
+    return dist;
+}
+
+/* This is from Numerical Recipes in C, 2nd ed, p70 */
+static double
+pythag( double dx, double dy )
+{
+    double x, y;
+    x = fabs(dx);
+    y = fabs(dy);
+    
+    if( x > y  ) { return x*sqrt(1.0 + (y*y)/(x*x)); }
+    if( y==0.0 ) { return 0.0; }
+    return y*sqrt(1.0 + (x*x)/(y*y));
+}
 
 static void
 grid_nongrid_data(struct surface_points *this_plot)
@@ -318,12 +512,12 @@ grid_nongrid_data(struct surface_points *this_plot)
     double x, y, z, w, dx, dy, xmin, xmax, ymin, ymax;
     struct iso_curve *old_iso_crvs = this_plot->iso_crvs;
     struct iso_curve *icrv, *oicrv, *oicrvs;
-
-#ifdef THIN_PLATE_SPLINES_GRID
-    double *b, **K, *xx, *yy, *zz, d;
-    int *indx, numpoints;
-#endif
-
+    
+    /* these are only needed for thin_plate_splines */
+    double *xx, *yy, *zz, *b;
+    int numpoints;
+    xx = NULL; /* save to call free() on NULL if xx has never been used */
+    
     /* Compute XY bounding box on the original data. */
     /* FIXME HBB 20010424: Does this make any sense? Shouldn't we just
      * use whatever the x and y ranges have been found to be, and
@@ -335,7 +529,7 @@ grid_nongrid_data(struct surface_points *this_plot)
     ymin = ymax = old_iso_crvs->points[0].y;
     for (icrv = old_iso_crvs; icrv != NULL; icrv = icrv->next) {
 	struct coordinate GPHUGE *points = icrv->points;
-
+        
 	for (i = 0; i < icrv->p_count; i++, points++) {
 	    /* HBB 20010424: avoid crashing for undefined input */
 	    if (points->type == UNDEFINED)
@@ -360,76 +554,14 @@ grid_nongrid_data(struct surface_points *this_plot)
     this_plot->iso_crvs = NULL;
     this_plot->num_iso_read = dgrid3d_col_fineness;
     this_plot->has_grid_topology = TRUE;
-
-#ifdef THIN_PLATE_SPLINES_GRID
-    numpoints = 0;
-    for (oicrv = old_iso_crvs; oicrv != NULL; oicrv = oicrv->next) {
-	numpoints += oicrv->p_count;
+    
+    if( dgrid3d_mode == DGRID3D_SPLINES ) {
+        thin_plate_splines_setup( old_iso_crvs, &xx, &numpoints );
+        yy = xx + numpoints;
+        zz = yy + numpoints;
+        b  = zz + numpoints;
     }
-    xx = gp_alloc(sizeof(xx[0]) * (numpoints + 3) * (numpoints + 8),
-		  "thin plate splines in dgrid3d");
-    /* the memory needed is not really (n+3)*(n+8) for now,
-       but might be if I take into account errors ... */
-    K = gp_alloc(sizeof(K[0]) * (numpoints + 3),
-		 "matrix : thin plate splines 2d");
-    yy = xx + numpoints;
-    zz = yy + numpoints;
-    b = zz + numpoints;
-
-    /* HBB 20010424: Count actual input points without the UNDEFINED
-     * ones, as we copy them */
-    numpoints = 0;
-    for (oicrv = old_iso_crvs; oicrv != NULL; oicrv = oicrv->next) {
-	struct coordinate GPHUGE *opoints = oicrv->points;
-
-	for (k = 0; k < oicrv->p_count; k++, opoints++) {
-	    /* HBB 20010424: avoid crashing for undefined input */
-	    if (opoints->type == UNDEFINED)
-		continue;
-	    xx[numpoints] = opoints->x;
-	    yy[numpoints] = opoints->y;
-	    zz[numpoints] = opoints->z;
-	    numpoints++;
-	}
-    }
-
-    for (i = 0; i < numpoints + 3; i++) {
-	K[i] = b + (numpoints + 3) * (i + 1);
-    }
-
-    for (i = 0; i < numpoints; i++) {
-	for (j = i + 1; j < numpoints; j++) {
-	    double dx = xx[i] - xx[j], dy = yy[i] - yy[j];
-	    K[i][j] = K[j][i] = -splines_kernel(sqrt(dx * dx + dy * dy));
-	}
-	K[i][i] = 0.0;		/* here will come the weights for errors */
-	b[i] = zz[i];
-    }
-    for (i = 0; i < numpoints; i++) {
-	K[i][numpoints] = K[numpoints][i] = 1.0;
-	K[i][numpoints + 1] = K[numpoints + 1][i] = xx[i];
-	K[i][numpoints + 2] = K[numpoints + 2][i] = yy[i];
-    }
-    b[numpoints] = 0.0;
-    b[numpoints + 1] = 0.0;
-    b[numpoints + 2] = 0.0;
-    K[numpoints][numpoints] = 0.0;
-    K[numpoints][numpoints + 1] = 0.0;
-    K[numpoints][numpoints + 2] = 0.0;
-    K[numpoints + 1][numpoints] = 0.0;
-    K[numpoints + 1][numpoints + 1] = 0.0;
-    K[numpoints + 1][numpoints + 2] = 0.0;
-    K[numpoints + 2][numpoints] = 0.0;
-    K[numpoints + 2][numpoints + 1] = 0.0;
-    K[numpoints + 2][numpoints + 2] = 0.0;
-    indx = gp_alloc(sizeof(indx[0]) * (numpoints + 3), "indexes lu");
-    /* actually, K is *not* positive definite, but
-       has only non zero real eigenvalues ->
-       we can use an lu_decomp safely */
-    lu_decomp(K, numpoints + 3, indx, &d);
-    lu_backsubst(K, numpoints + 3, indx, b);
-#endif /* THIN_PLATE_SPLINES_GRID */
-
+    
     for (i = 0, x = xmin; i < dgrid3d_col_fineness; i++, x += dx) {
 	struct coordinate GPHUGE *points;
 
@@ -439,108 +571,119 @@ grid_nongrid_data(struct surface_points *this_plot)
 	this_plot->iso_crvs = icrv;
 	points = icrv->points;
 
-	for (j = 0, y = ymin; j < dgrid3d_row_fineness; j++, y += dy, points++) {
+	for(j=0, y=ymin; j<dgrid3d_row_fineness; j++, y+=dy, points++) {
 	    z = w = 0.0;
 
 	    /* as soon as ->type is changed to UNDEFINED, break out of
 	     * two inner loops! */
 	    points->type = INRANGE;
 
-#ifdef THIN_PLATE_SPLINES_GRID
-	    z = b[numpoints];
-	    for (k = 0; k < numpoints; k++) {
-		double dx = xx[k] - x, dy = yy[k] - y;
-		z = z - b[k] * splines_kernel(sqrt(dx * dx + dy * dy));
-	    }
-	    z = z + b[numpoints + 1] * x + b[numpoints + 2] * y;
-#else
-	    for (oicrv = old_iso_crvs; oicrv != NULL; oicrv = oicrv->next) {
-		struct coordinate GPHUGE *opoints = oicrv->points;
-		for (k = 0; k < oicrv->p_count; k++, opoints++) {
-		    double dist, dist_x = fabs(opoints->x - x), dist_y = fabs(opoints->y - y);
-		    switch (dgrid3d_norm_value) {
-		    case 1:
-			dist = dist_x + dist_y;
-			break;
-		    case 2:
-			dist = dist_x * dist_x + dist_y * dist_y;
-			break;
-		    case 4:
-			dist = dist_x * dist_x + dist_y * dist_y;
-			dist *= dist;
-			break;
-		    case 8:
-			dist = dist_x * dist_x + dist_y * dist_y;
-			dist *= dist;
-			dist *= dist;
-			break;
-		    case 16:
-			dist = dist_x * dist_x + dist_y * dist_y;
-			dist *= dist;
-			dist *= dist;
-			dist *= dist;
-			break;
-		    default:
-			dist = pow(dist_x, (double) dgrid3d_norm_value) +
-			    pow(dist_y, (double) dgrid3d_norm_value);
-			break;
-		    }
+	    if( dgrid3d_mode == DGRID3D_SPLINES ) {
+                z = b[numpoints];
+                for (k = 0; k < numpoints; k++) {
+                    double dx = xx[k] - x, dy = yy[k] - y;
+                    z = z - b[k] * splines_kernel(sqrt(dx * dx + dy * dy));
+                }
+                z = z + b[numpoints + 1] * x + b[numpoints + 2] * y;
+	    } else { /* everything, except splines */
+                for(oicrv = old_iso_crvs; oicrv != NULL; oicrv = oicrv->next) {
+                    struct coordinate GPHUGE *opoints = oicrv->points;
+                    for (k = 0; k < oicrv->p_count; k++, opoints++) {
+                        
+                        if( dgrid3d_mode == DGRID3D_QNORM ) {
+                            double dist = qnorm( fabs(opoints->x - x),
+                                                 fabs(opoints->y - y),
+                                                 dgrid3d_norm_value );
 
-		    /* The weight of this point is inverse proportional
-		     * to the distance.
-		     */
-		    if (dist == 0.0) {
-			/* HBB 981209: revised flagging as undefined */
-			/* Supporting all those infinities on various
-			 * platforms becomes tiresome, to say the least :-(
-			 * Let's just return the first z where this happens,
-			 * unchanged, and be done with this, period. */
-			points->type = UNDEFINED;
-			z = opoints->z;
-			w = 1.0;
-			break;	/* out of inner loop */
-		    } else {
-			dist = 1.0 / dist;
-			z += opoints->z * dist;
-			w += dist;
-		    }
-		}
-		if (points->type != INRANGE)
-		    break;	/* out of the second-inner loop as well ... */
-	    }
-#endif /* THIN_PLATE_SPLINES_GRID */
+                            if( dist == 0.0 ) {
+                                /* HBB 981209: revised flagging as undefined */
+                                /* Supporting all those infinities on various
+                                 * platforms becomes tiresome, 
+                                 * to say the least :-(
+                                 * Let's just return the first z where this 
+                                 * happens unchanged, and be done with this,
+                                 * period. */
+                                points->type = UNDEFINED;
+                                z = opoints->z;
+                                w = 1.0;
+                                break;	/* out of inner loop */
+                            } else {
+                                z += opoints->z / dist;
+                                w += 1.0/dist;
+                            }
 
-	    /* Now that we've escaped the loops safely, we know that we
-	     * do have a good value in z and w, so we can proceed just as
-	     * if nothing had happened at all. Nice, isn't it? */
+                        } else { /* ALL else: not spline, not qnorm! */
+                            double weight = 0.0;                       
+                            double dist=pythag((opoints->x-x)/dgrid3d_x_scale, 
+                                               (opoints->y-y)/dgrid3d_y_scale);
+
+                            if( dgrid3d_mode == DGRID3D_GAUSS ) {
+                                weight = exp( -dist*dist );
+                            } else if( dgrid3d_mode == DGRID3D_CAUCHY ) {
+                                weight = 1.0/(1.0 + dist*dist );
+                            } else if( dgrid3d_mode == DGRID3D_EXP ) {
+                                weight = exp( -dist );
+                            } else if( dgrid3d_mode == DGRID3D_BOX ) {
+                                weight = (dist<1.0) ? 1.0 : 0.0;
+                            } else if( dgrid3d_mode == DGRID3D_HANN ) {
+                                if( dist < 1.0 ) {
+                                    weight = 0.5*(1-cos(2.0*M_PI*dist));
+                                }
+                            }
+                            z += opoints->z * weight;
+                            w += weight;
+                        }
+                    }
+                    
+                    /* PKJ: I think this is only relevant for qnorm */
+                    if (points->type != INRANGE)
+                        break;	/* out of the second-inner loop as well ... */
+                }
+	    } /* endif( dgrid3d_mode == DGRID3D_SPLINES ) */
+                 
+              /* Now that we've escaped the loops safely, we know that we
+               * do have a good value in z and w, so we can proceed just as
+               * if nothing had happened at all. Nice, isn't it? */
 	    points->type = INRANGE;
-
+            
 	    /* HBB 20010424: if log x or log y axis, we don't want to
 	     * log() the value again --> just store it, and trust that
 	     * it's always inrange */
 	    points->x = x;
 	    points->y = y;
 
-#ifndef THIN_PLATE_SPLINES_GRID
-	    z = z / w;
-#endif
+	    /* Honor requested x and y limits */
+	    /* FIXME: This code section was not in 4.2.  It imperfectly    */
+	    /* restores the clipping behaviour of version 3.7 and earlier. */
+	    if ((x < axis_array[x_axis].min && !(axis_array[x_axis].autoscale & AUTOSCALE_MIN))
+	    ||  (x > axis_array[x_axis].max && !(axis_array[x_axis].autoscale & AUTOSCALE_MAX))
+	    ||  (y < axis_array[y_axis].min && !(axis_array[y_axis].autoscale & AUTOSCALE_MIN))
+	    ||  (y > axis_array[y_axis].max && !(axis_array[y_axis].autoscale & AUTOSCALE_MAX)))
+		points->type = OUTRANGE;
 
-	    STORE_WITH_LOG_AND_UPDATE_RANGE(points->z, z, points->type, z_axis, NOOP, continue);
-
+	    if (dgrid3d_mode != DGRID3D_SPLINES)
+                z = z / w;
+            
+	    STORE_WITH_LOG_AND_UPDATE_RANGE(points->z, z, 
+					    points->type, z_axis,
+					    this_plot->noautoscale,
+					    NOOP, continue);
+            
 	    if (this_plot->pm3d_color_from_column)
-		int_error(NO_CARET, "Gridding of the color column is not implemented");
+		int_error(NO_CARET, 
+			  "Gridding of the color column is not implemented");
 	    else {
-		COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(points->CRD_COLOR, z, points->type, COLOR_AXIS, NOOP, continue);
+		COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(points->CRD_COLOR, z, 
+						      points->type, 
+						      COLOR_AXIS, 
+						      this_plot->noautoscale,
+						      NOOP, continue);
 	    }
 	}
     }
-
-#ifdef THIN_PLATE_SPLINES_GRID
-    free(K);
-    free(xx);
-    free(indx);
-#endif
-
+    
+    free(xx); /* save to call free on NULL pointer if splines not used */
+    
     /* Delete the old non grid data. */
     for (oicrvs = old_iso_crvs; oicrvs != NULL;) {
 	oicrv = oicrvs;
@@ -554,7 +697,7 @@ grid_nongrid_data(struct surface_points *this_plot)
  *
  * Notice: this_plot->token is end of datafile spec, before title etc
  * will be moved past title etc after we return */
-static void
+static int
 get_3ddata(struct surface_points *this_plot)
 {
     int xdatum = 0;
@@ -563,6 +706,7 @@ get_3ddata(struct surface_points *this_plot)
     double v[MAXDATACOLS];
     int pt_in_iso_crv = 0;
     struct iso_curve *this_iso;
+    int retval = 0;
 
     if (mapping3d == MAP3D_CARTESIAN) {
 	/* do this check only, if we have PM3D / PM3D-COLUMN not compiled in */
@@ -598,17 +742,10 @@ get_3ddata(struct surface_points *this_plot)
     }
     /* data file is already open */
 
-#ifndef BINARY_DATA_FILE /* NO LONGER REQUIRED FOR GENERAL BINARY OR MATRIX BINARY DATA */
     if (df_matrix)
-	xdatum = df_3dmatrix(this_plot, NEED_PALETTE(this_plot));
-    else {
-#else
-    if (df_matrix) {
 	this_plot->has_grid_topology = TRUE;
-    }
 
     {
-#endif
 	/*{{{  read surface from text file */
 	struct iso_curve *local_this_iso = iso_alloc(samples_1);
 	struct coordinate GPHUGE *cp;
@@ -619,22 +756,25 @@ get_3ddata(struct surface_points *this_plot)
 	int pm3d_color_from_column = FALSE;
 #define color_from_column(x) pm3d_color_from_column = x
 
-#ifdef EAM_DATASTRINGS
 	if (this_plot->plot_style == LABELPOINTS)
 	    expect_string( 4 );
-#endif
 
 	if (this_plot->plot_style == VECTOR) {
 	    local_this_iso->next = iso_alloc(samples_1);
 	    local_this_iso->next->p_count = 0;
 	}
 
-	while ((j = df_readline(v,MAXDATACOLS)) != DF_EOF) {
+	/* If the user has set an explicit locale for numeric input, apply it */
+	/* here so that it affects data fields read from the input file.      */
+	set_numeric_locale();
+
+	while ((retval = df_readline(v,MAXDATACOLS)) != DF_EOF) {
+	    j = retval;
+
 	    if (j == DF_SECOND_BLANK)
 		break;		/* two blank lines */
 	    if (j == DF_FIRST_BLANK) {
 
-#if defined(WITH_IMAGE) && defined(BINARY_DATA_FILE)
 		/* Images are in a sense similar to isocurves.
 		 * However, the routine for images is written to
 		 * compute the two dimensions of coordinates by
@@ -644,9 +784,10 @@ get_3ddata(struct surface_points *this_plot)
 		 * images.
 		 */
 		if ((this_plot->plot_style == IMAGE)
-		    || (this_plot->plot_style == RGBIMAGE))
+		||  (this_plot->plot_style == RGBIMAGE)
+		||  (this_plot->plot_style == RGBA_IMAGE))
 		    continue;
-#endif
+
 		if (this_plot->plot_style == VECTOR)
 		    continue;
 
@@ -669,6 +810,18 @@ get_3ddata(struct surface_points *this_plot)
 		    xdatum = 0;
 		    ydatum++;
 		}
+		continue;
+	    }
+
+	    else if (j == DF_FOUND_KEY_TITLE){
+		/* only the shared part of the 2D and 3D headers is used */
+		df_set_key_title((struct curve_points *)this_plot);
+		continue;
+	    }
+	    else if (j == DF_KEY_TITLE_MISSING){
+		fprintf(stderr,
+			"get_data: key title not found in requested column\n"
+		    );
 		continue;
 	    }
 
@@ -778,7 +931,7 @@ get_3ddata(struct surface_points *this_plot)
 
 	    default:
 		int_error(NO_CARET, "Internal error: Unknown mapping type");
-		return;
+		return retval;
 	    }
 
 	    if (j < df_no_use_specs)
@@ -796,14 +949,14 @@ get_3ddata(struct surface_points *this_plot)
 		    color = z;
 		    color_from_column(FALSE);
 		}
-#ifdef EAM_DATASTRINGS
+
 		else if (this_plot->plot_style == LABELPOINTS) {
 		/* 4th column holds label text rather than color */
 		/* text = df_tokens[3]; */
 		    color = z;
 		    color_from_column(FALSE);
 		}
-#endif
+
 		else {
 		    color = v[3];
 		    color_from_column(TRUE);
@@ -817,13 +970,13 @@ get_3ddata(struct surface_points *this_plot)
 		    color = v[4];
 		    color_from_column(TRUE);
 		}
-#ifdef EAM_DATASTRINGS
+
 		if (this_plot->plot_style == LABELPOINTS) {
 		    /* take color from an explicitly given 5th column */
 		    color = v[4];
 		    color_from_column(TRUE);
 		}
-#endif
+
 	    }
 
 	    if (j >= 6) {
@@ -831,7 +984,13 @@ get_3ddata(struct surface_points *this_plot)
 		    xtail = x + v[3];
 		    ytail = y + v[4];
 		    ztail = z + v[5];
-		    color_from_column(FALSE);
+		    if (j >= 7) {
+			color = v[6];
+			color_from_column(TRUE);
+		    } else {
+			color = z;
+			color_from_column(FALSE);
+		    }
 		}
 	    }
 #undef color_from_column
@@ -842,12 +1001,12 @@ get_3ddata(struct surface_points *this_plot)
 	     * I regard this as correct goto use
 	     */
 	    cp->type = INRANGE;
-	    STORE_WITH_LOG_AND_UPDATE_RANGE(cp->x, x, cp->type, x_axis, NOOP, goto come_here_if_undefined);
-	    STORE_WITH_LOG_AND_UPDATE_RANGE(cp->y, y, cp->type, y_axis, NOOP, goto come_here_if_undefined);
+	    STORE_WITH_LOG_AND_UPDATE_RANGE(cp->x, x, cp->type, x_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+	    STORE_WITH_LOG_AND_UPDATE_RANGE(cp->y, y, cp->type, y_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 	    if (this_plot->plot_style == VECTOR) {
-		cptail->type = INRANGE;	    
-		STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->x, xtail, cp->type, x_axis, NOOP, goto come_here_if_undefined);
-		STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->y, ytail, cp->type, y_axis, NOOP, goto come_here_if_undefined);
+		cptail->type = INRANGE;
+		STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->x, xtail, cp->type, x_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+		STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->y, ytail, cp->type, y_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 	    }
 
 	    if (dgrid3d) {
@@ -859,30 +1018,50 @@ get_3ddata(struct surface_points *this_plot)
 		if (this_plot->plot_style == VECTOR)
 		    cptail->z = ztail;
 	    } else {
-		STORE_WITH_LOG_AND_UPDATE_RANGE(cp->z, z, cp->type, z_axis, NOOP, goto come_here_if_undefined);
+		/* EAM Sep 2008 - Otherwise z=Nan or z=Inf or DF_MISSING fails */
+		/* to set CRD_COLOR at all, since the z test bails to a goto.  */
+		if (this_plot->plot_style == IMAGE) {
+			cp->CRD_COLOR = z;
+	        }
+
+		STORE_WITH_LOG_AND_UPDATE_RANGE(cp->z, z, cp->type, z_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 		if (this_plot->plot_style == VECTOR)
-		    STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->z, ztail, cp->type, z_axis, NOOP, goto come_here_if_undefined);
+		    STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->z, ztail, cp->type, z_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+
+		if (this_plot->lp_properties.l_type == LT_COLORFROMCOLUMN)
+		    cp->CRD_COLOR = color;
 
 		if (NEED_PALETTE(this_plot)) {
 		    if (pm3d_color_from_column) {
-			COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, color, cp->type, COLOR_AXIS, NOOP, goto come_here_if_undefined);
+			COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, color, cp->type, COLOR_AXIS, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 		    } else {
-			COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, z, cp->type, COLOR_AXIS, NOOP, goto come_here_if_undefined);
+			COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, z, cp->type, COLOR_AXIS, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 		    }
 		}
 	    }
 
-#ifdef EAM_DATASTRINGS
 	    /* At this point we have stored the point coordinates. Now we need to copy */
 	    /* x,y,z into the text_label structure and add the actual text string.     */
 	    if (this_plot->plot_style == LABELPOINTS)
 		store_label(this_plot->labels, cp, xdatum, df_tokens[3], color);
-#endif
+
+	    if (this_plot->plot_style == RGBIMAGE || this_plot->plot_style == RGBA_IMAGE) {
+		/* We will autoscale the RGB components to  a total range [0:255]
+		 * so we don't need to do any fancy scaling here.
+		 */
+		cp->CRD_R = v[3];
+		cp->CRD_G = v[4];
+		cp->CRD_B = v[5];
+		cp->CRD_A = v[6];	/* Alpha channel */
+	    }
 
 	come_here_if_undefined:
 	    /* some may complain, but I regard this as the correct use of goto */
 	    ++xdatum;
 	}			/* end of whileloop - end of surface */
+
+	/* We are finished reading user input; return to C locale for internal use */
+	reset_numeric_locale();
 
 	if (pm3d_color_from_column) {
 	    this_plot->pm3d_color_from_column = pm3d_color_from_column;
@@ -911,20 +1090,24 @@ get_3ddata(struct surface_points *this_plot)
     }
 
     if (dgrid3d && this_plot->num_iso_read > 0)
-        grid_nongrid_data(this_plot);
+	grid_nongrid_data(this_plot);
 
     /* This check used to be done in graph3d */
-	if (X_AXIS.min == VERYLARGE || X_AXIS.max == -VERYLARGE ||
-	    Y_AXIS.min == VERYLARGE || Y_AXIS.max == -VERYLARGE || 
-	    Z_AXIS.min == VERYLARGE || Z_AXIS.max == -VERYLARGE)
-		int_warn(NO_CARET,
-		    "Axis range undefined due to improper data values. NaN? Inf?");
+    if (X_AXIS.min == VERYLARGE || X_AXIS.max == -VERYLARGE ||
+	Y_AXIS.min == VERYLARGE || Y_AXIS.max == -VERYLARGE ||
+	Z_AXIS.min == VERYLARGE || Z_AXIS.max == -VERYLARGE) {
+	    /* FIXME: Should we set plot type to NODATA? */
+	    /* But in the case of 'set view map' we may not care about Z */
+	    int_warn(NO_CARET,
+		"No usable data in this plot to auto-scale axis range");
+	    }
 
     if (this_plot->num_iso_read <= 1)
 	this_plot->has_grid_topology = FALSE;
     if (this_plot->has_grid_topology && !hidden3d) {
 	struct iso_curve *new_icrvs = NULL;
-	int num_new_iso = this_plot->iso_crvs->p_count, len_new_iso = this_plot->num_iso_read;
+	int num_new_iso = this_plot->iso_crvs->p_count;
+	int len_new_iso = this_plot->num_iso_read;
 	int i;
 
 	/* Now we need to set the other direction (pseudo) isolines. */
@@ -952,86 +1135,8 @@ get_3ddata(struct surface_points *this_plot)
 	     this_iso = this_iso->next);
 	this_iso->next = new_icrvs;
     }
-}
 
-static void
-print_3dtable(int pcount)
-{
-    struct surface_points *this_plot;
-    int i, surface;
-    struct coordinate GPHUGE *point;
-    char *buffer = gp_alloc(150, "print_3dtable output buffer");
-    FILE *outfile = (table_outfile) ? table_outfile : gpoutfile;
-
-    for (surface = 0, this_plot = first_3dplot;
-	 surface < pcount;
-	 this_plot = this_plot->next_sp, surface++) {
-	fprintf(outfile, "\n#Surface %d of %d surfaces\n", surface, pcount);
-
-	if (draw_surface) {
-	    struct iso_curve *icrvs;
-	    int curve;
-
-	    /* only the curves in one direction */
-	    for (curve = 0, icrvs = this_plot->iso_crvs;
-		 icrvs && curve < this_plot->num_iso_read;
-		 icrvs = icrvs->next, curve++) {
-		fprintf(outfile, "\n#IsoCurve %d, %d points\n#x y z type\n",
-			curve, icrvs->p_count);
-		for (i = 0, point = icrvs->points;
-		     i < icrvs->p_count;
-		     i++, point++) {
-		    /* HBB 20020405: new macro to use the 'set format'
-		     * in their full flexibility */
-#define OUTPUT_NUMBER(field, axis)					\
-		    gprintf(buffer, 150, axis_array[axis].formatstring,	\
-			    1.0, point->field);				\
-		    fputs(buffer, outfile);				\
-		    fputc(' ', outfile);
-		    OUTPUT_NUMBER(x, FIRST_X_AXIS);
-		    OUTPUT_NUMBER(y, FIRST_Y_AXIS);
-		    OUTPUT_NUMBER(z, FIRST_Z_AXIS);
-		    fprintf(outfile, "%c\n",
-			    point->type == INRANGE
-			    ? 'i' : point->type == OUTRANGE
-			    ? 'o' : 'u');
-		} /* for(point) */
-	    } /* for(icrvs) */
-	    putc('\n', outfile);
-	} /* if(draw_surface) */
-
-	if (draw_contour) {
-	    int number = 0;
-	    struct gnuplot_contours *c = this_plot->contours;
-
-	    while (c) {
-		int count = c->num_pts;
-		struct coordinate GPHUGE *point = c->coords;
-
-		if (c->isNewLevel)
-		    /* don't display count - contour split across chunks */
-		    /* put # in case user wants to use it for a plot */
-		    /* double blank line to allow plot ... index ... */
-		    fprintf(outfile, "\n# Contour %d, label: %s\n",
-			    number++, c->label);
-
-		for (; --count >= 0; ++point) {
-		    OUTPUT_NUMBER(x, FIRST_X_AXIS);
-		    OUTPUT_NUMBER(y, FIRST_Y_AXIS);
-		    OUTPUT_NUMBER(z, FIRST_Z_AXIS);
-		    putc('\n', outfile);
-		}
-
-		/* blank line between segments of same contour */
-		putc('\n', outfile);
-		c = c->next;
-#undef OUTPUT_NUMBER
-	    } /* while (contour) */
-	} /* if (draw_contour) */
-    } /* for(surface) */
-    fflush(outfile);
-
-    free(buffer);
+    return retval;
 }
 
 /* HBB 20000501: code isolated from eval_3dplots(), where practically
@@ -1089,9 +1194,10 @@ calculate_set_of_isolines(
 	    temp = real(&a);
 	    points[i].type = INRANGE;
 	    STORE_WITH_LOG_AND_UPDATE_RANGE(points[i].z, temp, points[i].type,
-					    value_axis, NOOP, NOOP);
+					    value_axis, FALSE, NOOP, NOOP);
 	    if (do_update_color) {
-		COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(points[i].CRD_COLOR, temp, points[i].type, COLOR_AXIS, NOOP, NOOP);
+		COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(points[i].CRD_COLOR, temp, points[i].type, 
+					    COLOR_AXIS, FALSE, NOOP, NOOP);
 	    }
 	}
 	(*this_iso)->p_count = num_sam_to_use;
@@ -1116,9 +1222,11 @@ eval_3dplots()
 {
     int i;
     struct surface_points **tp_3d_ptr;
-    int start_token, end_token;
+    int start_token=0, end_token;
     int begin_token;
     TBOOLEAN some_data_files = FALSE, some_functions = FALSE;
+    TBOOLEAN was_definition = FALSE;
+    int df_return = 0;
     int plot_num, line_num, point_num;
     /* part number of parametric function triplet: 0 = z, 1 = y, 2 = x */
     int crnt_param = 0;
@@ -1126,7 +1234,7 @@ eval_3dplots()
     char *ytitle;
     legend_key *key = &keyT;
 
-    /* Reset first_3dplot. This is usually done at the end of this function.
+    /* Free memory from previous splot.
      * If there is an error within this function, the memory is left allocated,
      * since we cannot call sp_free if the list is incomplete
      */
@@ -1144,6 +1252,9 @@ eval_3dplots()
     line_num = 0;		/* default line type */
     point_num = 0;		/* default point type */
 
+    /* Assume that the input data can be re-read later */
+    volatile_data = FALSE;
+
     xtitle = NULL;
     ytitle = NULL;
 
@@ -1155,14 +1266,22 @@ eval_3dplots()
      * well as filling in every thing except the function data. That is done
      * after the x/yrange is defined.
      */
+    check_for_iteration();
+
     while (TRUE) {
 	if (END_OF_COMMAND)
 	    int_error(c_token, "function to plot expected");
 
-	start_token = c_token;
+	if (crnt_param == 0 && !was_definition)
+	    start_token = c_token;
 
 	if (is_definition(c_token)) {
 	    define();
+	    if (!equals(c_token,",")) {
+		was_definition = TRUE;
+		continue;
+	    }
+
 	} else {
 	    int specs = -1;
 	    struct surface_points *this_plot;
@@ -1172,9 +1291,11 @@ eval_3dplots()
 	    TBOOLEAN set_title = FALSE, set_with = FALSE;
 	    TBOOLEAN set_lpstyle = FALSE;
 	    TBOOLEAN checked_once = FALSE;
-#ifdef EAM_DATASTRINGS
 	    TBOOLEAN set_labelstyle = FALSE;
-#endif
+
+	    if (!was_definition && (!parametric || crnt_param == 0))
+		start_token = c_token;
+	    was_definition = FALSE;
 
 	    dummy_func = &plot_func;
 	    /* WARNING: do NOT free name_str */
@@ -1213,17 +1334,17 @@ eval_3dplots()
 		this_plot->plot_style = data_style;
 
 		df_set_plot_mode(MODE_SPLOT);
-		specs = df_open(name_str, MAXDATACOLS);
-#ifdef BINARY_DATA_FILE
+		specs = df_open(name_str, MAXDATACOLS, (struct curve_points *)this_plot);
+
 		if (df_matrix)
 		    this_plot->has_grid_topology = TRUE;
-#endif
 
 		/* parses all datafile-specific modifiers */
 		/* we will load the data after parsing title,with,... */
 
 		/* for capture to key */
 		this_plot->token = end_token = c_token - 1;
+		this_plot->iteration = iteration; /* FIXME: Is this really needed? */
 
 		/* this_plot->token is temporary, for errors in get_3ddata() */
 
@@ -1234,7 +1355,7 @@ eval_3dplots()
 		    if (axis_array[FIRST_Y_AXIS].is_timedata) {
 			int_error(c_token, "Need full using spec for y time data");
 		    }
-		} 
+		}
 		df_axis[0] = FIRST_X_AXIS;
 		df_axis[1] = FIRST_Y_AXIS;
 		df_axis[2] = FIRST_Z_AXIS;
@@ -1294,7 +1415,7 @@ eval_3dplots()
 
 	    /* user may prefer explicit line styles */
 	    if (prefer_line_styles)
-		lp_use_properties(&this_plot->lp_properties, line_num+1, TRUE);
+		lp_use_properties(&this_plot->lp_properties, line_num+1);
 
 	    /* pm 25.11.2001 allow any order of options */
 	    while (!END_OF_COMMAND || !checked_once) {
@@ -1318,6 +1439,19 @@ eval_3dplots()
 			}
 		    }
 		    c_token++;
+
+		    if (almost_equals(c_token,"col$umnheader")) {
+			df_set_key_title_columnhead(this_plot->plot_type);
+		    } else 
+
+#ifdef BACKWARDS_COMPATIBLE
+		    /* Annoying backwards-compatibility hack - deprecate! */
+		    if (isanumber(c_token)) {
+			c_token--;
+			df_set_key_title_columnhead(this_plot->plot_type);
+		    } else
+#endif
+
 		    if (!(this_plot->title = try_to_get_string()))
 			int_error(c_token, "expecting \"title\" for plot");
 		    set_title = TRUE;
@@ -1332,11 +1466,11 @@ eval_3dplots()
 		    c_token++;
 		    if (isstringvalue(c_token))
 			try_to_get_string(); /* ignore optionally given title string */
+		    this_plot->title_is_suppressed = TRUE;
 		    if (xtitle != NULL)
 			xtitle[0] = '\0';
 		    if (ytitle != NULL)
 			ytitle[0] = '\0';
-		    /*   this_plot->title = NULL;   */
 		    set_title = TRUE;
 		    continue;
 		}
@@ -1350,10 +1484,7 @@ eval_3dplots()
 		    this_plot->plot_style = get_style();
 		    if ((this_plot->plot_type == FUNC3D) &&
 			((this_plot->plot_style & PLOT_STYLE_HAS_ERRORBAR)
-#ifdef EAM_DATASTRINGS
-			|| (this_plot->plot_style == LABELPOINTS)
-#endif
-			)) {
+			|| (this_plot->plot_style == LABELPOINTS))) {
 			int_warn(c_token, "This plot style is only for datafiles , reverting to \"points\"");
 			this_plot->plot_style = POINTSTYLE;
 		    }
@@ -1367,27 +1498,38 @@ eval_3dplots()
 			}
 		    }
 
+		    if (this_plot->plot_style == IMAGE
+		    ||  this_plot->plot_style == RGBA_IMAGE
+		    ||  this_plot->plot_style == RGBIMAGE)
+			get_image_options(&this_plot->image_properties);
+
 		    set_with = TRUE;
 		    continue;
 		}
 
-		/* EAM Dec 2005 - Hidden3D code by default includes points,  */
-		/* labels and vectors in the hidden3d processing. Check here */
-		/* if this particular plot wants to be excluded.             */
+		/* Hidden3D code by default includes points, labels and vectors	*/
+		/* in the hidden3d processing. Check here if this particular	*/
+		/* plot wants to be excluded.					*/
 		if (almost_equals(c_token, "nohidden$3d")) {
 		    c_token++;
 		    this_plot->opt_out_of_hidden3d = TRUE;
 		    continue;
 		}
 
-		/* "set contour" is global. Allow individual plots to opt out */
+		/* "set contour" is global.  Allow individual plots to opt out */
 		if (almost_equals(c_token, "nocon$tours")) {
 		    c_token++;
 		    this_plot->opt_out_of_contours = TRUE;
 		    continue;
 		}
 
-#ifdef EAM_DATASTRINGS
+		/* "set surface" is global.  Allow individual plots to opt out */
+		if (almost_equals(c_token, "nosur$face")) {
+		    c_token++;
+		    this_plot->opt_out_of_surface = TRUE;
+		    continue;
+		}
+
 		/* Labels can have font and text property info as plot options */
 		/* In any case we must allocate one instance of the text style */
 		/* that all labels in the plot will share.                     */
@@ -1410,7 +1552,6 @@ eval_3dplots()
 			}
 		    }
 		}
-#endif
 
 		/* pick up line/point specs
 		 * - point spec allowed if style uses points, ie style&2 != 0
@@ -1444,8 +1585,8 @@ eval_3dplots()
 
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles)
-			lp_use_properties(&lp, line_num+1, TRUE);
-		    
+			lp_use_properties(&lp, line_num+1);
+
  		    lp_parse(&lp, TRUE,
 			     this_plot->plot_style & PLOT_STYLE_HAS_POINT);
 		    checked_once = TRUE;
@@ -1469,26 +1610,16 @@ eval_3dplots()
 		int_error(c_token, "duplicated or contradicting arguments in plot options");
 
 	    /* set default values for title if this has not been specified */
+	    this_plot->title_is_filename = FALSE;
 	    if (!set_title) {
 		this_plot->title_no_enhanced = TRUE; /* filename or function cannot be enhanced */
 		if (key->auto_titles == FILENAME_KEYTITLES) {
-#ifdef BINARY_DATA_FILE
-		    /* DJS (20 Aug 2004) I'd prefer that the df_binary flag be discarded.  There
-		     * is nothing special about the file being binary that its title should be
-		     * different.  Can't the decision to do this be based on some other criteria,
-		     * like the presence of a nonconventional `using`?
-		     */
-#endif
-		    if (this_plot->plot_type == DATA3D && df_binary==TRUE && end_token==start_token+1)
-			/* let default title for  splot 'a.dat' binary  is 'a.dat'
-			 * while for  'a.dat' binary using 2:1:3  will be all 4 words */
-			m_capture(&(this_plot->title), start_token, start_token);
-		    else
-			m_capture(&(this_plot->title), start_token, end_token);
+		    m_capture(&(this_plot->title), start_token, end_token);
 		    if (crnt_param == 2)
 			xtitle = this_plot->title;
 		    else if (crnt_param == 1)
 			ytitle = this_plot->title;
+		    this_plot->title_is_filename = TRUE;
 		} else {
 		    if (xtitle != NULL)
 			xtitle[0] = '\0';
@@ -1515,7 +1646,7 @@ eval_3dplots()
 
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles)
-			lp_use_properties(&this_plot->lp_properties, line_num+1, TRUE);
+			lp_use_properties(&this_plot->lp_properties, line_num+1);
 
 		    lp_parse(&this_plot->lp_properties, TRUE,
 			 this_plot->plot_style & PLOT_STYLE_HAS_POINT);
@@ -1524,19 +1655,20 @@ eval_3dplots()
 #ifdef BACKWARDS_COMPATIBLE
 		/* allow old-style syntax - ignore case lt 3 4 for example */
 		if (!END_OF_COMMAND && isanumber(c_token)) {
-		    struct value t;
-
 		    this_plot->lp_properties.l_type =
-			this_plot->lp_properties.p_type =
-			(int) real(const_express(&t)) - 1;
+			this_plot->lp_properties.p_type = int_expression() - 1;
 
 		    if (isanumber(c_token))
-			this_plot->lp_properties.p_type =
-			    (int) real(const_express(&t)) - 1;
+			this_plot->lp_properties.p_type = int_expression() - 1;
 		}
 #endif
 
 	    }
+
+	    /* Some low-level routines expect to find the pointflag attribute */
+	    /* in lp_properties (they don't have access to the full header).  */
+	    if (this_plot->plot_style & PLOT_STYLE_HAS_POINT)
+		this_plot->lp_properties.pointflag = TRUE;
 
 	    /* Rule out incompatible line/point/style options */
 	    if (this_plot->plot_type == FUNC3D) {
@@ -1544,27 +1676,32 @@ eval_3dplots()
 		&&  (this_plot->lp_properties.p_size == PTSZ_VARIABLE))
 		    this_plot->lp_properties.p_size = 1;
 	    }
+	    if (this_plot->plot_style == LINES) {
+		this_plot->opt_out_of_hidden3d = FALSE;
+	    }
 
 	    if (crnt_param == 0
 		&& this_plot->plot_style != PM3DSURFACE
 		/* don't increment the default line/point properties if
 		 * this_plot is an EXPLICIT pm3d surface plot */
-#ifdef WITH_IMAGE
 		&& this_plot->plot_style != IMAGE
 		&& this_plot->plot_style != RGBIMAGE
+		&& this_plot->plot_style != RGBA_IMAGE
 		/* same as above, for an (rgb)image plot */
-#endif
 		) {
 		if (this_plot->plot_style & PLOT_STYLE_HAS_POINT)
 		    point_num += 1 + (draw_contour != 0) + (hidden3d != 0);
 		line_num += 1 + (draw_contour != 0) + (hidden3d != 0);
 	    }
 
-#ifdef WITH_IMAGE
-	    /* Styles that utilize palettes. */
 	    if (this_plot->plot_style == IMAGE)
 		this_plot->lp_properties.use_palette = 1;
-#endif
+	    if (this_plot->plot_style == RGBIMAGE || this_plot->plot_style == RGBA_IMAGE) {
+		if (CB_AXIS.autoscale & AUTOSCALE_MIN)
+		    CB_AXIS.min = 0;
+		if (CB_AXIS.autoscale & AUTOSCALE_MAX)
+		    CB_AXIS.max = 255;
+	    }
 
 	    /* now get the data... having to think hard here...
 	     * first time through, we fill in this_plot. For second
@@ -1584,11 +1721,8 @@ eval_3dplots()
 
 	    if (this_plot->plot_type == DATA3D) {
 		/*{{{  read data */
-		/* remember settings for second surface in file */
-		struct lp_style_type *these_props = &(this_plot->lp_properties);
-		enum PLOT_STYLE this_style = this_plot->plot_style;
+		/* pointer to the plot of the first dataset (surface) in the file */
 		struct surface_points *first_dataset = this_plot;
-		    /* pointer to the plot of the first dataset (surface) in the file */
 		int this_token = this_plot->token;
 
 		do {
@@ -1602,9 +1736,10 @@ eval_3dplots()
 		    /* used by get_3ddata() */
 		    this_plot->token = this_token;
 
-		    get_3ddata(this_plot);
+		    df_return = get_3ddata(this_plot);
 		    /* for second pass */
 		    this_plot->token = c_token;
+		    this_plot->iteration = iteration;
 
 		    if (this_plot->num_iso_read == 0)
 			this_plot->plot_type = NODATA;
@@ -1616,7 +1751,7 @@ eval_3dplots()
 		    /* okay, we have read a surface */
 		    ++plot_num;
 		    tp_3d_ptr = &(this_plot->next_sp);
-		    if (df_eof)
+		    if (df_return == DF_EOF)
 			break;
 
 		    /* there might be another surface so allocate
@@ -1636,10 +1771,15 @@ eval_3dplots()
 		    }
 
 		    this_plot->plot_type = DATA3D;
-		    this_plot->plot_style = this_style;
-		    /* Struct copy */
-		    this_plot->lp_properties = *these_props;
-		} while (!df_eof);
+		    this_plot->iteration = iteration;
+		    this_plot->plot_style = first_dataset->plot_style;
+		    this_plot->lp_properties = first_dataset->lp_properties;
+		    if (this_plot->plot_style == LABELPOINTS) {
+			this_plot->labels = new_text_label(-1);
+			*(this_plot->labels) = *(first_dataset->labels);
+			this_plot->labels->next = NULL;
+		    }
+		} while (df_return != DF_EOF);
 
 		df_close();
 		/*}}} */
@@ -1647,14 +1787,32 @@ eval_3dplots()
 	    } else {		/* not a data file */
 		tp_3d_ptr = &(this_plot->next_sp);
 		this_plot->token = c_token;	/* store for second pass */
+		this_plot->iteration = iteration;
 	    }
+
+	    if (empty_iteration())
+		this_plot->plot_type = NODATA;
 
 	}			/* !is_definition() : end of scope of this_plot */
 
+	if (crnt_param != 0) {
+	    if (equals(c_token, ",")) {
+		c_token++;
+		continue;
+	    } else
+		break;
+	}
 
-	if (equals(c_token, ","))
+	/* Iterate-over-plot mechanisms */
+	if (next_iteration()) {
+	    c_token = start_token;
+	    continue;
+	}
+
+	if (equals(c_token, ",")) {
 	    c_token++;
-	else
+	    check_for_iteration();
+	} else
 	    break;
 
     }				/* while(TRUE), ie first pass */
@@ -1730,6 +1888,7 @@ eval_3dplots()
 	/* start over */
 	this_plot = first_3dplot;
 	c_token = begin_token;
+	check_for_iteration();
 
 	/* why do attributes of this_plot matter ? */
 	/* FIXME HBB 20000501: I think they don't, actually. I'm
@@ -1751,11 +1910,20 @@ eval_3dplots()
 
 	/* Read through functions */
 	while (TRUE) {
+	    if (crnt_param == 0 && !was_definition)
+		start_token = c_token;
+
 	    if (is_definition(c_token)) {
 		define();
+		if (!equals(c_token,",")) {
+		    was_definition = TRUE;
+		    continue;
+		}
+
 	    } else {
 		struct at_type *at_ptr;
 		char *name_str;
+		was_definition = FALSE;
 
 		dummy_func = &plot_func;
 		name_str = string_or_express(&at_ptr);
@@ -1801,16 +1969,28 @@ eval_3dplots()
 		/* we saved it from first pass */
 		c_token = this_plot->token;
 
-		/* one data file can make several plots */
-		do
+		/* we may have seen this one data file in multiple iterations */
+		i = this_plot->iteration;
+		do {
 		    this_plot = this_plot->next_sp;
-		while (this_plot && this_plot->token == c_token);
+		} while (this_plot
+			&& this_plot->token == c_token
+			&& this_plot->iteration == i
+			);
 
 	    }			/* !is_definition */
 
-	    if (equals(c_token, ","))
+	    /* Iterate-over-plot mechanism */
+	    if (crnt_param == 0 && next_iteration()) {
+		c_token = start_token;
+		continue;
+	    }
+
+	    if (equals(c_token, ",")) {
 		c_token++;
-	    else
+		if (crnt_param == 0)
+		    check_for_iteration();
+	    } else
 		break;
 
 	}			/* while(TRUE) */
@@ -1879,13 +2059,20 @@ eval_3dplots()
 		this_plot->contours = NULL;
 	    }
 
+	    /* Make sure this one can be contoured. */
+	    if (this_plot->plot_style == LABELPOINTS
+	    ||  this_plot->plot_style == VECTOR
+	    ||  this_plot->plot_style == IMAGE
+	    ||  this_plot->plot_style == RGBIMAGE
+	    ||  this_plot->plot_style == RGBA_IMAGE)
+		continue;
+
 	    /* Allow individual surfaces to opt out of contouring */
 	    if (this_plot->opt_out_of_contours)
 		continue;
-	    
-	    /* Make sure this one can be contoured. */
+
 	    if (!this_plot->has_grid_topology) {
-		int_warn(NO_CARET, "Notice: Cannot contour non grid data. Please use \"set dgrid3d\".");
+		int_warn(NO_CARET,"Cannot contour non grid data. Please use \"set dgrid3d\".");
 	    } else if (this_plot->plot_type == DATA3D) {
 		this_plot->contours = contour(this_plot->num_iso_read,
 					      this_plot->iso_crvs);
@@ -1908,6 +2095,7 @@ eval_3dplots()
 	/* note that m_capture also frees the old replot_line */
 	m_capture(&replot_line, plot_token, c_token - 1);
 	plot_token = -1;
+	fill_gpval_string("GPVAL_LAST_PLOT", replot_line);
     }
 
     /* record that all went well */
@@ -1917,18 +2105,22 @@ eval_3dplots()
     if (table_mode)
 	print_3dtable(plot_num);
     else {
-	START_LEAK_CHECK();	/* assert no memory leaks here ! */
 	do_3dplot(first_3dplot, plot_num, 0);
-	END_LEAK_CHECK();
 
-        /* after do_3dplot(), axis_array[] and max_array[].min
-         * contain the plotting range actually used (rounded
-         * to tic marks, not only the min/max data values)
-         * --> save them now for writeback if requested
+	/* after do_3dplot(), axis_array[] and max_array[].min
+	 * contain the plotting range actually used (rounded
+	 * to tic marks, not only the min/max data values)
+	 * --> save them now for writeback if requested
 	 */
 	SAVE_WRITEBACK_ALL_AXES;
 	/* update GPVAL_ variables available to user */
 	update_gpval_variables(1);
+
+#ifdef VOLATILE_REFRESH
+	/* Mark these plots as safe for quick refresh */
+	refresh_nplots = plot_num;
+	refresh_ok = 3;
+#endif
     }
 }
 
@@ -2004,12 +2196,6 @@ parametric_3dfixup(struct surface_points *start_plot, int *plot_num)
 		yicrvs = yicrvs->next;
 		zicrvs = zicrvs->next;
 	    }
-
-#if 0 /* FIXME HBB 20001101: seems to cause a crash */
-	    if (first_3dplot)
-		sp_free(first_3dplot);
-	    first_3dplot = NULL;
-#endif
 
 	    /* Ok, fix up the title to include xp and yp plots. */
 	    if (((xp->title && xp->title[0] != '\0') ||

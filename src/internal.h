@@ -1,5 +1,5 @@
 /*
- * $Id: internal.h,v 1.15.2.1 2008/09/02 21:12:59 sfeam Exp $
+ * $Id: internal.h,v 1.19 2007/08/28 06:13:07 sfeam Exp $
  */
 
 /* GNUPLOT - internal.h */
@@ -51,6 +51,7 @@ void f_pushc __PROTO((union argument *x));
 void f_pushd1 __PROTO((union argument *x));
 void f_pushd2 __PROTO((union argument *x));
 void f_pushd __PROTO((union argument *x));
+void f_pop __PROTO((union argument *x));
 void f_call __PROTO((union argument *x));
 void f_calln __PROTO((union argument *x));
 void f_lnot __PROTO((union argument *x));
@@ -75,7 +76,6 @@ void f_mod __PROTO((union argument *x));
 void f_power __PROTO((union argument *x));
 void f_factorial __PROTO((union argument *x));
 
-#ifdef GP_STRING_VARS
 void f_concatenate __PROTO((union argument *x));
 void f_eqs __PROTO((union argument *x));
 void f_nes __PROTO((union argument *x));
@@ -88,6 +88,6 @@ void f_system __PROTO((union argument *x));
 void f_words __PROTO((union argument *x));
 void f_strftime __PROTO((union argument *x));
 void f_strptime __PROTO((union argument *x));
-#endif
+void f_assign __PROTO((union argument *x));
 
 #endif /* GNUPLOT_INTERNAL_H */

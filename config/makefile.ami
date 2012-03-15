@@ -1,5 +1,5 @@
 #
-# $Id: makefile.ami,v 1.7 2004/04/13 17:23:30 broeker Exp $
+# $Id: makefile.ami,v 1.9 2007/11/19 21:17:12 sfeam Exp $
 #
 # GNUPLOT Makefile for Manx Aztec C 5.2 beta of better on the Amiga
 # 
@@ -44,7 +44,7 @@ OBJS = alloc.o binary.o bitmap.o command.o contour.o datafile.o dynarray.o \
 	eval.o fit.o graphics.o graph3d.o help.o hidden3d.o history.o \
 	internal.o interpol.o matrix.o misc.o parse.o plot.o plot2d.o \
 	plot3d.o readline.o save.o scanner.o set.o show.o specfun.o \
-	standard.o stdfn.o tables.o time.o unset.o util.o util3d.o variable.o
+	standard.o stdfn.o tables.o tabulate.o time.o unset.o util.o util3d.o variable.o
 #
 # List of sources
 #
@@ -58,7 +58,7 @@ CSOURCE6 = term/amiga.trm term/aed.trm term/cgi.trm term/dumb.trm term/dxf.trm \
 	term/hp26.trm term/hp2648.trm term/hpgl.trm term/hpljii.trm \
 	term/apollo.trm term/gpr.trm
 CSOURCE7 = term/impcodes.h term/imagen.trm term/object.h \
-	term/iris4d.trm term/kyo.trm term/latex.trm term/pbm.trm term/pc.trm 
+	term/kyo.trm term/latex.trm term/pbm.trm term/pc.trm 
 CSOURCE8 = term/post.trm term/qms.trm term/regis.trm term/sun.trm \
 	term/t410x.trm term/tek.trm term/unixpc.trm term/unixplot.trm \
 	term/v384.trm term/x11.trm term/bigfig.trm term/vws.trm gplt_x11.c

@@ -1,5 +1,5 @@
 #
-# $Id: all.dem,v 1.25.2.3 2009/02/15 06:34:22 sfeam Exp $
+# $Id: all.dem,v 1.41 2008/12/23 17:41:20 sfeam Exp $
 #
 # Executes ALL demos in this directory, in functionality order.
 #
@@ -56,7 +56,6 @@ reset
 print "******************** file multiplt.dem ********************"
 load "multiplt.dem"
 load "layout.dem"
-load "margins.dem"
 reset
 
 print "******************** file surface1.dem ********************"
@@ -69,6 +68,10 @@ reset
 
 print "******************** file hidden.dem ********************"
 load "hidden.dem"
+reset
+
+print "******************** file dgrid3d.dem ********************"
+load "dgrid3d.dem"
 reset
 
 print "******************** file world.dem ********************"
@@ -86,6 +89,10 @@ reset
 
 print "******************** file random.dem ********************"
 load "random.dem"
+reset
+
+print "******************** file smooth.dem ********************"
+load "smooth.dem"
 reset
 
 print "******************** file spline.dem ********************"
@@ -152,12 +159,12 @@ print "********************** file pm3dcolors.dem *********************"
 load "pm3dcolors.dem"
 reset
 
-print "********************** file pm3dgamma.dem *********************"
-load "pm3dgamma.dem"
+print "********************** file heatmaps.dem *********************"
+load "heatmaps.dem"
 reset
 
-print "********************** file heatmaps.dem ***********************"
-load "heatmaps.dem"
+print "********************** file pm3dgamma.dem *********************"
+load "pm3dgamma.dem"
 reset
 
 print "********************** file hidden2.dem ***********************"
@@ -172,8 +179,8 @@ print "********************** file textrotate.dem *********************"
 load "textrotate.dem"
 reset
 
-print "********************** file enhancedtext.dem *********************"
-load "enhancedtext.dem"
+print "********************** file enhanced_utf8.dem *********************"
+load "enhanced_utf8.dem"
 reset
 
 print "********************** file arrowstyle.dem *********************"
@@ -192,21 +199,35 @@ print "********************** file datastrings.dem *********************"
 load "datastrings.dem"
 reset
 
+print "********************** file iterate.dem *********************"
+load "iterate.dem"
+reset
+
 print "********************** file histograms.dem *********************"
 load "histograms.dem"
 load "histograms2.dem"
 reset
 
-print "********************** file image.dem *********************"
+print "**********************    Image formats    *********************"
 load "image.dem"
+load "image2.dem"
+load "rgbalpha.dem"
 reset
 
 print "********************** file stringvar.dem *********************"
 load "stringvar.dem"
 reset
 
+print "********************** file running_avg.dem *********************"
+load "running_avg.dem"
+reset
+
 print "********************** file pointsize.dem *********************"
 load "pointsize.dem"
+reset
+
+print "********************** file circles.dem *********************"
+load "circles.dem"
 reset
 
 print "********************** file key.dem *********************"
@@ -217,6 +238,23 @@ print "********************** file borders.dem *********************"
 load "borders.dem"
 reset
 
+print "********************** file margins.dem *********************"
+load "margins.dem"
+reset
+
 print "********************** file rectangle.dem *********************"
 load "rectangle.dem"
+reset
+
+print "********************** file approximate.dem *********************"
+load "approximate.dem"
+reset
+
+print "********************** file transparent.dem *********************"
+load "transparent.dem"
+reset
+
+print "********************** file transparent_solids.dem *********************"
+load "transparent_solids.dem"
+pause 5
 reset

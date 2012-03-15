@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.30.2.9 2008/07/29 22:19:05 sfeam Exp $
+ * $Id: wxt_gui.cpp,v 1.72.2.4 2010/01/31 20:28:47 mikulik Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -125,8 +125,12 @@
  * simple menu events like this the static method is much simpler.
  */
 
-BEGIN_EVENT_TABLE( wxtFrame, wxFrame )
+BEGIN_EVENT_TABLE( wxtApp, wxApp )
+	EVT_COMMAND( wxID_ANY, wxCreateWindowEvent, wxtApp::OnCreateWindow )
 	EVT_COMMAND( wxID_ANY, wxExitLoopEvent, wxtApp::OnExitLoop )
+END_EVENT_TABLE()
+
+BEGIN_EVENT_TABLE( wxtFrame, wxFrame )
 	EVT_CLOSE( wxtFrame::OnClose )
 	EVT_SIZE( wxtFrame::OnSize )
 	EVT_TOOL( Toolbar_CopyToClipboard, wxtFrame::OnCopy )
@@ -136,6 +140,7 @@ BEGIN_EVENT_TABLE( wxtFrame, wxFrame )
 	EVT_TOOL( Toolbar_ZoomPrevious, wxtFrame::OnZoomPrevious )
 	EVT_TOOL( Toolbar_ZoomNext, wxtFrame::OnZoomNext )
 	EVT_TOOL( Toolbar_Autoscale, wxtFrame::OnAutoscale )
+	EVT_COMMAND( wxID_ANY, wxStatusTextEvent, wxtFrame::OnSetStatusText )
 #endif /*USE_MOUSE*/
 	EVT_TOOL( Toolbar_Config, wxtFrame::OnConfig )
 	EVT_TOOL( Toolbar_Help, wxtFrame::OnHelp )
@@ -165,7 +170,7 @@ BEGIN_EVENT_TABLE( wxtConfigDialog, wxDialog )
 END_EVENT_TABLE()
 
 
-#if defined(__WXGTK__)||defined(__WXMAC__)
+#ifdef WXT_MULTITHREADED
 /* ----------------------------------------------------------------------------
  *   gui thread
  * ----------------------------------------------------------------------------*/
@@ -174,7 +179,7 @@ END_EVENT_TABLE()
  * Just before it returns, wxEntry will call a whole bunch of wxWidgets-cleanup functions */
 void *wxtThread::Entry()
 {
-	FPRINTF((stderr,"gui_thread_entry\n"));
+	FPRINTF((stderr,"secondary thread entry\n"));
 
 	/* don't answer to SIGINT in this thread - avoids LONGJMP problems */
 	sigset_t set;
@@ -190,14 +195,10 @@ void *wxtThread::Entry()
 	 * main thread as wxWidgets was written for. */
 	wxt_MutexGuiLeave();
 
-	FPRINTF((stderr,"gui_thread_entry finishing\n"));
+	FPRINTF((stderr,"secondary thread finished\n"));
 	return NULL;
 }
-#elif defined (__WXMSW__)
-/* nothing to do here */
-#else
-# error "Not implemented."
-#endif
+#endif /* WXT_MULTITHREADED */
 
 
 
@@ -213,6 +214,8 @@ bool wxtApp::OnInit()
 	/* Usually wxWidgets apps create their main window here.
 	 * However, in the context of multiple plot windows, the same code is written in wxt_init().
 	 * So, to avoid duplication of the code, we do only what is strictly necessary.*/
+
+	FPRINTF((stderr, "OnInit\n"));
 
 	/* initialize frames icons */
 	icon.AddIcon(wxIcon(icon16x16_xpm));
@@ -254,6 +257,8 @@ bool wxtApp::OnInit()
 	 * if they're not present in the config - this can give the user an idea
 	 * of all possible settings */
 	pConfig->SetRecordDefaults();
+
+	FPRINTF((stderr, "OnInit finished\n"));
 
 	return true; /* means that process must continue */
 }
@@ -299,6 +304,39 @@ void wxtApp::OnExitLoop( wxCommandEvent& WXUNUSED(event) )
 	wxTheApp->ExitMainLoop();
 }
 
+void wxtApp::OnCreateWindow( wxCommandEvent& event )
+{
+    /* retrieve the pointer to wxt_window_t */
+	wxt_window_t *window = (wxt_window_t*) event.GetClientData();
+
+	FPRINTF((stderr,"wxtApp::OnCreateWindow\n"));
+	window->frame = new wxtFrame( window->title, window->id, 50, 50, 640, 480 );
+	window->frame->Show(true);
+	FPRINTF((stderr,"new plot window opened\n"));
+	/* make the panel able to receive keyboard input */
+	window->frame->panel->SetFocus();
+	/* set the default crosshair cursor */
+	window->frame->panel->SetCursor(wxt_cursor_cross);
+	/* creating the true context (at initialization, it may be a fake one).
+	 * Note : the frame must be shown for this to succeed */
+	if (!window->frame->panel->plot.success)
+		window->frame->panel->wxt_cairo_create_context();
+	
+	/* tell the other thread we have finished */
+	wxMutexLocker lock(*(window->mutex));
+	window->condition->Broadcast();
+}
+
+/* wrapper for AddPendingEvent or ProcessEvent */
+void wxtApp::SendEvent( wxEvent &event)
+{
+#ifdef WXT_MULTITHREADED
+	AddPendingEvent(event);
+#else /* !WXT_MULTITHREADED */
+	ProcessEvent(event);
+#endif /* !WXT_MULTITHREADED */
+}
+
 /* ---------------------------------------------------------------------------
  * Frame : the main windows (one for each plot)
  * ----------------------------------------------------------------------------*/
@@ -327,7 +365,7 @@ wxtFrame::wxtFrame( const wxString& title, wxWindowID id, int xpos, int ypos, in
 	/* set up the toolbar */
 	wxToolBar * toolbar = CreateToolBar();
 	/* With wxMSW, default toolbar size is only 16x15. */
-	toolbar->SetToolBitmapSize(wxSize(16,16));
+//	toolbar->SetToolBitmapSize(wxSize(16,16));
 
 	toolbar->AddTool(Toolbar_CopyToClipboard, wxT("Copy"),
 				*(toolBarBitmaps[0]), wxT("Copy the plot to clipboard"));
@@ -352,6 +390,8 @@ wxtFrame::wxtFrame( const wxString& title, wxWindowID id, int xpos, int ypos, in
 	toolbar->Realize();
 
 	FPRINTF((stderr,"wxtFrame constructor 2\n"));
+
+	SetClientSize( wxSize(wxt_width, wxt_height) );
 
 	/* build the panel, which will contain the visible device context */
 	panel = new wxtPanel( this, this->GetId(), this->GetClientSize() );
@@ -390,36 +430,37 @@ void wxtFrame::OnCopy( wxCommandEvent& WXUNUSED( event ) )
 /* toolbar event : Replot */
 void wxtFrame::OnReplot( wxCommandEvent& WXUNUSED( event ) )
 {
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_keypress, 0, 0, 'e' , 0, this->GetId());
+	wxt_exec_event(GE_keypress, 0, 0, 'e' , 0, this->GetId());
 }
 
 /* toolbar event : Toggle Grid */
 void wxtFrame::OnToggleGrid( wxCommandEvent& WXUNUSED( event ) )
 {
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_keypress, 0, 0, 'g', 0, this->GetId());
+	wxt_exec_event(GE_keypress, 0, 0, 'g', 0, this->GetId());
 }
 
 /* toolbar event : Previous Zoom in history */
 void wxtFrame::OnZoomPrevious( wxCommandEvent& WXUNUSED( event ) )
 {
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_keypress, 0, 0, 'p', 0, this->GetId());
+	wxt_exec_event(GE_keypress, 0, 0, 'p', 0, this->GetId());
 }
 
 /* toolbar event : Next Zoom in history */
 void wxtFrame::OnZoomNext( wxCommandEvent& WXUNUSED( event ) )
 {
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_keypress, 0, 0, 'n', 0, this->GetId());
+	wxt_exec_event(GE_keypress, 0, 0, 'n', 0, this->GetId());
 }
 
 /* toolbar event : Autoscale */
 void wxtFrame::OnAutoscale( wxCommandEvent& WXUNUSED( event ) )
 {
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_keypress, 0, 0, 'a', 0, this->GetId());
+	wxt_exec_event(GE_keypress, 0, 0, 'a', 0, this->GetId());
+}
+
+/* set the status text from the event data */
+void wxtFrame::OnSetStatusText( wxCommandEvent& event )
+{
+	SetStatusText(event.GetString());
 }
 #endif /*USE_MOUSE*/
 
@@ -442,16 +483,16 @@ void wxtFrame::OnConfig( wxCommandEvent& WXUNUSED( event ) )
 /* toolbar event : Help */
 void wxtFrame::OnHelp( wxCommandEvent& WXUNUSED( event ) )
 {
-	wxMessageBox( wxString(wxT("You are using an interactive terminal "\
-		"based on wxWidgets for the interface, Cairo "\
-		"for the drawing facilities, and Pango for the text layouts.\n"\
-		"Please note that toolbar icons in the terminal "\
-		"don't reflect the whole range of mousing "\
-		"possibilities in the terminal.\n"\
-		"Hit 'h' in the plot window "\
-		"and a help message for mouse commands "\
-		"will appear in the gnuplot console.\n"\
-		"See also 'help mouse'.\n")),
+	wxMessageBox( wxString(wxT("You are using an interactive terminal ")
+		wxT("based on wxWidgets for the interface, Cairo ")
+		wxT("for the drawing facilities, and Pango for the text layouts.\n")
+		wxT("Please note that toolbar icons in the terminal ")
+		wxT("don't reflect the whole range of mousing ")
+		wxT("possibilities in the terminal.\n")
+		wxT("Hit 'h' in the plot window ")
+		wxT("and a help message for mouse commands ")
+		wxT("will appear in the gnuplot console.\n")
+		wxT("See also 'help mouse'.\n")),
 		wxT("wxWidgets terminal help"), wxOK | wxICON_INFORMATION, this );
 }
 
@@ -459,13 +500,29 @@ void wxtFrame::OnHelp( wxCommandEvent& WXUNUSED( event ) )
 void wxtFrame::OnClose( wxCloseEvent& event )
 {
 	FPRINTF((stderr,"OnClose\n"));
-	if ( event.CanVeto() ) {
+	if ( event.CanVeto() && !wxt_handling_persist) {
 		/* Default behaviour when Quit is clicked, or the window cross X */
 		event.Veto();
 		this->Hide();
+#ifdef USE_MOUSE
+		/* Pass it through mouse handling to check for "bind Close" */
+		wxt_exec_event(GE_reset, 0, 0, 0, 0, this->GetId());
+#endif /* USE_MOUSE */
 	}
-	else /* Should not happen, but just in case */
+	else /* in "persist" mode */ {
+		/* declare the iterator */
+		std::vector<wxt_window_t>::iterator wxt_iter;
+
+		for(wxt_iter = wxt_window_list.begin();
+				wxt_iter != wxt_window_list.end(); wxt_iter++)
+		{
+			if (this == wxt_iter->frame) {
+				wxt_window_list.erase(wxt_iter);
+				break;
+			}
+		}
 		this->Destroy();
+	}
 }
 
 /* when the window is resized,
@@ -479,6 +536,16 @@ void wxtFrame::OnSize( wxSizeEvent& event )
 	 * So we must check for the panel to be properly initialized before.*/
 	if (panel)
 		panel->SetSize( this->GetClientSize() );
+}
+
+/* wrapper for AddPendingEvent or ProcessEvent */
+void wxtFrame::SendEvent( wxEvent &event)
+{
+#ifdef WXT_MULTITHREADED
+	AddPendingEvent(event);
+#else /* !WXT_MULTITHREADED */
+	ProcessEvent(event);
+#endif /* !WXT_MULTITHREADED */
 }
 
 /* ---------------------------------------------------------------------------
@@ -495,6 +562,7 @@ wxtPanel::wxtPanel( wxWindow *parent, wxWindowID id, const wxSize& size )
 	/* initialisations */
 	gp_cairo_initialize_plot(&plot);
 	GetSize(&(plot.device_xmax),&(plot.device_ymax));
+	plot.polygons_saturate = TRUE;
 
 	settings_queued = false;
 
@@ -589,10 +657,8 @@ void wxtPanel::ClearCommandlist()
 			delete[] iter->string;
 		if (iter->command == command_filled_polygon)
 			delete[] iter->corners;
-#ifdef WITH_IMAGE
 		if (iter->command == command_image)
-			delete[] iter->image;
-#endif /* WITH_IMAGE */
+			free(iter->image);
 	}
 
 	command_list.clear();
@@ -721,7 +787,6 @@ void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 		dc.SetLogicalFunction( wxCOPY );
 	}
 #endif /*USE_MOUSE*/
-
 }
 
 /* avoid flickering under win32 */
@@ -776,11 +841,10 @@ void wxtPanel::OnMotion( wxMouseEvent& event )
 		Draw();
 
 	/* informs gnuplot */
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_motion,
-			(int)gnuplot_x( &plot, mouse_x ),
-			(int)gnuplot_y( &plot, mouse_y ),
-			0, 0, this->GetId());
+	wxt_exec_event(GE_motion,
+		(int)gnuplot_x( &plot, mouse_x ),
+		(int)gnuplot_y( &plot, mouse_y ),
+		0, 0, this->GetId());
 }
 
 /* mouse "click" event */
@@ -792,8 +856,7 @@ void wxtPanel::OnLeftDown( wxMouseEvent& event )
 
 	UpdateModifiers(event);
 
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_buttonpress, x, y, 1, 0, this->GetId());
+	wxt_exec_event(GE_buttonpress, x, y, 1, 0, this->GetId());
 }
 
 /* mouse "click" event */
@@ -805,8 +868,8 @@ void wxtPanel::OnLeftUp( wxMouseEvent& event )
 
 	UpdateModifiers(event);
 
-	if ( this->GetId()==wxt_window_number ) {
-		wxt_exec_event(GE_buttonrelease, x, y, 1, (int) left_button_sw.Time(), this->GetId());
+	if ( wxt_exec_event(GE_buttonrelease, x, y, 1,
+				(int) left_button_sw.Time(), this->GetId()) ) {
 		/* start a watch to send the time elapsed between up and down */
 		left_button_sw.Start();
 	}
@@ -821,8 +884,7 @@ void wxtPanel::OnMiddleDown( wxMouseEvent& event )
 
 	UpdateModifiers(event);
 
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_buttonpress, x, y, 2, 0, this->GetId());
+	wxt_exec_event(GE_buttonpress, x, y, 2, 0, this->GetId());
 }
 
 /* mouse "click" event */
@@ -834,9 +896,8 @@ void wxtPanel::OnMiddleUp( wxMouseEvent& event )
 
 	UpdateModifiers(event);
 
-	if ( this->GetId()==wxt_window_number ) {
-		wxt_exec_event(GE_buttonrelease, x, y, 2,
-			(int) middle_button_sw.Time(), this->GetId());
+	if ( wxt_exec_event(GE_buttonrelease, x, y, 2,
+				(int) middle_button_sw.Time(), this->GetId()) ) {
 		/* start a watch to send the time elapsed between up and down */
 		middle_button_sw.Start();
 	}
@@ -851,8 +912,7 @@ void wxtPanel::OnRightDown( wxMouseEvent& event )
 
 	UpdateModifiers(event);
 
-	if ( this->GetId()==wxt_window_number )
-		wxt_exec_event(GE_buttonpress, x, y, 3, 0, this->GetId());
+	wxt_exec_event(GE_buttonpress, x, y, 3, 0, this->GetId());
 }
 
 /* mouse "click" event */
@@ -864,8 +924,8 @@ void wxtPanel::OnRightUp( wxMouseEvent& event )
 
 	UpdateModifiers(event);
 
-	if ( this->GetId()==wxt_window_number ) {
-		wxt_exec_event(GE_buttonrelease, x, y, 3, (int) right_button_sw.Time(), this->GetId());
+	if ( wxt_exec_event(GE_buttonrelease, x, y, 3,
+				(int) right_button_sw.Time(), this->GetId()) ) {
 		/* start a watch to send the time elapsed between up and down */
 		right_button_sw.Start();
 	}
@@ -918,6 +978,8 @@ void wxtPanel::OnKeyDownChar( wxKeyEvent &event )
 
 	if (keycode<256) {
 		switch (keycode) {
+
+#ifndef DISABLE_SPACE_RAISES_CONSOLE
 		case WXK_SPACE :
 			if ((wxt_ctrl==yes && event.ControlDown())
 				|| wxt_ctrl!=yes) {
@@ -927,6 +989,8 @@ void wxtPanel::OnKeyDownChar( wxKeyEvent &event )
 				gp_keycode = ' ';
 				break;
 			}
+#endif /* DISABLE_SPACE_RAISES_CONSOLE */
+
 		case 'q' :
 		/* ctrl+q does not send 113 but 17 */
 		/* WARNING : may be the same for other combinations */
@@ -1014,10 +1078,10 @@ void wxtPanel::OnKeyDownChar( wxKeyEvent &event )
 	}
 
 	/* only send char events to gnuplot if we are the active window */
-	if ( this->GetId()==wxt_window_number ) {
+	if ( wxt_exec_event(GE_keypress, (int) gnuplot_x( &plot, mouse_x ),
+				(int) gnuplot_y( &plot, mouse_y ),
+				gp_keycode, 0, this->GetId()) ) {
 		FPRINTF((stderr,"sending char event\n"));
-		wxt_exec_event(GE_keypress, (int) gnuplot_x( &plot, mouse_x ),
-			(int) gnuplot_y( &plot, mouse_y ), gp_keycode, 0, this->GetId());
 	}
 
 	/* The following wxWidgets keycodes are not mapped :
@@ -1036,6 +1100,7 @@ void wxtPanel::OnKeyDownChar( wxKeyEvent &event )
 }
 #endif /*USE_MOUSE*/
 
+#ifndef DISABLE_SPACE_RAISES_CONSOLE
 /* ====license information====
  * The following code originates from other gnuplot files,
  * and is not subject to the alternative license statement.
@@ -1143,6 +1208,7 @@ void wxtPanel::RaiseConsoleWindow()
 /* ====license information====
  * End of the non-relicensable portion.
  */
+#endif /* DISABLE_SPACE_RAISES_CONSOLE */
 
 
 /* ------------------------------------------------------
@@ -1223,7 +1289,7 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	: wxDialog(parent, -1, wxT("Terminal configuration"), wxDefaultPosition, wxDefaultSize,
                    wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
 {
-/* 	wxStaticBox *sb = new wxStaticBox( this, wxID_ANY, _T("&Explanation"),
+/* 	wxStaticBox *sb = new wxStaticBox( this, wxID_ANY, wxT("&Explanation"),
 		wxDefaultPosition, wxDefaultSize );
 	wxStaticBoxSizer *wrapping_sizer = new wxStaticBoxSizer( sb, wxVERTICAL );
 	wxStaticText *text1 = new wxStaticText(this, wxID_ANY,
@@ -1240,13 +1306,13 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	pConfig->Read(wxT("hinting"),&hinting_setting);
 
 	wxCheckBox *check1 = new wxCheckBox (this, wxID_ANY,
-		_T("Put the window at the top of your desktop after each plot (raise)"),
+		wxT("Put the window at the top of your desktop after each plot (raise)"),
 		wxDefaultPosition, wxDefaultSize, 0, wxGenericValidator(&raise_setting));
 	wxCheckBox *check2 = new wxCheckBox (this, wxID_ANY,
-		_T("Don't quit until all windows are closed (persist)"),
+		wxT("Don't quit until all windows are closed (persist)"),
 		wxDefaultPosition, wxDefaultSize, 0, wxGenericValidator(&persist_setting));
 	wxCheckBox *check3 = new wxCheckBox (this, wxID_ANY,
-		_T("Replace 'q' by <ctrl>+'q' and <space> by <ctrl>+<space> (ctrl)"),
+		wxT("Replace 'q' by <ctrl>+'q' and <space> by <ctrl>+<space> (ctrl)"),
 		wxDefaultPosition, wxDefaultSize, 0, wxGenericValidator(&ctrl_setting));
 
 	wxString choices[3];
@@ -1255,7 +1321,7 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	choices[2] = wxT("Antialiasing and oversampling");
 
 	wxStaticBox *sb2 = new wxStaticBox( this, wxID_ANY,
-		_T("Rendering options (applied to the next plot)"),
+		wxT("Rendering options (applied to the next plot)"),
 		wxDefaultPosition, wxDefaultSize );
 	wxStaticBoxSizer *box_sizer2 = new wxStaticBoxSizer( sb2, wxVERTICAL );
 
@@ -1337,6 +1403,7 @@ void wxt_init()
 
 #ifdef __WXMSW__
 		/* the following is done in wxEntry() with wxMSW only */
+		WXDLLIMPEXP_BASE void wxSetInstance(HINSTANCE hInst);
 		wxSetInstance(GetModuleHandle(NULL));
 		wxApp::m_nCmdShow = SW_SHOW;
 #endif
@@ -1350,7 +1417,8 @@ void wxt_init()
 		/* app initialization */
 		wxTheApp->CallOnInit();
 
-#if defined(__WXGTK__)||defined(__WXMAC__)
+
+#ifdef WXT_MULTITHREADED
 		/* Three commands to create the thread and run it.
 		 * We do this at first init only.
 		 * If the user sets another terminal and goes back to wxt,
@@ -1358,24 +1426,21 @@ void wxt_init()
 		thread = new wxtThread();
 		thread->Create();
 		thread->Run();
-#elif defined (__WXMSW__)
-/* nothing to do */
-#else
-# error "Not implemented."
-#endif /*__WXMSW__*/
 
+# ifdef USE_MOUSE
+		int filedes[2];
+		char buf;
 
-#ifdef USE_MOUSE
-		/* initialize the gnuplot<->terminal event system state */
-		wxt_change_thread_state(RUNNING);
-#endif /*USE_MOUSE*/
+	       if (pipe(filedes) == -1) {
+			fprintf(stderr, "Pipe error, mousing will not work\n");
+		}
+
+		wxt_event_fd = filedes[0];
+		wxt_sendevent_fd = filedes[1];
+# endif /* USE_MOUSE */
+#endif /* WXT_MULTITHREADED */
 
  		FPRINTF((stderr,"First Init2\n"));
-#ifdef HAVE_LOCALE_H
-		/* when wxGTK is initialised, GTK+ also sets the locale of the program itself;
-		 * we must revert it */
-		setlocale(LC_NUMERIC, "C");
-#endif /*have_locale_h*/
 
 		/* register call for "persist" effect and cleanup */
 		GP_ATEXIT(wxt_atexit);
@@ -1390,30 +1455,35 @@ void wxt_init()
 	if ( wxt_current_window == NULL ) {
 		FPRINTF((stderr,"opening a new plot window\n"));
 
-		wxt_MutexGuiEnter();
+		/* create a new plot window and show it */
 		wxt_window_t window;
 		window.id = wxt_window_number;
-		/* create a new plot window and show it */
-		wxString title;
 		if (strlen(wxt_title))
 			/* NOTE : this assumes that the title is encoded in the locale charset.
 			 * This is probably a good assumption, but it is not guaranteed !
 			 * May be improved by using gnuplot encoding setting. */
-			title << wxString(wxt_title, wxConvLocal);
+			window.title << wxString(wxt_title, wxConvLocal);
 		else
-			title.Printf(wxT("Gnuplot (window id : %d)"), window.id);
-		window.frame = new wxtFrame( title, window.id, 50, 50, 640, 480 );
-		window.frame->Show(true);
-		FPRINTF((stderr,"new plot window opened\n"));
-		/* make the panel able to receive keyboard input */
-		window.frame->panel->SetFocus();
-		/* set the default crosshair cursor */
-		window.frame->panel->SetCursor(wxt_cursor_cross);
-		/* creating the true context (at initialization, it may be a fake one).
-		 * Note : the frame must be shown for this to succeed */
-		if (!window.frame->panel->plot.success)
-			window.frame->panel->wxt_cairo_create_context();
+			window.title.Printf(wxT("Gnuplot (window id : %d)"), window.id);
+
+		window.mutex = new wxMutex();
+		window.condition = new wxCondition(*(window.mutex));
+
+		wxCommandEvent event(wxCreateWindowEvent);
+		event.SetClientData((void*) &window);
+
+#ifdef WXT_MULTITHREADED
+		window.mutex->Lock();
+#endif /* WXT_MULTITHREADED */
+		wxt_MutexGuiEnter();
+		dynamic_cast<wxtApp*>(wxTheApp)->SendEvent( event );
 		wxt_MutexGuiLeave();
+#ifdef WXT_MULTITHREADED
+		/* While we are waiting, the other thread is busy mangling  */
+		/* our locale settings. We will have to restore them later. */
+		window.condition->Wait();
+#endif /* WXT_MULTITHREADED */
+
 		/* store the plot structure in the list and keep shortcuts */
 		wxt_window_list.push_back(window);
 		wxt_current_window = &(wxt_window_list.back());
@@ -1427,7 +1497,7 @@ void wxt_init()
 	wxt_sigint_check();
 
 	bool raise_setting;
-       bool persist_setting;
+	bool persist_setting;
 	bool ctrl_setting;
 	int rendering_setting;
 	int hinting_setting;
@@ -1479,6 +1549,16 @@ void wxt_init()
 	}
 	wxt_current_plot->hinting = hinting_setting;
 
+#ifdef HAVE_LOCALE_H
+	/* when wxGTK was initialised above, GTK+ also set the locale of the 
+	 * program itself;  we must revert it */
+	if (wxt_status == STATUS_UNINITIALIZED) {
+		extern char *current_locale;
+		setlocale(LC_NUMERIC, "C");
+		setlocale(LC_TIME, current_locale);
+	}
+#endif
+
 	/* accept the following commands from gnuplot */
 	wxt_status = STATUS_OK;
 	wxt_current_plot->interrupt = FALSE;
@@ -1510,6 +1590,10 @@ void wxt_graphics()
 	wxt_current_plot->xscale = 1.0;
 	wxt_current_plot->yscale = 1.0;
 
+	/* set the line properties */
+	/* FIXME: should this be in wxt_settings_apply() ? */
+	wxt_current_plot->rounded = wxt_rounded;
+
 	/* apply the queued rendering settings */
 	wxt_current_panel->wxt_settings_apply();
 
@@ -1531,8 +1615,11 @@ void wxt_graphics()
 
 	wxt_MutexGuiLeave();
 
-	/* set font details (hchar, vchar, h_tic, v_tic) according to settings */
+	/* set font details (h_char, v_char) according to settings */
 	wxt_set_font("");
+
+	term->v_tic = (unsigned int) (term->v_char/2.5);
+	term->h_tic = (unsigned int) (term->v_char/2.5);
 
 	/* clear the command list, and free the allocated memory */
 	wxt_current_panel->ClearCommandlist();
@@ -1555,6 +1642,14 @@ void wxt_text()
 #endif
 		return;
 	}
+
+#ifdef USE_MOUSE
+	/* Save a snapshot of the axis state so that we can continue
+	 * to update mouse cursor coordinates even though the plot is not active */
+	wxt_current_window->axis_mask = wxt_axis_mask;
+	memcpy( wxt_current_window->axis_state, 
+	 	wxt_axis_state, sizeof(wxt_axis_state) );
+#endif
 
 	wxt_sigint_init();
 
@@ -1600,14 +1695,7 @@ void wxt_reset()
 		 * but not process it. */
 		FPRINTF((stderr,"send reset event to the mouse system\n"));
 		event_reset((gp_event_t *)1);   /* cancel zoombox etc. */
-
-		/* clear the event list */
-		wxt_clear_event_list();
 	}
-
-	/* stop sending mouse events */
-	FPRINTF((stderr,"change thread state\n"));
-	wxt_change_thread_state(RUNNING);
 #endif /*USE_MOUSE*/
 
 	FPRINTF((stderr,"wxt_reset ends\n"));
@@ -1641,6 +1729,46 @@ void wxt_vector(unsigned int x, unsigned int y)
 	wxt_command_push(temp_command);
 }
 
+void wxt_enhanced_flush()
+{
+	if (wxt_status != STATUS_OK)
+		return;
+
+	gp_command temp_command;
+	temp_command.command = command_enhanced_flush;
+
+	wxt_command_push(temp_command);
+}
+
+void wxt_enhanced_writec(int c)
+{
+	if (wxt_status != STATUS_OK)
+		return;
+
+	gp_command temp_command;
+	temp_command.command = command_enhanced_writec;
+	temp_command.integer_value = c;
+
+	wxt_command_push(temp_command);
+}
+
+void wxt_enhanced_open(char* fontname, double fontsize, double base, TBOOLEAN widthflag, TBOOLEAN showflag, int overprint)
+{
+	if (wxt_status != STATUS_OK)
+		return;
+
+	gp_command temp_command;
+	temp_command.command = command_enhanced_open;
+	temp_command.string = new char[strlen(fontname)+1];
+	strcpy(temp_command.string, fontname);
+	temp_command.double_value = fontsize;
+	temp_command.double_value2 = base;
+	temp_command.integer_value = overprint;
+	temp_command.integer_value2 = widthflag + (showflag << 1);
+
+	wxt_command_push(temp_command);
+}
+
 void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 {
 	if (wxt_status != STATUS_OK)
@@ -1648,14 +1776,51 @@ void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 
 	gp_command temp_command;
 
-	/* note : this test must be here, not when processing the command list,
-	 * because the user may have toggled the terminal option between two window resizing.*/
 	/* if ignore_enhanced_text is set, draw with the normal routine.
 	 * This is meant to avoid enhanced syntax when the enhanced mode is on */
-	if (wxt_enhanced_enabled && !ignore_enhanced_text)
-		temp_command.command = command_enhanced_put_text;
-	else
-		temp_command.command = command_put_text;
+	if (wxt_enhanced_enabled && !ignore_enhanced_text) {
+		/* Uses enhanced_recursion() to analyse the string to print.
+		 * enhanced_recursion() calls _enhanced_open() to initialize the text drawing,
+		 * then it calls _enhanced_writec() which buffers the characters to draw,
+		 * and finally _enhanced_flush() to draw the buffer with the correct justification. */
+
+		/* init */
+		temp_command.command = command_enhanced_init;
+		temp_command.integer_value = strlen(string);
+		wxt_command_push(temp_command);
+
+		/* set up the global variables needed by enhanced_recursion() */
+		enhanced_fontscale = 1.0;
+		strncpy(enhanced_escape_format, "%c", sizeof(enhanced_escape_format));
+
+		/* Set the recursion going. We say to keep going until a
+		* closing brace, but we don't really expect to find one.
+		* If the return value is not the nul-terminator of the
+		* string, that can only mean that we did find an unmatched
+		* closing brace in the string. We inplot->crement past it (else
+		* we get stuck in an infinite loop) and try again. */
+
+		while (*(string = enhanced_recursion((char*)string, TRUE, wxt_current_plot->fontname,
+				wxt_current_plot->fontsize, 0.0, TRUE, TRUE, 0))) {
+			wxt_enhanced_flush();
+
+			/* we can only get here if *str == '}' */
+			enh_err_check(string);
+
+			if (!*++string)
+				break; /* end of string */
+			/* else carry on and process the rest of the string */
+		}
+
+		/* finish */
+		temp_command.command = command_enhanced_finish;
+		temp_command.x1 = x;
+		temp_command.y1 = term->ymax - y;
+		wxt_command_push(temp_command);
+		return;
+	}
+
+	temp_command.command = command_put_text;
 
 	temp_command.x1 = x;
 	temp_command.y1 = term->ymax - y;
@@ -1679,7 +1844,7 @@ void wxt_linetype(int lt)
 
 	temp_command2.command = command_linestyle;
 	if (lt == -1)
-		temp_command2.integer_value = GP_CAIRO_DASH;
+		temp_command2.integer_value = GP_CAIRO_DOTS;
 	else
 		temp_command2.integer_value = GP_CAIRO_SOLID;
 
@@ -1737,7 +1902,8 @@ int wxt_set_font (const char *font)
 	/* Reset the term variables (hchar, vchar, h_tic, v_tic).
 	 * They may be taken into account in next plot commands */
 	gp_cairo_set_font(wxt_current_plot, fontname, fontsize);
-	gp_cairo_set_termvar(wxt_current_plot);
+	gp_cairo_set_termvar(wxt_current_plot, &(term->v_char),
+	                                       &(term->h_char));
 	wxt_MutexGuiLeave();
 	wxt_sigint_check();
 	wxt_sigint_restore();
@@ -1857,8 +2023,7 @@ void wxt_set_color(t_colorspec *colorspec)
 	gp_command temp_command;
 
 	if (colorspec->type == TC_LT) {
-		wxt_linetype(colorspec->lt);
-		return;
+		rgb1 = gp_cairo_linetype2color(colorspec->lt);
 	} else if (colorspec->type == TC_FRAC)
 		rgb1maxcolors_from_gray( colorspec->value, &rgb1 );
 	else if (colorspec->type == TC_RGB) {
@@ -1896,8 +2061,7 @@ void wxt_filled_polygon(int n, gpiPoint *corners)
 	wxt_command_push(temp_command);
 }
 
-#ifdef WITH_IMAGE
-void wxt_image(unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_imagecolor color_mode)
+void wxt_image(unsigned int M, unsigned int N, coordval * image, gpiPoint * corner, t_imagecolor color_mode)
 {
 	/* This routine is to plot a pixel-based image on the display device.
 	'M' is the number of pixels along the y-dimension of the image and
@@ -1934,7 +2098,6 @@ void wxt_image(unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_im
 	if (wxt_status != STATUS_OK)
 		return;
 
-	int imax;
 	gp_command temp_command;
 
 	temp_command.command = command_image;
@@ -1948,19 +2111,11 @@ void wxt_image(unsigned M, unsigned N, coordval * image, gpiPoint * corner, t_im
 	temp_command.y4 = term->ymax - corner[3].y;
 	temp_command.integer_value = M;
 	temp_command.integer_value2 = N;
-	temp_command.color_mode = color_mode;	
 
-	if (color_mode == IC_RGB)
-		imax = 3*M*N;
-	else
-		imax = M*N;
-
-	temp_command.image = new coordval[imax];
-	memcpy(temp_command.image, image, imax*sizeof(coordval));
+	temp_command.image = gp_cairo_helper_coordval_to_chars(image, M, N, color_mode);
 
 	wxt_command_push(temp_command);
 }
-#endif /*WITH_IMAGE*/
 
 #ifdef USE_MOUSE
 /* Display temporary text, after
@@ -1977,7 +2132,11 @@ void wxt_put_tmptext(int n, const char str[])
 
 	switch ( n ) {
 	case 0:
-		wxt_current_window->frame->SetStatusText( wxString(str, wxConvLocal) );
+		{
+			wxCommandEvent event(wxStatusTextEvent);
+			event.SetString(wxString(str, wxConvLocal));
+			wxt_current_window->frame->SendEvent( event );
+		}
 		break;
 	case 1:
 		wxt_current_panel->zoom_x1 = wxt_current_panel->mouse_x;
@@ -2127,7 +2286,7 @@ void wxt_command_push(gp_command command)
 void wxtPanel::wxt_cairo_refresh()
 {
 	/* Clear background. */
-	gp_cairo_clear(&plot);
+	gp_cairo_solid_background(&plot);
 
 	command_list_t::iterator wxt_iter; /*declare the iterator*/
 	for(wxt_iter = command_list.begin(); wxt_iter != command_list.end(); ++wxt_iter) {
@@ -2268,8 +2427,20 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 	case command_put_text :
 		gp_cairo_draw_text(&plot, command.x1, command.y1, command.string);
 		return;
-	case command_enhanced_put_text :
-		gp_cairo_draw_enhanced_text(&plot, command.x1, command.y1, command.string);
+	case command_enhanced_init :
+		gp_cairo_enhanced_init(&plot, command.integer_value);
+		return;
+	case command_enhanced_finish :
+		gp_cairo_enhanced_finish(&plot, command.x1, command.y1);
+		return;
+	case command_enhanced_flush :
+		gp_cairo_enhanced_flush(&plot);
+		return;
+	case command_enhanced_open :
+		gp_cairo_enhanced_open(&plot, command.string, command.double_value, command.double_value2, command.integer_value2 & 1, (command.integer_value2 & 2) >> 1, command.integer_value);
+		return;
+	case command_enhanced_writec :
+		gp_cairo_enhanced_writec(&plot, command.integer_value);
 		return;
 	case command_set_font :
 		gp_cairo_set_font(&plot, command.string, command.integer_value);
@@ -2285,17 +2456,14 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 					command.x2, command.y2,
 					command.integer_value);
 		return;
-#ifdef WITH_IMAGE
 	case command_image :
 		gp_cairo_draw_image(&plot, command.image,
 				command.x1, command.y1,
 				command.x2, command.y2,
 				command.x3, command.y3,
 				command.x4, command.y4,
-				command.integer_value, command.integer_value2,
-				command.color_mode);
+				command.integer_value, command.integer_value2);
 		return;
-#endif /*WITH_IMAGE*/
 	}
 }
 
@@ -2444,17 +2612,81 @@ void wxt_close_terminal_window(int number)
 	if (wxt_status != STATUS_OK)
 		return;
 
-	wxt_sigint_init();
-
-	wxt_MutexGuiEnter();
 	if ((window = wxt_findwindowbyid(number))) {
 		FPRINTF((stderr,"wxt : close window %d\n",number));
-		window->frame->Close(false);
-	}
-	wxt_MutexGuiLeave();
 
-	wxt_sigint_check();
-	wxt_sigint_restore();
+		wxCloseEvent event(wxEVT_CLOSE_WINDOW, window->id);
+		event.SetCanVeto(true);
+
+		wxt_sigint_init();
+		wxt_MutexGuiEnter();
+
+		window->frame->SendEvent(event);
+
+		wxt_MutexGuiLeave();
+		wxt_sigint_check();
+		wxt_sigint_restore();
+	}
+}
+
+
+/* The following two routines allow us to update the cursor position 
+ * in the specified window even if the window is not active
+ */
+
+static double mouse_to_axis(int mouse_coord, wxt_axis_state_t *axis)
+{
+    double axis_coord;
+
+	if (axis->term_scale == 0.0)
+	    return 0;
+	axis_coord = axis->min 
+	           + ((double)mouse_coord - axis->term_lower) / axis->term_scale;
+	if (axis->logbase > 0)
+		axis_coord = exp(axis_coord * axis->logbase);
+
+    return axis_coord;
+}
+
+static void wxt_update_mousecoords_in_window(int number, int mx, int my)
+{
+	wxt_window_t *window;
+
+	if (wxt_status != STATUS_OK)
+		return;
+
+	if ((window = wxt_findwindowbyid(number))) {
+		
+		/* TODO: rescale mx and my using stored per-plot scale info */
+		char mouse_format[66];
+		char *m = mouse_format;
+		double x, y, x2, y2;
+
+		if (window->axis_mask & (1<<0)) {
+			x = mouse_to_axis(mx, &window->axis_state[0]);
+			sprintf(m, "x=  %10g   %c", x, '\0');
+			m += 17;
+		}
+		if (window->axis_mask & (1<<1)) {
+			y = mouse_to_axis(my, &window->axis_state[1]);
+			sprintf(m, "y=  %10g   %c", y, '\0');
+			m += 17;
+		}
+		if (window->axis_mask & (1<<2)) {
+			x2 = mouse_to_axis(mx, &window->axis_state[2]);
+			sprintf(m, "x2=  %10g   %c", x2, '\0');
+			m += 17;
+		}
+		if (window->axis_mask & (1<<3)) {
+			y2 = mouse_to_axis(my, &window->axis_state[3]);
+			sprintf(m, "y2=  %10g %c", y2, '\0');
+			m += 15;
+		}
+
+		FPRINTF((stderr,"wxt : update mouse coords in window %d\n",number));
+		window->frame->SetStatusText(wxString(mouse_format, wxConvLocal));
+	}
+
 }
 
 /* update the window title */
@@ -2481,6 +2713,29 @@ void wxt_update_title(int number)
 			title.Printf(wxT("Gnuplot (window id : %d)"), window->id);
 
 		window->frame->SetTitle(title);
+	}
+
+	wxt_MutexGuiLeave();
+
+	wxt_sigint_check();
+	wxt_sigint_restore();
+}
+
+/* update the size of the plot area, resizes the whole window consequently */
+void wxt_update_size(int number)
+{
+	wxt_window_t *window;
+
+	if (wxt_status != STATUS_OK)
+		return;
+
+	wxt_sigint_init();
+
+	wxt_MutexGuiEnter();
+
+	if ((window = wxt_findwindowbyid(number))) {
+		FPRINTF((stderr,"wxt : update size of window %d\n",number));
+		window->frame->SetClientSize( wxSize(wxt_width, wxt_height) );
 	}
 
 	wxt_MutexGuiLeave();
@@ -2698,43 +2953,60 @@ void wxtPanel::wxt_cairo_free_platform_context()
 #endif
 
 #ifdef USE_MOUSE
-/* protected check for the state of the event list */
-bool wxt_check_eventlist_empty()
+/* process one event, returns true if it ends the pause */
+bool wxt_process_one_event(struct gp_event_t *event)
 {
-	bool result;
-	mutexProtectingEventList.Lock();
-	result = EventList.empty();
-	mutexProtectingEventList.Unlock();
-	return result;
-}
-
-/* protected check for the state of the main thread (running or waiting for input) */
-wxt_thread_state_t wxt_check_thread_state()
-{
-	wxt_thread_state_t result;
-	mutexProtectingThreadState.Lock();
-	result = wxt_thread_state;
-	mutexProtectingThreadState.Unlock();
-	return result;
-}
-
-/* multithread safe method to change thread state */
-void wxt_change_thread_state(wxt_thread_state_t state)
-{
-	wxt_sigint_init();
-	mutexProtectingThreadState.Lock();
-	wxt_thread_state = state;
-	mutexProtectingThreadState.Unlock();
-	wxt_sigint_check();
-	wxt_sigint_restore();
+	FPRINTF2((stderr,"Processing event\n"));
+	do_event( event );
+	FPRINTF2((stderr,"Event processed\n"));
+	if (event->type == GE_buttonrelease && (paused_for_mouse & PAUSE_CLICK)) {
+		int button = event->par1;
+		if (button == 1 && (paused_for_mouse & PAUSE_BUTTON1))
+			paused_for_mouse = 0;
+		if (button == 2 && (paused_for_mouse & PAUSE_BUTTON2))
+			paused_for_mouse = 0;
+		if (button == 3 && (paused_for_mouse & PAUSE_BUTTON3))
+			paused_for_mouse = 0;
+		if (paused_for_mouse == 0)
+			return true;
+	}
+	if (event->type == GE_keypress && (paused_for_mouse & PAUSE_KEYSTROKE)) {
+		/* Ignore NULL keycode */
+		if (event->par1 > '\0') {
+			paused_for_mouse = 0;
+			return true;
+		}
+	}
+	return false;
 }
 
 /* Similar to gp_exec_event(),
  * put the event sent by the terminal in a list,
- * to be processed by the main thread. */
-void wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id)
+ * to be processed by the main thread.
+ * returns true if the event has really been processed.
+ */
+bool wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id)
 {
 	struct gp_event_t event;
+
+	/* Allow a distinction between keys attached to "bind" or "bind all" */
+	if ( id != wxt_window_number ) {
+
+	    if (type == GE_motion) {
+		/* Update mouse coordinates locally and echo back to originating window */
+		wxt_update_mousecoords_in_window(id, mx, my);
+		return true;
+	    }
+
+	    if (type == GE_keypress)
+		type = GE_keypress_old;
+	    if (type == GE_buttonpress)
+		type = GE_buttonpress_old;
+	    if (type == GE_buttonrelease)
+		type = GE_buttonrelease_old;
+	    else	/* Other special cases? */
+		return false;
+	}
 
 	event.type = type;
 	event.mx = mx;
@@ -2744,94 +3016,32 @@ void wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id)
 	event.winid = id;
 
 #ifdef _Windows
-	FPRINTF2((stderr,"Processing event\n"));
-	do_event( &event );
-	FPRINTF2((stderr,"Event processed\n"));
-	if (event.type == GE_buttonrelease && (paused_for_mouse & PAUSE_CLICK)) {
-		int button = event.par1;
-		if (button == 1 && (paused_for_mouse & PAUSE_BUTTON1))
-			paused_for_mouse = 0;
-		if (button == 2 && (paused_for_mouse & PAUSE_BUTTON2))
-			paused_for_mouse = 0;
-		if (button == 3 && (paused_for_mouse & PAUSE_BUTTON3))
-			paused_for_mouse = 0;
-	}
-	if (event.type == GE_keypress && (paused_for_mouse & PAUSE_KEYSTROKE)) {
-		/* Ignore NULL keycode */
-		if (event.par1 > '\0')
-			paused_for_mouse = 0;
-	}
+	wxt_process_one_event(&event);
+	return true;
 #else
-	/* add the event to the event list */
-	if (wxt_check_thread_state() == WAITING_FOR_STDIN)
+	if (!wxt_handling_persist)
 	{
-		FPRINTF2((stderr,"Gui thread adds an event to the list\n"));
-		mutexProtectingEventList.Lock();
-		EventList.push_back(event);
-		mutexProtectingEventList.Unlock();
+		if (wxt_sendevent_fd<0) {
+			FPRINTF((stderr,"not sending event, wxt_sendevent_fd error\n"));
+			return false;
+		}
+
+		if (write(wxt_sendevent_fd, (char*) &event, sizeof(event))<0) {
+			wxt_sendevent_fd = -1;
+			fprintf(stderr,"not sending event, write error on wxt_sendevent_fd\n");
+			return false;
+		}
 	}
+	else
+	{
+		wxt_process_one_event(&event);
+	}
+
+	return true;
 #endif /* ! _Windows */
 }
 
-
-/* clear the event list, caring for the mutex */
-void wxt_clear_event_list()
-{
-	mutexProtectingEventList.Lock();
-	EventList.clear();
-	mutexProtectingEventList.Unlock();
-}
-
-
-/* wxt_process_events will process the contents of the event list
- * until it is empty.
- * It will return 1 if one event ends the pause */
-int wxt_process_events()
-{
-	struct gp_event_t wxt_event;
-	int button;
-
-	while ( !wxt_check_eventlist_empty() ) {
-		FPRINTF2((stderr,"Processing event\n"));
-		mutexProtectingEventList.Lock();
-		wxt_event = EventList.front();
-		EventList.pop_front();
-		mutexProtectingEventList.Unlock();
-		do_event( &wxt_event );
-		FPRINTF2((stderr,"Event processed\n"));
-		if (wxt_event.type == GE_buttonrelease && (paused_for_mouse & PAUSE_CLICK)) {
-			button = wxt_event.par1;
-			if (button == 1 && (paused_for_mouse & PAUSE_BUTTON1))
-				paused_for_mouse = 0;
-			if (button == 2 && (paused_for_mouse & PAUSE_BUTTON2))
-				paused_for_mouse = 0;
-			if (button == 3 && (paused_for_mouse & PAUSE_BUTTON3))
-				paused_for_mouse = 0;
-			if (paused_for_mouse == 0)
-				return 1;
-		}
-		if (wxt_event.type == GE_keypress && (paused_for_mouse & PAUSE_KEYSTROKE)) {
-			/* Ignore NULL keycode */
-			if (wxt_event.par1 > '\0') {
-				paused_for_mouse = 0;
-				return 1;
-			}
-		}
-	}
-	return 0;
-	
-}
-
-#ifdef __WXMSW__
-/* Implements waitforinput used in wxt.trm
- * the terminal events are directly processed when they are received */
-int wxt_waitforinput()
-{
-	return getch();
-}
-
-#elif defined(__WXGTK__)||defined(__WXMAC__)
-
+#ifdef WXT_MULTITHREADED
 /* Implements waitforinput used in wxt.trm
  * Returns the next input charachter, meanwhile treats terminal events */
 int wxt_waitforinput()
@@ -2846,50 +3056,78 @@ int wxt_waitforinput()
 	if (wxt_status == STATUS_UNINITIALIZED)
 		return getc(stdin);
 
-	int ierr;
-	int fd = fileno(stdin);
-	struct timeval timeout;
-	fd_set fds;
+	if (wxt_event_fd<0) {
+		if (paused_for_mouse)
+			int_error(NO_CARET, "wxt communication error, wxt_event_fd<0");
+		FPRINTF((stderr,"wxt communication error, wxt_event_fd<0\n"));
+		return getc(stdin);
+	}
 
-	wxt_change_thread_state(WAITING_FOR_STDIN);
+	int stdin_fd = fileno(stdin);
+	fd_set read_fds;
 
 	do {
-		if (wxt_process_events()) {
-			wxt_change_thread_state(RUNNING);
-			return '\0';
+		FD_ZERO(&read_fds);
+		FD_SET(wxt_event_fd, &read_fds);
+		if (!paused_for_mouse)
+			FD_SET(stdin_fd, &read_fds);
+
+		int n_changed_fds = select(wxt_event_fd+1, &read_fds,
+					      NULL /* not watching for write-ready */,
+					      NULL /* not watching for exceptions */,
+					      NULL /* no timeout */);
+
+		if (n_changed_fds<0) {
+			if (paused_for_mouse)
+				int_error(NO_CARET, "wxt communication error: select() error");
+			FPRINTF((stderr, "wxt communication error: select() error\n"));
+			break;
 		}
 
-		timeout.tv_sec = 0;
-		timeout.tv_usec = 10000;
-		FD_ZERO(&fds);
-		FD_SET(0/*fd*/,&fds);
-
-		ierr = select(1, &fds, NULL, NULL, &timeout);
-
-		/* check for error on select and return immediately if any */
-		if (ierr<0) {
-			wxt_change_thread_state(RUNNING);
-			return '\0';
-		}
-	} while (!FD_ISSET(fd,&fds));
-
-	/* if we are paused_for_mouse, we should continue to wait for a mouse click */
-	if (paused_for_mouse)
-		while (true) {
-			if (wxt_process_events()) {
-				wxt_change_thread_state(RUNNING);
+		if (FD_ISSET(wxt_event_fd, &read_fds)) {
+			/* terminal event coming */
+			struct gp_event_t wxt_event;
+			int n_bytes_read = read(wxt_event_fd, (void*) &wxt_event, sizeof(wxt_event));
+			if (n_bytes_read < sizeof(wxt_event)) {
+				if (paused_for_mouse)
+					int_error(NO_CARET, "wxt communication error, not enough bytes read");
+				FPRINTF((stderr, "wxt communication error, not enough bytes read\n"));
+				break;
+			}
+			if (wxt_process_one_event(&wxt_event)) {
+				/* exit from paused_for_mouse */
 				return '\0';
 			}
-			/* wait 10 microseconds */
-			wxMicroSleep(10);
 		}
+	} while ( paused_for_mouse
+		   || (!paused_for_mouse && !FD_ISSET(stdin_fd, &read_fds)) );
 
-	wxt_change_thread_state(RUNNING);
 	return getchar();
 }
-#else  /* !__WXMSW__ && !__WXGTK__ && !__WXMAC__*/
-#error "Not implemented"
-#endif
+#else /* WXT_MONOTHREADED */
+/* Implements waitforinput used in wxt.trm
+ * the terminal events are directly processed when they are received */
+int wxt_waitforinput()
+{
+#ifdef _Windows
+	if (paused_for_mouse) {
+		MSG msg;
+		BOOL ret;
+		while ((ret = GetMessage(&msg, NULL, 0, 0)) != 0) {
+			if (ret == -1)
+				break;
+			TranslateMessage(&msg);
+			DispatchMessage(&msg);
+			if (!paused_for_mouse)
+				break;
+		}
+		return '\0';
+	}
+	else
+#endif /* _Windows */
+		return getch();
+}
+#endif /* WXT_MONOTHREADED || WXT_MULTITHREADED */
 
 #endif /*USE_MOUSE*/
 
@@ -2929,6 +3167,30 @@ void wxt_atexit()
 	if (wxt_status == STATUS_UNINITIALIZED)
 		return;
 
+#ifdef WXT_MULTITHREADED
+	/* send a message to exit the main loop */
+	/* protect the following from interrupt */
+	wxt_sigint_init();
+
+	wxCommandEvent event(wxExitLoopEvent);
+	wxt_MutexGuiEnter();
+	dynamic_cast<wxtApp*>(wxTheApp)->SendEvent( event );
+	wxt_MutexGuiLeave();
+
+	/* handle eventual interrupt, and restore original sigint handler */
+	wxt_sigint_check();
+	wxt_sigint_restore();
+
+	FPRINTF((stderr,"gui thread status %d %d %d\n",
+			thread->IsDetached(),
+			thread->IsAlive(),
+			thread->IsRunning() ));
+
+	/* wait for the gui thread to exit */
+	thread->Wait();
+	delete thread;
+#endif /* WXT_MULTITHREADED */
+
 	/* first look for command_line setting */
 	if (wxt_persist==UNSET && persist_cl)
 		wxt_persist = TRUE;
@@ -2943,6 +3205,7 @@ void wxt_atexit()
 
 	/* and let's go ! */
 	if (wxt_persist==UNSET|| wxt_persist==no) {
+		FPRINTF((stderr,"wxt_atexit: no \"persist\" setting, exit\n"));
 		wxt_cleanup();
 		return;
 	}
@@ -2950,7 +3213,7 @@ void wxt_atexit()
 	/* if the user hits ctrl-c and quits again, really quit */
 	wxt_persist = no;
 
-	FPRINTF((stderr,"wxWidgets terminal handles 'persist' setting\n"));
+	FPRINTF((stderr,"wxt_atexit: handling \"persist\" setting\n"));
 
 #ifdef _Windows
 	if (!interactive) {
@@ -2959,10 +3222,10 @@ void wxt_atexit()
 		ShowWindow(textwin.hWndParent, textwin.nCmdShow);
 		while (!com_line());
 	}
-
-	/* cleanup and quit */
-	wxt_cleanup();
 #else /*_Windows*/
+
+	/* process events directly */
+	wxt_handling_persist = true;
 
 	/* if fork() is available, use it so that the initial gnuplot process
 	 * exits (Maxima expects that since that's the way the x11 terminal
@@ -2970,61 +3233,32 @@ void wxt_atexit()
 	/* FIXME: int_error() should be changed here, it causes crashes (for example,
 	 * zoom until an error occurs and then hit a key) */
 # ifdef HAVE_WORKING_FORK
-	/* send a message to exit the main loop */
-	wxCommandEvent event(wxExitLoopEvent);
-	std::vector<wxt_window_t>::iterator wxt_iter; /*declare the iterator*/
-	wxt_iter = wxt_window_list.begin();
-	wxt_iter->frame->GetEventHandler()->AddPendingEvent( event );
-
-	/* wait for the gui thread to exit */
-	thread->Wait();
-	delete thread;
-
 	/* fork */
 	pid_t pid = fork();
 
 	/* the parent just exits, the child keeps going */
 	if (!pid) {
-		/* create a new gui thread and run it */
-		/* have to close the previous main loop for this to succeed */
-		thread = new wxtThread();
-		thread->Create();
-		thread->Run();
-
+		FPRINTF((stderr,"child process: running\n"));
 # endif /* HAVE_WORKING_FORK */
 
-# ifdef USE_MOUSE
-		wxt_change_thread_state(WAITING_FOR_STDIN);
-# endif /*USE_MOUSE*/
+		FPRINTF((stderr,"child process: restarting its event loop\n"));
 
-		/* protect the following from interrupt */
-		wxt_sigint_init();
+		/* (re)start gui loop */
+		wxTheApp->OnRun();
 
-		while (wxt_window_opened()) {
-# ifdef USE_MOUSE
-			if (!strcmp(term->name,"wxt"))
-				wxt_process_events();
-# endif /*USE_MOUSE*/
-			/* wait 10 microseconds and repeat */
-			/* such a polling is bad, putting the thread to sleep
-			 * would be better */
-			wxMicroSleep(10);
-			wxt_sigint_check();
-		}
-
-		wxt_sigint_restore();
-
-# ifdef USE_MOUSE
-		wxt_change_thread_state(RUNNING);
-# endif /*USE_MOUSE*/
-
-		/* cleanup and quit */
-		wxt_cleanup();
-
+		FPRINTF((stderr,"child process: event loop exited\n"));
 # ifdef HAVE_WORKING_FORK
+	}
+	else
+	{
+		FPRINTF((stderr,"parent process: exiting, child process "\
+				  "has PID %d\n", pid));
 	}
 # endif /* HAVE_WORKING_FORK */
 #endif /* !_Windows */
+
+	/* cleanup and quit */
+	wxt_cleanup();
 }
 
 
@@ -3036,7 +3270,7 @@ void wxt_cleanup()
 	if (wxt_status == STATUS_UNINITIALIZED)
 		return;
 
-	FPRINTF((stderr,"cleanup before exit\n"));
+	FPRINTF((stderr,"wxt_cleanup: start\n"));
 
 	/* prevent wxt_reset (for example) from doing anything bad after that */
 	wxt_status = STATUS_UNINITIALIZED;
@@ -3044,23 +3278,10 @@ void wxt_cleanup()
 	/* protect the following from interrupt */
 	wxt_sigint_init();
 
-	/* Close all open terminal windows, this will make OnRun exit, and so will the gui thread */
-	wxt_MutexGuiEnter();
-	for(wxt_iter = wxt_window_list.begin(); wxt_iter != wxt_window_list.end(); wxt_iter++)
-		delete wxt_iter->frame;
-	wxt_MutexGuiLeave();
-
-#if defined(__WXGTK__)||defined(__WXMAC__)
-	FPRINTF((stderr,"waiting for gui thread to exit\n"));
-	FPRINTF((stderr,"gui thread status %d %d %d\n",
-			thread->IsDetached(),
-			thread->IsAlive(),
-			thread->IsRunning() ));
-
-	thread->Wait();
-	delete thread;
-	FPRINTF((stderr,"gui thread exited\n"));
-#endif /* __WXGTK || __WXMAC__*/
+	/* Close all open terminal windows */
+	for(wxt_iter = wxt_window_list.begin();
+			wxt_iter != wxt_window_list.end(); wxt_iter++)
+		wxt_iter->frame->Destroy();
 
 	wxTheApp->OnExit();
 	wxUninitialize();
@@ -3069,7 +3290,7 @@ void wxt_cleanup()
 	wxt_sigint_check();
 	wxt_sigint_restore();
 
-	FPRINTF((stderr,"wxWidgets terminal properly cleaned-up\n"));
+	FPRINTF((stderr,"wxt_cleanup: finished\n"));
 }
 
 /* -------------------------------------
@@ -3079,23 +3300,19 @@ void wxt_cleanup()
 void wxt_MutexGuiEnter()
 {
 	FPRINTF2((stderr,"locking gui mutex\n"));
-#if defined(__WXGTK__)||defined(__WXMAC__)
-	wxMutexGuiEnter();
-#elif defined(__WXMSW__)
-#else
-# error "No implementation"
-#endif
+#ifdef WXT_MULTITHREADED
+	if (!wxt_handling_persist)
+		wxMutexGuiEnter();
+#endif /* WXT_MULTITHREADED */
 }
 
 void wxt_MutexGuiLeave()
 {
 	FPRINTF2((stderr,"unlocking gui mutex\n"));
-#if defined(__WXGTK__)||defined(__WXMAC__)
-	wxMutexGuiLeave();
-#elif defined(__WXMSW__)
-#else
-# error "No implementation"
-#endif
+#ifdef WXT_MULTITHREADED
+	if (!wxt_handling_persist)
+		wxMutexGuiLeave();
+#endif /* WXT_MULTITHREADED */
 }
 
 /* ---------------------------------------------------

@@ -172,15 +172,17 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
 
             An Interactive Plotting Program
              Thomas Williams & Colin Kelley
-          Version 4.2 organized by: Hans-Bernhard Broeker
+                Version 4.4 organized by:
+    Hans-Bernhard Broeker, Ethan A Merritt, and others
 
- Copyright (C) 1986 - 1993, 1998, 2004   Thomas Williams, Colin Kelley
+   Copyright (C) 1986 - 1993, 1998, 2004   Thomas Williams, Colin Kelley
+           Copyright (C) 2004 - 2009  various authors
 
        Mailing list for comments: gnuplot-info@@lists.sourceforge.net
      Mailing list for bug reports: gnuplot-bugs@@lists.sourceforge.net
 
          This manual was originally prepared by Dick Crawford
-                   Version 4.2 - 1 Oct 2006
+                   Version 4.4 - 31 May 2009
 
 
 Major contributors (alphabetic order):
@@ -249,9 +251,9 @@ Major contributors (alphabetic order):
 	"amiga"
 	"apollo"
 	"aquaterm"
-	"atariaes"
-	"atarivdi"
 	"be"
+	"cairo"
+	"canvas"
 	"cgi"
 	"cgm"
 	"corel"
@@ -282,17 +284,16 @@ Major contributors (alphabetic order):
 	"hpljii"
 	"hppj"
 	"imagen"
-	"iris4d"
 	"jpeg"
 	"kyo"
 	"latex"
 	"linux"
+	"lua"
 	"mac"
 	"metafont"
 	"metapost"
 	"mgr"
 	"mif"
-	"multitos"
 	"next"
 	"openstep"
 	"pbm"
@@ -312,6 +313,7 @@ Major contributors (alphabetic order):
 	"tek"
 	"texdraw"
 	"tgif"
+	"tikz"
 	"tkcanvas"
 	"tpic"
 	"unixpc"
@@ -320,6 +322,7 @@ Major contributors (alphabetic order):
 	"vgagl"
 	"vws"
 	"win"
+	"wxt"
 	"x11"
 	"xlib"))
 
@@ -412,9 +415,12 @@ particular conversion chore."
     (if (string-match "amiga" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("amiga"))))
-    (if (string-match "atari" system-configuration)
+    (if (string-match "canvas" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
-					'("atarivdi" "multitos" "atariaes"))))
+					'("canvas"))))
+    (if (string-match "lua" system-configuration)
+	(setq d2t-terminal-list (append d2t-terminal-list
+					'("lua" "tikz"))))
     (if (string-match "mac" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("mac" "openstep"))))
@@ -433,9 +439,6 @@ particular conversion chore."
     (if (string-match "os2" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("pm" "emxvga"))))
-    (if (string-match "irix" system-configuration)
-	(setq d2t-terminal-list (append d2t-terminal-list
-					'("iris4d"))))
     (if (string-match "sco" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("cgi"))))
@@ -445,7 +448,7 @@ particular conversion chore."
     (if (string-match "vms" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("vws"))))
-    (unless (member* system-configuration '("dos" "windows" "atari" "amiga")
+    (unless (member* system-configuration '("pc" "windows" "amiga")
 		     :test 'string-match)
       (setq d2t-terminal-list
 	    (append d2t-terminal-list
@@ -665,11 +668,12 @@ comment out the multi-word ? entries."
 
 (defun d2t-comments ()
   "Delete comments and lines beginning with # or %.
-# and % lines are used in converting tables into various formats."
+# and % lines are used in converting tables into various formats.
+Also ignore F lines denoting figures."
   (and d2t-verbose (message "  Doing d2t-comments ..."))
   (save-excursion
     (while (not (eobp))
-      (re-search-forward "^[C#%]" (point-max) "to_end")
+      (re-search-forward "^[C#%F]" (point-max) "to_end")
       (unless (eobp)
 	(let ((eol  (save-excursion (end-of-line)
 				    (forward-char 1)

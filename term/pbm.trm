@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: pbm.trm,v 1.26.2.1 2006/11/23 05:36:01 sfeam Exp $
+ * $Id: pbm.trm,v 1.29.2.1 2009/08/26 19:16:13 sfeam Exp $
  *
  */
 
@@ -149,6 +149,7 @@ PBM_options()
 	    break;
 	case PBM_MONOCHROME:
 	    pbm_mode = 0;
+	    term->flags |= TERM_MONOCHROME;
 	    c_token++;
 	    break;
 	case PBM_GRAY:
@@ -157,6 +158,7 @@ PBM_options()
 	    break;
 	case PBM_COLOR:
 	    pbm_mode = 2;
+	    term->flags &= ~TERM_MONOCHROME;
 	    c_token++;
 	    break;
 	case PBM_SIZE:
@@ -187,6 +189,11 @@ PBM_options()
 	    break;
 	}
     }
+
+    term->v_tic = (term->xmax < term->ymax) ? term->xmax/100 : term->ymax/100;
+    if (term->v_tic < 1)
+        term->v_tic = 1;
+    term->h_tic = term->v_tic;
 
     /* setup options string */
 
@@ -244,22 +251,16 @@ PBM_setfont()
 	b_charsize(FNT5X9);
 	term->v_char = FNT5X9_VCHAR;
 	term->h_char = FNT5X9_HCHAR;
-	term->v_tic = FNT5X9_HBITS;
-	term->h_tic = FNT5X9_HBITS;
 	break;
     case 2:
 	b_charsize(FNT9X17);
 	term->v_char = FNT9X17_VCHAR;
 	term->h_char = FNT9X17_HCHAR;
-	term->v_tic = FNT9X17_HBITS;
-	term->h_tic = FNT9X17_HBITS;
 	break;
     case 3:
 	b_charsize(FNT13X25);
 	term->v_char = FNT13X25_VCHAR;
 	term->h_char = FNT13X25_HCHAR;
-	term->v_tic = FNT13X25_HBITS;
-	term->h_tic = FNT13X25_HBITS;
 	break;
     }
 }
@@ -489,14 +490,13 @@ START_HELP(pbm)
 "?terminal pbm",
 "?term pbm",
 "?pbm",
-" Several options may be set in the `pbm` terminal---the driver for PBMplus.",
-"",
 " Syntax:",
 "       set terminal pbm {<fontsize>} {<mode>} {size <x>,<y>}",
 "",
 " where <fontsize> is `small`, `medium`, or `large` and <mode> is `monochrome`,",
 " `gray` or `color`.  The default plot size is 640 pixels wide and 480 pixels",
-" high.",
+" high. The output size is white-space padded to the nearest multiple of",
+" 8 pixels on both x and y. This empty space may be cropped later if needed.",
 "",
 " The output of the `pbm` driver depends upon <mode>: `monochrome` produces a",
 " portable bitmap (one bit per pixel), `gray` a portable graymap (three bits",

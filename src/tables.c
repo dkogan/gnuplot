@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tables.c,v 1.71.2.5 2008/06/25 22:47:50 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tables.c,v 1.92.2.1 2009/12/20 03:54:42 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tables.c */
@@ -41,6 +41,8 @@ static char *RCSid() { return RCSid("$Id: tables.c,v 1.71.2.5 2008/06/25 22:47:5
 #include "setshow.h"
 #include "term_api.h"
 #include "util.h"
+#include "alloc.h"	/* for init_colornames() */
+#include "graph3d.h"	/* for DGRID3D_* options */
 # include "getcolor.h"
 
 /* gnuplot commands */
@@ -56,6 +58,7 @@ const struct gen_ftable command_ftbl[] =
     { "ca$ll", call_command },
     { "cd", changedir_command },
     { "cl$ear", clear_command },
+    { "eval$uate", eval_command },
     { "ex$it", exit_command },
     { "f$it", fit_command },
     { "h$elp", help_command },
@@ -69,6 +72,9 @@ const struct gen_ftable command_ftbl[] =
     { "pr$int", print_command },
     { "pwd", pwd_command },
     { "q$uit", exit_command },
+#ifdef VOLATILE_REFRESH
+    { "ref$resh", refresh_command },
+#endif
     { "rep$lot", replot_command },
     { "re$read", reread_command },
     { "res$et", reset_command },
@@ -134,7 +140,22 @@ const struct gen_table plot_smooth_tbl[] =
     { "s$bezier", SMOOTH_SBEZIER },
     { "u$nique", SMOOTH_UNIQUE },
     { "f$requency", SMOOTH_FREQUENCY },
+    { "cum$ulative", SMOOTH_CUMULATIVE },
+    { "k$density", SMOOTH_KDENSITY },
     { NULL, SMOOTH_NONE }
+};
+
+/* dgrid3d modes */
+const struct gen_table dgrid3d_mode_tbl[] =
+{
+    { "qnorm", DGRID3D_QNORM },
+    { "spline$s", DGRID3D_SPLINES },
+    { "gauss", DGRID3D_GAUSS },
+    { "exp", DGRID3D_EXP },
+    { "cauchy", DGRID3D_CAUCHY },
+    { "box", DGRID3D_BOX },
+    { "hann", DGRID3D_HANN },
+    { NULL, DGRID3D_OTHER }
 };
 
 /* 'save' command */
@@ -157,6 +178,7 @@ const struct gen_table set_tbl[] =
     { "ar$row", S_ARROW },
     { "au$toscale", S_AUTOSCALE },
     { "b$ars", S_BARS },
+    { "bind", S_BIND },
     { "bor$der", S_BORDER },
     { "box$width", S_BOXWIDTH },
     { "cl$abel", S_CLABEL },
@@ -247,7 +269,7 @@ const struct gen_table set_tbl[] =
     { "v$ariables", S_VARIABLES },
     { "ve$rsion", S_VERSION },
     { "vi$ew", S_VIEW },
-    { "xyp$lane", S_TICSLEVEL },
+    { "xyp$lane", S_XYPLANE },
 
     { "xda$ta", S_XDATA },
     { "x2da$ta", S_X2DATA },
@@ -337,6 +359,8 @@ const struct gen_table set_hidden3d_tbl[] =
     { "noalt$diagonal", S_HI_NOALTDIAGONAL },
     { "bent$over", S_HI_BENTOVER },
     { "nobent$over", S_HI_NOBENTOVER },
+    { "front", S_HI_FRONT },
+    { "back", S_HI_BACK },
     { NULL, S_HI_INVALID }
 };
 
@@ -381,6 +405,10 @@ const struct gen_table set_key_tbl[] =
     { "a$utotitles", S_KEY_AUTOTITLES },
     { "noa$utotitles", S_KEY_NOAUTOTITLES },
     { "ti$tle", S_KEY_TITLE },
+    { "noti$tle", S_KEY_NOTITLE },
+    { "font", S_KEY_FONT },
+    { "tc", S_KEY_TEXTCOLOR },
+    { "text$color", S_KEY_TEXTCOLOR },
     { NULL, S_KEY_INVALID }
 };
 
@@ -470,106 +498,141 @@ const struct gen_table set_pm3d_tbl[] =
     { NULL, S_PM3D_INVALID }
 };
 
-/* fixed RGB color names for 'set palette defined' */
-const struct gen_table pm3d_color_names_tbl[] =
+/* EAM Nov 2008 - RGB color names for 'set palette defined'
+ * merged with colors from web_color_rgbs used by terminals.
+ */
+struct gen_table default_color_names_tbl[] =
 {
-    /* black, white and gray/grey */
+    /* Put the colors used by gd/pdf/ppm terminals first */
+
     { "white"           , 255*(1<<16) + 255*(1<<8) + 255 },
     { "black"           ,   0*(1<<16) +   0*(1<<8) +   0 },
-    { "gray0"           ,   0*(1<<16) +   0*(1<<8) +   0 },
-    { "grey0"           ,   0*(1<<16) +   0*(1<<8) +   0 },
-    { "gray10"          ,  26*(1<<16) +  26*(1<<8) +  26 },
-    { "grey10"          ,  26*(1<<16) +  26*(1<<8) +  26 },
-    { "gray20"          ,  51*(1<<16) +  51*(1<<8) +  51 },
-    { "grey20"          ,  51*(1<<16) +  51*(1<<8) +  51 },
-    { "gray30"          ,  77*(1<<16) +  77*(1<<8) +  77 },
-    { "grey30"          ,  77*(1<<16) +  77*(1<<8) +  77 },
-    { "gray40"          , 102*(1<<16) + 102*(1<<8) + 102 },
-    { "grey40"          , 102*(1<<16) + 102*(1<<8) + 102 },
-    { "gray50"          , 127*(1<<16) + 127*(1<<8) + 127 },
-    { "grey50"          , 127*(1<<16) + 127*(1<<8) + 127 },
-    { "gray60"          , 153*(1<<16) + 153*(1<<8) + 153 },
-    { "grey60"          , 153*(1<<16) + 153*(1<<8) + 153 },
-    { "gray70"          , 179*(1<<16) + 179*(1<<8) + 179 },
-    { "grey70"          , 179*(1<<16) + 179*(1<<8) + 179 },
-    { "gray80"          , 204*(1<<16) + 204*(1<<8) + 204 },
-    { "grey80"          , 204*(1<<16) + 204*(1<<8) + 204 },
-    { "gray90"          , 229*(1<<16) + 229*(1<<8) + 229 },
-    { "grey90"          , 229*(1<<16) + 229*(1<<8) + 229 },
-    { "gray100"         , 255*(1<<16) + 255*(1<<8) + 255 },
-    { "grey100"         , 255*(1<<16) + 255*(1<<8) + 255 },
-    { "gray"            , 190*(1<<16) + 190*(1<<8) + 190 },
-    { "grey"            , 190*(1<<16) + 190*(1<<8) + 190 },
-    { "light-gray"      , 211*(1<<16) + 211*(1<<8) + 211 },
-    { "light-grey"      , 211*(1<<16) + 211*(1<<8) + 211 },
-    { "dark-gray"       , 169*(1<<16) + 169*(1<<8) + 169 },
-    { "dark-grey"       , 169*(1<<16) + 169*(1<<8) + 169 },
-    /* red */
+    { "dark-grey"       , 160*(1<<16) + 160*(1<<8) + 160 },
     { "red"             , 255*(1<<16) +   0*(1<<8) +   0 },
-    { "light-red"       , 240*(1<<16) +  50*(1<<8) +  50 },
-    { "dark-red"        , 139*(1<<16) +   0*(1<<8) +   0 },
-    /* yellow */
-    { "yellow"          , 255*(1<<16) + 255*(1<<8) +   0 },
-    { "light-yellow"    , 255*(1<<16) + 255*(1<<8) + 224 },
+    { "web-green"       ,   0*(1<<16) + 192*(1<<8) +   0 },
+    { "web-blue"        ,   0*(1<<16) + 128*(1<<8) + 255 },
+    { "dark-magenta"    , 192*(1<<16) +   0*(1<<8) + 255 },
+    { "dark-cyan"       ,   0*(1<<16) + 238*(1<<8) + 238 },
+    { "dark-orange"     , 192*(1<<16) +  64*(1<<8) +   0 },
     { "dark-yellow"     , 200*(1<<16) + 200*(1<<8) +   0 },
-    /* green */
-    { "green"           ,   0*(1<<16) + 255*(1<<8) +   0 },
+    { "royalblue"       ,  65*(1<<16) + 105*(1<<8) + 225 },
+    { "goldenrod"       , 255*(1<<16) + 192*(1<<8) +  32 },
+    { "dark-spring-green",  0*(1<<16) + 128*(1<<8) +  64 },
+    { "purple"          , 192*(1<<16) + 128*(1<<8) + 255 },
+    { "steelblue"       ,  48*(1<<16) +  96*(1<<8) + 128 },
+    { "dark-red"        , 139*(1<<16) +   0*(1<<8) +   0 },
+    { "dark-chartreuse" ,  64*(1<<16) + 128*(1<<8) +   0 },
+    { "orchid"          , 255*(1<<16) + 128*(1<<8) + 255 },
+    { "aquamarine"      , 127*(1<<16) + 255*(1<<8) + 212 },
+    { "brown"           , 165*(1<<16) +  42*(1<<8) +  42 },
+    { "yellow"          , 255*(1<<16) + 255*(1<<8) +   0 },
+    { "turquoise"       ,  64*(1<<16) + 224*(1<<8) + 208 },
+
+    /* greyscale gradient */
+
+    { "grey0"           ,   0*(1<<16) +   0*(1<<8) +   0 },
+    { "grey10"          ,  26*(1<<16) +  26*(1<<8) +  26 },
+    { "grey20"          ,  51*(1<<16) +  51*(1<<8) +  51 },
+    { "grey30"          ,  77*(1<<16) +  77*(1<<8) +  77 },
+    { "grey40"          , 102*(1<<16) + 102*(1<<8) + 102 },
+    { "grey50"          , 127*(1<<16) + 127*(1<<8) + 127 },
+    { "grey60"          , 153*(1<<16) + 153*(1<<8) + 153 },
+    { "grey70"          , 179*(1<<16) + 179*(1<<8) + 179 },
+    { "grey"            , 192*(1<<16) + 192*(1<<8) + 192 },
+    { "grey80"          , 204*(1<<16) + 204*(1<<8) + 204 },
+    { "grey90"          , 229*(1<<16) + 229*(1<<8) + 229 },
+    { "grey100"         , 255*(1<<16) + 255*(1<<8) + 255 },
+
+    /* random other colors */
+
+    { "light-red"       , 240*(1<<16) +  50*(1<<8) +  50 },
     { "light-green"     , 144*(1<<16) + 238*(1<<8) + 144 },
+    { "light-blue"      , 173*(1<<16) + 216*(1<<8) + 230 },
+    { "light-magenta"   , 240*(1<<16) +  85*(1<<8) + 240 },
+    { "light-cyan"      , 224*(1<<16) + 255*(1<<8) + 255 },
+    { "light-goldenrod" , 238*(1<<16) + 221*(1<<8) + 130 },
+    { "light-pink"      , 255*(1<<16) + 182*(1<<8) + 193 },
+    { "light-turquoise" , 175*(1<<16) + 238*(1<<8) + 238 },
+    { "gold"            , 255*(1<<16) + 215*(1<<8) +   0 },
+    { "green"           ,   0*(1<<16) + 255*(1<<8) +   0 },
     { "dark-green"      ,   0*(1<<16) + 100*(1<<8) +   0 },
     { "spring-green"    ,   0*(1<<16) + 255*(1<<8) + 127 },
     { "forest-green"    ,  34*(1<<16) + 139*(1<<8) +  34 },
     { "sea-green"       ,  46*(1<<16) + 139*(1<<8) +  87 },
-    /* blue */
     { "blue"            ,   0*(1<<16) +   0*(1<<8) + 255 },
-    { "light-blue"      , 173*(1<<16) + 216*(1<<8) + 230 },
     { "dark-blue"       ,   0*(1<<16) +   0*(1<<8) + 139 },
     { "midnight-blue"   ,  25*(1<<16) +  25*(1<<8) + 112 },
     { "navy"            ,   0*(1<<16) +   0*(1<<8) + 128 },
     { "medium-blue"     ,   0*(1<<16) +   0*(1<<8) + 205 },
-    { "royalblue"       ,  65*(1<<16) + 105*(1<<8) + 225 },
     { "skyblue"         , 135*(1<<16) + 206*(1<<8) + 235 },
-    /* cyan */
     { "cyan"            ,   0*(1<<16) + 255*(1<<8) + 255 },
-    { "light-cyan"      , 224*(1<<16) + 255*(1<<8) + 255 },
-    { "dark-cyan"       ,   0*(1<<16) + 139*(1<<8) + 139 },
-    /* magenta */
     { "magenta"         , 255*(1<<16) +   0*(1<<8) + 255 },
-    { "light-magenta"   , 240*(1<<16) +  85*(1<<8) + 240 },
-    { "dark-magenta"    , 139*(1<<16) +   0*(1<<8) + 139 },
-    /* turquoise */
-    { "turquoise"       ,  64*(1<<16) + 224*(1<<8) + 208 },
-    { "light-turquoise" , 175*(1<<16) + 238*(1<<8) + 238 },
     { "dark-turquoise"  ,   0*(1<<16) + 206*(1<<8) + 209 },
-    /* pink */
-    { "pink"            , 255*(1<<16) + 192*(1<<8) + 203 },
-    { "light-pink"      , 255*(1<<16) + 182*(1<<8) + 193 },
     { "dark-pink"       , 255*(1<<16) +  20*(1<<8) + 147 },
-    /* coral */
     { "coral"           , 255*(1<<16) + 127*(1<<8) +  80 },
     { "light-coral"     , 240*(1<<16) + 128*(1<<8) + 128 },
     { "orange-red"      , 255*(1<<16) +  69*(1<<8) +   0 },
-    /* salmon */
     { "salmon"          , 250*(1<<16) + 128*(1<<8) + 114 },
-    { "light-salmon"    , 255*(1<<16) + 160*(1<<8) + 122 },
     { "dark-salmon"     , 233*(1<<16) + 150*(1<<8) + 122 },
-    /* some more */
-    { "aquamarine"      , 127*(1<<16) + 255*(1<<8) + 212 },
     { "khaki"           , 240*(1<<16) + 230*(1<<8) + 140 },
     { "dark-khaki"      , 189*(1<<16) + 183*(1<<8) + 107 },
-    { "goldenrod"       , 218*(1<<16) + 165*(1<<8) +  32 },
-    { "light-goldenrod" , 238*(1<<16) + 221*(1<<8) + 130 },
     { "dark-goldenrod"  , 184*(1<<16) + 134*(1<<8) +  11 },
-    { "gold"            , 255*(1<<16) + 215*(1<<8) +   0 },
     { "beige"           , 245*(1<<16) + 245*(1<<8) + 220 },
-    { "brown"           , 165*(1<<16) +  42*(1<<8) +  42 },
+    { "olive"           , 160*(1<<16) + 128*(1<<8) +  32 },
     { "orange"          , 255*(1<<16) + 165*(1<<8) +   0 },
-    { "dark-orange"     , 255*(1<<16) + 140*(1<<8) +   0 },
     { "violet"          , 238*(1<<16) + 130*(1<<8) + 238 },
     { "dark-violet"     , 148*(1<<16) +   0*(1<<8) + 211 },
     { "plum"            , 221*(1<<16) + 160*(1<<8) + 221 },
-    { "purple"          , 160*(1<<16) +  32*(1<<8) + 240 },
+    { "dark-plum"       , 144*(1<<16) +  80*(1<<8) +  64 },
+    { "dark-olivegreen" ,  85*(1<<16) + 107*(1<<8) +  47 },
+
+    { "orangered4"      , 128*(1<<16) +  20*(1<<8) +   0 },
+    { "brown4"          , 128*(1<<16) +  20*(1<<8) +  20 },
+    { "sienna4"         , 128*(1<<16) +  64*(1<<8) +  20 },
+    { "orchid4"         , 128*(1<<16) +  64*(1<<8) + 128 },
+    { "mediumpurple3"   , 128*(1<<16) +  96*(1<<8) + 192 },
+    { "slateblue1"      , 128*(1<<16) +  96*(1<<8) + 255 },
+    { "yellow4"         , 128*(1<<16) + 128*(1<<8) +   0 },
+    { "sienna1"         , 255*(1<<16) + 128*(1<<8) +  64 },
+    { "tan1"            , 255*(1<<16) + 160*(1<<8) +  64 },
+    { "sandybrown"      , 255*(1<<16) + 160*(1<<8) +  96 },
+    { "light-salmon"    , 255*(1<<16) + 160*(1<<8) + 112 },
+    { "pink"            , 255*(1<<16) + 192*(1<<8) + 192 },
+    { "khaki1"          , 255*(1<<16) + 255*(1<<8) + 128 },
+    { "lemonchiffon"    , 255*(1<<16) + 255*(1<<8) + 192 },
+    { "bisque"          , 205*(1<<16) + 183*(1<<8) + 158 },
+    { "honeydew"        , 240*(1<<16) + 255*(1<<8) + 240 },
+    { "slategrey"       , 160*(1<<16) + 182*(1<<8) + 205 },
+    { "seagreen"        , 193*(1<<16) + 255*(1<<8) + 193 },
+    { "antiquewhite"    , 205*(1<<16) + 192*(1<<8) + 176 },
+    { "chartreuse"      , 124*(1<<16) + 255*(1<<8) +  64 },
+    { "greenyellow"     , 160*(1<<16) + 255*(1<<8) +  32 },
+
+    /* Synonyms */
+    { "gray"            , 190*(1<<16) + 190*(1<<8) + 190 },
+    { "light-gray"      , 211*(1<<16) + 211*(1<<8) + 211 },
+    { "light-grey"      , 211*(1<<16) + 211*(1<<8) + 211 },
+    { "dark-gray"       , 160*(1<<16) + 160*(1<<8) + 160 },
+    { "slategray"       , 160*(1<<16) + 182*(1<<8) + 205 },
+    { "gray0"           ,   0*(1<<16) +   0*(1<<8) +   0 },
+    { "gray10"          ,  26*(1<<16) +  26*(1<<8) +  26 },
+    { "gray20"          ,  51*(1<<16) +  51*(1<<8) +  51 },
+    { "gray30"          ,  77*(1<<16) +  77*(1<<8) +  77 },
+    { "gray40"          , 102*(1<<16) + 102*(1<<8) + 102 },
+    { "gray50"          , 127*(1<<16) + 127*(1<<8) + 127 },
+    { "gray60"          , 153*(1<<16) + 153*(1<<8) + 153 },
+    { "gray70"          , 179*(1<<16) + 179*(1<<8) + 179 },
+    { "gray80"          , 204*(1<<16) + 204*(1<<8) + 204 },
+    { "gray90"          , 229*(1<<16) + 229*(1<<8) + 229 },
+    { "gray100"         , 255*(1<<16) + 255*(1<<8) + 255 },
     { NULL, -1 }
 };
+struct gen_table *pm3d_color_names_tbl = default_color_names_tbl;
+struct gen_table *user_color_names_tbl = NULL;
+const int num_predefined_colors = sizeof(default_color_names_tbl)
+				/ sizeof(struct gen_table);
+int num_userdefined_colors = 0;
+
 
 const struct gen_table show_style_tbl[] =
 {
@@ -580,9 +643,7 @@ const struct gen_table show_style_tbl[] =
     { "fs", SHOW_STYLE_FILLING },
     { "ar$row", SHOW_STYLE_ARROW },
     { "incr$ement", SHOW_STYLE_INCREMENT },
-#ifdef EAM_HISTOGRAMS
     { "hist$ogram", SHOW_STYLE_HISTOGRAM },
-#endif
     { "rect$angle", SHOW_STYLE_RECTANGLE },
     { NULL, SHOW_STYLE_INVALID }
 };
@@ -604,9 +665,7 @@ const struct gen_table plotstyle_tbl[] =
     { "xe$rrorbars", XERRORBARS },
     { "xye$rrorbars", XYERRORBARS },
     { "boxes", BOXES },
-#ifdef EAM_HISTOGRAMS
     { "hist$ograms", HISTOGRAMS },
-#endif
     { "filledc$urves", FILLEDCURVES },
     { "boxer$rorbars", BOXERROR },
     { "boxx$yerrorbars", BOXXYERROR },
@@ -617,12 +676,12 @@ const struct gen_table plotstyle_tbl[] =
     { "fin$ancebars", FINANCEBARS },
     { "can$dlesticks", CANDLESTICKS },
     { "pm$3d", PM3DSURFACE },
-#ifdef EAM_DATASTRINGS
     { "labels", LABELPOINTS },
-#endif
-#ifdef WITH_IMAGE
     { "ima$ge", IMAGE },
     { "rgbima$ge", RGBIMAGE },
+    { "rgba$lpha", RGBA_IMAGE },
+#ifdef EAM_OBJECTS
+    { "cir$cles", CIRCLES },
 #endif
     { NULL, -1 }
 };
@@ -676,18 +735,23 @@ lookup_table_entry(const struct gen_table *tbl, const char *search_str)
     return -1;
 }
 
-/* Returns index of the table tbl whose key matches the beginning of the
- * search string search_str.
- * It returns index into the table or -1 if there is no match.
+/* Returns the index of the table entry whose key matches the search string.
+ * If there is no exact match return the first table entry that is a leading
+ * substring of the search string.  Returns -1 if there is no match.
  */
 int
 lookup_table_nth(const struct gen_table *tbl, const char *search_str)
 {
     int k = -1;
-    while (tbl[++k].key)
-	if (tbl[k].key && !strncmp(search_str, tbl[k].key, strlen(tbl[k].key)))
+    int best_so_far = -1;
+    while (tbl[++k].key) {
+	/* Exact match always wins */
+	if (!strcmp(search_str, tbl[k].key))
 	    return k;
-    return -1; /* not found */
+	if (!strncmp(search_str, tbl[k].key, strlen(tbl[k].key)))
+	    if (best_so_far < 0) best_so_far = k;
+    }
+    return best_so_far;
 }
 
 /* Returns index of the table tbl whose key matches the beginning of the

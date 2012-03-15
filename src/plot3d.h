@@ -1,5 +1,5 @@
 /*
- * $Id: plot3d.h,v 1.16 2004/11/22 00:43:05 sfeam Exp $
+ * $Id: plot3d.h,v 1.18 2008/05/18 03:31:17 janert Exp $
  */
 
 /* GNUPLOT - plot3d.h */
@@ -57,11 +57,15 @@ extern t_data_mapping mapping3d;
 extern int dgrid3d_row_fineness;
 extern int dgrid3d_col_fineness;
 extern int dgrid3d_norm_value;
+extern int dgrid3d_mode;
+extern double dgrid3d_x_scale;
+extern double dgrid3d_y_scale;
 extern TBOOLEAN	dgrid3d;
 
 /* prototypes from plot3d.c */
 
 void plot3drequest __PROTO((void));
+void refresh_3dbounds __PROTO((struct surface_points *first_plot, int nplots));
 void sp_free __PROTO((struct surface_points *sp));
 
 #endif /* GNUPLOT_PLOT3D_H */

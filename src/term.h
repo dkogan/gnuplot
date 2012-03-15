@@ -1,5 +1,5 @@
 /*
- * $Id: term.h,v 1.35 2006/04/29 05:30:07 tlecomte Exp $
+ * $Id: term.h,v 1.42 2009/01/09 00:30:35 sfeam Exp $
  */
 
 /* GNUPLOT - term.h */
@@ -103,16 +103,6 @@
 #endif
 
 
-/* Atari ST and MTOS */
-#if defined(ATARI) || defined(MTOS)
-# include "atarivdi.trm"
-# ifdef MTOS
-#  include "multitos.trm"
-# endif
-# include "atariaes.trm"
-#endif
-
-
 /* Apple Macintosh */
 #ifdef _Macintosh
 # include "mac.trm"
@@ -208,12 +198,6 @@
 #  endif
 #endif /* Apollo */
 
-/* Iris */
-#ifdef IRIS
-# include "iris4d.trm"
-#endif
-
-
 /* Linux VGA */
 #ifdef LINUXVGA
 # include "linux.trm"
@@ -258,11 +242,11 @@
 #endif
 
 /****************************************************************************/
-/* Terminals not relevant for MSDOS, MS-Windows, ATARI or Amiga             */
-#if !(defined(MSDOS) || defined(_Windows) || defined(ATARI) || defined(MTOS) || defined(AMIGA))
+/* Terminals not relevant for MSDOS, MS-Windows, Amiga             */
+#if !(defined(MSDOS) || defined(_Windows) || defined(AMIGA))
 
 /* AED 512 and AED 767 graphics terminals */
-# include "aed.trm"
+/* # include "aed.trm" */
 
 # if defined(UNIXPLOT) || defined(GNUGRAPH)
 #  ifdef GNUGRAPH
@@ -285,7 +269,7 @@
 # include "tek.trm"
 
 
-#endif /* !MSDOS && !_Windows && !_ATARI && !_MTOS && !AMIGA */
+#endif /* !MSDOS && !_Windows && !AMIGA */
 /****************************************************************************/
 
 
@@ -298,7 +282,11 @@
 #endif
 
 /* Adobe Illustrator Format */
-#include "ai.trm"
+/* obsolete: use 'set term postscript level1 */
+/* #include "ai.trm" */
+
+/* HTML Canvas terminal */
+#include "canvas.trm"
 
 /* Computer Graphics Metafile (eg ms office) */
 #include "cgm.trm"
@@ -405,6 +393,9 @@
 #define OKIDATA
 #define STARC
 
+/* Seiko DPU-414 thermal printer */
+#define DPU414
+
 /* Tandy DMP-130 series 60-dot per inch graphics */
 #define TANDY60
 
@@ -453,6 +444,14 @@
 /* WXWIDGETS */
 #ifdef WXWIDGETS
 # include "wxt.trm"
+#endif
+
+#ifdef HAVE_CAIROPDF
+# include "cairo.trm"
+#endif
+
+#ifdef HAVE_LUA
+#include "lua.trm"
 #endif
 
 #endif /* !SHORT_TERMLIST */

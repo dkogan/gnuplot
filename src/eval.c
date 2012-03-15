@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.51.2.6 2009/02/05 17:17:25 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.74.2.1 2010/01/06 17:35:10 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -77,7 +77,7 @@ static int jump_offset;		/* to be modified by 'jump' operators */
 
 /* The table of built-in functions */
 /* HBB 20010725: I've removed all the casts to type (FUNC_PTR) ---
- * According to ANSI/ISO C Standards it causes undefined behaviouf if
+ * According to ANSI/ISO C Standards it causes undefined behaviour if
  * you cast a function pointer to any other type, including a function
  * pointer with a different set of arguments, and then call the
  * function.  Instead, I made all these functions adhere to the common
@@ -90,6 +90,7 @@ const struct ft_entry GPFAR ft[] =
     {"pushd1",  f_pushd1},
     {"pushd2",  f_pushd2},
     {"pushd",  f_pushd},
+    {"pop",  f_pop},
     {"call",  f_call},
     {"calln",  f_calln},
     {"lnot",  f_lnot},
@@ -115,12 +116,11 @@ const struct ft_entry GPFAR ft[] =
     {"factorial",  f_factorial},
     {"bool",  f_bool},
     {"dollars",  f_dollars},	/* for using extension */
-#ifdef GP_STRING_VARS
     {"concatenate",  f_concatenate},	/* for string variables only */
     {"eqs",  f_eqs},			/* for string variables only */
     {"nes",  f_nes},			/* for string variables only */
     {"[]",  f_range},			/* for string variables only */
-#endif
+    {"assign", f_assign},		/* assignment operator '=' */
     {"jump",  f_jump},
     {"jumpz",  f_jumpz},
     {"jumpnz",  f_jumpnz},
@@ -141,6 +141,9 @@ const struct ft_entry GPFAR ft[] =
     {"sinh",  f_sinh},
     {"cosh",  f_cosh},
     {"tanh",  f_tanh},
+    {"EllipticK",  f_ellip_first},
+    {"EllipticE",  f_ellip_second},
+    {"EllipticPi", f_ellip_third},
     {"int",  f_int},
     {"abs",  f_abs},
     {"sgn",  f_sgn},
@@ -186,8 +189,7 @@ const struct ft_entry GPFAR ft[] =
     {"tm_wday",  f_tmwday},	/* for timeseries */
     {"tm_yday",  f_tmyday},	/* for timeseries */
 
-#ifdef GP_STRING_VARS
-    {"stringcolumn",  f_stringcolumn},	/* for using */
+    {"stringcolumn",  f_stringcolumn},	/* for using specs */
     {"strcol",  f_stringcolumn},	/* shorthand form */
     {"sprintf",  f_sprintf},	/* for string variables only */
     {"gprintf",  f_gprintf},	/* for string variables only */
@@ -201,7 +203,6 @@ const struct ft_entry GPFAR ft[] =
     {"system", f_system},       /* "dynamic backtics" */
     {"exist", f_exists},	/* exists("foo") replaces defined(foo) */
     {"exists", f_exists},	/* exists("foo") replaces defined(foo) */
-#endif
 
     {NULL, NULL}
 };
@@ -267,7 +268,7 @@ apollo_pfm_catch()
 
 /* Exported functions */
 
-/* First, some functions tha help other modules use 'struct value' ---
+/* First, some functions that help other modules use 'struct value' ---
  * these might justify a separate module, but I'll stick with this,
  * for now */
 
@@ -280,10 +281,8 @@ real(struct value *val)
 	return ((double) val->v.int_val);
     case CMPLX:
 	return (val->v.cmplx_val.real);
-#ifdef GP_STRING_VARS
     case STRING:              /* is this ever used? */
 	return (atof(val->v.string_val));
-#endif
     default:
 	int_error(NO_CARET, "unknown type in real()");
     }
@@ -301,13 +300,11 @@ imag(struct value *val)
 	return (0.0);
     case CMPLX:
 	return (val->v.cmplx_val.imag);
-#ifdef GP_STRING_VARS
     case STRING:
 	/* This is where we end up if the user tries: */
 	/*     x = 2;  plot sprintf(format,x)         */
 	int_warn(NO_CARET, "encountered a string when expecting a number");
 	int_error(NO_CARET, "Did you try to generate a file name using dummy variable x or y?");
-#endif
     default:
 	int_error(NO_CARET, "unknown type in imag()");
     }
@@ -380,7 +377,6 @@ Ginteger(struct value *a, int i)
     return (a);
 }
 
-#ifdef GP_STRING_VARS
 struct value *
 Gstring(struct value *a, char *s)
 {
@@ -388,7 +384,6 @@ Gstring(struct value *a, char *s)
     a->v.string_val = s;
     return (a);
 }
-#endif
 
 /* It is always safe to call gpfree_string with a->type is INTGR or CMPLX.
  * However it would be fatal to call it with a->type = STRING if a->string_val
@@ -398,13 +393,11 @@ Gstring(struct value *a, char *s)
 struct value *
 gpfree_string(struct value *a)
 {
-#ifdef GP_STRING_VARS
     if (a->type == STRING) {
 	free(a->v.string_val);
 	/* I would have set it to INVALID if such a type existed */
 	a->type = INTGR;
     }
-#endif
     return a;
 }
 
@@ -461,7 +454,6 @@ pop(struct value *x)
     return (x);
 }
 
-#if (GP_STRING_VARS > 1)
 /*
  * Allow autoconversion of string variables to floats if they
  * are dereferenced in a numeric context.
@@ -471,14 +463,18 @@ pop_or_convert_from_string(struct value *v)
 {
     (void) pop(v);
     if (v->type == STRING) {
-	double d = atof(v->v.string_val);
+	char *eov;
+	double d = strtod(v->v.string_val,&eov);
+	if (v->v.string_val == eov) {
+	    gpfree_string(v);
+	    int_error(NO_CARET,"Non-numeric string found where a numeric expression was expected");
+	}
 	gpfree_string(v);
 	Gcomplex(v, d, 0.);
 	FPRINTF((stderr,"converted string to CMPLX value %g\n",real(v)));
     }
     return(v);
 }
-#endif
 
 void
 push(struct value *x)
@@ -486,11 +482,9 @@ push(struct value *x)
     if (s_p == STACK_DEPTH - 1)
 	int_error(NO_CARET, "stack overflow");
     stack[++s_p] = *x;
-#ifdef GP_STRING_VARS
     /* WARNING - This is a memory leak if the string is not later freed */
     if (x->type == STRING && x->v.string_val)
 	stack[s_p].v.string_val = gp_strdup(x->v.string_val);
-#endif
 }
 
 
@@ -576,7 +570,7 @@ f_jtern(union argument *x)
    at_ptr is a pointer to the action table which must be executed
    (evaluated).
 
-   so the iterated line exectues the function indexed by the at_ptr
+   so the iterated line executes the function indexed by the at_ptr
    and passes the address of the argument which is pointed to by the
    arg_ptr
 
@@ -611,15 +605,19 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
     reset_stack();
 
 #ifndef DOSX286
-    if (SETJMP(fpe_env, 1))
-	return;			/* just bail out */
-    (void) signal(SIGFPE, (sigfunc) fpe);
+    if (!evaluate_inside_using || !df_nofpe_trap) {
+	if (SETJMP(fpe_env, 1))
+	    return;
+	(void) signal(SIGFPE, (sigfunc) fpe);
+    }
 #endif
 
     execute_at(at_ptr);
 
 #ifndef DOSX286
-    (void) signal(SIGFPE, SIG_DFL);
+    if (!evaluate_inside_using || !df_nofpe_trap) {
+	(void) signal(SIGFPE, SIG_DFL);
+    }
 #endif
 
     if (errno == EDOM || errno == ERANGE) {
@@ -628,9 +626,7 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
 	(void) pop(val_ptr);
 	check_stack();
 	/* At least one machine (ATT 3b1) computes Inf without a SIGFPE */
-#if (GP_STRING_VARS > 1)
 	if (val_ptr->type != STRING)
-#endif
 	temp = real(val_ptr);
 	if (temp > VERYLARGE || temp < -VERYLARGE) {
 	    undefined = TRUE;
@@ -654,7 +650,6 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
 void
 free_at(struct at_type *at_ptr)
 {
-#ifdef GP_STRING_VARS
     int i;
     /* All string constants belonging to this action table have to be
      * freed before destruction. */
@@ -666,7 +661,6 @@ free_at(struct at_type *at_ptr)
 	if ( a->index == PUSHC || a->index == DOLLARS )
 	    gpfree_string(&(a->arg.v_arg));
     }
-#endif
     free(at_ptr);
 }
 
@@ -696,9 +690,9 @@ add_udv_by_name(char *key)
 }
 
 
+static void update_plot_bounds __PROTO((void));
 static void fill_gpval_axis __PROTO((AXIS_INDEX axis));
 static void set_gpval_axis_sth_double __PROTO((const char *prefix, AXIS_INDEX axis, const char *suffix, double value, int is_int));
-static void fill_gpval_string __PROTO((char *var, const char *value));
 
 static void 
 set_gpval_axis_sth_double(const char *prefix, AXIS_INDEX axis, const char *suffix, double value, int is_int)
@@ -736,10 +730,12 @@ fill_gpval_axis(AXIS_INDEX axis)
 #undef A
 }
 
-static void
+/* Fill variable "var" visible by "show var" or "show var all" ("GPVAL_*")
+ * by the given value (string, integer, float, complex).
+ */
+void
 fill_gpval_string(char *var, const char *stringvalue)
 {
-#ifdef GP_STRING_VARS
     struct udvt_entry *v = add_udv_by_name(var);
     if (!v)
 	return;
@@ -750,7 +746,49 @@ fill_gpval_string(char *var, const char *stringvalue)
     else
 	gpfree_string(&v->udv_value);
     Gstring(&v->udv_value, gp_strdup(stringvalue));
-#endif
+}
+
+void
+fill_gpval_integer(char *var, int value)
+{
+    struct udvt_entry *v = add_udv_by_name(var);
+    if (!v)
+	return;
+    v->udv_undef = FALSE; 
+    Ginteger(&v->udv_value, value);
+}
+
+void
+fill_gpval_float(char *var, double value)
+{
+    struct udvt_entry *v = add_udv_by_name(var);
+    if (!v)
+	return;
+    v->udv_undef = FALSE; 
+    Gcomplex(&v->udv_value, value, 0);
+}
+
+void
+fill_gpval_complex(char *var, double areal, double aimag)
+{
+    struct udvt_entry *v = add_udv_by_name(var);
+    if (!v)
+	return;
+    v->udv_undef = FALSE; 
+    Gcomplex(&v->udv_value, areal, aimag);
+}
+
+/*
+ * Export axis bounds in terminal coordinates from previous plot.
+ * This allows offline mapping of pixel coordinates onto plot coordinates.
+ */
+static void
+update_plot_bounds(void)
+{
+    fill_gpval_integer("GPVAL_TERM_XMIN", axis_array[FIRST_X_AXIS].term_lower / term->tscale);
+    fill_gpval_integer("GPVAL_TERM_XMAX", axis_array[FIRST_X_AXIS].term_upper / term->tscale);
+    fill_gpval_integer("GPVAL_TERM_YMIN", axis_array[FIRST_Y_AXIS].term_lower / term->tscale);
+    fill_gpval_integer("GPVAL_TERM_YMAX", axis_array[FIRST_Y_AXIS].term_upper / term->tscale);
 }
 
 /*
@@ -760,11 +798,13 @@ fill_gpval_string(char *var, const char *stringvalue)
  * 1: following a successful plot/splot
  * 2: following an unsuccessful command (int_error)
  * 3: program entry
+ * 4: explicit reset of error status
+ * 5: directory changed
+ * 6: X11 Window ID changed
  */
 void
 update_gpval_variables(int context)
 {
-
     /* These values may change during a plot command due to auto range */
     if (context == 1) {
 	fill_gpval_axis(FIRST_X_AXIS);
@@ -776,13 +816,21 @@ update_gpval_variables(int context)
 	fill_gpval_axis(T_AXIS);
 	fill_gpval_axis(U_AXIS);
 	fill_gpval_axis(V_AXIS);
+	update_plot_bounds();
+	fill_gpval_integer("GPVAL_PLOT", is_3d_plot ? 0:1);
+	fill_gpval_integer("GPVAL_SPLOT", is_3d_plot ? 1:0);
+	fill_gpval_integer("GPVAL_VIEW_MAP", splot_map ? 1:0);
+	fill_gpval_float("GPVAL_VIEW_ROT_X", surface_rot_x);
+	fill_gpval_float("GPVAL_VIEW_ROT_Z", surface_rot_z);
+	fill_gpval_float("GPVAL_VIEW_SCALE", surface_scale);
+	fill_gpval_float("GPVAL_VIEW_ZSCALE", surface_zscale);
 	return;
     }
     
-    /* These are set every time, which is kind of silly because they */
-    /* only change after 'set term' 'set output' ...                 */
-    else {
-	/* FIXME! This preventa a segfault if term==NULL, which can */
+    /* These are set after every "set" command, which is kind of silly */
+    /* because they only change after 'set term' 'set output' ...      */
+    if (context == 0 || context == 2 || context == 3) {
+	/* FIXME! This prevents a segfault if term==NULL, which can */
 	/* happen if set_terminal() exits via int_error().          */
 	if (!term)
 	    fill_gpval_string("GPVAL_TERM", "unknown");
@@ -793,36 +841,86 @@ update_gpval_variables(int context)
 	fill_gpval_string("GPVAL_OUTPUT", (outstr) ? outstr : "");
     }
 
+    /* If we are called from int_error() then set the error state */
+    if (context == 2)
+	fill_gpval_integer("GPVAL_ERRNO", 1);
+
     /* These initializations need only be done once, on program entry */
     if (context == 3) {
 	struct udvt_entry *v = add_udv_by_name("GPVAL_VERSION");
+	char *tmp;
 	if (v && v->udv_undef == TRUE) {
 	    v->udv_undef = FALSE; 
 	    Gcomplex(&v->udv_value, atof(gnuplot_version), 0);
 	}
 	v = add_udv_by_name("GPVAL_PATCHLEVEL");
-	if (v && v->udv_undef == TRUE) {
-#ifdef GP_STRING_VARS
+	if (v && v->udv_undef == TRUE)
 	    fill_gpval_string("GPVAL_PATCHLEVEL", gnuplot_patchlevel);
-#else
-	    v->udv_undef = FALSE; 
-	    Ginteger(&v->udv_value, atoi(gnuplot_patchlevel));
-#endif
-	}
 	v = add_udv_by_name("GPVAL_COMPILE_OPTIONS");
 	if (v && v->udv_undef == TRUE)
 	    fill_gpval_string("GPVAL_COMPILE_OPTIONS", compile_options);
 
+	/* Start-up values */
+	fill_gpval_integer("GPVAL_MULTIPLOT", 0);
+	fill_gpval_integer("GPVAL_PLOT", 0);
+	fill_gpval_integer("GPVAL_SPLOT", 0);
+
+	tmp = get_terminals_names();
+	fill_gpval_string("GPVAL_TERMINALS", tmp);
+	free(tmp);
+
 	/* Permanent copy of user-clobberable variables pi and NaN */
-	v = add_udv_by_name("GPVAL_pi");
-	v->udv_undef = FALSE; 
-	Gcomplex(&v->udv_value, M_PI, 0);
+	fill_gpval_float("GPVAL_pi", M_PI);
 #ifdef HAVE_ISNAN
-	v = add_udv_by_name("GPVAL_NaN");
-	v->udv_undef = FALSE; 
-	Gcomplex(&v->udv_value, atof("NaN"), 0);
+	fill_gpval_float("GPVAL_NaN", not_a_number());
 #endif
     }
 
+    if (context == 3 || context == 4) {
+	fill_gpval_integer("GPVAL_ERRNO", 0);
+	fill_gpval_string("GPVAL_ERRMSG","");
+    }
+
+    if (context == 3 || context == 5) {
+	char *save_file = NULL;
+	save_file = (char *) gp_alloc(PATH_MAX, "filling GPVAL_PWD");
+	if (save_file) {
+	    GP_GETCWD(save_file, PATH_MAX);
+	    fill_gpval_string("GPVAL_PWD", save_file);
+	    free(save_file);
+	}
+    }
+
+    if (context == 6) {
+	fill_gpval_integer("GPVAL_TERM_WINDOWID", current_x11_windowid);
+    }
+}
+
+/* Callable wrapper for the words() internal function */
+int
+gp_words(char *string)
+{
+    struct value a;
+
+	push(Gstring(&a,string));
+	push(Ginteger(&a,-1));
+	f_words((union argument *)NULL);
+	pop(&a);
+	
+    return a.v.int_val;
+}
+
+/* Callable wrapper for the word() internal function */
+char *
+gp_word(char *string, int i)
+{
+    struct value a;
+
+	push(Gstring(&a,string));
+	push(Ginteger(&a,i));
+	f_words((union argument *)NULL);
+	pop(&a);
+	
+    return a.v.string_val;
 }
 

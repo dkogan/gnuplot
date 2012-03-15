@@ -1,5 +1,5 @@
 /*
- * $Id: parse.h,v 1.14.2.1 2008/04/08 19:00:44 sfeam Exp $
+ * $Id: parse.h,v 1.19 2008/09/09 06:05:05 sfeam Exp $
  */
 
 /* GNUPLOT - parse.h */
@@ -59,9 +59,9 @@ extern int at_highest_column_used;
 
 /* Prototypes of exported functions in parse.c */
 
-#ifdef GP_STRING_VARS
+int int_expression __PROTO(());
+double real_expression __PROTO(());
 struct value * const_string_express __PROTO((struct value *valptr));
-#endif
 struct value * const_express __PROTO((struct value *valptr));
 char* string_or_express __PROTO((struct at_type **atptr));
 struct at_type * temp_at __PROTO((void));
@@ -69,5 +69,15 @@ struct at_type * perm_at __PROTO((void));
 struct udvt_entry * add_udv __PROTO((int t_num));
 struct udft_entry * add_udf __PROTO((int t_num));
 void cleanup_udvlist __PROTO((void));
+
+/* These are used by the iterate-over-plot code */
+void check_for_iteration __PROTO((void));
+TBOOLEAN next_iteration  __PROTO((void));
+TBOOLEAN empty_iteration  __PROTO((void));
+
+/* Some commands, e.g. set xtics, need to know if this is the first time
+ * or a subsequent time through the iteration.  Export a counter.
+ */
+extern int iteration;
 
 #endif /* PARSE_H */

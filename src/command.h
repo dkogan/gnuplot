@@ -1,5 +1,5 @@
 /*
- * $Id: command.h,v 1.41.2.2 2008/07/23 19:25:25 sfeam Exp $
+ * $Id: command.h,v 1.48 2008/08/15 00:45:34 sfeam Exp $
  */
 
 /* GNUPLOT - command.h */
@@ -146,10 +146,17 @@ extern void wxt_lower_terminal_group __PROTO((void));
 #ifdef USE_MOUSE
 void bind_command __PROTO((void));
 void restore_prompt __PROTO((void));
+#else
+#define bind_command()
+#endif
+#ifdef VOLATILE_REFRESH
+void refresh_request __PROTO((void));
 #endif
 void call_command __PROTO((void));
 void changedir_command __PROTO((void));
 void clear_command __PROTO((void));
+void eval_command __PROTO((void));
+void reset_eval_depth __PROTO((void));
 void exit_command __PROTO((void));
 void help_command __PROTO((void));
 void history_command __PROTO((void));
@@ -162,6 +169,7 @@ void pause_command __PROTO((void));
 void plot_command __PROTO((void));
 void print_command __PROTO((void));
 void pwd_command __PROTO((void));
+void refresh_command __PROTO((void));
 void replot_command __PROTO((void));
 void reread_command __PROTO((void));
 void save_command __PROTO((void));
@@ -178,7 +186,7 @@ void extend_input_line __PROTO((void));
 void extend_token_table __PROTO((void));
 int com_line __PROTO((void));
 int do_line __PROTO((void));
-void do_string __PROTO((char* s));
+void do_string __PROTO((char* s, TBOOLEAN throwaway_s));
 #ifdef USE_MOUSE
 void toggle_display_of_ipc_commands __PROTO((void));
 int display_ipc_commands __PROTO((void));

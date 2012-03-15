@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot.c,v 1.90.2.5 2008/12/12 06:57:50 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot.c,v 1.104.2.4 2010/02/18 05:52:49 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot.c */
@@ -115,7 +115,7 @@ extern smg$create_key_table();
 #  include <readline/tilde.h>
 # endif
 extern int rl_complete_with_tilde_expansion;
-#endif 
+#endif
 
 /* BSD editline
 */
@@ -151,10 +151,6 @@ static const char *user_homedir = NULL;
 /* user shell */
 const char *user_shell = NULL;
 
-#if defined(ATARI) || defined(MTOS)
-const char *user_gnuplotpath = NULL;
-#endif
-
 #ifdef X11
 extern int X11_args __PROTO((int, char **)); /* FIXME: defined in term/x11.trm */
 #endif
@@ -186,14 +182,6 @@ static ULONG RexxInterface(PRXSTRING, PUSHORT, PRXSTRING);
 TBOOLEAN CallFromRexx = FALSE;
 #endif /* OS2 */
 
-#if defined(ATARI) || defined(MTOS)
-/* For findfile () (?) */
-# include <support.h>
-void appl_exit(void);
-void MTOS_open_pipe(void);
-extern int aesid;
-#endif
-
 static RETSIGTYPE
 inter(int anint)
 {
@@ -206,17 +194,17 @@ inter(int anint)
 
 #ifdef OS2
     if (!strcmp(term->name,"pm")) {
-        PM_intc_cleanup();
-        /* ??
-          putc('\n', stderr);
-          LONGJMP(command_line_env, TRUE);
-         */
+	PM_intc_cleanup();
+	/* ??
+	  putc('\n', stderr);
+	  LONGJMP(command_line_env, TRUE);
+	 */
     } else
 #endif
     {
     term_reset();
     (void) putc('\n', stderr);
-    LONGJMP(command_line_env, TRUE);	/* return to prompt */
+    bail_to_command_line();	/* return to prompt */
     }
 }
 
@@ -371,10 +359,12 @@ main(int argc, char **argv)
     for (i = 1; i < argc; i++) {
 	if (!argv[i])
 	    continue;
+
 	if (!strcmp(argv[i], "-V") || !strcmp(argv[i], "--version")) {
 	    printf("gnuplot %s patchlevel %s\n",
 		    gnuplot_version, gnuplot_patchlevel);
 	    return 0;
+
 	} else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
 	    printf( "Usage: gnuplot [OPTION]... [FILE]\n"
 #ifdef X11
@@ -382,38 +372,25 @@ main(int argc, char **argv)
 #endif
 		    "  -V, --version\n"
 		    "  -h, --help\n"
+		    "  -p  --persist\n"
 		    "  -e  \"command1; command2; ...\"\n"
 		    "gnuplot %s patchlevel %s\n"
+#ifdef DIST_CONTACT
+		    "Report bugs to "DIST_CONTACT"\n"
+		    "            or %s\n",
+#else
 		    "Report bugs to %s\n",
-		    gnuplot_version, gnuplot_patchlevel, bug_email);
+#endif
+		    gnuplot_version, gnuplot_patchlevel, bug_report);
 	    return 0;
-	}
-    }
 
-    /* the X11 terminal removes tokens that it recognizes from argv.
-     * We have to parse -persist for the wxWidgets terminal before it happens, and
-     * keep that value for later use */
-    i=0;
-    while (i<argc) {
-	if (!argv[i]) {
-	    ++i;
-	    continue;
-	}
-	if (!strcmp(argv[i], "-persist")) {
-	    FPRINTF((stderr,"'persist' command line option recognized"));
+	} else if (!strncmp(argv[i], "-persist", 2) || !strcmp(argv[i], "--persist")) {
 	    persist_cl = TRUE;
-# ifdef X11
-	    ++i;
-# else
-	    --argc;
-	    ++argv;
-# endif
-	    break;
-	} else
-	    ++i;
+	}
     }
 
 #ifdef X11
+    /* the X11 terminal removes tokens that it recognizes from argv. */
     {
 	int n = X11_args(argc, argv);
 	argv += n;
@@ -423,16 +400,6 @@ main(int argc, char **argv)
 
 #ifdef APOLLO
     apollo_pfm_catch();
-#endif
-
-/* moved to ATARI_init in atariaes.trm */
-/* #ifdef ATARI
-   void application_init(void);
-   application_init();
-   #endif */
-
-#ifdef MTOS
-    MTOS_open_pipe();
 #endif
 
     setbuf(stderr, (char *) NULL);
@@ -471,7 +438,7 @@ main(int argc, char **argv)
     (void) Gcomplex(&udv_pi.udv_value, M_PI, 0.0);
 #ifdef HAVE_ISNAN
     udv_NaN = add_udv_by_name("NaN");
-    (void) Gcomplex(&(udv_NaN->udv_value), atof("NaN"), 0.0);
+    (void) Gcomplex(&(udv_NaN->udv_value), not_a_number(), 0.0);
     udv_NaN->udv_undef = FALSE;
 #endif
 
@@ -492,7 +459,7 @@ main(int argc, char **argv)
     else
 	interactive = FALSE;
 #else
-# if (defined(__MSC__) && defined(_Windows)) || defined(__WIN32__)
+# if ((defined(__MSC__) && defined(_Windows)) || defined(__WIN32__)) && ! defined(WGP_CONSOLE)
     interactive = TRUE;
 # else
     interactive = isatty(fileno(stdin));
@@ -566,10 +533,6 @@ main(int argc, char **argv)
 	 * something like init_set() maybe */
 	get_user_env();
 	init_loadpath();
-	/*
-	 * Now, init_fontpath is invoked when it is used first.
-	init_fontpath();
-	*/
 	init_locale();
 	/* HBB: make sure all variables start in the same mode 'reset'
 	 * would set them to. Since the axis variables aren't in
@@ -615,11 +578,19 @@ main(int argc, char **argv)
 	/* come back here from int_error() */
 	if (interactive == FALSE)
 	    exit_status = EXIT_FAILURE;
+#ifdef HAVE_LIBREADLINE
+	else
+	{
+	    /* reset properly readline after a SIGINT+longjmp */
+	    rl_reset_after_signal ();
+	}
+#endif
 
 #ifdef AMIGA_SC_6_1
 	(void) rawcon(0);
 #endif
 	load_file_error();	/* if we were in load_file(), cleanup */
+	reset_eval_depth();     /* reset evaluate command recursion counter */
 	SET_CURSOR_ARROW;
 
 #ifdef VMS
@@ -639,10 +610,6 @@ main(int argc, char **argv)
 #endif /* VMS */
 	if (!interactive && !noinputfiles) {
 	    term_reset();
-#if defined(ATARI) || defined(MTOS)
-	    if (aesid > -1)
-		atexit(appl_exit);
-#endif
 	    exit(EXIT_FAILURE);	/* exit on non-interactive error */
 	}
     }
@@ -662,7 +629,10 @@ main(int argc, char **argv)
 		noend = TRUE;
 	    else
 #endif
-	    if (strcmp(*argv, "-") == 0) {
+	    if (!strncmp(*argv, "-persist", 2) || !strcmp(*argv, "--persist")) {
+		FPRINTF((stderr,"'persist' command line option recognized\n"));
+
+	    } else if (strcmp(*argv, "-") == 0) {
 		/* DBT 10-7-98  go interactive if "-" on command line */
 
 		interactive = TRUE;
@@ -678,10 +648,10 @@ main(int argc, char **argv)
 		    fprintf(stderr, "syntax:  gnuplot -e \"commands\"\n");
 		    return 0;
 		}
-		do_string(*argv);
+		do_string(*argv, FALSE);
 
 	    } else
-		load_file(loadpath_fopen(*argv, "r"), *argv, FALSE);
+		load_file(loadpath_fopen(*argv, "r"), gp_strdup(*argv), FALSE);
 	}
 #ifdef _Windows
 	if (noend) {
@@ -705,10 +675,6 @@ main(int argc, char **argv)
     RexxDeregisterSubcom("GNUPLOT", NULL);
 #endif
 
-#if defined(ATARI) || defined(MTOS)
-    if (aesid > -1)
-	atexit(appl_exit);
-#endif
     /* HBB 20040223: Not all compilers like exit() to end main() */
     /* exit(exit_status); */
     return exit_status;
@@ -723,7 +689,15 @@ interrupt_setup()
     setmatherr(purec_matherr);
 #endif
 
+#if defined(WGP_CONSOLE)
+    /* FIXME. CTRC+C crashes console mode gnuplot for windows.
+       Failure of longjmp() is not easy to fix so that the signal
+       of SIGINT is just ignored at the moment.
+    */
+    (void) signal(SIGINT, SIG_IGN);
+#else
     (void) signal(SIGINT, (sigfunc) inter);
+#endif
 
 #ifdef SIGPIPE
     /* ignore pipe errors, this might happen with set output "|head" */
@@ -752,20 +726,11 @@ load_rcfile()
 	    strcpy(rcfile, user_homedir);
 	    PATH_CONCAT(rcfile, PLOTRC);
 	    plotrc = fopen(rcfile, "r");
-
-#if defined(ATARI) || defined(MTOS)
-	    if (plotrc == NULL) {
-		char const *const ext[] = { NULL };
-		char *ini_ptr = findfile(PLOTRC, user_gnuplotpath, ext);
-
-		if (ini_ptr)
-		    plotrc = fopen(ini_ptr, "r");
-	    }
-#endif /* ATARI || MTOS */
 	}
     }
     if (plotrc) {
-	load_file(plotrc, (rcfile==NULL) ? PLOTRC : rcfile, FALSE);
+	char *rc = gp_strdup(rcfile ? rcfile : PLOTRC);
+	load_file(plotrc, rc, FALSE);
 	push_terminal(0); /* needed if terminal or its options were changed */
     }
 
@@ -803,14 +768,6 @@ get_user_env()
 
 	user_shell = (const char *) gp_strdup(env_shell);
     }
-#if defined(ATARI) || defined(MTOS)
-    if (user_gnuplotpath == NULL) {
-	char *env_gpp;
-
-	if (env_gpp = getenv("GNUPLOTPATH"))
-	    user_gnuplotpath = (const char *) gp_strdup(env_gpp);
-    }
-#endif
 }
 
 /* expand tilde in path
@@ -924,14 +881,14 @@ ExecuteMacro(char *argv, int namelength)
       The positive ones are somehow referenced in REXXPG
    */
     if (rc < 0) {
-        /* REXX error */
+	/* REXX error */
     } else if (rc > 0) {
-        /* Interpreter couldn't be started */
-        if (rc == -4)
-           /* run was cancelled, but don't give error message */
-            rc = 0;
+	/* Interpreter couldn't be started */
+	if (rc == -4)
+	   /* run was cancelled, but don't give error message */
+	    rc = 0;
     } else if (rc==0) {
-        /* all was fine */
+	/* all was fine */
     }
 
 /* We don't we try to use rxRc ?
@@ -939,7 +896,7 @@ ExecuteMacro(char *argv, int namelength)
    and not in our executable using the EMX libraries */
    if (RXSTRPTR(rxRc))
        /* I guess it's NULL if something major went wrong,
-          NULL strings are usually not part of the REXX language ... */
+	  NULL strings are usually not part of the REXX language ... */
        DosFreeMem(rxRc.strptr);
 
    return rc;

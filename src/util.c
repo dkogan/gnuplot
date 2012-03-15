@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util.c,v 1.65.2.9 2009/02/05 17:17:25 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util.c,v 1.84.2.2 2010/03/07 00:50:12 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util.c */
@@ -41,8 +41,8 @@ static char *RCSid() { return RCSid("$Id: util.c,v 1.65.2.9 2009/02/05 17:17:25 
 #include "datafile.h"		/* for df_showdata and df_reset_after_error */
 #include "misc.h"
 #include "plot.h"
-/*  #include "setshow.h" */		/* for month names etc */
 #include "term_api.h"		/* for term_end_plot() used by graph_error() */
+#include "variable.h" /* For locale handling */
 
 #if defined(HAVE_DIRENT_H)
 # include <sys/types.h>
@@ -51,20 +51,16 @@ static char *RCSid() { return RCSid("$Id: util.c,v 1.65.2.9 2009/02/05 17:17:25 
 # include <windows.h>
 #endif
 
-#if defined(HAVE_PWD_H)
-# include <sys/types.h>
-# include <pwd.h>
-#elif defined(_Windows)
-# include <windows.h>
-# if !defined(INFO_BUFFER_SIZE)
-#  define INFO_BUFFER_SIZE 32767
-# endif
-#endif
-
 /* Exported (set-table) variables */
 
 /* decimal sign */
 char *decimalsign = NULL;
+
+/* Holds the name of the current LC_NUMERIC as set by "set decimal locale" */
+char *numeric_locale = NULL;
+
+/* Holds the name of the current LC_TIME as set by "set locale" */
+char *current_locale = NULL;
 
 const char *current_prompt = NULL; /* to be set by read_line() */
 
@@ -357,10 +353,9 @@ char *
 try_to_get_string()
 {
     char *newstring = NULL;
-
-#ifdef GP_STRING_VARS
     struct value a;
     int save_token = c_token;
+
     if (END_OF_COMMAND)
 	return NULL;
     const_string_express(&a);
@@ -368,12 +363,6 @@ try_to_get_string()
 	newstring = a.v.string_val;
     else
 	c_token = save_token;
-#else
-    if (!END_OF_COMMAND && isstring(c_token)) {
-	m_quote_capture(&newstring, c_token, c_token);
-	c_token++;
-    }
-#endif
 
     return newstring;
 }
@@ -560,11 +549,15 @@ gprintf(
                                    output earlier */
     TBOOLEAN got_hash = FALSE;				   
 
+    set_numeric_locale();
+
     for (;;) {
 	/*{{{  copy to dest until % */
 	while (*format != '%')
-	    if (!(*dest++ = *format++))
+	    if (!(*dest++ = *format++)) {
+		reset_numeric_locale();
 		return;		/* end of format */
+	    }
 	/*}}} */
 
 	/*{{{  check for %% */
@@ -743,12 +736,15 @@ gprintf(
 	    }
 	    /*}}} */
 	default:
-	    int_error(NO_CARET, "Bad format character");
+	   reset_numeric_locale();
+	   int_error(NO_CARET, "Bad format character");
 	} /* switch */
 	/*}}} */
 	
-	if (got_hash && (format != strpbrk(format,"oeEfFgG")))
+	if (got_hash && (format != strpbrk(format,"oeEfFgG"))) {
+	   reset_numeric_locale();
 	   int_error(NO_CARET, "Bad format character");
+	}
 
     /* change decimal `.' to the actual entry in decimalsign */
 	if (decimalsign != NULL) {
@@ -757,11 +753,7 @@ gprintf(
 	    int dot;
 
 	    /* dot is the default decimalsign we will be replacing */
-#ifdef HAVE_LOCALE_H
-	    dot = *(localeconv()->decimal_point);
-#else
-	    dot = '.';
-#endif
+	    dot = *get_decimal_locale();
 
 	    /* replace every dot by the contents of decimalsign */
 	    while ((dotpos2 = strchr(dotpos1,dot)) != NULL) {
@@ -786,6 +778,8 @@ gprintf(
 	dest += strlen(dest);
 	++format;
     } /* for ever */
+
+    reset_numeric_locale();
 }
 
 /*}}} */
@@ -825,8 +819,8 @@ do {									\
 
 #define PRINT_FILE_AND_LINE						\
 if (!interactive) {							\
-    if (infile_name != NULL)						\
-	fprintf(stderr, "\"%s\", line %d: ", infile_name, inline_num);	\
+    if (lf_head && lf_head->name)                                       \
+	fprintf(stderr, "\"%s\", line %d: ", lf_head->name, inline_num);\
     else fprintf(stderr, "line %d: ", inline_num);			\
 }
 
@@ -906,6 +900,8 @@ int_error(int t_num, const char str[], va_dcl)
     va_list args;
 #endif
 
+    char error_message[128] = {'\0'};
+
     /* reprint line if screen has been written to */
 
     if (t_num == DATAFILE) {
@@ -924,21 +920,30 @@ int_error(int t_num, const char str[], va_dcl)
 #ifdef VA_START
     VA_START(args, str);
 # if defined(HAVE_VFPRINTF) || _LIBC
-    vfprintf(stderr, str, args);
+    vsnprintf(error_message, sizeof(error_message), str, args);
+    fprintf(stderr,"%.120s",error_message);
 # else
     _doprnt(str, args, stderr);
 # endif
     va_end(args);
 #else
     fprintf(stderr, str, a1, a2, a3, a4, a5, a6, a7, a8);
+#ifdef HAVE_SNPRINTF
+    snprintf(error_message, sizeof(error_message), str, a1, a2, a3, a4, a5, a6, a7, a8);
+#else
+    sprintf(error_message, str, a1, a2, a3, a4, a5, a6, a7, a8);
 #endif
+#endif
+
     fputs("\n\n", stderr);
 
     /* We are bailing out of nested context without ever reaching */
     /* the normal cleanup code. Reset any flags before bailing.   */
     df_reset_after_error();
 
+    /* Load error state variables */
     update_gpval_variables(2);
+    fill_gpval_string("GPVAL_ERRMSG", error_message);
 
     bail_to_command_line();
 }
@@ -1184,37 +1189,92 @@ char *
 getusername ()
 {
     char *username = NULL;
-    char *fullname = NULL;
 
     username=getenv("USER");
     if (!username)
 	username=getenv("USERNAME");
 
-#ifdef HAVE_PWD_H
-    if (username) {
-	struct passwd *pwentry = NULL;
-	pwentry=getpwnam(username);
-	if (pwentry && strlen(pwentry->pw_gecos)) {
-	    fullname = gp_alloc(strlen(pwentry->pw_gecos)+1,"getusername");
-	    strcpy(fullname, pwentry->pw_gecos);
-	} else {
-	    fullname = gp_alloc(strlen(username)+1,"getusername");
-	    strcpy(fullname, username);
-	}
-    }
-#elif defined(_Windows)
-    if (username) {
-	DWORD bufCharCount = INFO_BUFFER_SIZE;
-	fullname = gp_alloc(INFO_BUFFER_SIZE + 1,"getusername");
-	if (!GetUserName(fullname,&bufCharCount)) {
-	    free(fullname);
-	    fullname = NULL;
-	}
-    }
-#else
-    fullname = gp_alloc(strlen(username)+1,"getusername");
-    strcpy(fullname, username);
-#endif /* HAVE_PWD_H */
+    return gp_strdup(username);
+}
 
-    return fullname;
+TBOOLEAN contains8bit(const char *s)
+{
+    while (*s) {
+	if ((*s++ & 0x80))
+	    return TRUE;
+    }
+    return FALSE;
+}
+
+#define INVALID_UTF8 0xfffful
+
+/* Read from second byte to end of UTF-8 sequence.
+   used by utf8toulong() */
+TBOOLEAN
+utf8_getmore (unsigned long * wch, const char **str, int nbytes)
+{
+  int i;
+  unsigned char c;
+  unsigned long minvalue[] = {0x80, 0x800, 0x10000, 0x200000, 0x4000000};
+
+  for (i = 0; i < nbytes; i++) {
+    c = (unsigned char) **str;
+  
+    if ((c & 0xc0) != 0x80) {
+      *wch = INVALID_UTF8;
+      return FALSE;
+    }
+    *wch = (*wch << 6) | (c & 0x3f);
+    (*str)++;
+  }
+
+  /* check for overlong UTF-8 sequences */
+  if (*wch < minvalue[nbytes-1]) {
+    *wch = INVALID_UTF8;
+    return FALSE;
+  }
+  return TRUE;
+}
+
+/* Convert UTF-8 multibyte sequence from string to unsigned long character.
+   Returns TRUE on success.
+*/
+TBOOLEAN
+utf8toulong (unsigned long * wch, const char ** str)
+{
+  unsigned char c;
+
+  c =  (unsigned char) *(*str)++;
+  if ((c & 0x80) == 0) {
+    *wch = (unsigned long) c;
+    return TRUE;
+  }
+
+  if ((c & 0xe0) == 0xc0) {
+    *wch = c & 0x1f;
+    return utf8_getmore(wch, str, 1);
+  }
+
+  if ((c & 0xf0) == 0xe0) {
+    *wch = c & 0x0f;
+    return utf8_getmore(wch, str, 2);
+  }
+
+  if ((c & 0xf8) == 0xf0) {
+    *wch = c & 0x07;
+    return utf8_getmore(wch, str, 3);
+  }
+
+  if ((c & 0xfc) == 0xf8) {
+    *wch = c & 0x03;
+    return utf8_getmore(wch, str, 4);
+  }
+
+  if ((c & 0xfe) == 0xfc) {
+    *wch = c & 0x01;
+    return utf8_getmore(wch, str, 5);
+  }
+
+  *wch = INVALID_UTF8;
+  return FALSE;
 }
