@@ -80,6 +80,9 @@
 /* Define to 1 if you have the `doprnt' function. */
 #undef HAVE_DOPRNT
 
+/* Define to 1 if you have the <editline/readline.h> header file. */
+#undef HAVE_EDITLINE_READLINE_H
+
 /* Define to 1 if you have the `erf' function. */
 #undef HAVE_ERF
 
@@ -148,6 +151,9 @@
 
 /* Define to 1 if you have the <libc.h> header file. */
 #undef HAVE_LIBC_H
+
+/* Define if you are using the BSD editline library. */
+#undef HAVE_LIBEDITLINE
 
 /* Define if you have gd library. */
 #undef HAVE_LIBGD

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.110.2.17 2008/07/25 23:24:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.110.2.21 2009/03/26 04:29:10 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -336,7 +336,7 @@ static void df_insert_scanned_use_spec __PROTO((int));
 static void adjust_binary_use_spec __PROTO((void));
 static void clear_binary_records __PROTO((df_records_type));
 static void plot_option_binary_format __PROTO((void));
-static void plot_option_binary __PROTO((TBOOLEAN));
+static void plot_option_binary __PROTO((TBOOLEAN, TBOOLEAN));
 static void plot_option_array __PROTO((void));
 static TBOOLEAN rotation_matrix_2D __PROTO((double R[][2], double));
 static TBOOLEAN rotation_matrix_3D __PROTO((double P[][3], double *));
@@ -1112,7 +1112,7 @@ df_open(const char *cmd_filename, int max_using)
 	     */
 	    df_matrix_file = TRUE;
 	    initialize_binary_vars();
-	    plot_option_binary(set_matrix);
+	    plot_option_binary(set_matrix, FALSE);
 #else
 	    if (df_matrix) {
 		duplication=TRUE;
@@ -1186,11 +1186,11 @@ df_open(const char *cmd_filename, int max_using)
 	if (almost_equals(c_token, "t$itle")) {
 	    struct value a;
 	    c_token++;
-	    if (equals(c_token, "column") && equals(c_token+1,"(")) {
+	    if (almost_equals(c_token, "col$umnheader") && equals(c_token+1,"(")) {
 		c_token += 2;
 		column_for_key_title = (int)real(const_express(&a));
 		c_token++;
-	    } else if (almost_equals(c_token, "col$umn")) {
+	    } else if (almost_equals(c_token, "col$umnheader")) {
 		key_title_auto_col = TRUE;
 		if (df_no_use_specs == 1)
 		    column_for_key_title = use_spec[0].column;
@@ -1472,9 +1472,9 @@ static void
 plot_option_using(int max_using)
 {
 
-#ifdef BINARY_DATA_FILE
     int no_cols = 0;  /* For general binary only. */
 
+#ifdef BINARY_DATA_FILE
     /* The filetype function may have set the using specs, so reset
      * them before processing tokens. */
     if (df_binary_file)
@@ -1491,10 +1491,8 @@ plot_option_using(int max_using)
 	    if (equals(c_token, ":")) {
 		/* empty specification - use default */
 		use_spec[df_no_use_specs].column = df_no_use_specs;
-#ifdef BINARY_DATA_FILE
 		if (df_no_use_specs > no_cols)
 		    no_cols = df_no_use_specs;
-#endif
 		++df_no_use_specs;
 		/* do not increment c+token ; let while() find the : */
 	    } else if (equals(c_token, "(")) {
@@ -1532,10 +1530,8 @@ plot_option_using(int max_using)
 		if (col < -2)
 		    int_error(c_token, "Column must be >= -2");
 		use_spec[df_no_use_specs++].column = col;
-#ifdef BINARY_DATA_FILE
 		if (col > no_cols)
 		    no_cols = col;
-#endif
 	    }
 	} while (equals(c_token, ":") && ++c_token);
     }
@@ -2628,8 +2624,6 @@ valid_format(const char *format)
 int
 expect_string(const char column)
 {
-    if (!use_spec)
-	int_error(NO_CARET,"use_spec not yet initialized");
     use_spec[column-1].expected_type = CT_STRING;
     FPRINTF((stderr,"expecting to find string in input column %d\n",use_spec[column-1].column));
     return(use_spec[column-1].column);
@@ -2700,6 +2694,7 @@ add_key_entry(char *temp_string, int df_datum)
 
     /* Associate this key list with the histogram it belongs to. */
     if (!df_current_plot->labels) {
+	/* The first text_label structure in the list is a place-holder */
 	df_current_plot->labels = gp_alloc(sizeof(text_label), "key entry");
 	memset(df_current_plot->labels, 0, sizeof(text_label));
 	df_current_plot->labels->tag  = -1;
@@ -2822,7 +2817,7 @@ df_set_datafile_binary()
     }
     /* Process the binary tokens. */
     df_set_plot_mode(MODE_QUERY);
-    plot_option_binary(FALSE);
+    plot_option_binary(FALSE, TRUE);
     /* Copy the modified settings as the new default settings. */
     df_bin_filetype_default = df_bin_filetype;
     df_bin_file_endianess_default = df_bin_file_endianess;
@@ -3195,7 +3190,7 @@ char *equal_symbol_msg = "Equal ('=') symbol required";
 
 
 static void
-plot_option_binary(TBOOLEAN set_matrix)
+plot_option_binary(TBOOLEAN set_matrix, TBOOLEAN set_default)
 {
 #define MAX_FILE_EXT_LEN 10
     char file_ext[MAX_FILE_EXT_LEN+1];
@@ -3578,6 +3573,8 @@ plot_option_binary(TBOOLEAN set_matrix)
 #if BINARY_HAS_OWN_FORMAT_STRING
 	/* deal with various types of binary files */
 	if (almost_equals(c_token, "form$at")) {
+	    if (set_default)
+		int_error(c_token, "Sorry - default binary properties not fully implemented");
 	    if (set_format) { duplication=TRUE; break; }
 	    c_token++;
 	    /* Format string not part of pre-existing binary definition.  So use general binary. */
@@ -3768,8 +3765,7 @@ plot_option_array(void)
 		sscanf(token_string,"%d",&ival);
 		while(isdigit(*token_string)) token_string++;
 	    } else {
-		ival = 0;
-		token_string += 3;
+		int_error(c_token, "Sorry - Inf keyword not implemented");
 	    }
 	    if (!i_dimension) {
 		number_of_records++;

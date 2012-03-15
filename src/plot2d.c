@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.133.2.13 2008/08/01 20:55:56 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.133.2.16 2009/02/05 17:17:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -1107,7 +1107,7 @@ store_label(
     /* Check for optional (textcolor palette ...) */
     if (tl->textcolor.type == TC_Z)
         tl->textcolor.value = colorval;
-    else if (tl->textcolor.type == TC_RGB)
+    else if (tl->textcolor.type == TC_RGB && tl->textcolor.value < 0)
         tl->textcolor.lt = colorval;
 
     /* Check for null string (no label) */
@@ -1367,7 +1367,7 @@ eval_plots()
 #ifdef EAM_HISTOGRAMS
     double newhist_start = 0.0;
     int histogram_sequence = -1;
-    int newhist_color = LT_UNDEFINED;
+    int newhist_color = 0;
     int newhist_pattern = LT_UNDEFINED;
     histogram_rightmost = 0.0;
     free_histlist(&histogram_opts);
@@ -1693,7 +1693,7 @@ eval_plots()
 			struct value a;
                         this_plot->arrow_properties.head = BOTH_HEADS;
                         c_token++;
-			if (isanumber(c_token) || type_udv(c_token))
+			if (isanumber(c_token) || type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX)
 			    this_plot->arrow_properties.head_length = real(const_express(&a));
                     }
                 }

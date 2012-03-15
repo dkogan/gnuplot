@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.185.2.5 2008/06/01 06:13:45 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.185.2.11 2008/12/15 03:44:22 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -548,7 +548,7 @@ show_command()
 #endif
     case S_PLOT:
 	show_plot();
-#if defined(READLINE) || defined(HAVE_LIBREADLINE)
+#if defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
 	if (!END_OF_COMMAND) {
 	    if (almost_equals(c_token, "a$dd2history")) {
 		c_token++;
@@ -630,7 +630,7 @@ show_command()
 
     case S_TERMOPTIONS:
 	fprintf(stderr,"Terminal options are '%s'\n",
-		(term_options && *term_options) ? term_options : "[none]");
+		(*term_options) ? term_options : "[none]");
 	break;
 
     /* HBB 20010525: 'set commands' that don't have an
@@ -888,12 +888,16 @@ show_version(FILE *fp)
 		"READLINE  ";
 
 	    const char *gnu_rdline =
-#ifdef HAVE_LIBREADLINE
+#if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
 		"+"
 #else
 		"-"
 #endif
+#ifdef HAVE_LIBEDITLINE
+		"LIBEDITLINE  "
+#else
 		"LIBREADLINE  "
+#endif
 #ifdef GNUPLOT_HISTORY
 		"+"
 #else
@@ -2475,6 +2479,9 @@ show_view()
     }
     fprintf(stderr, "%g rot_x, %g rot_z, %g scale, %g scale_z\n",
 		surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
+    fprintf(stderr,"\t\t%s axes are %s\n",
+		aspect_ratio_3D == 2 ? "x/y" : aspect_ratio_3D == 3 ? "x/y/z" : "",
+		aspect_ratio_3D >= 2 ? "on the same scale" : "independently scaled");
 }
 
 
@@ -2602,6 +2609,9 @@ show_tics(
     else
 	fprintf(stderr, "xyplane ticslevel is %g\n", xyplane.ticslevel);
 
+    if (grid_layer >= 0)
+        fprintf(stderr, "tics are in %s of plot\n", (grid_layer==0) ? "back" : "front");
+	
     if (showx)
 	show_ticdef(FIRST_X_AXIS);
     if (showx2)
@@ -3045,6 +3055,8 @@ show_ticdef(AXIS_INDEX axis)
 	break;
     }
 
+    if (axis_array[axis].ticdef.rangelimited)
+	fprintf(stderr, "\n\t  tics are limited to data range");
     fprintf(stderr, "\n\t  labels are format \"%s\"", ticfmt);
     if (axis_array[axis].tic_rotate) {
 	fprintf(stderr," rotated");

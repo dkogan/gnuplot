@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.167.2.8 2008/06/22 23:08:49 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.167.2.10 2009/01/14 10:58:42 mikulik Exp $"); }
 #endif
 
 #define X11_POLYLINE 1
@@ -280,6 +280,7 @@ typedef struct plot_struct {
      * plot coordinates of a mouse click.  It is a snapshot of the contents of
      * gnuplot's axis_array structure at the time the plot was drawn.
      */
+    int almost2d;
     int axis_mask;		/* Bits set to show which axes are active */
     axis_scale_t axis_scale[2*SECOND_AXES];
 #endif
@@ -447,7 +448,7 @@ static void pr_color __PROTO((cmap_t *));
 static void pr_dashes __PROTO((void));
 static void pr_encoding __PROTO((void));
 static void pr_font __PROTO((char *));
-static void pr_geometry __PROTO((void));
+static void pr_geometry __PROTO((char *));
 static void pr_pointsize __PROTO((void));
 static void pr_width __PROTO((void));
 static void pr_window __PROTO((plot_struct *));
@@ -1555,6 +1556,14 @@ record()
 		    dashedlines = tmp_dashed;
 		if (UNSET != tmp_ctrlq)
 		    ctrlq = tmp_ctrlq;
+	    }
+	    return 1;
+
+        case 's': /* set window geometry */
+	    {
+		char strtmp[256];
+		sscanf(&buf[2], "%s", strtmp);
+		pr_geometry(strtmp);
 	    }
 	    return 1;
 
@@ -3104,7 +3113,9 @@ exec_cmd(plot_struct *plot, char *command)
 	int axis, axis_mask;
 
 	sscanf(&buffer[1], "%d %d", &axis, &axis_mask);
-	if (axis < 0) {
+	if (axis == -2) {
+	    plot->almost2d = axis_mask;
+	} else if (axis < 0) {
 	    plot->axis_mask = axis_mask;
 	} else if (axis < 2*SECOND_AXES) {
 	    sscanf(&buffer[1], "%d %lg %d %lg %lg", &axis,
@@ -4584,7 +4595,7 @@ process_event(XEvent *event)
 		Call_display(plot);
 		gp_exec_event(GE_motion, (int) RevX(pos_x), (int) RevY(pos_y), 0, 0, 0);
 #if defined(USE_MOUSE) && defined(MOUSE_ALL_WINDOWS)
-	    } else if (plot->axis_mask && plot->mouse_on) {
+	    } else if (plot->axis_mask && plot->mouse_on && plot->almost2d) {
 		/* This is not the active plot window, but we can still update the mouse coords */
 		char mouse_format[60];
 		char *m = mouse_format;
@@ -5003,7 +5014,7 @@ gnuplot: X11 aborted.\n", ldisplay);
 	}
     }
 
-    pr_geometry();
+    pr_geometry(NULL);
     pr_encoding();		/* check for global default encoding */
     pr_font(NULL);		/* set current font to default font */
     pr_color(&default_cmap);	/* set colors for default colormap */
@@ -5653,9 +5664,9 @@ char *fontname;
  *---------------------------------------------------------------------------*/
 
 static void
-pr_geometry()
+pr_geometry(char *instr)
 {
-    char *geometry = pr_GetR(db, ".geometry");
+    char *geometry = (instr != NULL)? instr : pr_GetR(db, ".geometry");
     int x, y, flags;
     unsigned int w, h;
 

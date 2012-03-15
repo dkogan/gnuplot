@@ -70,17 +70,17 @@ bivariat.dem borders.dem candlesticks.dem charset.dem colorwheel.dem \
 contours.dem controls.dem dashcolor.dem datastrings.dem discrete.dem \
 electron.dem enhancedtext.dem epslatex.dem fillbetween.dem fillcrvs.dem \
 fillstyle.dem finance.dem fit.dem fontfile.dem fontfile_latex.dem \
-hidden2.dem hidden.dem histograms2.dem histograms.dem image.dem key.dem \
-layout.dem macros.dem mgr.dem molecule.dem mouselab_1.dem mouselab_2.dem \
-mouselabels.dem mousevariables.dem multimsh.dem multiplt.dem param.dem \
-pm3dcolors.dem pm3d.dem pm3dgamma.dem pointsize.dem polar.dem poldat.dem \
-prob2.dem prob.dem rainbow.dem random.dem rectangle.dem rgb_variable.dem \
-scatter.dem simple.dem singulr.dem spline.dem starmap.dem steps.dem \
-stringvar.dem surface1.dem surface2.dem textcolor.dem textrotate.dem \
-tics.dem timedat.dem using.dem utf8.dem vector.dem world2.dem world.dem \
-demo.edf density.fnc hexa.fnc line.fnc reflect.fnc stat.inc nearmap.csv \
-GM1_sugar.pdb labelplot.pdb GM1_bonds.r3d blutux.rgb sound.par sound2.par \
-start.par gnuplot.rot html 
+heatmaps.dem hidden2.dem hidden.dem histograms2.dem histograms.dem \
+image.dem key.dem layout.dem macros.dem margins.dem mgr.dem molecule.dem \
+mouselab_1.dem mouselab_2.dem mouselabels.dem mousevariables.dem \
+multimsh.dem multiplt.dem param.dem pm3dcolors.dem pm3d.dem pm3dgamma.dem \
+pointsize.dem polar.dem poldat.dem prob2.dem prob.dem rainbow.dem \
+random.dem rectangle.dem rgb_variable.dem scatter.dem simple.dem \
+singulr.dem spline.dem starmap.dem steps.dem stringvar.dem surface1.dem \
+surface2.dem textcolor.dem textrotate.dem tics.dem timedat.dem using.dem \
+utf8.dem vector.dem world2.dem world.dem demo.edf density.fnc hexa.fnc \
+line.fnc reflect.fnc stat.inc nearmap.csv GM1_sugar.pdb labelplot.pdb \
+GM1_bonds.r3d blutux.rgb sound.par sound2.par start.par gnuplot.rot html 
 ##m4-files-end
 
 Makefile.am: Makefile.am.in

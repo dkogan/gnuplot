@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.66.2.2 2008/01/11 04:48:09 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.66.2.5 2009/03/24 11:19:24 mikulik Exp $"); }
 #endif
 
 /* GNUPLOT - pm3d.c */
@@ -475,7 +475,8 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		allocated_quadrangles += GPMAX(scanA->p_count, scanB->p_count) - 1;
 	    }
 	}
-
+	allocated_quadrangles *= (pm3d.interp_i > 1) ? pm3d.interp_i : 1;
+	allocated_quadrangles *= (pm3d.interp_j > 1) ? pm3d.interp_j : 1;
 	quadrangles = (quadrangle*)gp_realloc(quadrangles, allocated_quadrangles * sizeof (quadrangle), "pm3d_plot->quadrangles");
 	/* DEBUG: fprintf(stderr, "allocated_quadrangles = %d\n", allocated_quadrangles); */
     }
@@ -606,10 +607,15 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		    pointsB[ii].type == OUTRANGE && pointsB[ii1].type == OUTRANGE)
 		    continue;
 	    }
+
+	    if ((pm3d.interp_i <= 1 && pm3d.interp_j <= 1) || pm3d.direction == PM3D_DEPTH) {
 #ifdef EXTENDED_COLOR_SPECS
-	    if (!supply_extended_color_specs) {
+	      if (!supply_extended_color_specs) {
 #endif
-		/* get the gray as the average of the corner z positions (note: log already in)
+		/* Get the gray as the average of the corner z- or gray-positions
+		   (note: log scale is already included). The average is calculated here
+		   if there is no interpolation (including the "pm3d depthorder" option),
+		   otherwise it is done for each interpolated quadrangle later.
 		   I always wonder what is faster: d*0.25 or d/4? Someone knows? -- 0.25 (joze) */
 		if (color_from_column) {
 		    /* color is set in plot3d.c:get_3ddata() */
@@ -646,10 +652,13 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		       pointsB[ii1].x, pointsB[ii1].y, pointsA[i1].x, pointsA[i1].y);
 #endif
 		/* set the color */
-		set_color(gray);
+		if (pm3d.direction != PM3D_DEPTH)
+		    set_color(gray);
 #ifdef EXTENDED_COLOR_SPECS
-	    }
+	      }
 #endif
+	    }
+
 	    corners[0].x = pointsA[i].x;
 	    corners[0].y = pointsA[i].y;
 	    corners[1].x = pointsB[ii].x;
@@ -667,6 +676,12 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		corners[1].z = pointsB[ii].z;
 		corners[2].z = pointsB[ii1].z;
 		corners[3].z = pointsA[i1].z;
+		if (color_from_column) {
+		    corners[0].c = pointsA[i].CRD_COLOR;
+		    corners[1].c = pointsB[ii].CRD_COLOR;
+		    corners[2].c = pointsB[ii1].CRD_COLOR;
+		    corners[3].c = pointsA[i1].CRD_COLOR;
+		}
 	    }
 #ifdef EXTENDED_COLOR_SPECS
 	    if (supply_extended_color_specs) {
@@ -688,7 +703,6 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		}
 	    }
 	    if (pm3d.direction == PM3D_DEPTH) {
-
 		/* copy quadrangle */
 		quadrangle* qp = quadrangles + current_quadrangle;
 		memcpy(qp->corners, corners, 4 * sizeof (gpdPoint));
@@ -700,17 +714,8 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		current_quadrangle++;
 
 	    } else
-	    filled_quadrangle(corners, icorners);
+    		filled_quadrangle(corners, icorners);
 #else
-	    if (pm3d.direction == PM3D_DEPTH) {
-
-		/* copy quadrangle */
-		quadrangle* qp = quadrangles + current_quadrangle;
-		memcpy(qp->corners, corners, 4 * sizeof (gpdPoint));
-		qp->gray = gray;
-		current_quadrangle++;
-
-	    } else
 	    if (pm3d.interp_i > 1 || pm3d.interp_j > 1) {
 		/* Interpolation is enabled.
 		 * interp_i is the # of points along scan lines
@@ -731,6 +736,12 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 			((corners[3].z - corners[0].z) / pm3d.interp_i) * i1 + corners[0].z;
 		    bl_point[i1][pm3d.interp_j].z =
 			((corners[2].z - corners[1].z) / pm3d.interp_i) * i1 + corners[1].z;
+		    if (color_from_column) {
+			bl_point[i1][0].c =
+			    ((corners[3].c - corners[0].c) / pm3d.interp_i) * i1 + corners[0].c;
+			bl_point[i1][pm3d.interp_j].c =
+			    ((corners[2].c - corners[1].c) / pm3d.interp_i) * i1 + corners[1].c;
+		    }
 		    /* Next we sample j points between each of the new points
 		     * created in the previous step (this samples between
 		     * scan lines) in the same manner. */
@@ -744,6 +755,10 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 			bl_point[i1][j1].z =
 			    ((bl_point[i1][pm3d.interp_j].z - bl_point[i1][0].z) / pm3d.interp_j) *
 				j1 + bl_point[i1][0].z;
+			if (color_from_column)
+			    bl_point[i1][j1].c =
+				((bl_point[i1][pm3d.interp_j].c - bl_point[i1][0].c) / pm3d.interp_j) *
+				    j1 + bl_point[i1][0].c;
 		    }
 		}
 		/* Once all points are created, move them into an appropriate
@@ -763,6 +778,12 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 			corners[3].x = bl_point[i1][j1+1].x;
 			corners[3].y = bl_point[i1][j1+1].y;
 			corners[3].z = bl_point[i1][j1+1].z;
+ 			if (color_from_column) {
+ 			    corners[0].c = bl_point[i1][j1].c;
+ 			    corners[1].c = bl_point[i1+1][j1].c;
+ 			    corners[2].c = bl_point[i1+1][j1+1].c;
+ 			    corners[3].c = bl_point[i1][j1+1].c;
+ 			}
 #if 0
 			printf("(%g,%g),(%g,%g),(%g,%g),(%g,%g)\n",
 			    corners[0].x, corners[0].y,
@@ -776,6 +797,11 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 			    cb2 = z2cb(corners[1].z);
 			    cb3 = z2cb(corners[2].z);
 			    cb4 = z2cb(corners[3].z);
+			} else {
+			    cb1 = corners[0].c;
+			    cb2 = corners[1].c;
+			    cb3 = corners[2].c;
+			    cb4 = corners[3].c;
 			}
 			switch (pm3d.which_corner_color) {
 			    case PM3D_WHICHCORNER_MEAN: avgC = (cb1 + cb2 + cb3 + cb4) * 0.25; break;
@@ -791,12 +817,28 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 			}
 			/* transform z value to gray, i.e. to interval [0,1] */
 			gray = cb2gray(avgC);
-			set_color(gray);
-			filled_quadrangle(corners);
+			if (pm3d.direction != PM3D_DEPTH) {
+			    set_color(gray);
+			    filled_quadrangle(corners);
+			} else {
+			    /* copy quadrangle */
+			    quadrangle* qp = quadrangles + current_quadrangle;
+			    memcpy(qp->corners, corners, 4 * sizeof (gpdPoint));
+			    qp->gray = gray;
+			    current_quadrangle++;
+			}
 		    }
 		}
-	    } else {
-		filled_quadrangle(corners);
+	    } else { /* thus (pm3d.interp_i == 1 && pm3d.interp_j == 1) */
+		if (pm3d.direction != PM3D_DEPTH) {
+		    filled_quadrangle(corners);
+		} else {
+		    /* copy quadrangle */
+		    quadrangle* qp = quadrangles + current_quadrangle;
+		    memcpy(qp->corners, corners, 4 * sizeof (gpdPoint));
+		    qp->gray = gray;
+		    current_quadrangle++;
+		}
 	    } /* interpolate between points */
 #endif
 	} /* loop quadrangles over points of two subsequent scans */
@@ -899,7 +941,7 @@ pm3d_draw_one(struct surface_points *plot)
     }
 
     /* for pm3dCompress.awk */
-    if (gppsfile)
+    if (gppsfile && (pm3d.direction != PM3D_DEPTH))
 	fputs("%pm3d_map_begin\n", gppsfile);
 
     for (; where[i]; i++) {
@@ -921,7 +963,7 @@ pm3d_draw_one(struct surface_points *plot)
     }
 
     /* for pm3dCompress.awk */
-    if (gppsfile)
+    if (gppsfile && (pm3d.direction != PM3D_DEPTH))
 	fputs("%pm3d_map_end\n", gppsfile);
 }
 

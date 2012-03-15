@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.60.2.10 2008/09/22 23:23:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.60.2.13 2009/03/23 23:02:36 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -602,6 +602,9 @@ make_tics(AXIS_INDEX axis, int guide)
     xr = fabs(axis_array[axis].min - axis_array[axis].max);
     if (xr == 0)
 	return 1;       /* Anything will do, since we'll never use it */
+    if (xr >= VERYLARGE)
+	int_error(NO_CARET,"%s axis range undefined or overflow",
+		axis_defaults[axis].name);
     tic = quantize_normal_tics(xr, guide);
     /* FIXME HBB 20010831: disabling this might allow short log axis
      * to receive better ticking... */
@@ -905,7 +908,6 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	double lmin = axis_array[axis].min, lmax = axis_array[axis].max;
 	double internal_min, internal_max;	/* to allow for rounding errors */
 	double ministart = 0, ministep = 1, miniend = 1;	/* internal or user - depends on step */
-	int anyticput = 0;	/* for detection of infinite loop */
 
 	/* gprintf uses log10() of base - log_base_array is log() */
 	double log10_base = axis_array[axis].log ? log10(axis_array[axis].base) : 1.0;
@@ -1055,35 +1057,36 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	    return;		/* just quietly ignore them ! */
 	/* }}} */
 
+	/* This protects against user error, not precision errors */
 	if ( (internal_max-internal_min)/step > term->xmax) {
-	    int_warn(NO_CARET,"Too many axis ticks (>%.0g)",
+	    int_warn(NO_CARET,"Too many axis ticks requested (>%.0g)",
 		(internal_max-internal_min)/step);
 	    return;
 	}
 
-	/* FIXME HBB 20010121: keeping adding 'step' to 'tic' is
-	 * begging for rounding errors to strike us. */
-	/* HBB 20010410: ... and strike they did :-( */
+	/* This protects against infinite loops if the separation between   */
+	/* two ticks is less than the precision of the control variables.   */
+	/* The for(...) loop here must be identical to the true loop below. */
+	if (1) /* (some-test-for-range-and-or-step-size) */ {
+	    int anyticput = 0;
+	    double previous_tic = 0;
+
+	    for (tic = start; tic <= end; tic += step) {
+		/* EAM Oct 2008: Previous code (2001) checked only the start and end
+		 * points, but rounding error can strike at any point in the range.
+		 */
+		if (anyticput == 0)
+		    anyticput = 1;
+		else if (fabs(tic - previous_tic) < (step/4.)) {
+		    step = end - start;
+		    int_warn(NO_CARET, "tick interval too small for machine precision");
+		    break;
+		}
+		previous_tic = tic;
+	    }
+	}
+
 	for (tic = start; tic <= end; tic += step) {
-	    if (anyticput == 2)	/* See below... */
-		break;
-	    /* HBB 20010121: Previous code checked absolute value
-	     * DBL_EPSILON against tic distance. That's numerical
-	     * nonsense. It essentially disallowed series ticmarks for
-	     * all axes shorter than DBL_EPSILON in absolute figures.
-	     * */
-	    if (anyticput) {
-	      if (NearlyEqual(tic, start, step)) {
-		/* step is too small.. */
-		anyticput = 2;	/* Don't try again. */
-		tic = end;	/* Put end tic. */
-	      } else if (NearlyEqual(tic, end, step)) {
-		/* HBB 20010410: protect against cancellation at upper
-		 * end, too (can happen if |step/end| <= ~DBL_EPS). */
-		anyticput = 2;
-	      }
-	    } else
-		anyticput = 1;
 
 	    /* {{{  calc internal and user co-ords */
 	    if (!axis_array[axis].log) {
@@ -1141,6 +1144,12 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			} else {
 			    gprintf(label, sizeof(label), ticfmt[axis], log10_base, user);
 			}
+
+			/* Range-limited tic placement */
+			if (def->rangelimited
+			&&  !inrange(internal,axis_array[axis].data_min,axis_array[axis].data_max))
+			    continue;
+
 			(*callback) (axis, internal, label, lgrd);
 		    }
 		}
