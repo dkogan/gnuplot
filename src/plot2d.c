@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.133.2.6 2008/01/14 07:27:58 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.133.2.13 2008/08/01 20:55:56 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -280,6 +280,14 @@ get_data(struct curve_points *current_plot)
     struct coordinate GPHUGE *cp;
 #endif
 
+    TBOOLEAN variable_color = FALSE;
+    double   variable_color_value;
+    if ((current_plot->lp_properties.pm3d_color.type == TC_RGB)
+    &&  (current_plot->lp_properties.pm3d_color.value < 0))
+	variable_color = TRUE;
+    if (current_plot->lp_properties.pm3d_color.type == TC_Z)
+	variable_color = TRUE;
+
     /* eval_plots has already opened file */
 
     /* HBB 2000504: For most plot styles, the 'z' coordinate is
@@ -337,8 +345,9 @@ get_data(struct curve_points *current_plot)
 	    df_axis[2] = df_axis[3] = df_axis[1];
         break;
 
-    case VECTOR:
-        min_cols = max_cols = 4;
+    case VECTOR:	/* x, y, dx, dy, variable_color */
+	min_cols = 4;
+	max_cols = 5;
         break;
 
     case XERRORLINES:
@@ -449,7 +458,17 @@ get_data(struct curve_points *current_plot)
 	     * needlessly small steps. */
             cp_extend(current_plot, i + i + 1000);
         }
-        /* Limitation: No xerrorbars with boxes */
+
+	/* Allow for optional columns.  Currently only used for BOXES, but */
+	/* should be extended to a more general mechanism.                 */
+	variable_color_value = 0;
+	if (variable_color) {
+	    int style = current_plot->plot_style;
+	    if ((style == BOXES  && j >= 3)
+	    ||  (style == VECTOR && j >= 5))
+		variable_color_value = v[--j];
+	}
+
         switch (j) {
         default:
             {
@@ -568,11 +587,11 @@ get_data(struct curve_points *current_plot)
 			double base = axis_array[current_plot->x_axis].base;
 			store2d_point(current_plot, i++, v[0], v[1],
 				      v[0] * pow(base, -boxwidth/2.), v[0] * pow(base, boxwidth/2.),
-				      v[1], v[1], 0.0);
+				      v[1], variable_color_value, 0.0);
 		    } else
 			store2d_point(current_plot, i++, v[0], v[1],
 				      v[0] - boxwidth / 2, v[0] + boxwidth / 2,
-				      v[1], v[1], 0.0);
+				      v[1], variable_color_value, 0.0);
 		} else {
 		    if (current_plot->plot_style == CANDLESTICKS
 			|| current_plot->plot_style == FINANCEBARS) {
@@ -620,11 +639,10 @@ get_data(struct curve_points *current_plot)
                     break;
 
                 case BOXES:
-                    /* calculate xmin and xmax here, so that logs are
-                     * taken if if necessary */
+		    /* calculate xmin and xmax here, so that logs are taken if if necessary */
                     store2d_point(current_plot, i++, v[0], v[1],
                                   v[0] - v[2] / 2, v[0] + v[2] / 2,
-                                  v[1], v[1], 0.0);
+				  v[1], variable_color_value, 0.0);
                     break;
 
 #ifdef EAM_DATASTRINGS
@@ -693,6 +711,11 @@ get_data(struct curve_points *current_plot)
 
 
             case BOXES:
+		/* x, y, xmin, xmax */
+		store2d_point(current_plot, i++, v[0], v[1], v[2], v[3],
+			      v[1], variable_color_value, 0.0);
+		break;
+
             case XERRORLINES:
             case XERRORBARS:
                 /* x, y, xmin, xmax */
@@ -715,7 +738,7 @@ get_data(struct curve_points *current_plot)
             case VECTOR:
                 /* x,y,dx,dy */
                 store2d_point(current_plot, i++, v[0], v[1], v[0], v[0] + v[2],
-                              v[1], v[1] + v[3], -1.0);
+			      v[1], v[1] + v[3], variable_color_value);
                 break;
 
             case POINTSTYLE: /* x, y, variable point size and variable color */
@@ -829,8 +852,7 @@ store2d_point(
     double x, double y,
     double xlow, double xhigh,
     double ylow, double yhigh,
-    double width)               /* BOXES widths: -1 -> autocalc, 0 ->
-                                 * use xlow/xhigh */
+    double width)               /* BOXES widths: -1 -> autocalc, 0 ->  use xlow/xhigh */
 {
     struct coordinate GPHUGE *cp = &(current_plot->points[i]);
     int dummy_type = INRANGE;   /* sometimes we dont care about outranging */
@@ -922,6 +944,14 @@ store2d_point(
 	cp->ylow = ylow;
 	cp->yhigh = yhigh;
 	break;
+    case BOXES:			/* auto-scale to xlow xhigh ylow yhigh */
+	cp->ylow = y;
+	cp->yhigh = yhigh;	/* really variable_color_data */
+	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, 
+					current_plot->x_axis, NOOP, cp->xlow = -VERYLARGE);
+	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type,
+					current_plot->x_axis, NOOP, cp->xhigh = -VERYLARGE);
+	break;
     default:			/* auto-scale to xlow xhigh ylow yhigh */
 	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, 
 					current_plot->x_axis, NOOP, cp->xlow = -VERYLARGE);
@@ -949,7 +979,7 @@ store2d_point(
 static void
 histogram_range_fiddling(struct curve_points *plot)
 {
-    double xlow, xhigh, yhigh;
+    double xlow, xhigh;
     int i;
     /*
      * EAM FIXME - HT_STACKED_IN_TOWERS forcibly resets xmin, which is only
@@ -963,20 +993,32 @@ histogram_range_fiddling(struct curve_points *plot)
                         free(stackheight);
                     stackheight = gp_alloc( plot->p_count * sizeof(struct coordinate GPHUGE),
                                             "stackheight array");
-                    for (stack_count=0; stack_count < plot->p_count; stack_count++)
-                        stackheight[stack_count].y = 0;
+		    for (stack_count=0; stack_count < plot->p_count; stack_count++) {
+			stackheight[stack_count].yhigh = 0;
+			stackheight[stack_count].ylow = 0;
+		    }
                 } else if (plot->p_count > stack_count) {
                     stackheight = gp_realloc( stackheight,
                                             plot->p_count * sizeof(struct coordinate GPHUGE),
                                             "stackheight array");
-                    for ( ; stack_count < plot->p_count; stack_count++)
-                        stackheight[stack_count].y = 0;
+		    for ( ; stack_count < plot->p_count; stack_count++) {
+			stackheight[stack_count].yhigh = 0;
+			stackheight[stack_count].ylow = 0;
+		    }
                 }
                 for (i=0; i<stack_count; i++) {
-                    if (plot->points[i].type != UNDEFINED)
-                        stackheight[i].y += plot->points[i].y;
-                    if (axis_array[plot->y_axis].max < stackheight[i].y)
-                        axis_array[plot->y_axis].max = stackheight[i].y;
+		    if (plot->points[i].type == UNDEFINED)
+			continue;
+		    if (plot->points[i].y >= 0)
+			stackheight[i].yhigh += plot->points[i].y;
+		    else
+			stackheight[i].ylow += plot->points[i].y;
+
+		    if (axis_array[plot->y_axis].max < stackheight[i].yhigh)
+			axis_array[plot->y_axis].max = stackheight[i].yhigh;
+		    if (axis_array[plot->y_axis].min > stackheight[i].ylow)
+			axis_array[plot->y_axis].min = stackheight[i].ylow;
+
                 }
             }
                 /* fall through to checks on x range */
@@ -1003,20 +1045,31 @@ histogram_range_fiddling(struct curve_points *plot)
                 }
                 break;
         case HT_STACKED_IN_TOWERS:
-                if (!axis_array[FIRST_X_AXIS].set_autoscale)
-                    break;
-                xlow = 0.0;
-                xhigh = plot->histogram_sequence;
-                xhigh += plot->histogram->start + 1.0;
-                if (axis_array[FIRST_X_AXIS].min > xlow)
-                    axis_array[FIRST_X_AXIS].min = xlow;
-                if (axis_array[FIRST_X_AXIS].max != xhigh)
-                    axis_array[FIRST_X_AXIS].max  = xhigh;
-                for (i=0, yhigh=0.0; i<plot->p_count; i++)
-                    if (plot->points[i].type != UNDEFINED)
-                        yhigh += plot->points[i].y;
-                if (axis_array[plot->y_axis].max < yhigh)
-                    axis_array[plot->y_axis].max = yhigh;
+		if (axis_array[FIRST_X_AXIS].set_autoscale) {
+		    xlow = -1.0;
+		    xhigh = plot->histogram_sequence;
+		    xhigh += plot->histogram->start + 1.0;
+		    if (axis_array[FIRST_X_AXIS].min > xlow)
+			axis_array[FIRST_X_AXIS].min = xlow;
+		    if (axis_array[FIRST_X_AXIS].max != xhigh)
+			axis_array[FIRST_X_AXIS].max  = xhigh;
+		}
+		if (axis_array[FIRST_Y_AXIS].set_autoscale) {
+		    double ylow, yhigh;
+		    for (i=0, yhigh=ylow=0.0; i<plot->p_count; i++)
+			if (plot->points[i].type != UNDEFINED) {
+			    if (plot->points[i].y >= 0)
+				yhigh += plot->points[i].y;
+			    else
+				ylow += plot->points[i].y;
+			}
+		    if (axis_array[FIRST_Y_AXIS].set_autoscale & AUTOSCALE_MAX)
+			if (axis_array[plot->y_axis].max < yhigh)
+			    axis_array[plot->y_axis].max = yhigh;
+		    if (axis_array[FIRST_Y_AXIS].set_autoscale & AUTOSCALE_MIN)
+			if (axis_array[plot->y_axis].min > ylow)
+			    axis_array[plot->y_axis].min = ylow;
+		}
                 break;
     }
 }
@@ -1368,13 +1421,19 @@ eval_plots()
             do {
                 previous_token = c_token;
 
+		if (equals(c_token,"at")) {
+		    struct value a;
+		    c_token++;
+		    newhist_start = real(const_express(&a));
+		}
+
                 /* Store title in temporary variable and then copy into the */
                 /* new histogram structure when it is allocated.            */
-                if (!histogram_title && !equals(c_token,","))
+                if (!histogram_title && isstringvalue(c_token))
                     histogram_title = try_to_get_string();
 
                 /* Allow explicit starting color or pattern for this histogram */
-                lp_parse(&lp, TRUE, FALSE);
+                lp_parse(&lp, FALSE, FALSE);
                 parse_fillstyle(&fs, FS_SOLID, 100, fs.fillpattern, -1); 
 
                 } while (c_token != previous_token);
@@ -1642,10 +1701,14 @@ eval_plots()
                 if (this_plot->plot_style == VECTOR) {
                     int stored_token = c_token;
                     
-                    if (!set_lpstyle) {
-                        default_arrow_style(&(this_plot->arrow_properties));
-                        this_plot->arrow_properties.lp_properties.l_type = line_num;
-                    }
+		    if (!set_lpstyle) {
+			default_arrow_style(&(this_plot->arrow_properties));
+			if (prefer_line_styles)
+			    lp_use_properties(&(this_plot->arrow_properties.lp_properties),
+			    			line_num+1, FALSE);
+			else
+			    this_plot->arrow_properties.lp_properties.l_type = line_num;
+		    }
 
 		    arrow_parse(&(this_plot->arrow_properties), TRUE);
                     if (stored_token != c_token) {
@@ -1724,7 +1787,11 @@ eval_plots()
              * copy this to overall plot linetype so that the key sample matches */
             if (this_plot->plot_style == VECTOR) {
                 if (!set_lpstyle) {
-                    this_plot->arrow_properties.lp_properties.l_type = line_num;
+		    if (prefer_line_styles)
+			lp_use_properties(&(this_plot->arrow_properties.lp_properties),
+					line_num+1, FALSE);
+		    else
+			this_plot->arrow_properties.lp_properties.l_type = line_num;
                     arrow_parse(&this_plot->arrow_properties, TRUE);
                 }
                 this_plot->lp_properties = this_plot->arrow_properties.lp_properties;
@@ -1769,9 +1836,6 @@ eval_plots()
                 &&  (this_plot->lp_properties.p_size == PTSZ_VARIABLE))
                     this_plot->lp_properties.p_size = 1;
             }
-            if (this_plot->lp_properties.use_palette
-            &&  this_plot->lp_properties.pm3d_color.type >= TC_Z)
-                int_error(NO_CARET,"2D plots cannot color by Z value; please use splot instead");
 
             /* Similar argument for check that all fill styles were set */
             if (this_plot->plot_style & PLOT_STYLE_HAS_FILL) {
@@ -1829,10 +1893,6 @@ eval_plots()
                     this_plot->histogram = histogram_opts.next;
                     this_plot->histogram->clustersize++;
                 }
-                /* Modify X and Y coordinate placement info so that xtic and */
-                /* title coords are handled correctly during get_data().     */
-                if (histogram_opts.type == HT_STACKED_IN_TOWERS)
-                    this_plot->histogram->start = 0.5;
 
                 /* Normally each histogram gets a new set of colors, but in */
                 /* 'newhistogram' you can force a starting color instead.   */

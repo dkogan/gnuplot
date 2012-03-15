@@ -1,5 +1,5 @@
 /*
- * $Id: tables.h,v 1.57.2.1 2007/12/08 10:54:36 mikulik Exp $
+ * $Id: tables.h,v 1.57.2.3 2008/06/01 06:13:48 sfeam Exp $
  */
 
 /* GNUPLOT - tables.h */
@@ -89,7 +89,7 @@ enum set_id {
     S_MY2TICS, S_NOMY2TICS, S_MYTICS, S_NOMYTICS,
     S_MZTICS, S_NOMZTICS,
     S_OFFSETS, S_ORIGIN, SET_OUTPUT, S_PARAMETRIC,
-    S_PALETTE, S_PM3D, S_COLORBOX,
+    S_PALETTE, S_PM3D, S_COLORBOX, S_COLORNAMES,
     S_CBLABEL, S_CBRANGE, S_CBTICS, S_NOCBTICS, S_MCBTICS, S_NOMCBTICS,
     S_CBDATA, S_CBDTICS, S_NOCBDTICS, S_CBMTICS, S_NOCBMTICS,
     S_OBJECT, S_PLOT, S_POINTSIZE, S_POLAR, S_PRINT,
@@ -224,6 +224,7 @@ extern const struct gen_table filledcurves_opts_tbl[];
 /* Function prototypes */
 int lookup_table __PROTO((const struct gen_table *, int));
 parsefuncp_t lookup_ftable __PROTO((const struct gen_ftable *, int));
+int lookup_table_entry __PROTO((const struct gen_table *tbl, const char *search_str));
 int lookup_table_nth __PROTO((const struct gen_table *tbl, const char *search_str));
 int lookup_table_nth_reverse __PROTO((const struct gen_table *tbl, int table_len, const char *search_str));
 const char * reverse_table_lookup __PROTO((const struct gen_table *tbl, int entry));

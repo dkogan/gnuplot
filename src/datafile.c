@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.110.2.14 2008/03/08 17:48:24 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.110.2.17 2008/07/25 23:24:07 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -709,6 +709,7 @@ df_tokenise(char *s)
 		df_column[df_no_cols].good = DF_STRINGDATA;
 	} else if (check_missing(s)) {
 	    df_column[df_no_cols].good = DF_MISSING;
+	    df_column[df_no_cols].datum = atof("NaN");
 	} else {
 	    int used;
 	    int count;
@@ -748,7 +749,7 @@ df_tokenise(char *s)
 		 *  - it is faster than sscanf()
 		 *  - sscanf(... %n ...) may not be portable
 		 *  - it allows error checking
-		 *  - atod() does not return a count or new position
+		 *  - atof() does not return a count or new position
 		 */
 		 char *next;
 		 df_column[df_no_cols].datum = gp_strtod(s, &next);
@@ -852,6 +853,7 @@ df_read_matrix(int *rows, int *cols)
     int max_rows = 0;
     int c;
     float *linearized_matrix = NULL;
+    int bad_data = 0;
     char *s;
     int index = 0;
 
@@ -907,12 +909,13 @@ df_read_matrix(int *rows, int *cols)
 		if (i < firstpoint && df_column[i].good != DF_GOOD) {
 		    /* It's going to be skipped anyhow, so... */
 		    linearized_matrix[index++] = 0;
-		} else if (df_column[i].good != DF_GOOD) {
-		    if (linearized_matrix)
-			free(linearized_matrix);
-		    int_error(NO_CARET, "Bad number in matrix");
 		} else
 		    linearized_matrix[index++] = (float) df_column[i].datum;
+
+		if (df_column[i].good != DF_GOOD) {
+		    if (bad_data++ == 0)
+			int_warn(NO_CARET,"matrix contains missing or undefined values");
+		}
 	    }
 	}
     }
@@ -1041,6 +1044,7 @@ df_open(const char *cmd_filename, int max_using)
 #ifdef EAM_DATASTRINGS
     df_no_tic_specs = 0;
 #endif
+    df_key_title[0] = '\0';
 
     initialize_use_spec();
 
@@ -1494,38 +1498,15 @@ plot_option_using(int max_using)
 		++df_no_use_specs;
 		/* do not increment c+token ; let while() find the : */
 	    } else if (equals(c_token, "(")) {
-#ifdef BINARY_DATA_FILE
-		if (df_binary_file || df_matrix_file) {
-		    /* Scan through the tokens looking for largest
-		     * column reference. */
-		    int j;
-		    
-		    for (j=c_token;
-			 !equals(j, ")")
-			     && !(j >= num_tokens || equals(j, ";"));
-			 j++) {
-			copy_str(df_format, j, MAX_LINE_LEN);
-
-			if (equals(j, "$")) {
-			    if(isanumber(j+1)) {
-				int ival;
-
-				j++;
-				copy_str(df_format, j, MAX_LINE_LEN);
-				sscanf(df_format,"%d",&ival);
-				if (ival > no_cols)
-				    no_cols = ival;
-			    } else
-				int_error(c_token,
-				  "$ must be followed by a number");
-			}
-		    } /* for(j) */
-		} /* if(binary|matrix file) */
-#endif /* BINARY_DATA_FILE */
 		fast_columns = 0;       /* corey@cac */
 		dummy_func = NULL;      /* no dummy variables active */
 		/* this will match ()'s: */
-		use_spec[df_no_use_specs++].at = perm_at();     
+		at_highest_column_used = NO_COLUMN_HEADER;
+		use_spec[df_no_use_specs].at = perm_at();
+		if (no_cols < at_highest_column_used)
+		    no_cols = at_highest_column_used;
+		/* Catch at least the simplest case of 'autotitle columnhead' using an expression */
+		use_spec[df_no_use_specs++].column = at_highest_column_used;
 
 #ifdef EAM_DATASTRINGS
 	    /* FIXME EAM - It would be nice to handle these like any other */
@@ -1609,8 +1590,8 @@ void plot_ticlabel_using(int axis)
 	use_spec[df_no_use_specs+df_no_tic_specs].at = NULL;
     } else {
 	use_spec[df_no_use_specs+df_no_tic_specs].at = perm_at();
-	/* FIXME: Does it make any difference what we put here? */
-	col = 1;
+	fast_columns = 0;	/* Force all columns to be evaluated */
+	col = 1;		/* Redundant because of the above */
     }
 #else
     col = (int) real(const_express(&a));

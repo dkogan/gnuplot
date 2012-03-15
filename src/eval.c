@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.51.2.1 2007/03/22 04:50:35 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.51.2.5 2008/09/02 21:12:59 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -196,6 +196,8 @@ const struct ft_entry GPFAR ft[] =
     {"substr",  f_range},	/* for string variables only */
     {"word", f_words},		/* for string variables only */
     {"words", f_words},		/* implemented as word(s,-1) */
+    {"strftime",  f_strftime},  /* time to string */
+    {"strptime",  f_strptime},  /* string to time */
     {"system", f_system},       /* "dynamic backtics" */
     {"exist", f_exists},	/* exists("foo") replaces defined(foo) */
     {"exists", f_exists},	/* exists("foo") replaces defined(foo) */
@@ -694,15 +696,15 @@ add_udv_by_name(char *key)
 
 
 static void fill_gpval_axis __PROTO((AXIS_INDEX axis));
-static void set_gpval_axis_sth_double __PROTO((AXIS_INDEX axis, const char *suffix, double value, int is_int));
+static void set_gpval_axis_sth_double __PROTO((const char *prefix, AXIS_INDEX axis, const char *suffix, double value, int is_int));
 static void fill_gpval_string __PROTO((char *var, const char *value));
 
 static void 
-set_gpval_axis_sth_double(AXIS_INDEX axis, const char *suffix, double value, int is_int)
+set_gpval_axis_sth_double(const char *prefix, AXIS_INDEX axis, const char *suffix, double value, int is_int)
 {
     struct udvt_entry *v;
     char *cc, s[24];
-    sprintf(s, "GPVAL_%s_%s", axis_defaults[axis].name, suffix);
+    sprintf(s, "%s_%s_%s", prefix, axis_defaults[axis].name, suffix);
     for (cc=s; *cc; cc++) *cc = toupper(*cc); /* make the name uppercase */
     v = add_udv_by_name(s);
     if (!v) return; /* should not happen */
@@ -716,13 +718,20 @@ set_gpval_axis_sth_double(AXIS_INDEX axis, const char *suffix, double value, int
 static void
 fill_gpval_axis(AXIS_INDEX axis)
 {
+    const char *prefix = "GPVAL";
 #define A axis_array[axis]
     double a = AXIS_DE_LOG_VALUE(axis, A.min); /* FIXME GPVAL: This should be replaced by  a = A.real_min  and */
     double b = AXIS_DE_LOG_VALUE(axis, A.max); /* FIXME GPVAL: b = A.real_max  when true (delogged) min/max range values are implemented in the axis structure */
-    set_gpval_axis_sth_double(axis, "MIN", ((a < b) ? a : b), 0);
-    set_gpval_axis_sth_double(axis, "MAX", ((a < b) ? b : a), 0);
-    set_gpval_axis_sth_double(axis, "REVERSE", (A.range_flags & RANGE_REVERSE), 1);
-    set_gpval_axis_sth_double(axis, "LOG", A.base, 0);
+    set_gpval_axis_sth_double(prefix, axis, "MIN", ((a < b) ? a : b), 0);
+    set_gpval_axis_sth_double(prefix, axis, "MAX", ((a < b) ? b : a), 0);
+    set_gpval_axis_sth_double(prefix, axis, "REVERSE", (A.range_flags & RANGE_REVERSE), 1);
+    set_gpval_axis_sth_double(prefix, axis, "LOG", A.base, 0);
+
+    if (axis < R_AXIS) {
+	if (axis == T_AXIS) axis = COLOR_AXIS; /* T axis is never drawn; colorbar is. */
+	set_gpval_axis_sth_double("GPVAL_DATA", axis, "MIN", AXIS_DE_LOG_VALUE(axis, A.data_min), 0);
+	set_gpval_axis_sth_double("GPVAL_DATA", axis, "MAX", AXIS_DE_LOG_VALUE(axis, A.data_max), 0);
+    }
 #undef A
 }
 
@@ -802,6 +811,16 @@ update_gpval_variables(int context)
 	v = add_udv_by_name("GPVAL_COMPILE_OPTIONS");
 	if (v && v->udv_undef == TRUE)
 	    fill_gpval_string("GPVAL_COMPILE_OPTIONS", compile_options);
+
+	/* Permanent copy of user-clobberable variables pi and NaN */
+	v = add_udv_by_name("GPVAL_pi");
+	v->udv_undef = FALSE; 
+	Gcomplex(&v->udv_value, M_PI, 0);
+#ifdef HAVE_ISNAN
+	v = add_udv_by_name("GPVAL_NaN");
+	v->udv_undef = FALSE; 
+	Gcomplex(&v->udv_value, atof("NaN"), 0);
+#endif
     }
 
 }

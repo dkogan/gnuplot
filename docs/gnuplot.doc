@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.387.2.23 2008/02/29 17:53:38 sfeam Exp $
+C RCS $Id: gnuplot.doc,v 1.387.2.40 2008/09/22 04:03:48 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -832,6 +832,8 @@ C
 
  The integer expression "1/0" may be used to generate an "undefined" flag,
  which causes a point to ignored; the `ternary` operator gives an example.
+ Or you can use the pre-defined variable NaN to achieve the same result.
+=NaN
 
  The real and imaginary parts of complex expressions are always real, whatever
  the form in which they are entered: in {3,2} the "3" and "2" are reals, not
@@ -1278,6 +1280,24 @@ C
  beg through end of the original string. This is exactly equivalent to the
  expression "string"[beg:end] except that you do not have the option of
  ommitting beg or end.
+4 strftime
+?expressions functions strftime
+?functions strftime
+?strftime
+#strftime("timeformat",t) & any & string result from applying gnuplot's time parser \\
+%strftime("timeformat",t)@any@string result from applying gnuplot's time parser
+ `strftime("timeformat",t)` applies the timeformat specifiers to the time t
+ given in seconds since the year 2000. 
+ See `time_specifiers` and `strptime`.
+4 strptime
+? expressions functions strptime
+?functions strptime
+?strptime
+#strptime("timeformat",s) & string & seconds since year 2000 as given in string s \\
+%strptime("timeformat",s)@string@seconds since year 2000 as given in string s
+ `strptime("timeformat",s)` reads the time from the string s using the
+ timeformat specifiers and converts it into seconds since the year 2000.
+ See `time_specifiers` and `strftime`.
 4 system
 ?expressions functions system
 ?functions system
@@ -1727,10 +1747,17 @@ C ... and restart the table:
  The final two examples illustrate a user-defined string variable and a
  user-defined string function.
 
- Note that the variable `pi` is already defined.  But it is in no way magic;
- you may redefine it to be whatever you like. Some other variables may be
- defined under various gnuplot operations like mousing in interactive terminals
- or fitting; see `gnuplot-defined variables` for details.
+=NaN
+=pi
+ Note that the variables `pi` (3.14159...) and `NaN` (IEEE "Not a Number") are
+ already defined.  You can redefine these to something else if you really need
+ to. The original values can be recovered by setting:
+
+       NaN = GPVAL_NaN
+       pi  = GPVAL_pi
+ 
+ Other variables may be defined under various gnuplot operations like mousing in
+ interactive terminals or fitting; see `gnuplot-defined variables` for details.
 
  You can check for existence of a given variable V by the exists("V")
  expression. For example
@@ -1897,7 +1924,8 @@ C ... and restart the table:
 
  "palette z" maps the z value of each plot segment or plot element into the
  cbrange mapping of the palette. This allows smoothly-varying color along a
- 3d line or surface. This option applies only to 3D plots (splot).
+ 3D line or surface.  It also allows coloring 2D plots by palette values read
+ from an extra column of data.
 
 2 mouse input
 ?mouse input
@@ -3113,14 +3141,15 @@ C ... and restart the table:
 
  If one or more end conditions are given after `pause mouse`, then any one of
  the conditions will terminate the pause. The possible end conditions are
- `keypress`, `button1`, `button2`, `button3`, and `any`.
+ `keypress`, `button1`, `button2`, `button3`, `close`, and `any`.
  If the pause terminates on a keypress, then the ascii value of the key pressed
  is returned in MOUSE_KEY.  The character itself is returned as a one character
- string in MOUSE_CHAR.
+ string in MOUSE_CHAR. Hotkeys (bind command) are disabled if keypress is one of
+ the end conditions.  Zooming is disabled if button3 is one of the end 
+ conditions. 
 
  In all cases the coordinates of the mouse are returned in variables MOUSE_X,
- MOUSE_Y, MOUSE_X2, MOUSE_Y2.
- See `mouse variables`.
+ MOUSE_Y, MOUSE_X2, MOUSE_Y2.  See `mouse variables`.
 
  Note: Since `pause` communicates with the operating system rather than the
  graphics, it may behave differently with different device drivers (depending
@@ -3522,7 +3551,7 @@ C ... and restart the table:
  Sometimes the scanning directions in a binary datafile are not consistent with
  that assumed by gnuplot.  These keywords can flip the scanning direction along
  dimensions x, y, z.
-6 origin 
+6 origin
 ?binary general keywords origin
  When gnuplot generates coordinates based upon transposition and flip, it
  attempts to always position the lower left point in the array at the origin,
@@ -4019,6 +4048,8 @@ C ... and restart the table:
  which plots the datum in column two against that in column one provided
  the datum in column three exceeds ten.  `1/0` is undefined; `gnuplot`
  quietly ignores undefined points, so unsuitable points are suppressed.
+ Or you can use the pre-defined variable NaN to achieve the same result.
+=NaN
 
  In fact, you can use a constant expression for the column number, provided it
  doesn't start with an opening parenthesis; constructs like `using
@@ -4370,7 +4401,7 @@ C ... and restart the table:
                          {pointtype | pt <point_type>}
                          {pointsize | ps <point_size>}
                          {fill | fs <fillstyle>}
-                         {nohidden3d}
+                         {nohidden3d | nocontours}
                          {palette}}
                     }
 
@@ -4428,7 +4459,8 @@ C ... and restart the table:
  point coordinates or to the color coordinate if specified by the 4th parameter
  in `using`. Both 2d and 3d plots (`plot` and `splot` commands) can use palette
  colors as specified by either their fractional value or the corresponding value
- mapped to the colorbox range. 2d plots can not use palette colors mapped by
+ mapped to the colorbox range. A palette color value can also be read from an
+ explicitly specified column in the `using` specifier.
  Z value. See `colors`, `set palette`, `linetype`.
 
  The keyword `nohidden3d` applies only to plots made with the `splot` command.
@@ -4437,6 +4469,9 @@ C ... and restart the table:
  to exclude from the hidden3d processing.  The individual elements other than
  surfaces (i.e. lines, dots, labels, ...) of a plot marked `nohidden3d` will all
  be drawn, even if they would normally be obscured by other plot elements.
+
+ Similarly, the keyword `nocontours` will turn off contouring for an individual
+ plot even if the global property "set contour" is active.
 
  The keywords may be abbreviated as indicated.
 
@@ -6056,20 +6091,21 @@ C ... and restart the table:
        %A           full name of day of the week
        %b or %h     abbreviated name of the month
        %B           full name of the month
-       %d           day of the month, 1--31
-       %D           shorthand for "%m/%d/%y"
+       %d           day of the month, 01--31
+       %D           shorthand for "%m/%d/%y" (only output)
+       %F           shorthand for "%Y-%m-%d" (only output)
        %k           hour, 0--23 (one or two digits)
        %H           hour, 00--23 (always two digits)
-       *l           hour, 1--12 (one or two digits)
+       %l           hour, 1--12 (one or two digits)
        %I           hour, 01--12 (always two digits)
        %j           day of the year, 1--366
-       %m           month, 1--12
+       %m           month, 01--12
        %M           minute, 0--60
        %p           "am" or "pm"
-       %r           shorthand for "%I:%M:%S %p"
-       %R           shorthand for "%H:%M"
+       %r           shorthand for "%I:%M:%S %p" (only output)
+       %R           shorthand for "%H:%M" (only output)
        %S           second, 0--60
-       %T           shorthand for "%H:%M:%S"
+       %T           shorthand for "%H:%M:%S" (only output)
        %U           week of the year (week starts on Sunday)
        %w           day of the week, 0--6 (Sunday = 0)
        %W           week of the year (week starts on Monday)
@@ -6084,7 +6120,8 @@ C ... and restart the table:
 #\verb@%b@ or \verb@%h@ & abbreviated name of the month \\
 #\verb@%B@ & full name of the month \\
 #\verb@%d@ & day of the month, 1--31 \\
-#\verb@%D@ & shorthand for \verb@"%m/%d/%y"@ \\
+#\verb@%D@ & shorthand for \verb@"%m/%d/%y"@ (only output) \\
+#\verb@%F@ & shorthand for \verb@"%Y-%m-%d"@ (only output) \\
 #\verb@%k@ & hour, 0--23 (one or two digits)\\
 #\verb@%H@ & hour, 00--23 (always two digits)\\
 #\verb@%l@ & hour, 1--12  (one or two digits)\\
@@ -6093,10 +6130,10 @@ C ... and restart the table:
 #\verb@%m@ & month, 1--12 \\
 #\verb@%M@ & minute, 0--60 \\
 #\verb@%p@ & "am" or "pm" \\
-#\verb@%r@ & shorthand for \verb@"%I:%M:%S %p"@ \\
-#\verb@%R@ & shorthand for \verb@%H:%M"@ \\
+#\verb@%r@ & shorthand for \verb@"%I:%M:%S %p"@ (only output)\\
+#\verb@%R@ & shorthand for \verb@%H:%M"@ (only output)\\
 #\verb@%S@ & second, 0--60 \\
-#\verb@%T@ & shorthand for \verb@"%H:%M:%S"@ \\
+#\verb@%T@ & shorthand for \verb@"%H:%M:%S"@ (only output)\\
 #\verb@%U@ & week of the year (week starts on Sunday) \\
 #\verb@%w@ & day of the week, 0--6 (Sunday = 0) \\
 #\verb@%W@ & week of the year (week starts on Monday) \\
@@ -6110,7 +6147,8 @@ C ... and restart the table:
 %%b or %h@abbreviated name of the month
 %%B@full name of the month
 %%d@day of the month, 1--31
-%%D@shorthand for "%m/%d/%y"
+%%D@shorthand for "%m/%d/%y" (only output)
+%%F@shorthand for "%Y-%m-%d" (only output)
 %%k@hour, 0--23 (one or two digits)
 %%H@hour, 00--23 (always two digits)
 %%l@hour, 1--12 (one or two digits)
@@ -6119,10 +6157,10 @@ C ... and restart the table:
 %%m@month, 1--12
 %%M@minute, 0--60
 %%p@"am" or "pm"
-%%r@shorthand for "%I:%M:%S %p"
-%%R@shorthand for %H:%M"
+%%r@shorthand for "%I:%M:%S %p" (only output)
+%%R@shorthand for %H:%M" (only output)
 %%S@second, 0--60
-%%T@shorthand for "%H:%M:%S"
+%%T@shorthand for "%H:%M:%S" (only output)
 %%U@week of the year (week starts on Sunday)
 %%w@day of the week, 0--6 (Sunday = 0)
 %%W@week of the year (week starts on Monday)
@@ -6901,16 +6939,20 @@ C ... and restart the table:
  margin` shows the current settings.
 
  Syntax:
-       set bmargin {<margin>}
-       set lmargin {<margin>}
-       set rmargin {<margin>}
-       set tmargin {<margin>}
+       set bmargin {{at screen} <margin>}
+       set lmargin {{at screen} <margin>}
+       set rmargin {{at screen} <margin>}
+       set tmargin {{at screen} <margin>}
        show margin
 
- The units of <margin> are character heights or widths, as appropriate.  A
- positive value defines the absolute size of the margin.  A negative value
+ The default units of <margin> are character heights or widths, as appropriate.
+ A positive value defines the absolute size of the margin.  A negative value
  (or none) causes `gnuplot` to revert to the computed value.  For 3D plots,
- only the left margin setting has any effect so far.
+ only the left margin can be set using character units.
+
+ The keywords `at screen` indicates that the margin is specified as a fraction
+ of the full drawing area. This can be used to precisely line up the corners of
+ individual 2D and 3D graphs in a multiplot.
 
  Normally the margins of a plot are automatically calculated based on tics,
  tic labels, axis labels, the plot title, the timestamp and the size of the
@@ -7487,7 +7529,7 @@ C ... and restart the table:
  last.  The default is `scansautomatic` where gnuplot makes a guess about scans
  order.  On the other hand, the `depthorder` option completely reorders the
  qudrangles. The rendering is performed after a depth sorting, which allows to
- visualize even complicated surfaces; see `help pm3d depthorder` for more
+ visualize even complicated surfaces; see `pm3d depthorder` for more
  details.
 
  If two subsequent scans do not have same number of points, then it has to be
@@ -7976,7 +8018,7 @@ C ... and restart the table:
 ?show colornames
  Gnuplot knows a limited number of color names. You can use these to define
  the color range spanned by a pm3d palette, or to assign a terminal-independent
- colot to a particular linetype or linestyle. To see the list of know color
+ color to a particular linetype or linestyle. To see the list of known color
  names, use the command `show palette colornames`.
  See `set palette`, `linestyle`.
 3 pointsize
@@ -8746,8 +8788,8 @@ C ... and restart the table:
  these whiskerbars extend the full horizontal width of the candlestick, but
  you can modify this by specifying a fraction of the full width.
 
- By default the rectangle is empty if (open > close), and filled with three
- vertical bars if (close > open). If filled-boxes support is present, then
+ By default the rectangle is empty if (open < close), and filled with three
+ vertical bars if (close < open). If filled-boxes support is present, then
  the rectangle is colored according to `set style fill <fillstyle>`.
  See `set bars` and `financebars`.  See also
 ^ <a href="http://gnuplot.sourceforge.net/demo/candlesticks.html">
@@ -8935,7 +8977,9 @@ C ... and restart the table:
  Two styles of stacked histogram are supported, chosen by the command
  `set style histogram {rowstacked|columnstacked}`.  In these styles the data
  values from the selected columns are collected into stacks of boxes.
- The default stacking mode is `rowstacked`.
+ Positive values stack upwards from y=0; negative values stack downwards.
+ Mixed positive and negative values will produce both an upward stack and a
+ downward stack.  The default stacking mode is `rowstacked`.
 
  The `rowstacked` style places a box resting on the x-axis for each
  data value in the first selected column; the first data value results in
@@ -8980,10 +9024,11 @@ C ... and restart the table:
  then error bars can be added to the plot.  The following commands will add
  error bars extending from (y-<error>) to (y+<error>), capped by horizontal bar
  ends drawn the same width as the box itself. The error bars and bar ends are
- drawn in black with linewidth 2.
+ drawn with linewidth 2 using the border linetype from the current fill style.
 
        set bars fullwidth
-       set style histogram errorbars gap 2 lt -1 lw 2
+       set style fill solid border -1
+       set style histogram errorbars gap 2 lw 2
        plot 'file.dat' using 2:3, '' using 4:5, '' using 6:7:xticlabels(1)
 
  To plot the same data as a rowstacked histogram:
@@ -9015,7 +9060,7 @@ C ... and restart the table:
 ?histograms newhistogram
  More than one set of histograms can appear in a single plot. In this case you
  can force a gap between them, and a separate label for each set, by using the
- plot command `newhistogram {"<title>"} {<linestyle>}`.
+ plot command `newhistogram {"<title>"} {<linetype>} {at <x-coord>}`.
  For example
 
        set style histogram  cluster
@@ -9032,6 +9077,7 @@ C ... and restart the table:
        plot newhistogram "Set A" lt 4, 'a' using 1, '' using 2, '' using 3, \
             newhistogram "Set B" lt 4, 'b' using 1, '' using 2, '' using 3
 
+ The `at <x-coord>` option only applies to column-stacked histograms.
 5 image
 ?commands set style image
 ?set style image
@@ -10061,7 +10107,7 @@ C ... and restart the table:
                   | <incr>
                   | <start>, <incr> {,<end>}
                   | ({"<label>"} <pos> {<level>} {,{"<label>"}...) }
-                 { formt "formatstring" } { font "name{,<size>}" }
+                 { format "formatstring" } { font "name{,<size>}" }
                  { textcolor <colorspec> }
        unset xtics
        show xtics
@@ -10928,8 +10974,13 @@ C ... and restart the table:
 2 system
 ?commands system
 ?system
- `system` spawns shell to execute a command. Please type `help shell` for
- more details.
+ `system "command"` executes "command" using the standard shell. See `shell`.
+ If called as a function, `system("command")` returns the resulting character
+ stream from stdout as a string.  One optional trailing newline is ignored.
+
+ This can be used to import external functions into gnuplot scripts:
+ 
+       f(x) = real(system(sprintf("somecommand %f", x)))
 2 test
 ?commands test
 ?test palette
@@ -10949,6 +11000,17 @@ C ... and restart the table:
  The optional parameter, a permutation of letters rgb, determines the sequence of
  r,g,b profiles drawn one after the other --- try this yourself for `set palette
  gray`. The default sequence is rgb.
+2 undefine
+?commands undefine
+?undefine
+ Clear one or more previously defined user variables.  This is useful in order
+ to reset the state of a script containing an initialization test.
+
+ Example:
+
+       undefine foo foo1 foo2
+       if (!exists("foo")) load "initialize.gp"
+
 2 unset
 ?commands unset
 ?unset

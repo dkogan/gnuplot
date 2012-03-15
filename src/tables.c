@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tables.c,v 1.71.2.1 2007/12/08 10:54:36 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: tables.c,v 1.71.2.5 2008/06/25 22:47:50 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tables.c */
@@ -80,6 +80,7 @@ const struct gen_ftable command_ftbl[] =
     { "sp$lot", splot_command },
     { "sy$stem", system_command },
     { "test", test_command },
+    { "und$efine", undefine_command },
     { "uns$et", unset_command },
     { "up$date", update_command },
     { ";", null_command },
@@ -161,7 +162,7 @@ const struct gen_table set_tbl[] =
     { "cl$abel", S_CLABEL },
     { "c$lip", S_CLIP },
     { "cn$trparam", S_CNTRPARAM },
-    { "co$ntour", S_CONTOUR },
+    { "co$ntours", S_CONTOUR },
     { "da$ta", S_DATA },
 
     { "data$file", S_DATAFILE },
@@ -223,6 +224,8 @@ const struct gen_table set_tbl[] =
     { "pm$3d", S_PM3D },
     { "pal$ette", S_PALETTE },
     { "colorb$ox", S_COLORBOX },
+    { "colorn$ames", S_COLORNAMES },
+    { "colors", S_COLORNAMES },
     { "p$lot", S_PLOT },
     { "poi$ntsize", S_POINTSIZE },
     { "pol$ar", S_POLAR },
@@ -572,7 +575,7 @@ const struct gen_table show_style_tbl[] =
 {
     { "d$ata", SHOW_STYLE_DATA },
     { "f$unction", SHOW_STYLE_FUNCTION },
-    { "l$ine", SHOW_STYLE_LINE },
+    { "l$ines", SHOW_STYLE_LINE },
     { "fill", SHOW_STYLE_FILLING },
     { "fs", SHOW_STYLE_FILLING },
     { "ar$row", SHOW_STYLE_ARROW },
@@ -657,6 +660,20 @@ lookup_ftable(const struct gen_ftable *ftbl, int find_token)
 	ftbl++;
     }
     return ftbl->value;
+}
+
+/* Returns value of the first table entry for which the search string
+ * is a leading substring, or -1 if there is no match.
+ */
+int
+lookup_table_entry(const struct gen_table *tbl, const char *search_str)
+{
+    while (tbl->key) {
+	if (!strncmp(search_str, tbl->key, strlen(search_str)))
+	    return tbl->value;
+	tbl++;
+    }
+    return -1;
 }
 
 /* Returns index of the table tbl whose key matches the beginning of the

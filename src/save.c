@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.132.2.5 2007/12/08 10:54:35 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.132.2.8 2008/06/08 05:58:54 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -753,9 +753,15 @@ set origin %g,%g\n",
 #undef SAVE_AXISLABEL_OR_TITLE
 
     fprintf(fp, "set zero %g\n", zero);
-    fprintf(fp, "set lmargin %g\nset bmargin %g\n"
-	    "set rmargin %g\nset tmargin %g\n",
-	    lmargin, bmargin, rmargin, tmargin);
+
+    fprintf(fp, "set lmargin %s %g\n",
+	    lmargin.scalex == screen ? "at screen" : "", lmargin.x);
+    fprintf(fp, "set bmargin %s %g\n",
+	    bmargin.scalex == screen ? "at screen" : "", bmargin.x);
+    fprintf(fp, "set rmargin %s %g\n",
+	    rmargin.scalex == screen ? "at screen" : "", rmargin.x);
+    fprintf(fp, "set tmargin %s %g\n",
+	    tmargin.scalex == screen ? "at screen" : "", tmargin.x);
 
     fprintf(fp, "set locale \"%s\"\n", get_locale());
 
@@ -798,8 +804,9 @@ set origin %g,%g\n",
     /*
      *  Save palette information
      */
+
     fprintf( fp, "set palette %s %s maxcolors %d ",
-	     sm_palette.positive ? "positive" : "negative",
+	     sm_palette.positive==SMPAL_POSITIVE ? "positive" : "negative",
 	     sm_palette.ps_allcF ? "ps_allcF" : "nops_allcF",
 	sm_palette.use_maxcolors);
     fprintf( fp, "gamma %g ", sm_palette.gamma );
