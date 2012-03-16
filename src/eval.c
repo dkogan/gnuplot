@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.74.2.1 2010/01/06 17:35:10 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.96.2.2 2012/01/17 19:17:50 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -36,8 +36,7 @@ static char *RCSid() { return RCSid("$Id: eval.c,v 1.74.2.1 2010/01/06 17:35:10 
 
 /* HBB 20010724: I moved several variables and functions from parse.c
  * to here, because they're involved with *evaluating* functions, not
- * with parsing them: evaluate_at(), fpe(), the APOLLO signal handling
- * stuff, and fpe_env */
+ * with parsing them: evaluate_at(), fpe(), and fpe_env */
 
 #include "eval.h"
 
@@ -55,9 +54,6 @@ static char *RCSid() { return RCSid("$Id: eval.c,v 1.74.2.1 2010/01/06 17:35:10 
 
 /* Internal prototypes */
 static RETSIGTYPE fpe __PROTO((int an_int));
-#ifdef APOLLO
-static pfm_$fh_func_val_t apollo_sigfpe(pfm_$fault_rec_t & fault_rec)
-#endif
 
 /* Global variables exported by this module */
 struct udvt_entry udv_pi = { NULL, "pi", FALSE, {INTGR, {0} } };
@@ -93,6 +89,7 @@ const struct ft_entry GPFAR ft[] =
     {"pop",  f_pop},
     {"call",  f_call},
     {"calln",  f_calln},
+    {"sum", f_sum}, 
     {"lnot",  f_lnot},
     {"bnot",  f_bnot},
     {"uminus",  f_uminus},
@@ -115,7 +112,7 @@ const struct ft_entry GPFAR ft[] =
     {"power",  f_power},
     {"factorial",  f_factorial},
     {"bool",  f_bool},
-    {"dollars",  f_dollars},	/* for using extension */
+    {"dollars",  f_dollars},	/* for usespec */
     {"concatenate",  f_concatenate},	/* for string variables only */
     {"eqs",  f_eqs},			/* for string variables only */
     {"nes",  f_nes},			/* for string variables only */
@@ -125,6 +122,17 @@ const struct ft_entry GPFAR ft[] =
     {"jumpz",  f_jumpz},
     {"jumpnz",  f_jumpnz},
     {"jtern",  f_jtern},
+
+/* Placeholder for FS_START */
+    {"", NULL},
+
+/* legal in using spec only */
+    {"column",  f_column},
+    {"stringcolumn",  f_stringcolumn},	/* for using specs */
+    {"strcol",  f_stringcolumn},	/* shorthand form */
+    {"columnhead",  f_columnhead},
+    {"valid",  f_valid},
+    {"timecolumn",  f_timecolumn},
 
 /* standard functions: */
     {"real",  f_real},
@@ -160,6 +168,7 @@ const struct ft_entry GPFAR ft[] =
     {"gamma",  f_gamma},
     {"lgamma",  f_lgamma},
     {"ibeta",  f_ibeta},
+    {"voigt",  f_voigt},
     {"igamma",  f_igamma},
     {"rand",  f_rand},
     {"floor",  f_floor},
@@ -175,10 +184,8 @@ const struct ft_entry GPFAR ft[] =
     {"acosh",  f_acosh},
     {"atanh",  f_atanh},
     {"lambertw",  f_lambertw}, /* HBB, from G.Kuhnle 20001107 */
-
-    {"column",  f_column},	/* for using */
-    {"valid",  f_valid},	/* for using */
-    {"timecolumn",  f_timecolumn},	/* for using */
+    {"airy",  f_airy},         /* janert, 20090905 */
+    {"expint",  f_expint},     /* Jim Van Zandt, 20101010 */
 
     {"tm_sec",  f_tmsec},	/* for timeseries */
     {"tm_min",  f_tmmin},	/* for timeseries */
@@ -189,8 +196,6 @@ const struct ft_entry GPFAR ft[] =
     {"tm_wday",  f_tmwday},	/* for timeseries */
     {"tm_yday",  f_tmyday},	/* for timeseries */
 
-    {"stringcolumn",  f_stringcolumn},	/* for using specs */
-    {"strcol",  f_stringcolumn},	/* shorthand form */
     {"sprintf",  f_sprintf},	/* for string variables only */
     {"gprintf",  f_gprintf},	/* for string variables only */
     {"strlen",  f_strlen},	/* for string variables only */
@@ -200,27 +205,25 @@ const struct ft_entry GPFAR ft[] =
     {"words", f_words},		/* implemented as word(s,-1) */
     {"strftime",  f_strftime},  /* time to string */
     {"strptime",  f_strptime},  /* string to time */
+    {"time", f_time},		/* get current time */
     {"system", f_system},       /* "dynamic backtics" */
     {"exist", f_exists},	/* exists("foo") replaces defined(foo) */
     {"exists", f_exists},	/* exists("foo") replaces defined(foo) */
+    {"value", f_value},		/* retrieve value of variable known by name */
 
     {NULL, NULL}
 };
 
 /* Module-local variables: */
 
-#if defined(_Windows) && !defined(WIN32)
-static JMP_BUF far fpe_env;
-#else
 static JMP_BUF fpe_env;
-#endif
 
 /* Internal helper functions: */
 
 static RETSIGTYPE
 fpe(int an_int)
 {
-#if defined(MSDOS) && !defined(__EMX__) && !defined(DJGPP) && !defined(_Windows) || defined(DOS386)
+#if defined(MSDOS) && !defined(__EMX__) && !defined(DJGPP) && !defined(_Windows)
     /* thanks to lotto@wjh12.UUCP for telling us about this  */
     _fpreset();
 #endif
@@ -230,41 +233,6 @@ fpe(int an_int)
     undefined = TRUE;
     LONGJMP(fpe_env, TRUE);
 }
-
-/* FIXME HBB 20010724: do we really want this in *here*? Maybe it
- * should be in syscfg.c or somewhere similar. */
-#ifdef APOLLO
-# include <apollo/base.h>
-# include <apollo/pfm.h>
-# include <apollo/fault.h>
-
-/*
- * On an Apollo, the OS can signal a couple errors that are not mapped into
- * SIGFPE, namely signalling NaN and branch on an unordered comparison.  I
- * suppose there are others, but none of these are documented, so I handle
- * them as they arise.
- *
- * Anyway, we need to catch these faults and signal SIGFPE.
- */
-
-static pfm_$fh_func_val_t
-apollo_sigfpe(pfm_$fault_rec_t & fault_rec)
-{
-    kill(getpid(), SIGFPE);
-    return pfm_$continue_fault_handling;
-}
-
-/* This is called from main(), if the platform is an APOLLO */
-void
-apollo_pfm_catch()
-{
-    status_$t status;
-    pfm_$establish_fault_handler(fault_$fp_bsun, pfm_$fh_backstop,
-				 apollo_sigfpe, &status);
-    pfm_$establish_fault_handler(fault_$fp_sig_nan, pfm_$fh_backstop,
-				 apollo_sigfpe, &status);
-}
-#endif /* APOLLO */
 
 /* Exported functions */
 
@@ -322,10 +290,28 @@ magnitude(struct value *val)
     case INTGR:
 	return ((double) abs(val->v.int_val));
     case CMPLX:
-	return (sqrt(val->v.cmplx_val.real *
-		     val->v.cmplx_val.real +
-		     val->v.cmplx_val.imag *
-		     val->v.cmplx_val.imag));
+	{
+	    /* The straightforward implementation sqrt(r*r+i*i)
+	     * over-/underflows if either r or i is very large or very
+	     * small. This implementation avoids over-/underflows from
+	     * squaring large/small numbers whenever possible.  It
+	     * only over-/underflows if the correct result would, too.
+	     * CAVEAT: sqrt(1+x*x) can still have accuracy
+	     * problems. */
+	    double abs_r = fabs(val->v.cmplx_val.real);
+	    double abs_i = fabs(val->v.cmplx_val.imag);
+	    double quotient;
+
+	    if (abs_i == 0)
+	    	return abs_r;
+	    if (abs_r > abs_i) {
+		quotient = abs_i / abs_r;
+		return abs_r * sqrt(1 + quotient*quotient);
+	    } else {
+		quotient = abs_r / abs_i;
+		return abs_i * sqrt(1 + quotient*quotient);
+	    }
+	}
     default:
 	int_error(NO_CARET, "unknown type in magnitude()");
     }
@@ -604,21 +590,17 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
     errno = 0;
     reset_stack();
 
-#ifndef DOSX286
     if (!evaluate_inside_using || !df_nofpe_trap) {
 	if (SETJMP(fpe_env, 1))
 	    return;
 	(void) signal(SIGFPE, (sigfunc) fpe);
     }
-#endif
 
     execute_at(at_ptr);
 
-#ifndef DOSX286
     if (!evaluate_inside_using || !df_nofpe_trap) {
 	(void) signal(SIGFPE, SIG_DFL);
     }
-#endif
 
     if (errno == EDOM || errno == ERANGE) {
 	undefined = TRUE;
@@ -660,6 +642,11 @@ free_at(struct at_type *at_ptr)
 	/* if union a->arg is used as a->arg.v_arg free potential string */
 	if ( a->index == PUSHC || a->index == DOLLARS )
 	    gpfree_string(&(a->arg.v_arg));
+	/* a summation contains its own action table wrapped in a private udf */
+	if (a->index == SUM) {
+	    free_at(a->arg.udf_arg->at);
+	    free(a->arg.udf_arg);
+	}
     }
     free(at_ptr);
 }
@@ -689,6 +676,44 @@ add_udv_by_name(char *key)
     return (*udv_ptr);
 }
 
+struct udvt_entry *
+get_udv_by_name(char *key)
+{
+    struct udvt_entry *udv = first_udv;
+
+    while (udv) {
+        if (!strcmp(key, udv->udv_name))
+            return udv;
+
+        udv = udv->next_udv;
+    }
+
+    return NULL;
+}
+
+void
+del_udv_by_name( char *key, TBOOLEAN wildcard )
+{
+    struct udvt_entry *udv_ptr = first_udv;
+
+    while (udv_ptr) {
+ 	/* exact match */
+	if (!wildcard && !strcmp(key, udv_ptr->udv_name)) {
+	    udv_ptr->udv_undef = TRUE;
+	    gpfree_string(&(udv_ptr->udv_value));
+	    break;
+	}
+
+	/* wildcard match: prefix matches */
+	if ( wildcard && !strncmp(key, udv_ptr->udv_name, strlen(key)) ) {
+	    udv_ptr->udv_undef = TRUE;
+	    gpfree_string(&(udv_ptr->udv_value));
+	    /* no break - keep looking! */
+	}
+
+	udv_ptr = udv_ptr->next_udv;
+    }
+}
 
 static void update_plot_bounds __PROTO((void));
 static void fill_gpval_axis __PROTO((AXIS_INDEX axis));
@@ -722,8 +747,7 @@ fill_gpval_axis(AXIS_INDEX axis)
     set_gpval_axis_sth_double(prefix, axis, "REVERSE", (A.range_flags & RANGE_REVERSE), 1);
     set_gpval_axis_sth_double(prefix, axis, "LOG", A.base, 0);
 
-    if (axis < R_AXIS) {
-	if (axis == T_AXIS) axis = COLOR_AXIS; /* T axis is never drawn; colorbar is. */
+    if (axis < POLAR_AXIS) {
 	set_gpval_axis_sth_double("GPVAL_DATA", axis, "MIN", AXIS_DE_LOG_VALUE(axis, A.data_min), 0);
 	set_gpval_axis_sth_double("GPVAL_DATA", axis, "MAX", AXIS_DE_LOG_VALUE(axis, A.data_max), 0);
     }
@@ -789,6 +813,8 @@ update_plot_bounds(void)
     fill_gpval_integer("GPVAL_TERM_XMAX", axis_array[FIRST_X_AXIS].term_upper / term->tscale);
     fill_gpval_integer("GPVAL_TERM_YMIN", axis_array[FIRST_Y_AXIS].term_lower / term->tscale);
     fill_gpval_integer("GPVAL_TERM_YMAX", axis_array[FIRST_Y_AXIS].term_upper / term->tscale);
+    fill_gpval_integer("GPVAL_TERM_XSIZE", canvas.xright+1);
+    fill_gpval_integer("GPVAL_TERM_YSIZE", canvas.ytop+1);
 }
 
 /*
@@ -816,6 +842,8 @@ update_gpval_variables(int context)
 	fill_gpval_axis(T_AXIS);
 	fill_gpval_axis(U_AXIS);
 	fill_gpval_axis(V_AXIS);
+	fill_gpval_float("GPVAL_R_MIN", R_AXIS.min);
+	fill_gpval_float("GPVAL_R_LOG", R_AXIS.base);
 	update_plot_bounds();
 	fill_gpval_integer("GPVAL_PLOT", is_3d_plot ? 0:1);
 	fill_gpval_integer("GPVAL_SPLOT", is_3d_plot ? 1:0);
@@ -826,19 +854,20 @@ update_gpval_variables(int context)
 	fill_gpval_float("GPVAL_VIEW_ZSCALE", surface_zscale);
 	return;
     }
-    
+
     /* These are set after every "set" command, which is kind of silly */
     /* because they only change after 'set term' 'set output' ...      */
     if (context == 0 || context == 2 || context == 3) {
-	/* FIXME! This prevents a segfault if term==NULL, which can */
-	/* happen if set_terminal() exits via int_error().          */
+	/* This prevents a segfault if term==NULL, which can */
+	/* happen if set_terminal() exits via int_error().   */
 	if (!term)
 	    fill_gpval_string("GPVAL_TERM", "unknown");
 	else
 	    fill_gpval_string("GPVAL_TERM", (char *)(term->name));
-	
+
 	fill_gpval_string("GPVAL_TERMOPTIONS", term_options);
 	fill_gpval_string("GPVAL_OUTPUT", (outstr) ? outstr : "");
+	fill_gpval_string("GPVAL_ENCODING", encoding_names[encoding]);
     }
 
     /* If we are called from int_error() then set the error state */
@@ -850,7 +879,7 @@ update_gpval_variables(int context)
 	struct udvt_entry *v = add_udv_by_name("GPVAL_VERSION");
 	char *tmp;
 	if (v && v->udv_undef == TRUE) {
-	    v->udv_undef = FALSE; 
+	    v->udv_undef = FALSE;
 	    Gcomplex(&v->udv_value, atof(gnuplot_version), 0);
 	}
 	v = add_udv_by_name("GPVAL_PATCHLEVEL");
@@ -869,11 +898,11 @@ update_gpval_variables(int context)
 	fill_gpval_string("GPVAL_TERMINALS", tmp);
 	free(tmp);
 
+	fill_gpval_string("GPVAL_ENCODING", encoding_names[encoding]);
+
 	/* Permanent copy of user-clobberable variables pi and NaN */
 	fill_gpval_float("GPVAL_pi", M_PI);
-#ifdef HAVE_ISNAN
 	fill_gpval_float("GPVAL_NaN", not_a_number());
-#endif
     }
 
     if (context == 3 || context == 4) {
@@ -906,7 +935,7 @@ gp_words(char *string)
 	push(Ginteger(&a,-1));
 	f_words((union argument *)NULL);
 	pop(&a);
-	
+
     return a.v.int_val;
 }
 

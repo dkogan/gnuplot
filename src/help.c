@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: help.c,v 1.24 2008/03/30 03:27:54 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: help.c,v 1.26.2.1 2011/12/28 19:30:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - help.c */
@@ -44,6 +44,7 @@ void OutLine(const char *M){fputs(M,stderr);}
 #else
 
 #include "alloc.h"
+#include "plot.h"
 #include "util.h"
 
 /*
@@ -59,9 +60,6 @@ void OutLine(const char *M){fputs(M,stderr);}
  ** Much extension by David Kotz for use in gnutex, and then in gnuplot.
  ** Added output paging support, both unix and builtin. Rewrote completely
  ** to read helpfile into memory, avoiding reread of help file. 12/89.
- **
- ** Modified by Russell Lang to avoid reading completely into memory
- ** if DOS16 defined.  This uses much less memory.  6/91
  **
  ** The help file looks like this (the question marks are really in column 1):
  **
@@ -212,9 +210,7 @@ help(
     return (status);
 }
 
-/* we only read the file once, into memory
- * except for DOS16 when we don't read all the file -
- * just the keys and location of the text
+/* we only read the file into memory once
  */
 static int
 LoadHelp(char *path)
@@ -256,17 +252,13 @@ LoadHelp(char *path)
 	 ** Now store the text for this entry.
 	 ** buf already contains the first line of text.
 	 */
-#ifndef DOS16
 	firsthead = storeline(buf);
 	head = firsthead;
-#endif
 	while ((fgets(buf, BUFSIZ - 1, helpfp) != (char *) NULL)
 	       && (buf[0] != KEYFLAG)) {
-#ifndef DOS16
 	    /* save text line */
 	    head->next = storeline(buf);
 	    head = head->next;
-#endif
 	}
 	/* make each synonym key point to the same text */
 	do {
@@ -276,9 +268,7 @@ LoadHelp(char *path)
 	    key = key->next;
 	} while (flag != TRUE && key != NULL);
     }
-#ifndef DOS16
     (void) fclose(helpfp);
-#endif
 
     /* we sort the keys so we can use binary search later */
     sortkeys();
@@ -393,9 +383,6 @@ FreeHelp()
     free((char *) keys);
     keys = NULL;
     keycount = 0;
-#ifdef DOS16
-    (void) fclose(helpfp);
-#endif
 }
 
 /* FindHelp:
@@ -500,23 +487,12 @@ PrintHelp(
 				/* (out) - are there subtopics? */
 {
     LINEBUF *t;
-#ifdef DOS16
-    char buf[BUFSIZ];		/* line from help file */
-#endif
 
     StartOutput();
 
     if (subtopics == NULL || !*subtopics) {
-#ifdef DOS16
-	fseek(helpfp, key->pos, 0);
-	while ((fgets(buf, BUFSIZ - 1, helpfp) != (char *) NULL)
-	       && (buf[0] != KEYFLAG)) {
-	    OutLine(buf);
-	}
-#else
 	for (t = key->text; t != NULL; t = t->next)
 	    OutLine(t->line);	/* print text line */
-#endif
     }
     ShowSubtopics(key, subtopics);
     OutLine_InternalPager("\n");
@@ -682,9 +658,11 @@ StartOutput()
 #if defined(PIPES)
     char *pager_name = getenv("PAGER");
 
-    if (pager_name != NULL && *pager_name != NUL)
+    if (pager_name != NULL && *pager_name != NUL) {
+	restrict_popen();
 	if ((outfile = popen(pager_name, "w")) != (FILE *) NULL)
 	    return;		/* success */
+    }
     outfile = stderr;
     /* fall through to built-in pager */
 #endif

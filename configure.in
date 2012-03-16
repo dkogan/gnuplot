@@ -1,14 +1,18 @@
 dnl Process this file with autoconf to produce a configure script.
 dnl configure.in for gnuplot on Unix.
 dnl
-dnl $Id: configure.in,v 1.248.2.14 2010/03/07 00:50:12 sfeam Exp $
+dnl $Id: configure.in,v 1.297.2.12 2012/03/07 21:03:48 sfeam Exp $
 dnl
-dnl AC_INIT must match the release number
-AC_INIT(gnuplot, 4.4.0)
+dnl this is actually major.minor ...
+dnl note that for a non-beta release, we need to
+dnl remove the letter from VERSION
+AC_INIT(gnuplot, 4.6.0)
 AC_CONFIG_SRCDIR(src/graphics.c)
 AC_PREREQ(2.58)
 AM_CONFIG_HEADER(config.h:config.hin)
 AM_INIT_AUTOMAKE(1.7.9)
+
+AM_MAINTAINER_MODE
 
 VERSION_MAJOR="`cat $srcdir/VERSION`"
 PATCHLEVEL="`cat $srcdir/PATCHLEVEL`"
@@ -18,6 +22,7 @@ dnl configure.in body
 dnl Compiler characteristics
 dnl Check for ANSI C prototypes, the const and inline keywords,
 dnl and ANSI style stringification
+AC_GNU_SOURCE
 AC_PROG_CC
 AM_C_PROTOTYPES
 AC_PROG_CPP
@@ -25,6 +30,47 @@ AC_C_CONST
 AC_C_INLINE
 AC_C_STRINGIZE
 AC_PROG_LN_S
+
+if test "${build}" != "${host}"
+then
+  CC=${CC-${host_alias}-gcc}
+  CFLAGS=${CFLAGS-"-g -O2"}
+  CXX=${CXX-${host_alias}-c++}
+  CXXFLAGS=${CXXFLAGS-"-g -O2"}
+  CC_FOR_BUILD=${CC_FOR_BUILD-gcc}
+else
+  # The cross-compilation patch originally had CC_FOR_BUILD = "\$(CC)"
+  # but that causes a recursive definition in docs/Makefile. EAM Dec 2009.
+  CC_FOR_BUILD="${CC}"
+  AC_PROG_CC
+
+  # We must set the default linker to the linker used by gcc for the correct
+  # operation of libtool.  If LD is not defined and we are using gcc, try to
+  # set the LD default to the ld used by gcc.
+  if test -z "$LD"
+  then
+    if test "$GCC" = yes
+    then
+      case $build in
+      *-*-mingw*)
+        gcc_prog_ld=`$CC -print-prog-name=ld 2>&1 | tr -d '\015'` ;;
+      *)
+        gcc_prog_ld=`$CC -print-prog-name=ld 2>&1` ;;
+      esac
+      case $gcc_prog_ld in
+      # Accept absolute paths.
+      [[\\/]* | [A-Za-z]:[\\/]*)]
+        LD="$gcc_prog_ld" ;;
+      esac
+    fi
+  fi
+
+  CXX=${CXX-"c++"}
+  CFLAGS=${CFLAGS-"-g -O2"}
+  CXXFLAGS=${CXXFLAGS-"-g -O2"}
+fi
+AC_SUBST(CC_FOR_BUILD)
+
 
 dnl Various programs
 dnl X/Emacs for building lisp packages and creating .texi version of docs
@@ -34,7 +80,7 @@ test x"$EMACS" = xt && EMACS=
 AC_CHECK_PROGS(EMACS, emacs xemacs, no)
 
 dnl Allow manual specification of tex
-AC_ARG_WITH(latex,[--without-latex         disable latex support, (default enable)],[],[with_latex="yes"])
+AC_ARG_WITH(latex,[  --without-latex         disable latex support, (default enable)],[],[with_latex="yes"])
 if test "$with_latex" = yes; then
   AC_CHECK_PROGS(PLAINTEX, tex, no)
   AC_CHECK_PROGS(LATEX, latex latex2e, no)
@@ -50,7 +96,7 @@ AC_CHECK_PROGS(DVIPS, dvips, no)
 AC_CHECK_PROGS(TROFF, troff, no)
 
 AC_ARG_WITH(texdir,dnl
-  [  --with-texdir=DIR       where to install latex style files
+  [--with-texdir=DIR       where to install latex style files
                           (default by kpsexpand in subdir PACKAGE)],
   TEXDIR="$withval",
   TEXDIR="no")
@@ -62,7 +108,7 @@ AC_ARG_WITH(kpsexpand,dnl
   [if test "$withval" = yes; then
     test "$KPSEXPAND" != "no" || AC_MSG_ERROR(dnl
       [You tell me to use kpsexpand, but there is no kpsexpand])
-    AC_DEFINE(HAVE_KPSEXPAND,1,[ Define if you use have kpsexpand (TeX). ])
+    AC_DEFINE(HAVE_KPSEXPAND,1,[ Define if you want to use kpsexpand (TeX). ])
   fi])
 
 dnl we only care about texdir if latex is enabled
@@ -71,12 +117,18 @@ if test "$with_latex" = yes; then
     [texdir is not given and there is no kpsexpand, please tell where to install])
   dnl texdir has priority
   if test "$TEXDIR" = "no"; then
-    #in the case prefix = NONE us ac_default_prefix
-    TEXDIR="${prefix}"
-    test "x$TEXDIR" = xNONE && TEXDIR=$ac_default_prefix
-    TEXDIR=`$KPSEXPAND $TEXDIR/usr/'$TEXMFLOCAL'/tex/latex/gnuplot |sed "s%^.*share/%$TEXDIR/share/%"`
+    if test "x$prefix" != "xNONE"; then
+      TEXDIR=${prefix}/share/texmf
+    else
+      TEXDIR=`$KPSEXPAND '$TEXMFLOCAL'`
+      if test "x$TEXDIR" = "x" -o "$TEXDIR" = "\$TEXMFLOCAL"; then
+        TEXDIR=${ac_default_prefix}/share/texmf
+      fi
+    fi
+    TEXDIR=${TEXDIR}/tex/latex/gnuplot
   fi
 fi
+
 dnl X Window System files.
 AC_SUBST(LIBRARIES_FOR_X)
 AC_PATH_XTRA
@@ -125,11 +177,11 @@ AC_HEADER_STDC
 
 dnl Header files
 dnl ANSI/ISO C, POSIX, others
-AC_CHECK_HEADERS(dirent.h errno.h float.h limits.h locale.h math.h stdlib.h \
-  string.h time.h sys/time.h sys/types.h \
+AC_CHECK_HEADERS(dirent.h errno.h float.h langinfo.h limits.h locale.h math.h \
+  stdlib.h string.h time.h sys/time.h sys/types.h \
   sys/bsdtypes.h sys/ioctl.h sys/param.h sys/select.h sys/socket.h \
   sys/stat.h sys/systeminfo.h sys/timeb.h sys/utsname.h \
-  libc.h malloc.h poll.h sgtty.h termios.h values.h
+  libc.h malloc.h poll.h sgtty.h termios.h values.h dirent.h
 )
 
 AC_HEADER_STDBOOL
@@ -181,17 +233,16 @@ dnl Functions. Standard first, then others
 
 dnl ANSI/ISO and their predecessors
 dnl sunos 4 has on_exit() in place of atexit()
-dnl gamma is called lgamma on apollos and linux
+dnl gamma is called lgamma linux
 dnl we prefer lgamma over gamma, see specfun.c
 dnl math lib is already available, see operating systems part
 AC_CHECK_FUNCS(atexit memcpy memmove memset \
   on_exit bcopy bzero \
   setvbuf strerror strchr strrchr strstr \
   index rindex \
-  isnan \
   erf erfc gamma lgamma \
   getcwd poll pclose popen select sleep stpcpy \
-  strcspn strdup strcasecmp stricmp strncasecmp strnicmp \
+  strcspn strdup strndup strnlen strcasecmp stricmp strncasecmp strnicmp \
   sysinfo tcgetattr vfprintf doprnt usleep
 )
 
@@ -227,12 +278,26 @@ if test "$ac_cv_func_pclose" = yes -a "$ac_cv_func_popen" = yes ; then
   AC_DEFINE(PIPES,1,[ Define if you do have the popen and pclose functions. ])
 fi
 
+AC_MSG_CHECKING(if malloc(0) returns 0)
+AC_RUN_IFELSE([AC_LANG_PROGRAM([[#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+]],
+[[if(malloc(0)==0) return 1;]])],
+[malloc_zero_returns_zero=no],
+[malloc_zero_returns_zero=yes],
+[malloc_zero_returns_zero=yes])
+AC_MSG_RESULT([$malloc_zero_returns_zero])
+AS_IF([test x$malloc_zero_returns_zero = xyes],
+      [AC_DEFINE([MALLOC_ZERO_RETURNS_ZERO],[1],[Define to 1 if malloc(0)==0])])
+
 dnl Argument types of select()
 AC_FUNC_SELECT_ARGTYPES
 
 dnl On SVR3.
 dnl FIXME AC_DEFINE(CRIPPLED_SELECT)
 
+dnl Deprecated
 dnl Install the lasergnu printer script
 LASERGNU=lasergnu-noinstall
 AC_ARG_WITH(lasergnu,dnl
@@ -246,7 +311,7 @@ if test "$gp_datadir" = NONE/share; then
 fi
 pkgdatadir="$datadir/$PACKAGE"
 AC_ARG_WITH(gihdir,dnl
-[  --with-gihdir=DIR       location of .gih file
+[  --with-gihdir=DIR       location of .gih help text file
                           (default PREFIX/share/PACKAGE/VERSION)],
   GIHDIR="$withval",
   GIHDIR="$pkgdatadir/$VERSION_MAJOR")
@@ -310,8 +375,8 @@ AC_ARG_WITH(xmi,dnl
 
 dnl Use builtin readline or GNU readline or NetBSD editline
 AC_ARG_WITH(readline,dnl
-[  --with-readline=builtin  use the built-in minimal readline
-  --with-readline=gnu      use the GNU readline library (default)
+[  --with-readline=builtin  use the built-in readline
+  --with-readline=gnu      use the GNU readline library (default if present)
   --with-readline=bsd      use the NetBSD editline library (NB: does not handle UTF-8!)
   --with-readline=DIR      specify the location of GNU readline
   --without-readline       do not use any readline function], ,
@@ -324,6 +389,7 @@ AC_ARG_ENABLE(history-file,dnl
 
 dnl GNU readline and the required terminal library
 if test "$with_readline" != no; then
+  _libs="$LIBS"
   if test "$with_readline" != builtin; then
 
     if test "$with_readline" = bsd; then
@@ -387,6 +453,24 @@ if test "$with_readline" != no; then
 	,[${gp_tcap}])
     fi
 
+    dnl Work around some functions missing from the OSX readline library.
+    dnl Would it be better to simply switch to with_readline=bsd in this case?
+    AC_SEARCH_LIBS(rl_ding, readline, ,
+	AC_DEFINE(MISSING_RL_DING,1,[ Define if your libreadline has no rl_ding]),
+        [${TERMLIBS}])
+    AC_SEARCH_LIBS(rl_forced_update_display, readline, ,
+	AC_DEFINE(MISSING_RL_FORCED_UPDATE_DISPLAY,1,[ Define if your libreadline has no rl_force_update_display]),
+        [${TERMLIBS}])
+    AC_SEARCH_LIBS(rl_reset_after_signal, readline,
+	AC_DEFINE(HAVE_READLINE_RESET,1,[ Define if your libreadline has rl_reset_after_signal]),
+	,
+        [${TERMLIBS}])
+    # Warning: rl_complete_with_tilde_expansion is an int, not a function.
+    # I.e., it is not callable.  AC_CHECK_LIB seems to work anyhow, but...
+    AC_SEARCH_LIBS(rl_complete_with_tilde_expansion, readline, , 
+	AC_DEFINE(MISSING_RL_TILDE_EXPANSION,1,[ Define if your libreadline has no rl_complete_with_tilde_expansion]),
+        [${TERMLIBS}])
+
     if [test "$ac_cv_lib_readline_remove_history" != no || test "$ac_cv_lib_history_remove_history" != no]; then
       if test "$with_readline" = bsd; then
           AC_DEFINE(HAVE_LIBEDITLINE,1,
@@ -403,9 +487,8 @@ please add path to readline.h to CPPFLAGS in Makefile]))
 please add path to history.h to CPPFLAGS in Makefile]))
 
       if test "$enable_history_file" = yes; then
-        AC_CHECK_HEADERS(readline/tilde.h,
           AC_DEFINE(GNUPLOT_HISTORY,1,
-                    [ Define if you want to use a gnuplot history file. ]))
+                    [ Define if you want to use a gnuplot history file. ])
       fi
 
     fi # ! ac_cv_lib_readline_readline = no
@@ -415,6 +498,9 @@ please add path to history.h to CPPFLAGS in Makefile]))
   fi # ! with_readline != builtin 
 
   if test "$with_readline" = builtin; then
+    AC_CHECK_FUNCS(wcwidth)
+    AC_CHECK_HEADERS(wchar.h,,
+        AC_MSG_WARN([please add path to wchar.h to CPPFLAGS in Makefile]))
     AC_DEFINE(READLINE,1,
               [ Define if you want to use the included readline function. ])
     if test "$enable_history_file" = yes; then
@@ -423,40 +509,9 @@ please add path to history.h to CPPFLAGS in Makefile]))
     fi
   fi
 
+  LIBS="$_libs"
 fi
 dnl end readline
-
-dnl If no DIR argument given, use the Unix plot library
-dnl Else use either GNU libplot from plotutils,
-dnl or ancient GNU graphics libplot
-AC_ARG_WITH(plot,dnl
-[  --with-plot[=DIR]       use the Unix plot library],
-  [if test "$withval" != no; then
-     dnl Unix plot library
-     AC_CHECK_LIB(plot,openpl,
-       [AC_DEFINE(UNIXPLOT,1,
-                  [ Define if you want to use the standard Unix plot library. ])
-        TERMLIBS="-lplot $TERMLIBS"],
-       [
-	 dnl GNU plotutils 2.2 or better
-	 if test -d $withval/include; then
-	   CPPFLAGS="$CPPFLAGS -I$withval/include"
-	 fi
-	 if test -d $withval/lib; then
-	   LDFLAGS="$LDFLAGS -L$withval/lib"
-	 fi
-	 TERMXLIBS="$X_LIBS -lXaw -lXmu -lXt -lXext -lX11"
-	 AC_CHECK_LIB(plot,pl_textangle,
-	   [TERMLIBS="-lplot $TERMLIBS"
-	    AC_DEFINE(GNUGRAPH,1,
-	              [ Define if you want to use the GNU version of the Unix plot library. ])],
-	   [AC_MSG_WARN([GNU plotutils v2.2 or newer required -- disabling gnugraph terminal])
-	    TERMXLIBS=
-	    with_plot=no],
-	   [$TERMXLIBS])
-	])
-   fi])
-dnl end libplot
 
 dnl check presence of z library
 dnl TODO: path to zlib includes; -lz -lm specified multiple times
@@ -549,6 +604,14 @@ if test "$with_gd" != no; then
 fi
 dnl end gd
 
+dnl The iconv library can be used to switch character encodings.
+dnl So far this is only used by gd.trm and emf.trm.
+AC_SEARCH_LIBS([iconv_open], [iconv],
+  [AC_CHECK_HEADER([iconv.h],
+    [AC_DEFINE([HAVE_ICONV], 1, [define if you have libiconv and iconv.h])]
+  )]
+)
+
 dnl The Portable Document Format (PDF) terminal
 AC_ARG_WITH(pdf,dnl
 [  --with-pdf[=DIR]        enable pdf terminal 
@@ -613,31 +676,28 @@ dnl end pdf
 
 dnl check presence of lua/TikZ support
 AC_ARG_WITH(lua,dnl
-[  --with-lua            enable lua/TikZ terminal driver],,
-  with_lua=yes)
+[  --without-lua         disable lua/TikZ terminal (default enabled)],,
+  [test -z "${with_lua}" && with_lua=yes])
 
 if test "${with_lua}" = yes ; then
-  PKG_CHECK_MODULES(LUA, [lua], LUAFOUND=yes, [LUAFOUND=no])
+  PKG_CHECK_MODULES(LUA, [lua], LUAFOUND=yes, [PKG_CHECK_MODULES(LUA, [lua5.1], LUAFOUND=yes, [LUAFOUND=no])])
   if test $pkg_failed != no; then
-    AC_MSG_WARN([The lua terminal will not be compiled.])
+    AC_MSG_WARN([Could not find support for lua using pkg-config.])
     with_lua=no
-  else
-    _libs="$LIBS"
-    LIBS="$LIBS $LUA_LIBS"
   fi
 
-  AC_SEARCH_LIBS(luaL_openlibs, lua,
-    [dnl found lua library
-     AC_DEFINE(HAVE_LUA,1, [ Define if you want the lua/TikZ terminal. ])
-     AC_CHECK_HEADERS(lua.h,,
-       AC_MSG_WARN([please add path to lua.h to CPPFLAGS in Makefile]))
-    ],
-    with_lua=no)
- 
-  LIBS="$_libs"
   if test "$with_lua" != no; then
     TERMLIBS="$TERMLIBS $LUA_LIBS"
     CPPFLAGS="$CPPFLAGS $LUA_CFLAGS"
+  else
+    dnl if pkg-config didn't work, we migh still find it manually
+    AC_SEARCH_LIBS(luaL_openlibs, lua lua5.1,
+       with_lua=yes, with_lua=no)
+  fi
+  if test "$with_lua" = yes; then
+     AC_DEFINE(HAVE_LUA,1, [ Define if you want the lua/TikZ terminal. ])
+     AC_CHECK_HEADERS(lua.h,,
+       AC_MSG_WARN([please add path to lua.h to CPPFLAGS in Makefile]))
   fi
 
 fi
@@ -677,11 +737,11 @@ dnl Process rest of with and enable options
 dnl Use .gnuplot file in current directory
 AC_ARG_WITH(cwdrc,dnl
 [  --with-cwdrc            check current directory for .gnuplot file,
-                          normally disabled for security reasons],,
-  [if test "$withval" = yes; then
-     AC_DEFINE(NOCWDRC,1,
-               [ Define if you do not want to read .gnuplot in the current directory. ])
-   fi])
+                          normally disabled for security reasons],,)
+if test "$with_cwdrc" = yes; then
+     AC_DEFINE(USE_CWDRC,1,
+               [ Define if you want to read .gnuplot from current directory (SECURITY RISK!).])
+fi
 
 dnl Whether we want to build the lisp files
 dnl Does nothing here, is passed on to the lisp subdir
@@ -698,13 +758,12 @@ AC_ARG_WITH(row-help,dnl
    fi])
 
 dnl Whether we want to create the LaTeX tutorial
-TUTORIAL=tutorial
+TUTORIAL=notutorial
 AC_ARG_WITH(tutorial,dnl
-[  --without-tutorial      do not build LaTeX tutorial])
+[  --with-tutorial      process the LaTeX tutorial when building])
 dnl only if latex/2e is found
-if test "$with_latex" = no -o "$with_tutorial" = no ; then
-  TUTORIAL=notutorial
-  with_tutorial=no
+if test "$with_latex" != no -a "$with_tutorial" = yes ; then
+  TUTORIAL=tutorial
 fi
 
 dnl use mouse for interactive terminals
@@ -813,7 +872,7 @@ AC_ARG_ENABLE(volatile-data,dnl
   test -z "$enable_volatile_data" && enable_volatile_data=yes)
   if test "$enable_volatile_data" = yes; then
       AC_DEFINE(VOLATILE_REFRESH,1,
-               [ Define to allow zooming or refresh of volatile data. EXPERIMENTAL ])
+               [ Define to allow zooming or refresh of volatile data. ])
   fi
 
 dnl disable the "space raises console" behaviour
@@ -843,34 +902,6 @@ AC_ARG_ENABLE(macros,dnl
       AC_DEFINE(GP_MACROS,1,
                [ Define to allow command line macros. ])
   fi
-
-dnl MGR Window system
-AC_ARG_ENABLE(mgr,dnl
-[  --enable-mgr            enable MGR terminal],
-  [if test "$enableval" = yes; then
-     AC_CHECK_LIB(mgr,m_getinfo,
-       [AC_DEFINE(MGR,1,[ Define if you want to use the MGR Window system. ])
-        TERMLIBS="-lmgr -lpixrect $TERMLIBS"],
-       enable_mgr=no,
-       [-lpixrect])
-   fi])
-
-dnl fitting error variables
-AC_ARG_ENABLE(fiterrvars,dnl
-[  --disable-fiterrvars    disable fitting error variables],,
-  [test -z "${enable_fiterrvars}" && enable_fiterrvars=yes])
-if test "$enable_fiterrvars" = yes; then
-  AC_DEFINE(GP_FIT_ERRVARS, 1,
-            [ Define to allow 'fit' to create parameter error variables. ])
-fi
-
-dnl Redwood Graphics Interface Protocol
-AC_ARG_ENABLE(rgip,dnl
-[  --enable-rgip           enable Redwood Graphics Interface Protocol],
-  [if test "$enableval" = yes; then
-     AC_DEFINE(RGIP,1,
-               [ Define if you want to use the Redwood Graphics Interface Protocol. ])
-   fi])
 
 dnl hidden3d compile-time options...
 dnl NOTE: have to check that they're not both turned on --- the code
@@ -1018,6 +1049,17 @@ AM_CONDITIONAL(BUILD_WXWIDGETS, test "${enable_wxwidgets_ok}" = yes)
 
 dnl  End wxWidgets terminal
 
+dnl  Allow to disable terminals requiring bitmap support.
+dnl  NB: The copyright notice in bitmap.c is more restrictive
+dnl  than the overall gnuplot copyright.
+AC_ARG_WITH(bitmap_terminals,dnl
+[  --with-bitmap-terminals         dot-matrix printers and pbm])
+AS_IF([test "x${with_bitmap_terminals}" = "xyes"],,
+  AC_DEFINE(NO_BITMAP_SUPPORT,1,
+          [ Define to disable terminals that depend on code in bitmap.c ]))
+AM_CONDITIONAL(BUILD_BITMAP, test "${with_bitmap_terminals}" = yes)
+
+
 AC_ARG_WITH(cairo,dnl
 [  --without-cairo      cairo-based terminals (default enabled)],,
   [test -z "${with_cairo}" && with_cairo=yes])
@@ -1034,6 +1076,9 @@ if test "${with_cairo}" = yes ; then
     CPPFLAGS="$CPPFLAGS $CAIROPDF_CFLAGS"
     LIBS="$LIBS $CAIROPDF_LIBS"
     with_cairo=yes
+    PKG_CHECK_MODULES(CAIROEPS, [cairo >= 1.6.0],
+        AC_DEFINE([HAVE_CAIROEPS], 1, [libcairo support for eps (cairo >= 1.6)]),
+        AC_MSG_WARN([Your version of cairo is too old to support epscairo output]))
   fi
 fi
 
@@ -1054,6 +1099,92 @@ AC_ARG_ENABLE(backwards-compatibility,dnl
     AC_DEFINE(BACKWARDS_COMPATIBLE,1,
                [ Define to allow use of deprecated syntax and terminal behaviour. ])
   fi])
+
+dnl Enable subsystem to generate statistical summary of file contents
+AC_ARG_ENABLE(stats,dnl
+[  --enable-stats          Include command to generate statistical summary of data],
+  [if test "$enableval" != no; then
+    AC_DEFINE(USE_STATS,1,
+               [ Define to add support for generating a statistical summary of data])
+   fi],
+    AC_DEFINE(USE_STATS,1,
+               [ Define to add support for generating a statistical summary of data])
+   )
+
+dnl Qt terminal
+
+AC_ARG_ENABLE(qt,dnl
+[  --enable-qt             Qt terminal (default disabled)],
+  [if test "$enableval" = yes; then
+     enable_qt=yes;
+   fi])
+
+if test "${enable_qt}" = yes ; then
+  dnl variable used to determine if all checks pass
+  enable_qt_ok=yes
+
+  dnl Check for the C++ compiler
+  if test "x${cxxerror}" = "xyes"; then
+    AC_MSG_WARN([No C++ compiler found. The Qt terminal will not be compiled.])
+      enable_qt_ok=no
+  fi
+
+  dnl Check for Qt libraries
+  PKG_CHECK_MODULES_NOFAIL(QT, [QtCore >= 4.5 QtGui >= 4.5 QtNetwork >= 4.5 QtSvg >= 4.5])
+  if test $pkg_failed != no; then
+    AC_MSG_WARN([The Qt terminal will not be compiled.])
+    enable_qt_ok=no
+  fi
+fi
+
+if test "${enable_qt_ok}" = yes ; then
+  dnl Check for fork()
+  AC_FUNC_FORK
+
+  CPPFLAGS="$CPPFLAGS $QT_CFLAGS"
+  CXXFLAGS="$CXXFLAGS $QT_CXXFLAGS"
+
+  dnl Compile Objective C Cocoa headers on Mac to hide the gnuplot icon from the dock
+  if test "$is_apple" = yes; then
+    CXXFLAGS="$CXXFLAGS -ObjC"
+  fi
+
+  QT4LOC=`$PKG_CONFIG --variable=exec_prefix QtCore`
+  MOC=`$PKG_CONFIG --variable=moc_location QtCore`
+  if test x"$MOC" = x; then
+    MOC=moc
+  fi
+  UIC=`$PKG_CONFIG --variable=uic_location QtCore`
+  if test x"$UIC" = x; then
+    UIC=uic
+  fi
+  RCC=`$PKG_CONFIG --variable=rcc_location QtCore`
+  if test x"$RCC" = x ; then
+    if test x"$QT4LOC" != x ; then
+        RCC=$QT4LOC/bin/rcc
+    else
+        RCC=rcc
+    fi
+  fi
+  LRELEASE=`$PKG_CONFIG --variable=lrelease_location QtCore`
+  if test x"$LRELEASE" = x ; then
+    if test x"$QT4LOC" != x ; then
+        LRELEASE=$QT4LOC/bin/lrelease
+    else
+        LRELEASE=lrelease
+    fi
+  fi
+  AC_SUBST(RCC)
+  AC_SUBST(MOC)
+  AC_SUBST(UIC)
+  AC_SUBST(QT_LIBS)
+  AC_SUBST(LRELEASE)
+  AC_DEFINE(QTTERM,1, [ Define if you want the Qt terminal. ])
+fi
+AM_CONDITIONAL(BUILD_QT, test "${enable_qt_ok}" = yes)
+
+dnl translation tools
+AM_CONDITIONAL(HAVE_LRELEASE, test "${LRELEASE}" != no)
 
 AC_ARG_VAR(DIST_CONTACT,[Contact address for modified and binary distributed gnuplot versions])
 if test -n "${DIST_CONTACT}"; then
@@ -1094,6 +1225,7 @@ AC_OUTPUT([Makefile
            src/Makefile
            src/beos/Makefile
            src/wxterminal/Makefile
+           src/qtterminal/Makefile
            term/Makefile
            tutorial/Makefile],
           [test -z "$CONFIG_HEADERS" || echo timestamp >stamp-h])
@@ -1114,12 +1246,22 @@ AC_MSG_RESULT([gnuplot will be compiled with the following terminals:])
 AC_MSG_RESULT([])
 
 AC_MSG_RESULT([  Standalone terminals: yes (always builtin)])
-AC_MSG_RESULT([    (canvas, cgm, corel, dumb, dxf, eepic, emf, emtex,])
-AC_MSG_RESULT([    epslatex, epson_180dpi, epson_60dpi, epson_lx800, fig, gpic, hp2623A,])
-AC_MSG_RESULT([    hp2648, hp500c, hpdj, hpgl, hpljii, hppj, imagen,])
-AC_MSG_RESULT([    latex, metafont, metapost, mif, pbm, postscript, pslatex, nec_cp6, okidata,])
-AC_MSG_RESULT([    pcl5, pstex, pstricks, qms, regis, svg, tandy_60dpi,])
-AC_MSG_RESULT([    tek40xx, tek410x, texdraw, tgif, tkcanvas, tpic, vttek)])
+AC_MSG_RESULT([    canvas, cgm, context, corel, dumb, dxf, eepic, emf, emtex,])
+AC_MSG_RESULT([    epslatex, fig, gpic, hp2623a, hp2648, hpgl, imagen,])
+AC_MSG_RESULT([    latex, metafont, metapost, mif, pcl5, postscript, pslatex,])
+AC_MSG_RESULT([    pstex, pstricks, qms, regis, svg,])
+AC_MSG_RESULT([    tek40xx, tek410x, texdraw, tgif, tkcanvas, tpic, vttek])
+AC_MSG_RESULT([])
+
+if test "$with_bitmap_terminals" == yes; then
+  AC_MSG_RESULT([  dot-matrix terminals: yes ( --without-bitmap-terminals to disable)])
+else
+  AC_MSG_RESULT([  dot-matrix terminals: no])
+fi
+AC_MSG_RESULT([    NB: copyright may restrict commercial use])
+AC_MSG_RESULT([    epson, nec, okidata, tandy, and seiko dp414 printers])
+AC_MSG_RESULT([    hp500c, hpdj, hpljii, hppj, pbm, starc])
+AC_MSG_RESULT([])
 
 if test "$no_x" != yes; then
   AC_MSG_RESULT([  X Window System terminal: yes])
@@ -1135,14 +1277,9 @@ if test "$no_x" != yes; then
     AC_MSG_RESULT([    (disable plotting to windows opened by external apps) ])
   fi
 
-  if test "$enable_binary_x11_polygon" = yes; then
-    AC_MSG_RESULT([    (with binary polygon protocol )])
-  else
-    AC_MSG_RESULT([    (without binary polygon protocol )])
-  fi
   AC_MSG_RESULT([    (with application defaults, in $X11_APPDEFAULTS_DIR)])
 else
-    AC_MSG_RESULT([  X Window System terminal: no (requires X libraries)])
+  AC_MSG_RESULT([  X Window System terminal: no (requires X libraries)])
 fi
 
 if test "$ac_cv_lib_gd_gdImageJpeg" = yes; then
@@ -1186,19 +1323,6 @@ else
   AC_MSG_RESULT([  pdf terminal: no (requires libpdf)])
 fi
 
-if test x"$with_plot" != x; then
-  if test "$with_plot" = yes; then
-    AC_MSG_RESULT([  plot library terminal: yes (unixplot - UNIX version)])
-  elif test "$with_plot" != no; then
-    AC_MSG_RESULT([  plot library terminal: yes (gnugraph - GNU version)])
-  else
-    AC_MSG_RESULT([  plot library terminal: no (requires GNU plotutils or UNIX plot)])
-  fi
-else
-    AC_MSG_RESULT([  plot library terminal: no (use --with-plot to enable, requires GNU plotutils])
-    AC_MSG_RESULT([                             or UNIX plot)])
-fi
-
 if test "$with_linux_vga" = yes; then
     AC_MSG_RESULT([  linux terminal (vga console): yes])
   if test "$with_vgagl" = yes; then
@@ -1224,18 +1348,6 @@ else
   AC_MSG_RESULT([  ggi terminal: no (use --with-ggi to enable, requires libggi)])
 fi
 
-if test "$enable_mgr" = yes; then
-  AC_MSG_RESULT([  mgr terminal: yes])
-else
-  AC_MSG_RESULT([  mgr terminal: no (use --enable-mgr to enable, requires libpixrect)])
-fi
-
-if test "$enable_rgip" = yes ; then
-  AC_MSG_RESULT([  rgip/uniplex terminal: yes])
-else
-  AC_MSG_RESULT([  rgip/uniplex terminal: no (use --enable-rgip to enable)])
-fi
-
 if test "$is_msdos" = yes; then
   AC_MSG_RESULT([  svga terminal (MSDOS/djgpp): yes])
 else
@@ -1254,10 +1366,10 @@ else
   AC_MSG_RESULT([  next terminal: no])
 fi
 
-if test "$is_apple" = yes; then
-  AC_MSG_RESULT([  aqua terminal (MacOS X): yes])
+if test "$ac_cv_lib_aquaterm_aqtInit" = yes; then
+  AC_MSG_RESULT([  aqua terminal: yes])
 else
-  AC_MSG_RESULT([  aqua terminal (MacOS X): no])
+  AC_MSG_RESULT([  aqua terminal: no])
 fi
 
 if test "$enable_wxwidgets_ok" = yes; then
@@ -1278,17 +1390,17 @@ else
   AC_MSG_RESULT([  lua/TikZ terminal: no ])
 fi
 
+if test "$enable_qt_ok" = yes; then
+  AC_MSG_RESULT([  Qt terminal: yes ])
+else
+  AC_MSG_RESULT([  Qt terminal: no (requires C++, Qt >= 4.5)])
+fi
+
 AC_MSG_RESULT([])
 AC_MSG_RESULT([  Additional terminals are availaible in platform-specific makefiles:])
-AC_MSG_RESULT([   amiga (makefile.amg and makefile.ami), apollo/gpr (makefile.unx)])
 AC_MSG_RESULT([   cgi (makefile.unx), pm (makefile.os2),])
 AC_MSG_RESULT([   sun (makefile.unx), unixpc (makefile.unx), windows (various Windows])
 AC_MSG_RESULT([   makefiles)])
-
-AC_MSG_RESULT([  Additional terminals are built automatically if possible at compile-time:])
-AC_MSG_RESULT([   vesa (MSDOS), emxvga (MSDOS, OS/2), ega/vga/svga/ssvga/hercules (Windows with])
-AC_MSG_RESULT([   Zortec compiler), macintosh])
-
 
 AC_MSG_RESULT([])
 AC_MSG_RESULT([gnuplot will be compiled with the following features:])
@@ -1300,14 +1412,8 @@ else
   AC_MSG_RESULT([  Mouse support in interactive terminals: no])
 fi
 
-if test "$enable_fiterrvars" = yes; then
-  AC_MSG_RESULT([  Fitting error variables: yes])
-else
-  AC_MSG_RESULT([  Fitting error variables: no])
-fi
-
 if test "$enable_volatile_data" = yes; then
-  AC_MSG_RESULT([  Zooming or refresh of volatile data: yes (EXPERIMENTAL)])
+  AC_MSG_RESULT([  Zooming or refresh of volatile data: yes ])
 else
   AC_MSG_RESULT([  Zooming or refresh of volatile data: no])
 fi
@@ -1351,6 +1457,9 @@ fi
     else
       AC_MSG_RESULT([  Readline library: GNU readline library])
     fi
+    if test "$ac_cv_lib_readline_rl_forced_update_display" = no; then
+      AC_MSG_RESULT([                    missing some features (OSX version?)])
+    fi
   else
     AC_MSG_RESULT([  Readline library: builtin minimal (use --with-readline=gnu for GNU readline)])
   fi
@@ -1363,7 +1472,7 @@ else
 fi
 
 if test "$with_cwdrc" = yes; then
-  AC_MSG_RESULT([  Check current directory for .gnuplot file: yes])
+  AC_MSG_RESULT([  Check current directory for .gnuplot file: yes (warning: security risk)])
 else
   AC_MSG_RESULT([  Check current directory for .gnuplot file: no (use --with-cwdrc to enable)])
 fi
@@ -1397,9 +1506,15 @@ else
 fi
 
 if test "$enable_backwards_compatibility" = yes; then
-  AC_MSG_RESULT([  Deprecated syntax and terminal options : yes])
+  AC_MSG_RESULT([  Deprecated syntax and terminal options: yes])
 else
-  AC_MSG_RESULT([  Deprecated syntax and terminal options : no (use --enable-backwards-compatibility to enable)])
+  AC_MSG_RESULT([  Deprecated syntax and terminal options: no (use --enable-backwards-compatibility)])
+fi
+
+if test "$enable_stats" != no; then
+  AC_MSG_RESULT([  Generate statistical summary of data: yes])
+else
+  AC_MSG_RESULT([  Generate statistical summary of data: no (use --enable-stats to enable)])
 fi
 
 
@@ -1408,9 +1523,7 @@ AC_MSG_RESULT([gnuplot will install the following additional materials:])
 AC_MSG_RESULT([])
 
 if test "$with_lasergnu" = yes; then
-  AC_MSG_RESULT([  lasergnu printer script: yes])
-else
-  AC_MSG_RESULT([  lasergnu printer script: no (use --with-lasergnu to enable)])
+  AC_MSG_RESULT([  lasergnu printer script: yes (Deprecated)])
 fi
 
 if test "$with_lisp_files" != no; then

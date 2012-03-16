@@ -16,15 +16,8 @@ Table of contents:
 	- How to install WPS icon for drag&drop.
     * Compiling Gnuplot with the wxWidgets terminal
 	- Notes about the requirements of the `wxt` terminal.
-    * Front-ends for gnuplot
-	- Few notes about graphical front-ends for gnuplot.
 
-  The description of preprocessor options previously found here has
-been moved to a new file called PORTING. Generic installation
-instructions for `configure', such as distributed with FSF/GNU
-packages, are in INSTALL.gnu.
-
-If you're installing a binary package, you may still want to check out
+If you are installing a binary package, you may still want to check out
 some sections of this document, particularly the one discussing
 environment variables.
 
@@ -39,7 +32,10 @@ For the impatient
 selects the set of terminal drivers to be compiled in.  
 
    The recommended way to configure both of these is the GNU-style
-"./configure" script described below, and also in INSTALL.gnu.
+"./configure" script described below and described further in INSTALL.gnu.
+This script is provided as part of the distributed source package, but if you
+are using sources downloaded directly from a CVS repository you may need to
+regenerate it using the preliminary script "./prepare".
 
    A complete overview of configure options is below in the Basic
 Installation section. On platforms which do not support GNU
@@ -173,22 +169,23 @@ $ ./configure --help
 
   --disable-history-file  do not use history file
   --disable-mouse         disable mouse for interactive terminals
-  --disable-with-image    disable image support
   --disable-x11-mbfonts   disable multi-byte font support for x11
   --disable-binary-x11-polygon  disable binary_x11_polygon
   --disable-x11-external  disable drawing to windows belonging to external apps
-  --enable-thin-splines   enable thin plate splines
   --disable-volatile-data disable zooming of volatile data
   --disable-raise-console spacebar in plot window does not raise console
-  --disable-objects       disable rectangles and other objects
   --disable-macros        disable command line macros
-  --enable-mgr            enable MGR terminal
-  --disable-fiterrvars    disable fitting error variables
-  --enable-rgip           enable Redwood Graphics Interface Protocol
-  --disable-h3d-quadtree  disable quadtree optimization in hidden3d code
   --enable-h3d-gridbox    enable gridbox optimization in hidden3d code
   --disable-wxwidgets     wxWidgets terminal (default enabled)
   --enable-backwards-compatibility       enable deprecated syntax
+  --disable-bitmap-terminals
+			the code in bitmap.c has a copyright notice that is more
+			restrictive that the gnuplot license.  This option
+			disables inclusion of this code and any terminals that
+			depend on it (mostly HP deskjet era dot matrix printers).
+  --with-readline={gnu|bsd|builtin}
+			Override the automatic choice of terminal input modes.
+			See below for more detail.
 
 Options marked with (*) are enabled by default, ie. these features or
 packages are used if configure detects them even if the corresponding
@@ -214,46 +211,44 @@ Ubuntu:
 Mac OSX
 -------
 
-Default ./configure; ./make  fails on OSX with error messages like these:
+Readline issues:
 
-  /Undefined symbols:
-    /"_rl_forced_update_display", referenced from:
-    /_restore_prompt in command.o
-    /"_rl_ding", referenced from:
-    /_alert in mouse.o
-    /"_history_list", referenced from:
-    /_write_history_list in history.o
-    /"_rl_complete_with_tilde_expansion", referenced from:
-    /_rl_complete_with_tilde_expansion$non_lazy_ptr in plot.o
-    /ld: symbol(s) not found
-    /collect2: ld returned 1 exit status
+  As I understand the situation, Apple ships OSX with a "fake" libreadline
+  shared library. The file /usr/lib/libreadline.dylib is really a symlink to a
+  compatibility layer over the BSD libedit library.  But the compatibility isn't
+  complete, and in particular it is missing many of the routines used for readline
+  support by gnuplot. As of version 4.4, the ./configure script should be able
+  to cope with this. But you will still be left without some of the functionality
+  of the "real" libreadline.  For one thing, libedit doesn't handle UTF input.
+  You have several options:
+  
+  1) Delete the fake libreadline libraries from OSX and install
+  the real gnu libreadline as a system library.
+  
+  2) Install the real gnu libreadline into your personal account and
+  tell gnuplot to use it:
+  ./configure --with-readline=/my/private/readline/installdir
+  This may require some playing around with additional -L and -I
+  definitions in CFLAGS, and is probably harder than replacing the
+  system copy of the library.
 
-As I understand the situation, the story seems to be that Apple have provided
-a "fake" libreadline shared library. The file /usr/lib/libreadline.dylib is
-really a symlink to a compatibility layer over the BSD libedit library.
-But the compatibility isn't complete, and in particular it is missing many of
-the routines used for readline support by gnuplot.
+  3) Use gnuplot's built-in readline routines.  These have been enhanced
+  in version 4.6 to support UTF-8 input and tab-completion of file names.
+  ./configure --with-readline=builtin
 
-If the configure script can't find libreadline then it is supposed to fall
-back to using built-in routines. But the "fake" libreadline fools the
-configure script into thinking it really is present, and then the build
-fails later when it turns out that routines are missing.
+wxt terminal:
 
-Alternative work-arounds:
+  Cairo & pango need to be installed first on Mac, 
+  I recommend using MacPorts building universal (i386 libraries):
+  sudo port install cairo +no_x11 +quartz +universal
+  sudo port install pango +no_x11 +quartz +universal
 
-1) Explicitly tell gnuplot libreadline is not available:
-./configure --with-readline=builtin
+  Next gnuplot may be compiled with shipped with Mac OS X 10.6 SL wxWidgets using:
+  ./configure CPPFLAGS='-arch i386' LDFLAGS='-arch i386'
 
-2) Delete the fake libreadline libraries from OSX and install
-the real gnu libreadline as a system library.
-
-3) Install the real gnu libreadline into your personal account and
-tell gnuplot to use it:
-./configure --with-readline=/my/private/readline/installdir
-This may require some playing around with additional -L and -I
-definitions in CFLAGS, and is probably harder than replacing the
-system copy of the library.
-
+  NOTE: 10.6 SL by default generates x86_64 code, but wxWidgets stable is using
+  Carbon API on Mac which is 32-bit only, that makes compiling gnuplot,
+  cairo and pango to i386 necessary.
 
 
 VMS
@@ -300,38 +295,31 @@ the compiler you want to use (default DECC).
 MS-Windows
 ----------
 
-You'll need a help compiler from Microsoft to build the on-line help
-for gnuplot.  Some versions of that, including the one coming with
-version 4.0 of MSVC++ and with Borland C++ Builder 1.0, appear unable
-to compile gnuplot.rtf.  The freely available "Help Workshop" download
-from Microsoft is known to work, so in case of down you should get and
-use that.
+In order to build the help file you require the "Microsoft HTML Help 1.4
+SDK", which is freely downloadable here:
+http://go.microsoft.com/fwlink/?LinkId=154968
 
 General install instructions:
- Change into the "src" subdirectory.
- Build the program using one of the ways shown below this note.
- Put wgnuplot.exe, wgnuplot.hlp and wgnuplot.mnu all in a single
+ Build the program using one of the ways shown below this note. 
+ Some of the Makefiles include an "install" target (e.g. config/mingw/Makefile).
+ Alternatively, put wgnuplot.exe, wgnuplot.chm and wgnuplot.mnu all in a single
   directory somewhere.  You may want to add that directory to your PATH.
  There's no installer for gnuplot, so if you want a desktop link,
   program manager group or an association of *.plt or *.gpl files to
   wgnuplot, you'll have to do all that yourself.
 
-Using Visual C++ and compiling for Windows (32-bit, i.e. 9x and NT family)
-      nmake -f ..\config\makefile.nt
- or
-      copy ..\config\makefile.nt makefile
-      nmake
+We currently support and test building with the following compilers and
+Makefiles:
 
-Using the MinGW32 port of gcc:  Instructions are given in config/makefile.mgw
+    MinGW/MSYS: config/mingw/Makefile
+    Microsoft Visual C++: config/msvc/Makefile
+    OpenWatcom: config/watcom/Makefile
+    Cygwin: config/cygwin/Makefile
+	
+Further building instructions are given in correspondig Makefiles.
+Note that Makefiles contain a configuration section which you have to
+adopt to your actual setup!
 
-Using the Cygwin port of gcc:  Instructions are given in config/makefile.cyg
-
-Using Borland C++ 32 bit compilers, like the freely downloadable BCC55:
-      copy ..\config\makefile.win makefile.win
-  Look through makefile.win to see if you need to make any changes.
-  You'll probably have to change TC and some others.
-      make -fmakefile.win WIN32=1
-      
 [NOTE: gnuplot can no longer be built for 16-bit Windows versions.]
 
 
@@ -410,21 +398,21 @@ non-default location that is not searched by the preprocessor or linker.
 
   --with-readline
 
-   Use gnuplot's builtin readline function. This is enabled by default.
+   Use whatever readline support is detected automatically, either an
+   external library or gnuplot's built-in version. This is the default.
+
+  --with-readline=builtin
+
+   Use gnuplot's own builtin readline routines even if a GNU or BSD readline
+   library is detected.
 
   --without-readline
 
-   (same as --with-readline=no) Do not use gnuplot's builtin readline function.
+   (same as --with-readline=no) Do not use any readline processing.
 
   --with-readline=gnu
 
    Use the GNU readline library instead of gnuplot's builtin readline.
-   Version 4.2 or better is required.
-
-   Please note that there was a bug in GNU readline up to and including 4.3
-   that makes gnuplot exit if the terminal window is resized. A fix is
-   described at
-   http://sourceforge.net/tracker/index.php?func=detail&aid=608874&group_id=2055&atid=102055 .
 
   --with-readline[=DIR]
 
@@ -440,20 +428,9 @@ non-default location that is not searched by the preprocessor or linker.
    and use it if found, if you don't specify any option regarding this
    package.
 
-  --with-png[=DIR]
-
-    Dto. for the png library. This option is on by default.
-
   --with-pdf[=DIR]
 
     Dto. for the pdf library. This option is on by default.
-
-  --with-plot[=DIR]
-
-    If used without the DIR argument, this option selects the standard
-    UNIX plot library, if available. If used with the DIR argument,
-    configure looks for the plot library from GNU plotutils version 2.2
-    or better. The option is off by default.
 
 
 Platform compiler problems
@@ -516,42 +493,10 @@ whenever you re-run configure.
   automatically detect this situation and apply the flag, but you may want
   to double-check it.
 
- - SunOS 4.x
-   An ANSI/ISO C compiler should be used to compile gnuplot. It is
-  recommended to install gcc. If this is not an option, the system
-  compiler cc can be made to work with Wietse Venema's unproto tool.
-  See entry below for instructions.
+ - SunOS / Solaris
+  There are known issues with regard to compiler support for Booleans.
+  You may have to tweak gnuplot's definition of TBOOLEAN.
 
-  As of 1998-11-18, gnuplot compiles again with the native compiler cc.
-
-  Note that as of gnuplot-4.0, the alternative tool ansi2knr is
-  included with the gnuplot source distribution and should
-  automatically be used by automake to do this job for you, so you
-  shouldn't need unproto any longer.
-
-  unproto is available from
-  ftp://ftp.win.tue.nl/pub/unix/unproto5.shar.Z
-  ftp://ftp.porcupine.org/pub/lang/unproto5.shar.Z
-
-  After installing unproto, configure gnuplot with
-
-  (Bourne shell syntax)
-
-  $ cd gnuplot-4.0
-  $ CC='cc -B/full/path/to/unproto/dir/ -tp' ./configure <options>
-
-  or (C shell syntax)
-
-  $ cd gnuplot-4.0
-  $ env CC='cc -B/full/path/to/unproto/dir/ -tp' ./configure <options>
-
-  The required compiler options shown here are for System V.2.  For other
-  platforms, consult the unproto documentation. `/full/path/to/unproto/dir'
-  is the full path name of the directory where unproto is installed. It is
-  not necessary to "install" unproto, one can just create a subdirectory
-  in gnuplot's source directory and use it from there.
-
-  SunOS 4.1 also needs the Ultrix mousing code patch mentioned above.
 
 Environment variables
 =====================
@@ -647,7 +592,7 @@ However, the supplied demo files provide a good method of testing commonly
 used features. All command line examples below assume Unix Bourne shell
 syntax.
 
-   The demo files can be run interactively by eg.
+   Individual demo files can be run interactively by eg.
 
 $ cd gnuplot/demo
 $ gnuplot simple.dem
@@ -673,8 +618,7 @@ $ GNUPLOT_DRIVER_DIR=../src ../src/gnuplot all.dem </dev/null
    if you run it from the demo directory of the source tree:
 $ make check
 
-   To use a different plotting device than the default (usually X11 under
-Unix), use eg.
+   To use a different plotting device than the default, use eg.
 
 $ GNUTERM=dumb GNUPLOT_DRIVER_DIR=../src ../src/gnuplot all.dem </dev/null
 or
@@ -731,11 +675,7 @@ met:
 First, this terminal is based on the wxWidgets library. This library can be
 found on http://www.wxwidgets.org. It comes in different flavours corresponding
 to the underlying API : Microsoft Windows ("wxMSW"), GTK+ ("wxGTK"), X11
-("wxX11"), MacOS ("wxMAC"), etc. Only wxMSW and wxGTK have been tested for
-gnuplot 4.2. If you want to use one of the other flavours, some things are
-likely to need a little work. You can find help on the gnuplot-beta mailing
-list. If you compile against the wxGTK port, you are encouraged to have the
-gtk+ development files too for the raise/lower commands to work as expected.
+("wxX11"), MacOS ("wxMAC"), etc.
 
 Then, the terminal needs the Cairo library (no specific backend is required)
 which can be found on http://www.cairographics.org, and the Pango library,

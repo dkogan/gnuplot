@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: term.c,v 1.184.2.7 2010/02/18 04:34:49 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: term.c,v 1.225.2.4 2012/02/21 23:50:14 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - term.c */
@@ -78,21 +78,28 @@ static char *RCSid() { return RCSid("$Id: term.c,v 1.184.2.7 2010/02/18 04:34:49
 
 #include "alloc.h"
 #include "axis.h"
+#ifndef NO_BITMAP_SUPPORT
 #include "bitmap.h"
+#endif
 #include "command.h"
 #include "driver.h"
 #include "graphics.h"
 #include "help.h"
 #include "plot.h"
 #include "tables.h"
+#include "getcolor.h"
 #include "term.h"
 #include "util.h"
 #include "version.h"
 #include "misc.h"
-#include "getcolor.h"
 
 #ifdef USE_MOUSE
 #include "mouse.h"
+#else
+/* Some terminals (svg canvas) can provide mousing information */
+/* even if the interactive gnuplot session itself cannot.      */
+long mouse_mode = 0;
+char* mouse_alt_string = NULL;
 #endif
 
 #ifdef _Windows
@@ -123,9 +130,14 @@ FILE *gpoutfile;
    details.
 */
 FILE *gppsfile = 0;
+char *PS_psdir = NULL;
 
 /* true if terminal has been initialized */
 TBOOLEAN term_initialised;
+
+/* The qt and wxt terminals cannot be used in the same session. */
+/* Whichever one is used first to plot, this locks out the other. */
+void *term_interlock = NULL;
 
 /* true if in multiplot mode */
 TBOOLEAN multiplot = FALSE;
@@ -135,8 +147,8 @@ enum set_encoding_id encoding;
 /* table of encoding names, for output of the setting */
 const char *encoding_names[] = {
     "default", "iso_8859_1", "iso_8859_2", "iso_8859_9", "iso_8859_15",
-    "cp437", "cp850", "cp852", "cp1250", "cp1254", "koi8r", "koi8u", 
-    "utf8", NULL };
+    "cp437", "cp850", "cp852", "cp950", "cp1250", "cp1251", "cp1254", 
+    "koi8r", "koi8u", "sjis", "utf8", NULL };
 /* 'set encoding' options */
 const struct gen_table set_encoding_tbl[] =
 {
@@ -149,10 +161,13 @@ const struct gen_table set_encoding_tbl[] =
     { "cp4$37", S_ENC_CP437 },
     { "cp850", S_ENC_CP850 },
     { "cp852", S_ENC_CP852 },
+    { "cp950", S_ENC_CP950 },
     { "cp1250", S_ENC_CP1250 },
+    { "cp1251", S_ENC_CP1251 },
     { "cp1254", S_ENC_CP1254 },
     { "koi8$r", S_ENC_KOI8_R },
     { "koi8$u", S_ENC_KOI8_U },
+    { "sj$is", S_ENC_SJIS },
     { NULL, S_ENC_INVALID }
 };
 
@@ -178,6 +193,10 @@ char enhanced_escape_format[16] = "";
 double enhanced_max_height = 0.0, enhanced_min_height = 0.0;
 /* flag variable to disable enhanced output of filenames, mainly. */
 TBOOLEAN ignore_enhanced_text = FALSE;
+
+/* Recycle count for user-defined linetypes */
+int linetype_recycle_count = 0;
+
 
 /* Internal variables */
 
@@ -208,16 +227,17 @@ static void do_pointsize __PROTO((double size));
 static void line_and_point __PROTO((unsigned int x, unsigned int y, int number));
 static void do_arrow __PROTO((unsigned int sx, unsigned int sy, unsigned int ex, unsigned int ey, int head));
 
-static void UP_redirect __PROTO((int called));
-
 static int null_text_angle __PROTO((int ang));
 static int null_justify_text __PROTO((enum JUSTIFY just));
 static int null_scale __PROTO((double x, double y));
+static void null_layer __PROTO((t_termlayer layer));
 static void options_null __PROTO((void));
 static void UNKNOWN_null __PROTO((void));
 static void MOVE_null __PROTO((unsigned int, unsigned int));
 static void LINETYPE_null __PROTO((int));
 static void PUTTEXT_null __PROTO((unsigned int, unsigned int, const char *));
+
+static int strlen_tex __PROTO((const char *));
 
 /* Used by terminals and by shared routine parse_term_size() */
 typedef enum {
@@ -286,11 +306,6 @@ static struct {
 } mp_layout = MP_LAYOUT_DEFAULT;
 
 
-#ifdef __ZTC__
-char *ztc_init();
-/* #undef TGIF */
-#endif
-
 #ifdef VMS
 char *vms_init();
 void vms_reset();
@@ -304,8 +319,8 @@ void fflush_binary();
 # define FOPEN_BINARY(file) fopen(file, "wb")
 #endif /* !VMS */
 
-#if defined(MSDOS) || defined(WIN32) || defined(WIN16)
-# if defined(__DJGPP__) || defined (__TURBOC__)
+#if defined(MSDOS) || defined(WIN32)
+# if defined(__DJGPP__)
 #  include <io.h>
 # endif
 # include <fcntl.h>
@@ -326,13 +341,6 @@ void fflush_binary();
 #if defined(__WATCOMC__) || defined(__MSC__)
 # include <io.h>        /* for setmode() */
 #endif
-
-/* This is needed because the unixplot library only writes to stdout,
- * but GNU plotutils libplot.a doesn't */
-#if defined(UNIXPLOT) && !defined(GNUGRAPH)
-static FILE save_stdout;
-#endif
-static int unixplot = 0;
 
 #define NICE_LINE               0
 #define POINT_TYPES             6
@@ -410,12 +418,12 @@ term_set_output(char *dest)
 	gppsfile = NULL;
     }
     if (dest == NULL) {         /* stdout */
-	UP_redirect(4);
 	term_close_output();
     } else {
 
 #if defined(PIPES)
 	if (*dest == '|') {
+	    restrict_popen();
 	    if ((f = popen(dest + 1, POPEN_MODE)) == (FILE *) NULL)
 		os_error(c_token, "cannot create pipe; output not changed");
 	    else
@@ -467,7 +475,6 @@ term_set_output(char *dest)
 	gpoutfile = f;
 	outstr = dest;
 	opened_binary = (term && (term->flags & TERM_BINARY));
-	UP_redirect(1);
     }
 }
 
@@ -557,8 +564,7 @@ term_start_plot()
     }
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_RESET);
+    (*term->layer)(TERM_LAYER_RESET);
 
     /* Because PostScript plots may be viewed out of order, make sure */
     /* Each new plot makes no assumption about the previous palette.  */
@@ -582,8 +588,7 @@ term_end_plot()
 	return;
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_END_TEXT);
+    (*term->layer)(TERM_LAYER_END_TEXT);
     
     if (!multiplot) {
 	FPRINTF((stderr, "- calling term->text()\n"));
@@ -878,6 +883,7 @@ term_apply_lp_properties(struct lp_style_type *lp)
      *  this function by explicitly issuing additional '(*term)(...)'
      *  commands.
      */
+    int lt = lp->l_type;
 
     if (lp->pointflag) {
 	/* change points, too
@@ -891,13 +897,17 @@ term_apply_lp_properties(struct lp_style_type *lp)
 	    (*term->pointsize) (lp->p_size);
     }
     /*  _first_ set the line width, _then_ set the line type !
-
      *  The linetype might depend on the linewidth in some terminals.
      */
     (*term->linewidth) (lp->l_width);
 
     /* Apply "linetype", which can include both color and dot/dash */
-    (*term->linetype) (lp->l_type);
+    if (lt <= LT_COLORFROMCOLUMN)
+	/* The color will be picked up in a moment, but we first need */
+	/* to set a reasonable line type.                             */
+	(*term->linetype) (LT_BLACK);
+    else
+	(*term->linetype) (lt);
     /* Possibly override the linetype color with a fancier colorspec */
     if (lp->use_palette)
 	apply_pm3dcolor(&lp->pm3d_color, term);
@@ -1184,8 +1194,7 @@ do_arrow(
     if ((head != NOHEAD) && fabs(len_arrow) >= DBL_EPSILON) {
 	int x1, y1, x2, y2;
 	if (curr_arrow_headlength <= 0) {
-	    /* arrow head with the default size */
-	    /* now calc the head_coeff */
+	    /* An arrow head with the default size and angles */
 	    double coeff_shortest = len_tic * HEAD_SHORT_LIMIT / len_arrow;
 	    double coeff_longest = len_tic * HEAD_LONG_LIMIT / len_arrow;
 	    double head_coeff = GPMAX(coeff_shortest,
@@ -1199,23 +1208,34 @@ do_arrow(
 	    xm = (int) ((x1 + x2)/2);
 	    ym = (int) ((y1 + y2)/2);
 	} else {
-	    /* the arrow head with the length + angle specified explicitly */
+	    /* An arrow head with the length + angle specified explicitly.	*/
+	    /* Assume that if the arrow is shorter than the arrowhead, this is	*/
+	    /* because of foreshortening in a 3D plot.                  	*/
 	    double alpha = curr_arrow_headangle * DEG2RAD;
 	    double beta = curr_arrow_headbackangle * DEG2RAD;
 	    double phi = atan2(-dy,-dx); /* azimuthal angle of the vector */
-	    double backlen = curr_arrow_headlength * sin(alpha) / sin(beta);
+	    double backlen, effective_length;
 	    double dx2, dy2;
+
+	    effective_length = curr_arrow_headlength;
+	    if (curr_arrow_headlength > len_arrow/2.) {
+		effective_length = len_arrow/2.;
+		alpha = atan(tan(alpha)*((double)curr_arrow_headlength/effective_length));
+		beta = atan(tan(beta)*((double)curr_arrow_headlength/effective_length));
+	    }
+	    backlen = sin(alpha) / sin(beta);
+
 	    /* anticlock-wise head segment */
-	    x1 = -(int)(curr_arrow_headlength * cos( alpha - phi ));
-	    y1 =  (int)(curr_arrow_headlength * sin( alpha - phi ));
+	    x1 = -(int)(effective_length * cos( alpha - phi ));
+	    y1 =  (int)(effective_length * sin( alpha - phi ));
 	    /* clock-wise head segment */
-	    dx2 = -curr_arrow_headlength * cos( phi + alpha );
-	    dy2 = -curr_arrow_headlength * sin( phi + alpha );
+	    dx2 = -effective_length * cos( phi + alpha );
+	    dy2 = -effective_length * sin( phi + alpha );
 	    x2 = (int) (dx2);
 	    y2 = (int) (dy2);
 	    /* back point */
-	    xm = (int) (dx2 + backlen * cos( phi + beta ));
-	    ym = (int) (dy2 + backlen * sin( phi + beta ));
+	    xm = (int) (dx2 + backlen*effective_length * cos( phi + beta ));
+	    ym = (int) (dy2 + backlen*effective_length * sin( phi + beta ));
 	}
 
 	if (head & END_HEAD) {
@@ -1292,8 +1312,7 @@ do_arrow(
 	    ex += xm;
 	    ey += ym;
 	}
-	if (clip_line(&sx, &sy, &ex, &ey))
-	    draw_clip_line(sx, sy, ex, ey);
+	draw_clip_line(sx, sy, ex, ey);
     }
 
     /* Restore previous clipping box */
@@ -1314,13 +1333,13 @@ do_arc(
     double arc_start, double arc_end, /* Limits of arc in degress */
     int style)
 {
-    gpiPoint vertex[120];
+    gpiPoint vertex[250];  /* changed this - JP */
     int i, segments;
     double aspect;
 
     /* Protect against out-of-range values */
-    while (arc_start < 0.)
-	arc_start +=360.;
+    while (arc_start < 0)
+	arc_start += 360.;
     while (arc_end > 360.)
 	arc_end -= 360.;
 
@@ -1328,9 +1347,12 @@ do_arc(
     while (arc_end < arc_start)
 	arc_end += 360.;
 
-    /* Choose how many segments to draw for this arc */
-#   define INC 5.
+    /* Choose how finely to divide this arc into segments */
+    /* FIXME: INC=2 causes problems for gnuplot_x11 */
+#   define INC 3.
     segments = (arc_end - arc_start) / INC;
+    if (segments < 1)
+	segments = 1;
 
     /* Calculate the vertices */
     aspect = (double)term->v_tic / (double)term->h_tic;
@@ -1414,6 +1436,12 @@ null_scale(double x, double y)
 }
 
 static void
+null_layer(t_termlayer layer)
+{
+    (void) layer;               /* avoid -Wunused warning */
+}
+
+static void
 options_null()
 {
     term_options[0] = '\0';     /* we have no options */
@@ -1478,14 +1506,6 @@ static struct termentry term_tbl[] =
 };
 
 #define TERMCOUNT (sizeof(term_tbl) / sizeof(term_tbl[0]))
-#if 0 /* UNUSED */
-/* mainly useful for external code */
-int
-term_count()
-{
-    return TERMCOUNT;
-}
-#endif
 
 void
 list_terms()
@@ -1571,8 +1591,10 @@ set_term()
 	}
     }
 
-    if (!t)
+    if (!t) {
+	change_term("unknown", 7);
 	int_error(c_token-1, "unknown or ambiguous terminal type; type just 'set terminal' for a list");
+    }
 
     /* otherwise the type was changed */
     return (t);
@@ -1596,6 +1618,14 @@ change_term(const char *origname, int length)
 	name = "x11";
 	length = 3;
     }
+
+#ifdef HAVE_CAIROPDF
+    /* To allow "set term eps" as short for "set term epscairo" */
+    if (!strncmp(origname,"eps",length)) {
+	name = "epscairo";
+	length = 8;
+    }
+#endif
 
     for (i = 0; i < TERMCOUNT; i++) {
 	if (!strncmp(name, term_tbl[i].name, length)) {
@@ -1634,15 +1664,11 @@ change_term(const char *origname, int length)
 	term->pointsize = do_pointsize;
     if (term->linewidth == 0)
 	term->linewidth = null_linewidth;
+    if (term->layer == 0)
+	term->layer = null_layer;
     if (term->tscale <= 0)
 	term->tscale = 1.0;
 
-    /* Special handling for unixplot term type */
-    if (!strncmp("unixplot", term->name, 8)) {
-	UP_redirect(2);         /* Redirect actual stdout for unixplots */
-    } else if (unixplot) {
-	UP_redirect(3);         /* Put stdout back together again. */
-    }
     if (interactive)
 	fprintf(stderr, "Terminal type set to '%s'\n", term->name);
 
@@ -1667,7 +1693,7 @@ void
 init_terminal()
 {
     char *term_name = DEFAULTTERM;
-#if (defined(__TURBOC__) && defined(MSDOS) && !defined(_Windows)) || defined(NEXT) || defined(SUN) || defined(X11)
+#if (defined(MSDOS) && !defined(_Windows)) || defined(NEXT) || defined(SUN) || defined(X11)
     char *env_term = NULL;      /* from TERM environment var */
 #endif
 #ifdef X11
@@ -1680,10 +1706,6 @@ init_terminal()
     if (gnuterm != (char *) NULL) {
 	term_name = gnuterm;
     } else {
-
-#ifdef __ZTC__
-	term_name = ztc_init();
-#endif
 
 #ifdef VMS
 	term_name = vms_init();
@@ -1710,6 +1732,11 @@ init_terminal()
 	    term_name = "sun";
 #endif /* SUN */
 
+#ifdef QTTERM
+	if (term_name == (char *) NULL)
+		term_name = "qt";
+#endif
+
 #ifdef WXWIDGETS
 	if (term_name == (char *) NULL)
 		term_name = "wxt";
@@ -1720,18 +1747,6 @@ init_terminal()
 	if (term_name == (char *) NULL)
 		term_name = "win";
 #endif /* _Windows */
-
-#ifdef GPR
-	/* find out whether stdout is a DM pad. See term/gpr.trm */
-	if (gpr_isa_pad())
-	    term_name = "gpr";
-#else
-# ifdef APOLLO
-	/* find out whether stdout is a DM pad. See term/apollo.trm */
-	if (apollo_isa_pad())
-	    term_name = "apollo";
-# endif                         /* APOLLO */
-#endif /* GPR    */
 
 #if defined(__APPLE__) && defined(__MACH__) && defined(HAVE_LIBAQUATERM)
 	/* Mac OS X with AquaTerm installed */
@@ -1749,10 +1764,6 @@ init_terminal()
 	if (X11_Display)
 	    term_name = "x11";
 #endif /* x11 */
-
-#ifdef AMIGA
-	term_name = "amiga";
-#endif
 
 #ifdef UNIXPC
 	if (iswind() == 0) {
@@ -1792,7 +1803,7 @@ init_terminal()
    LINUX_setup has failed, also if we are logged in by network */
 #ifdef LINUXVGA
 	if (LINUX_graphics_allowed)
-#ifdef VGAGL
+#if defined(VGAGL) && defined (THREEDKIT)
 	    term_name = "vgagl";
 #else
 	    term_name = "linux";
@@ -1828,96 +1839,6 @@ init_terminal()
 }
 
 
-#ifdef __ZTC__
-char *
-ztc_init()
-{
-    int g_mode;
-    char *term_name = NULL;
-
-    g_mode = fg_init();
-
-    switch (g_mode) {
-    case FG_NULL:
-	fputs("Graphics card not detected or not supported.\n", stderr);
-	exit(1);
-    case FG_HERCFULL:
-	term_name = "hercules";
-	break;
-    case FG_EGAMONO:
-	term_name = "egamono";
-	break;
-    case FG_EGAECD:
-	term_name = "egalib";
-	break;
-    case FG_VGA11:
-	term_name = "vgamono";
-	break;
-    case FG_VGA12:
-	term_name = "vgalib";
-	break;
-    case FG_VESA6A:
-	term_name = "svgalib";
-	break;
-    case FG_VESA5:
-	term_name = "ssvgalib";
-	break;
-    }
-    fg_term();
-    return (term_name);
-}
-#endif /* __ZTC__ */
-
-
-/*
- * Unixplot can't really write to gpoutfile--it wants to write to stdout.
- * This is normally ok, but the original design of gnuplot gives us
- * little choice.  Originally users of unixplot had to anticipate
- * their needs and redirect all I/O to a file...  Not very gnuplot-like.
- *
- * caller:  1 - called from SET OUTPUT "FOO.OUT"
- * 2 - called from SET TERM UNIXPLOT
- * 3 - called from SET TERM other
- * 4 - called from SET OUTPUT
- */
-static void
-UP_redirect(int caller)
-{
-#if defined(UNIXPLOT) && !defined(GNUGRAPH)
-    switch (caller) {
-    case 1:
-	/* Don't save, just replace stdout w/gpoutfile (save was already done). */
-	if (unixplot)
-	    *(stdout) = *(gpoutfile);   /* Copy FILE structure */
-	break;
-    case 2:
-	if (!unixplot) {
-	    fflush(stdout);
-	    save_stdout = *(stdout);
-	    *(stdout) = *(gpoutfile);   /* Copy FILE structure */
-	    unixplot = 1;
-	}
-	break;
-    case 3:
-	/* New terminal in use--put stdout back to original. */
-	/* closepl(); */ /* This is called by the term. */
-	fflush(stdout);
-	*(stdout) = save_stdout;        /* Copy FILE structure */
-	unixplot = 0;
-	break;
-    case 4:
-	/*  User really wants to go to normal output... */
-	if (unixplot) {
-	    fflush(stdout);
-	    *(stdout) = save_stdout;    /* Copy FILE structure */
-	}
-	break;
-    } /* switch() */
-#else /* !UNIXPLOT || GNUGRAPH */
-    (void) caller;              /* avoid -Wunused warning */
-#endif /* !UNIXPLOT || GNUGRAPH */
-}
-
 /* test terminal by drawing border and text */
 /* called from command test */
 void
@@ -1934,7 +1855,7 @@ test_term()
 
     already_in_enhanced_text_mode = t->flags & TERM_ENHANCED_TEXT;
     if (!already_in_enhanced_text_mode)
-	do_string("set termopt enh",FALSE);
+	do_string("set termopt enh");
 
     term_start_plot();
     screen_ok = FALSE;
@@ -1947,8 +1868,7 @@ test_term()
 	key_entry_height = t->v_char;
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_FRONTTEXT);
+    (*t->layer)(TERM_LAYER_FRONTTEXT);
 
     /* border linetype */
     (*t->linewidth) (1.0);
@@ -2001,7 +1921,7 @@ test_term()
 	(*t->put_text) (xmax_t * 0.5, ymax_t * 0.40, tmptext);
 	free(tmptext);
 	if (!already_in_enhanced_text_mode)
-	    do_string("set termopt noenh",FALSE);
+	    do_string("set termopt noenh");
     }
 
     /* test justification */
@@ -2073,9 +1993,11 @@ test_term()
     y = ymax_t - key_entry_height;
     (*t->pointsize) (pointsize);
     for (i = -2; y > key_entry_height; i++) {
-	(*t->linetype) (i);
-	/*      (void) sprintf(label,"%d",i);  Jorgen Lippert
-	   lippert@risoe.dk */
+	struct lp_style_type ls = DEFAULT_LP_STYLE_TYPE;
+	ls.l_width = 1;
+	load_linetype(&ls,i+1);
+	term_apply_lp_properties(&ls);
+
 	(void) sprintf(label, "%d", i + 1);
 	if ((*t->justify_text) (RIGHT))
 	    (*t->put_text) (x, y, label);
@@ -2193,53 +2115,6 @@ test_term()
     term_end_plot();
 }
 
-#if 0
-# if defined(MSDOS)||defined(g)||defined(OS2)||defined(_Windows)||defined(DOS386)
-
-/* output for some terminal types must be binary to stop non Unix computers
-   changing \n to \r\n.
-   If the output is not STDOUT, the following code reopens gpoutfile
-   with binary mode. */
-void
-reopen_binary()
-{
-    if (outstr) {
-	(void) fclose(gpoutfile);
-#  ifdef _Windows
-	if (!stricmp(outstr, "PRN")) {
-	    /* use temp file for windows */
-	    (void) strcpy(filename, win_prntmp);
-	}
-#  endif
-	if ((gpoutfile = fopen(filename, "wb")) == (FILE *) NULL) {
-	    if ((gpoutfile = fopen(filename, "w")) == (FILE *) NULL) {
-		os_error(NO_CARET, "cannot reopen file with binary type; output unknown");
-	    } else {
-		os_error(NO_CARET, "cannot reopen file with binary type; output reset to ascii");
-	    }
-	}
-#  if defined(__TURBOC__) && defined(MSDOS)
-#   ifndef _Windows
-	if (!stricmp(outstr, "PRN")) {
-	    /* Put the printer into binary mode. */
-	    union REGS regs;
-	    regs.h.ah = 0x44;   /* ioctl */
-	    regs.h.al = 0;      /* get device info */
-	    regs.x.bx = fileno(gpoutfile);
-	    intdos(&regs, &regs);
-	    regs.h.dl |= 0x20;  /* binary (no ^Z intervention) */
-	    regs.h.dh = 0;
-	    regs.h.ah = 0x44;   /* ioctl */
-	    regs.h.al = 1;      /* set device info */
-	    intdos(&regs, &regs);
-	}
-#   endif /* !_Windows */
-#  endif /* TURBOC && MSDOS */
-    }
-}
-
-# endif /* MSDOS || g || ... */
-#endif /* 0 */
 
 #ifdef VMS
 /* these are needed to modify terminal characteristics */
@@ -2523,6 +2398,11 @@ enhanced_recursion(
 	    } else {					/* Some other multibyte encoding? */
 		(term->enhanced_writec)(*p);
 	    }
+/* shige : for Shift_JIS */
+	} else if ((*p & 0x80) && (encoding == S_ENC_SJIS)) {
+	    (term->enhanced_open)(fontname, fontsize, base, widthflag, showflag, overprint);
+	    (term->enhanced_writec)(*(p++));
+	    (term->enhanced_writec)(*p);
 	} else
 
 	switch (*p) {
@@ -2714,13 +2594,6 @@ enhanced_recursion(
 		}
 		break;
 	    } else if (term->flags & TERM_IS_POSTSCRIPT) {
-		/* Shigeharu TAKENO  Aug 2004 - Needed in order for shift-JIS */
-		/* encoding to work. If this change causes problems then we   */
-		/* need a separate flag for shift-JIS and certain other 8-bit */
-		/* character sets.                                            */
-		/* EAM Nov 2004 - Nevertheless we must allow \ to act as an   */
-		/* escape for a few enhanced mode formatting characters even  */
-		/* though it corrupts certain Shift-JIS character sequences.  */
 		if (strchr("^_@&~{}",p[1]) == NULL) {
 		    (term->enhanced_open)(fontname, fontsize, base, widthflag, showflag, overprint);
 		    (term->enhanced_writec)('\\');
@@ -2830,6 +2703,10 @@ estimate_strlen(char *text)
 {
 int len;
 
+    if ((term->flags & TERM_IS_LATEX))
+	len = strlen_tex(text);
+    else
+
 #ifdef GP_ENH_EST
     if (strchr(text,'\n') || (term->flags & TERM_ENHANCED_TEXT)) {
 	struct termentry *tsave = term;
@@ -2839,7 +2716,9 @@ int len;
 	FPRINTF((stderr,"Estimating length %d height %g for enhanced text string \"%s\"\n",
 		len, (double)(term->ymax)/10., text));
 	term = tsave;
-    } else
+    } else if (encoding == S_ENC_UTF8)
+	len = strlen_utf8(text);
+    else
 #endif
 	len = strlen(text);
 
@@ -2992,6 +2871,9 @@ lp_use_properties(struct lp_style_type *lp, int tag)
 	    lp->pointflag = save_pointflag;
 	    /* FIXME - It would be nicer if this were always true already */
 	    if (!lp->use_palette) {
+		if (lp->pm3d_color.type != TC_LT || lp->pm3d_color.lt != lp->l_type)
+			FPRINTF((stderr,"lp_use_properties: uninitialized linetype %d\n",
+				lp->l_type));
 		lp->pm3d_color.type = TC_LT;
 		lp->pm3d_color.lt = lp->l_type;
 	    }
@@ -3002,6 +2884,50 @@ lp_use_properties(struct lp_style_type *lp, int tag)
     }
 
     /* No user-defined style with this tag; fall back to default line type. */
+    load_linetype(lp, tag);
+}
+
+
+/*
+ * Load lp with the properties of a user-defined linetype
+ */
+void
+load_linetype(struct lp_style_type *lp, int tag)
+{
+    struct linestyle_def *this;
+    int save_pointflag = lp->pointflag;
+
+recycle:
+    this = first_perm_linestyle;
+    while (this != NULL) {
+	if (this->tag == tag) {
+	    *lp = this->lp_properties;
+	    lp->pointflag = save_pointflag;
+	    if (term->flags & TERM_MONOCHROME) {
+		lp->l_type = tag;
+		lp->use_palette = FALSE;
+		return;
+	    }
+	    /* FIXME - It would be nicer if this were always true already */
+	    if (!lp->use_palette) {
+		FPRINTF((stderr,"load_linetype: uninitialized linetype\n"));
+		lp->pm3d_color.type = TC_LT;
+		lp->pm3d_color.lt = lp->l_type;
+	    }
+	    return;
+	} else {
+	    this = this->next;
+	}
+    }
+
+    /* This linetype wasn't defined explicitly.		*/
+    /* Should we recycle one of the first N linetypes?	*/
+    if (tag > linetype_recycle_count && linetype_recycle_count > 0) {
+	tag = (tag-1) % linetype_recycle_count + 1;
+	goto recycle;
+    }
+
+    /* No user-defined linetype with this tag; fall back to default line type. */
     /* NB: We assume that the remaining fields of lp have been initialized. */
     lp->l_type = tag - 1;
     lp->pm3d_color.type = TC_LT;
@@ -3009,3 +2935,50 @@ lp_use_properties(struct lp_style_type *lp, int tag)
     lp->p_type = tag - 1;
 }
 
+/*
+ * Totally bogus estimate of TeX string lengths.
+ * Basically 
+ * - don't count anything inside square braces
+ * - count regexp \[a-zA-z]* as a single character
+ * - ignore characters {}$^_ 
+ */
+int
+strlen_tex(const char *str)
+{
+    const char *s = str;
+    int len = 0;
+
+    if (!strpbrk(s, "{}$[]\\")) {
+	len = strlen(s);
+	FPRINTF((stderr,"strlen_tex(\"%s\") = %d\n",s,len));
+	return len;
+    }
+
+    while (*s) {
+	switch (*s) {
+	case '[':
+		while (*s && *s != ']') s++;
+		s++;
+		break;
+	case '\\':
+		s++;
+		while (*s && isalpha(*s)) s++;
+		len++;
+		break;
+	case '{':
+	case '}':
+	case '$':
+	case '_':
+	case '^':
+		s++;
+		break;
+	default:
+		s++;
+		len++;
+	}
+    }
+
+
+    FPRINTF((stderr,"strlen_tex(\"%s\") = %d\n",str,len));
+    return len;
+}

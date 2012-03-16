@@ -39,14 +39,8 @@
 /* #undef GIF_ANIMATION */
 /* Don't change it here -- this define is set in config/makefile.cyg. */
 
-/* Define if you want to use the GNU version of the Unix plot library. */
-/* #undef GNUGRAPH */
-
 /* Define if you want to use a gnuplot history file. */
 #define GNUPLOT_HISTORY 1
-
-/* Define to allow 'fit' to create parameter error variables. */
-#define GP_FIT_ERRVARS 1
 
 /* Define to allow command line macros. EXPERIMENTAL */
 #define GP_MACROS 1
@@ -389,7 +383,7 @@
 /* #undef HIDDEN3D_GRIDBOX */
 
 /* Define to enable quadtree optimization in hidden3d code. */
-/* #undef HIDDEN3D_QUADTREE */
+#define HIDDEN3D_QUADTREE 1
 
 /* Define to enable handling point size in hidden3d code. */
 #define HIDDEN3D_VAR_PTSIZE 1
@@ -397,14 +391,12 @@
 /* Define if this is a Linux system with SuperVGA library. */
 /* #undef LINUXVGA */
 
-/* Define if you want to use the MGR Window system. */
-/* #undef MGR */
-
 /* Define if this is an MSDOS system. */
 /* #undef MSDOS */
 
-/* Define if you do not want to read .gnuplot in the current directory. */
-/* #undef NOCWDRC */
+/* Define if you want to read .gnuplot from current directory
+   (SECURITY RISK!). */
+/* #undef USE_CWDRC */
 
 /* Name of package */
 /* #undef PACKAGE */
@@ -440,9 +432,6 @@
 /* Define as the return type of signal handlers (`int' or `void'). */
 #define RETSIGTYPE void
 
-/* Define if you want to use the Redwood Graphics Interface Protocol. */
-/* #undef RGIP */
-
 /* Define to the type of arg 1 for `select'. */
 /* #undef SELECT_TYPE_ARG1 */
 
@@ -467,15 +456,15 @@
 /* Define if the 3dkit libray is present. */
 /* #undef THREEDKIT */
 
-/* Define if you want to use the standard Unix plot library. */
-/* #undef UNIXPLOT */
-
 /* Define if you want to use the experimental ggi driver. */
 /* #undef USE_GGI_DRIVER */
 
 /* Define if you want to have mouse support in interactive terminals. */
 /* #undef USE_MOUSE */
 /* Don't change it here -- this define is set in config/makefile.cyg. */
+
+/* Define to add support for generating a statistical summary of data */
+#define USE_STATS 1
 
 /* Define to enable multi-byte font support for x11 */
 /* #undef USE_X11_MULTIBYTE */

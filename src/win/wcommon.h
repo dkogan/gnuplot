@@ -1,5 +1,5 @@
 /*
- * $Id: wcommon.h,v 1.9 2006/03/28 09:55:22 broeker Exp $
+ * $Id: wcommon.h,v 1.14 2011/09/04 12:01:37 markisch Exp $
  */
 
 /* GNUPLOT - wcommon.h */
@@ -41,31 +41,20 @@
  *   Russell Lang
  */
 
-#if WINVER >= 0x030a
-#ifndef CYGWIN
-#include <shellapi.h>
+#ifndef CLEARTYPE_QUALITY
+#define CLEARTYPE_QUALITY       5
 #endif
-#endif
-/* this file contains items that are internal to wgnuplot.dll */
-
-#ifdef WIN32
-
-  /* Enable new directory dialogs on Win32 */
-# define WITH_ADV_DIR_DIALOG
-
-  /* Choose between the directory dialog of the windows shell and
-     a modified version of the "file open" dialog */
-# define SHELL_DIR_DIALOG 
-
-#endif
-  
 
 /* winmain.c */
-#ifdef WIN32
 # define PACKVERSION(major,minor) MAKELONG(minor,major)
 extern DWORD GetDllVersion(LPCTSTR lpszDllName);
+extern BOOL IsWindowsXPorLater(void);
 extern char *appdata_directory(void);
-#endif
+extern FILE *open_printer();
+extern void close_printer(FILE *outfile);
+extern BOOL cp_changed;
+extern UINT cp_input;
+extern UINT cp_output;
 
 /* wgnuplib.c */
 extern HINSTANCE hdllInstance;
@@ -81,15 +70,9 @@ void LocalFreePtr(void NEAR *ptr);
 LPSTR GetInt(LPSTR str, LPINT pval);
 
 /* wtext.c */
-void UpdateText(LPTW, int);
-void CreateTextClass(LPTW lptw);
-void NewLine(LPTW);
-void TextPutStr(LPTW lptw, LPSTR str);
 void WriteTextIni(LPTW lptw);
 void ReadTextIni(LPTW lptw);
-#if WINVER >= 0x030a
 void DragFunc(LPTW lptw, HDROP hdrop);
-#endif
 
 /* wmenu.c - Menu */
 void SendMacro(LPTW lptw, UINT m);
@@ -100,10 +83,8 @@ void CloseMacros(LPTW lptw);
 BOOL PrintSize(HDC printer, HWND hwnd, LPRECT lprect);
 void PrintRegister(GP_LPPRINT lpr);
 void PrintUnregister(GP_LPPRINT lpr);
-#if WINVER >= 0x030a
-BOOL CALLBACK WINEXPORT PrintAbortProc(HDC hdcPrn, int code);
-BOOL CALLBACK WINEXPORT PrintDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
-#endif
+BOOL CALLBACK PrintAbortProc(HDC hdcPrn, int code);
+BOOL CALLBACK PrintDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 
 /* wgraph.c */
 

@@ -1,5 +1,5 @@
 /*
- * $Id: parse.h,v 1.19 2008/09/09 06:05:05 sfeam Exp $
+ * $Id: parse.h,v 1.25 2011/07/22 14:37:57 juhaszp Exp $
  */
 
 /* GNUPLOT - parse.h */
@@ -45,6 +45,7 @@
 /* externally usable types defined by parse.h */
 
 /* exported variables of parse.c */
+extern TBOOLEAN scanning_range_in_progress;
 
 /* The choice of dummy variables, as set by 'set dummy', 'set polar'
  * and 'set parametric' */
@@ -54,8 +55,11 @@ extern char set_dummy_var[MAX_NUM_VAR][MAX_ID_LEN+1];
  * containing an explicit range (--> 'plot [phi=0..pi]') */
 extern char c_dummy_var[MAX_NUM_VAR][MAX_ID_LEN+1];
 
-/* This is used by the using_spec parsing code in plot_option_using() */
+/* This is used by plot_option_using() */
 extern int at_highest_column_used;
+
+/* This is checked by df_readascii() */
+extern TBOOLEAN parse_1st_row_as_headers;
 
 /* Prototypes of exported functions in parse.c */
 
@@ -66,18 +70,35 @@ struct value * const_express __PROTO((struct value *valptr));
 char* string_or_express __PROTO((struct at_type **atptr));
 struct at_type * temp_at __PROTO((void));
 struct at_type * perm_at __PROTO((void));
+struct at_type * create_call_column_at __PROTO((char *));
 struct udvt_entry * add_udv __PROTO((int t_num));
 struct udft_entry * add_udf __PROTO((int t_num));
 void cleanup_udvlist __PROTO((void));
 
-/* These are used by the iterate-over-plot code */
-void check_for_iteration __PROTO((void));
-TBOOLEAN next_iteration  __PROTO((void));
-TBOOLEAN empty_iteration  __PROTO((void));
+/* Code that uses the iteration routines here must provide */
+/* a blank iteration structure to use for bookkeeping.     */
+typedef struct iterator {
+	struct iterator *next;  /* doubly linked list */
+	struct iterator *prev;
+	struct udvt_entry *iteration_udv;
+	char *iteration_string;
+	int iteration_start;
+	int iteration_end;
+	int iteration_increment;
+	int iteration_current;
+	int iteration;
+	TBOOLEAN done;
+	TBOOLEAN really_done;
+	TBOOLEAN empty_iteration;
+} t_iterator;
 
-/* Some commands, e.g. set xtics, need to know if this is the first time
- * or a subsequent time through the iteration.  Export a counter.
- */
-extern int iteration;
+extern t_iterator * plot_iterator;	/* Used for plot and splot */
+extern t_iterator * set_iterator;		/* Used by set/unset commands */
+
+/* These are used by the iteration code */
+t_iterator * check_for_iteration __PROTO((void));
+TBOOLEAN next_iteration  __PROTO((t_iterator *));
+TBOOLEAN empty_iteration  __PROTO((t_iterator *));
+t_iterator * cleanup_iteration __PROTO((t_iterator *));
 
 #endif /* PARSE_H */

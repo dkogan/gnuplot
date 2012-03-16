@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tabulate.c,v 1.7.2.2 2009/12/25 00:23:24 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tabulate.c,v 1.13 2011/10/25 05:10:58 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tabulate.c */
@@ -62,7 +62,16 @@ static FILE *outfile;
 
 static void
 output_number(double coord, int axis, char *buffer) {
-    if (axis_array[axis].is_timedata) {
+    /* treat timedata and "%s" output format as a special case:
+     * return a number.
+     * "%s" in combination with any other character is treated
+     * like a normal time format specifier and handled in time.c
+     */
+    if (axis_array[axis].datatype == DT_TIMEDATE &&
+	strcmp(axis_array[axis].formatstring, "%s") == 0) {
+	gprintf(buffer, BUFFERSIZE, "%.0f", 1.0, coord);
+    } else
+    if (axis_array[axis].datatype == DT_TIMEDATE) {
 	buffer[0] = '"';
 	gstrftime(buffer+1, BUFFERSIZE-1, axis_array[axis].formatstring, coord);
 	while (strchr(buffer,'\n')) {*(strchr(buffer,'\n')) = ' ';}
@@ -116,8 +125,10 @@ print_table(struct curve_points *current_plot, int plot_num)
 	    fputs("1 y2", outfile);
 	    break;
 	case FINANCEBARS:
-	case CANDLESTICKS:
 	    fputs(" open ylow yhigh yclose", outfile);
+	    break;
+	case CANDLESTICKS:
+	    fputs(" open ylow yhigh yclose width", outfile);
 	    break;
 	case LABELPOINTS:
 	    fputs(" label",outfile);
@@ -136,7 +147,7 @@ print_table(struct curve_points *current_plot, int plot_num)
 	    break;
 	default:
 	    if (interactive)
-	        fprintf(stderr, "Tabular output of %s plot style not fully implemented\n",
+		fprintf(stderr, "Tabular output of %s plot style not fully implemented\n",
 		    current_plot->plot_style == HISTOGRAMS ? "histograms" :
 		    current_plot->plot_style == IMAGE ? "image" :
 		    current_plot->plot_style == RGBIMAGE ? "rgbimage" :
@@ -191,10 +202,15 @@ print_table(struct curve_points *current_plot, int plot_num)
 			OUTPUT_NUMBER(point->yhigh, current_plot->y_axis);
 			break;
 		    case FINANCEBARS:
+			OUTPUT_NUMBER(point->ylow, current_plot->y_axis);
+			OUTPUT_NUMBER(point->yhigh, current_plot->y_axis);
+			OUTPUT_NUMBER(point->z, current_plot->y_axis);
+			break;
 		    case CANDLESTICKS:
 			OUTPUT_NUMBER(point->ylow, current_plot->y_axis);
 			OUTPUT_NUMBER(point->yhigh, current_plot->y_axis);
 			OUTPUT_NUMBER(point->z, current_plot->y_axis);
+			OUTPUT_NUMBER(2. * (point->x - point->xlow), current_plot->x_axis);
 			break;
 		    case VECTOR:
 			OUTPUT_NUMBER((point->xhigh - point->x), current_plot->x_axis);

@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: pslatex.trm,v 1.75 2009/05/11 17:55:20 sfeam Exp $
+ * $Id: pslatex.trm,v 1.80 2011/11/07 18:40:48 markisch Exp $
  */
 
 /* GNUPLOT - pslatex.trm */
@@ -94,7 +94,7 @@ TERM_PUBLIC void PSTEX_text __PROTO((void));
 
 /* Functions for epslatex */
 /* All these routines begin with EPSLATEX_ */
-TERM_PUBLIC void EPSLATEX_reopen_output __PROTO((void));
+TERM_PUBLIC void EPSLATEX_reopen_output __PROTO((char *));
 TERM_PUBLIC void EPSLATEX_common_init __PROTO((void));
 TERM_PUBLIC void EPSLATEX_put_text __PROTO((unsigned int x, unsigned int y, const char *str));
 TERM_PUBLIC void EPSLATEX_linetype __PROTO((int linetype));
@@ -126,13 +126,15 @@ static t_colorspec tex_previous_colorspec = {-1, 0, 0.0};  /* Initialize to inva
 static char tex_current_color[64];
 static TBOOLEAN tex_color_synced = FALSE;
 
-#define EPSLATEX_sync_color \
-    do { \
-	if (!tex_color_synced) { \
-	    fputs(tex_current_color,gpoutfile); \
-	    tex_color_synced = TRUE; \
-	} \
-    } while (0)
+/* support for cairolatex */
+#ifdef HAVE_CAIROPDF
+#define ISCAIROTERMINAL ((strcmp(term->name, "cairolatex") == 0))
+TERM_PUBLIC void cairotrm_linetype __PROTO ((int linetype));
+TERM_PUBLIC void cairotrm_set_color __PROTO ((t_colorspec *colorspec));
+#else
+#define ISCAIROTERMINAL (FALSE)
+#endif
+
 
 /* Common functions for epslatex and ps(la)tex */
 
@@ -141,7 +143,8 @@ PSLATEX_reset()
 {
     switch (ps_params->terminal) {
     case PSTERM_EPSLATEX:
-        PS_reset();
+        if (!ISCAIROTERMINAL)
+            PS_reset();
         if (gpoutfile) {
 	    fprintf(gpoutfile, "\
     \\gplbacktext\n\
@@ -281,26 +284,12 @@ PSTEX_common_init()
          * of the bounding box, but without the X_OFF and Y_OFF */
         int urx = (int) (xsize * term->xmax / (2*PS_SC) + 0.5);
         int ury = (int) (ysize * term->ymax / (2*PS_SC) + 0.5);
-        /* moved this code here from beginning of the function
-         * pslatex_auxname is only != NULL with the `auxfile' option */
-        char *psfile_basename = strrchr(pslatex_auxname, DIRSEP1);
 
-        /* If pslatex_auxname is not a simple file name, but a path,
+        /* pslatex_auxname is only != NULL with the `auxfile' option.
+         * If pslatex_auxname is not a simple file name, but a path,
          * we need to strip the path off the auxiliary file name,
          * because tex file and ps aux file end up in the same directory! */
-        if (psfile_basename)
-            psfile_basename++;
-        else {
-#if DIRSEP2 != NUL
-	    psfile_basename = strrchr(pslatex_auxname, DIRSEP2);
-	    if (psfile_basename)
-		psfile_basename++;
-	    else
-		psfile_basename = pslatex_auxname;
-#else
-	    psfile_basename = pslatex_auxname;
-#endif
-	}
+        char *psfile_basename = gp_basename(pslatex_auxname);
 
         /* generate special which xdvi and dvips can handle */
         fprintf(gpoutfile,
@@ -458,6 +447,9 @@ EPSLATEX_common_init()
             break;
         case S_ENC_CP1250:
             inputenc = "cp1250";
+            break;
+        case S_ENC_CP1251:
+            inputenc = "cp1251";
             break;
         case S_ENC_KOI8_R:
             inputenc = "koi8-r";
@@ -711,6 +703,12 @@ EPSLATEX_common_init()
   \\begin{picture}(%.2f,%.2f)%%\n",
                 1.0 / (2*PS_SC), term->xmax * xsize, term->ymax * ysize);
     }
+    if (ps_params->background.r >= 0) {
+	fprintf(gpoutfile, "\\definecolor{gpBackground}{rgb}{%.3f, %.3f, %.3f}%%\n",
+		ps_params->background.r, ps_params->background.g, ps_params->background.b);
+	fprintf(gpoutfile, "\\put(0,0){\\colorbox{gpBackground}{\\makebox(%.2f,%.2f)[]{}}}%%\n",
+		term->xmax * xsize, term->ymax * ysize);
+    }
 
     if (fontfamily)
         free(fontfamily);
@@ -725,7 +723,10 @@ TERM_PUBLIC void
 EPSLATEX_put_text(unsigned int x, unsigned int y, const char *str)
 {
     if (gpoutfile) {
-	EPSLATEX_sync_color;
+	if (!tex_color_synced) {
+	    fputs(tex_current_color, gpoutfile);
+	    tex_color_synced = TRUE;
+	}
 	fprintf(gpoutfile, "      \\put(%d,%d){", x, y);
         if (ps_ang)
             fprintf(gpoutfile,"\\rotatebox{%d}{", ps_ang);
@@ -755,7 +756,7 @@ EPSLATEX_put_text(unsigned int x, unsigned int y, const char *str)
  * and it must not be outstr itself !
  */
 void
-EPSLATEX_reopen_output()
+EPSLATEX_reopen_output(char * ext)
 {
     char *psoutstr = NULL;
 
@@ -787,11 +788,14 @@ EPSLATEX_reopen_output()
             if (!gpoutfile)
                 int_error(NO_CARET, "--- reopen failed");
         } else {
+            char suffix[PATH_MAX];
             if (ps_params->epslatex_standalone)
-                strncpy( &psoutstr[outstrlen-4], "-inc.eps", 9);
+                sprintf(suffix, "-inc.%s", ext);
             else
-                strncpy( &psoutstr[outstrlen-4], ".eps", 4);
-            gppsfile = fopen(psoutstr,"w");
+                sprintf(suffix, ".%s", ext);
+            strncpy(&psoutstr[outstrlen - 4], suffix, strlen(suffix) + 1);
+            /* BM: Need binary output for PDF files. Does this have negative side effects for EPS? */
+            gppsfile = fopen(psoutstr, "wb");
         }
         if (!gppsfile)
             int_error(NO_CARET, "open of postscipt output file %s failed",
@@ -820,10 +824,17 @@ EPSLATEX_set_color(t_colorspec *colorspec)
 	memcpy(&tex_previous_colorspec, colorspec, sizeof(t_colorspec));
 
     /* Fancy footwork to deal with mono/grayscale plots */
-    if (colorspec->type == TC_LT && !ps_params->color)
-	PS_linetype(colorspec->lt);
-    else
-	PS_set_color(colorspec);
+#ifdef HAVE_CAIROPDF
+    if (ISCAIROTERMINAL) {
+        cairotrm_set_color(colorspec);
+    } else 
+#endif
+    {
+        if (colorspec->type == TC_LT && !ps_params->color)
+            PS_linetype(colorspec->lt);
+        else
+            PS_set_color(colorspec);
+    }
 
     /* Many [most? all?] of the set_color commands only affect the *.eps     */
     /* output stream.  So rather than printing them all to the *.tex stream, */
@@ -875,7 +886,12 @@ EPSLATEX_linetype(int linetype)
 {
     t_colorspec tempcol = {TC_LT, 0, 0.0};
     tempcol.lt = linetype;
-    PS_linetype(linetype);
+#ifdef HAVE_CAIROPDF
+    if (ISCAIROTERMINAL)
+        cairotrm_linetype(linetype);
+    else
+#endif
+        PS_linetype(linetype);
 
     /* This leads to redundant *.eps output */
     EPSLATEX_set_color(&tempcol);
@@ -940,7 +956,7 @@ TERM_TABLE_START(epslatex_driver)
     PS_text, null_scale, PS_graphics, PS_move,
     PS_vector, EPSLATEX_linetype, EPSLATEX_put_text, PS_text_angle,
     PS_justify_text, PS_point, do_arrow, PS_set_font,
-    PS_pointsize, TERM_BINARY|TERM_IS_POSTSCRIPT|TERM_CAN_CLIP /*flags */,
+    PS_pointsize, TERM_BINARY|TERM_IS_POSTSCRIPT|TERM_CAN_CLIP|TERM_IS_LATEX /*flags */,
     0 /*suspend */, 0 /*resume */,
     PS_fillbox, PS_linewidth,
 #ifdef USE_MOUSE
@@ -963,7 +979,7 @@ TERM_TABLE_START(pslatex_driver)
     PSTEX_text, null_scale, PS_graphics, PS_move,
     PS_vector, PS_linetype, PSTEX_put_text, PS_text_angle,
     PS_justify_text, PS_point, PS_arrow, set_font_null,
-    PS_pointsize, TERM_CAN_CLIP /*flags */ , 0 /*suspend */
+    PS_pointsize, TERM_CAN_CLIP|TERM_IS_LATEX /*flags */ , 0 /*suspend */
     , 0 /*resume */ ,
     PS_fillbox, PS_linewidth
 #ifdef USE_MOUSE
@@ -988,7 +1004,7 @@ TERM_TABLE_START(pstex_driver)
     PSTEX_text, null_scale, PS_graphics, PS_move,
     PS_vector, PS_linetype, PSTEX_put_text, PS_text_angle,
     PS_justify_text, PS_point, PS_arrow, set_font_null,
-    PS_pointsize, TERM_CAN_CLIP /*flags */ , 0 /*suspend */
+    PS_pointsize, TERM_CAN_CLIP|TERM_IS_LATEX /*flags */ , 0 /*suspend */
     , 0 /*resume */ ,
     PS_fillbox, PS_linewidth
 #ifdef USE_MOUSE

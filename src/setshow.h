@@ -1,5 +1,5 @@
 /*
- * $Id: setshow.h,v 1.42 2008/06/22 04:26:04 sfeam Exp $
+ * $Id: setshow.h,v 1.44 2011/10/25 05:10:58 sfeam Exp $
  */
 
 /* GNUPLOT - setshow.h */
@@ -48,7 +48,7 @@
 
 #define SAVE_NUM_OR_TIME(fp, x, axis)				\
 do{								\
-    if (axis_array[axis].is_timedata) {				\
+    if (axis_array[axis].datatype == DT_TIMEDATE) {		\
 	char s[80];						\
 								\
 	putc('"', fp);						\
@@ -75,6 +75,7 @@ void reset_key __PROTO((void));
 void free_marklist __PROTO((struct ticmark * list));
 extern int enable_reset_palette;
 void reset_palette __PROTO((void));
+void rrange_to_xy __PROTO((void));
 
 /* Called from set_label(), plot2d.c and plot3d.c */
 extern void parse_label_options __PROTO((struct text_label *this_label));

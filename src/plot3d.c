@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.171.2.5 2010/02/27 21:52:38 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.191 2011/11/15 20:23:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -73,6 +73,7 @@ int dgrid3d_mode = DGRID3D_QNORM;
 double dgrid3d_x_scale = 1.0;
 double dgrid3d_y_scale = 1.0;
 TBOOLEAN dgrid3d = FALSE;
+TBOOLEAN dgrid3d_kdensity = FALSE;
 
 /* static prototypes */
 
@@ -254,25 +255,25 @@ plot3drequest()
     u_axis = (parametric ? U_AXIS : FIRST_X_AXIS);
     v_axis = (parametric ? V_AXIS : FIRST_Y_AXIS);
 
-    PARSE_NAMED_RANGE(u_axis, dummy_token0);
+    dummy_token0 = parse_named_range(u_axis, dummy_token0);
     if (splot_map == TRUE && !parametric) /* v_axis==FIRST_Y_AXIS */
 	splot_map_deactivate();
-    PARSE_NAMED_RANGE(v_axis, dummy_token1);
+    dummy_token1 = parse_named_range(v_axis, dummy_token1);
     if (splot_map == TRUE && !parametric) /* v_axis==FIRST_Y_AXIS */
 	splot_map_activate();
 
     if (parametric) {
-	PARSE_RANGE(FIRST_X_AXIS);
+	parse_range(FIRST_X_AXIS);
 	if (splot_map == TRUE)
 	    splot_map_deactivate();
-	PARSE_RANGE(FIRST_Y_AXIS);
+	parse_range(FIRST_Y_AXIS);
 	if (splot_map == TRUE)
 	    splot_map_activate();
     }				/* parametric */
-    PARSE_RANGE(FIRST_Z_AXIS);
-    CHECK_REVERSE(FIRST_X_AXIS);
-    CHECK_REVERSE(FIRST_Y_AXIS);
-    CHECK_REVERSE(FIRST_Z_AXIS);
+    parse_range(FIRST_Z_AXIS);
+    check_axis_reversed(FIRST_X_AXIS);
+    check_axis_reversed(FIRST_Y_AXIS);
+    check_axis_reversed(FIRST_Z_AXIS);
 
     /* Clear out any tick labels read from data files in previous plot */
     for (u_axis=0; u_axis<AXIS_ARRAY_SIZE; u_axis++) {
@@ -661,8 +662,8 @@ grid_nongrid_data(struct surface_points *this_plot)
 	    ||  (y > axis_array[y_axis].max && !(axis_array[y_axis].autoscale & AUTOSCALE_MAX)))
 		points->type = OUTRANGE;
 
-	    if (dgrid3d_mode != DGRID3D_SPLINES)
-                z = z / w;
+	    if (dgrid3d_mode != DGRID3D_SPLINES && !dgrid3d_kdensity)
+               z = z / w;
             
 	    STORE_WITH_LOG_AND_UPDATE_RANGE(points->z, z, 
 					    points->type, z_axis,
@@ -825,6 +826,10 @@ get_3ddata(struct surface_points *this_plot)
 		continue;
 	    }
 
+	    else if (j == DF_COLUMN_HEADERS) {
+		continue;
+	    }
+
 	    /* its a data point or undefined */
 	    if (xdatum >= local_this_iso->p_max) {
 		/* overflow about to occur. Extend size of points[]
@@ -938,6 +943,15 @@ get_3ddata(struct surface_points *this_plot)
 		int_error(this_plot->token,
 			"Wrong number of columns in input data - line %d",
 			df_line_number);
+
+	    /* FIXME: Work-around for hidden3d, which otherwise would use */
+	    /* the color of the vector midpoint rather than the endpoint. */
+	    if (this_plot->plot_style == IMPULSES) {
+		if (this_plot->lp_properties.pm3d_color.type == TC_Z) {
+		    color = z;
+		    color_from_column(TRUE);
+		}
+	    }
 
 	    /* After the first three columns it gets messy because */
 	    /* different plot styles assume different contents in the columns */
@@ -1266,7 +1280,7 @@ eval_3dplots()
      * well as filling in every thing except the function data. That is done
      * after the x/yrange is defined.
      */
-    check_for_iteration();
+    plot_iterator = check_for_iteration();
 
     while (TRUE) {
 	if (END_OF_COMMAND)
@@ -1344,15 +1358,16 @@ eval_3dplots()
 
 		/* for capture to key */
 		this_plot->token = end_token = c_token - 1;
-		this_plot->iteration = iteration; /* FIXME: Is this really needed? */
+		/* FIXME: Is this really needed? */
+		this_plot->iteration = plot_iterator ? plot_iterator->iteration : 0;
 
 		/* this_plot->token is temporary, for errors in get_3ddata() */
 
 		if (specs < 3) {
-		    if (axis_array[FIRST_X_AXIS].is_timedata) {
+		    if (axis_array[FIRST_X_AXIS].datatype == DT_TIMEDATE) {
 			int_error(c_token, "Need full using spec for x time data");
 		    }
-		    if (axis_array[FIRST_Y_AXIS].is_timedata) {
+		    if (axis_array[FIRST_Y_AXIS].datatype == DT_TIMEDATE) {
 			int_error(c_token, "Need full using spec for y time data");
 		    }
 		}
@@ -1414,8 +1429,11 @@ eval_3dplots()
 	    this_plot->lp_properties.p_type = point_num;
 
 	    /* user may prefer explicit line styles */
+	    this_plot->hidden3d_top_linetype = line_num;
 	    if (prefer_line_styles)
 		lp_use_properties(&this_plot->lp_properties, line_num+1);
+	    else
+		load_linetype(&this_plot->lp_properties, line_num+1);
 
 	    /* pm 25.11.2001 allow any order of options */
 	    while (!END_OF_COMMAND || !checked_once) {
@@ -1441,14 +1459,14 @@ eval_3dplots()
 		    c_token++;
 
 		    if (almost_equals(c_token,"col$umnheader")) {
-			df_set_key_title_columnhead(this_plot->plot_type);
+			df_set_key_title_columnhead((struct curve_points *)this_plot);
 		    } else 
 
 #ifdef BACKWARDS_COMPATIBLE
 		    /* Annoying backwards-compatibility hack - deprecate! */
 		    if (isanumber(c_token)) {
 			c_token--;
-			df_set_key_title_columnhead(this_plot->plot_type);
+			df_set_key_title_columnhead((struct curve_points *)this_plot);
 		    } else
 #endif
 
@@ -1562,7 +1580,8 @@ eval_3dplots()
 
 		    if (!checked_once) {
 			default_arrow_style(&this_plot->arrow_properties);
-			this_plot->arrow_properties.lp_properties.l_type = line_num;
+			load_linetype(&(this_plot->arrow_properties.lp_properties),
+					line_num+1);
 			checked_once = TRUE;
 		    }
 		    arrow_parse(&this_plot->arrow_properties, TRUE);
@@ -1579,6 +1598,7 @@ eval_3dplots()
 		} else {
 		    int stored_token = c_token;
 		    struct lp_style_type lp = DEFAULT_LP_STYLE_TYPE;
+		    int new_lt = 0;
 
 		    lp.l_type = line_num;
 		    lp.p_type = point_num;
@@ -1586,9 +1606,12 @@ eval_3dplots()
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles)
 			lp_use_properties(&lp, line_num+1);
+		    else
+			load_linetype(&lp, line_num+1);
 
- 		    lp_parse(&lp, TRUE,
+ 		    new_lt = lp_parse(&lp, TRUE,
 			     this_plot->plot_style & PLOT_STYLE_HAS_POINT);
+
 		    checked_once = TRUE;
 		    if (stored_token != c_token) {
 			if (set_lpstyle) {
@@ -1597,6 +1620,8 @@ eval_3dplots()
 			} else {
 			    this_plot->lp_properties = lp;
 			    set_lpstyle = TRUE;
+			    if (new_lt)
+				this_plot->hidden3d_top_linetype = new_lt - 1;
 			    continue;
 			}
 		    }
@@ -1638,6 +1663,7 @@ eval_3dplots()
 		    arrow_parse(&this_plot->arrow_properties, TRUE);
 		    this_plot->lp_properties = this_plot->arrow_properties.lp_properties;
 		} else {
+		    int new_lt = 0;
 		    this_plot->lp_properties.l_type = line_num;
 		    this_plot->lp_properties.l_width = 1.0;
 		    this_plot->lp_properties.p_type = point_num;
@@ -1647,9 +1673,15 @@ eval_3dplots()
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles)
 			lp_use_properties(&this_plot->lp_properties, line_num+1);
+		    else
+			load_linetype(&this_plot->lp_properties, line_num+1);
 
-		    lp_parse(&this_plot->lp_properties, TRUE,
+		    new_lt = lp_parse(&this_plot->lp_properties, TRUE,
 			 this_plot->plot_style & PLOT_STYLE_HAS_POINT);
+		    if (new_lt)
+			this_plot->hidden3d_top_linetype = new_lt - 1;
+		    else
+			this_plot->hidden3d_top_linetype = line_num;
 		}
 
 #ifdef BACKWARDS_COMPATIBLE
@@ -1739,7 +1771,7 @@ eval_3dplots()
 		    df_return = get_3ddata(this_plot);
 		    /* for second pass */
 		    this_plot->token = c_token;
-		    this_plot->iteration = iteration;
+		    this_plot->iteration = plot_iterator ? plot_iterator->iteration : 0;
 
 		    if (this_plot->num_iso_read == 0)
 			this_plot->plot_type = NODATA;
@@ -1771,7 +1803,7 @@ eval_3dplots()
 		    }
 
 		    this_plot->plot_type = DATA3D;
-		    this_plot->iteration = iteration;
+		    this_plot->iteration = plot_iterator ? plot_iterator->iteration : 0;
 		    this_plot->plot_style = first_dataset->plot_style;
 		    this_plot->lp_properties = first_dataset->lp_properties;
 		    if (this_plot->plot_style == LABELPOINTS) {
@@ -1787,10 +1819,10 @@ eval_3dplots()
 	    } else {		/* not a data file */
 		tp_3d_ptr = &(this_plot->next_sp);
 		this_plot->token = c_token;	/* store for second pass */
-		this_plot->iteration = iteration;
+		this_plot->iteration = plot_iterator ? plot_iterator->iteration : 0;
 	    }
 
-	    if (empty_iteration())
+	    if (empty_iteration(plot_iterator))
 		this_plot->plot_type = NODATA;
 
 	}			/* !is_definition() : end of scope of this_plot */
@@ -1804,14 +1836,15 @@ eval_3dplots()
 	}
 
 	/* Iterate-over-plot mechanisms */
-	if (next_iteration()) {
+	if (next_iteration(plot_iterator)) {
 	    c_token = start_token;
 	    continue;
 	}
 
+	plot_iterator = cleanup_iteration(plot_iterator);
 	if (equals(c_token, ",")) {
 	    c_token++;
-	    check_for_iteration();
+	    plot_iterator = check_for_iteration();
 	} else
 	    break;
 
@@ -1888,7 +1921,7 @@ eval_3dplots()
 	/* start over */
 	this_plot = first_3dplot;
 	c_token = begin_token;
-	check_for_iteration();
+	plot_iterator = check_for_iteration();
 
 	/* why do attributes of this_plot matter ? */
 	/* FIXME HBB 20000501: I think they don't, actually. I'm
@@ -1981,15 +2014,18 @@ eval_3dplots()
 	    }			/* !is_definition */
 
 	    /* Iterate-over-plot mechanism */
-	    if (crnt_param == 0 && next_iteration()) {
+	    if (crnt_param == 0 && next_iteration(plot_iterator)) {
 		c_token = start_token;
 		continue;
 	    }
 
+	    if (crnt_param == 0)
+		plot_iterator = cleanup_iteration(plot_iterator);
+
 	    if (equals(c_token, ",")) {
 		c_token++;
 		if (crnt_param == 0)
-		    check_for_iteration();
+		    plot_iterator = check_for_iteration();
 	    } else
 		break;
 
@@ -2011,14 +2047,14 @@ eval_3dplots()
     }
 
     axis_checked_extend_empty_range(FIRST_X_AXIS, "All points x value undefined");
+    axis_revert_and_unlog_range(FIRST_X_AXIS);
     axis_checked_extend_empty_range(FIRST_Y_AXIS, "All points y value undefined");
+    axis_revert_and_unlog_range(FIRST_Y_AXIS);
     if (splot_map)
 	axis_checked_extend_empty_range(FIRST_Z_AXIS, NULL); /* Suppress warning message */
     else
 	axis_checked_extend_empty_range(FIRST_Z_AXIS, "All points z value undefined");
 
-    axis_revert_and_unlog_range(FIRST_X_AXIS);
-    axis_revert_and_unlog_range(FIRST_Y_AXIS);
     axis_revert_and_unlog_range(FIRST_Z_AXIS);
 
     setup_tics(FIRST_X_AXIS, 20);
@@ -2112,7 +2148,7 @@ eval_3dplots()
 	 * to tic marks, not only the min/max data values)
 	 * --> save them now for writeback if requested
 	 */
-	SAVE_WRITEBACK_ALL_AXES;
+	save_writeback_all_axes();
 	/* update GPVAL_ variables available to user */
 	update_gpval_variables(1);
 
@@ -2143,9 +2179,7 @@ parametric_3dfixup(struct surface_points *start_plot, int *plot_num)
 {
     struct surface_points *xp, *new_list, *free_list = NULL;
     struct surface_points **last_pointer = &new_list;
-    size_t tlen;
     int i, surface;
-    char *new_title;
 
     /*
      * Ok, go through all the plots and move FUNC3D types together.  Note:
@@ -2197,26 +2231,6 @@ parametric_3dfixup(struct surface_points *start_plot, int *plot_num)
 		zicrvs = zicrvs->next;
 	    }
 
-	    /* Ok, fix up the title to include xp and yp plots. */
-	    if (((xp->title && xp->title[0] != '\0') ||
-		 (yp->title && yp->title[0] != '\0')) && zp->title) {
-		tlen = (xp->title ? strlen(xp->title) : 0) +
-		    (yp->title ? strlen(yp->title) : 0) +
-		    (zp->title ? strlen(zp->title) : 0) + 5;
-		new_title = gp_alloc(tlen, "string");
-		new_title[0] = 0;
-		if (xp->title && xp->title[0] != '\0') {
-		    strcat(new_title, xp->title);
-		    strcat(new_title, ", ");	/* + 2 */
-		}
-		if (yp->title && yp->title[0] != '\0') {
-		    strcat(new_title, yp->title);
-		    strcat(new_title, ", ");	/* + 2 */
-		}
-		strcat(new_title, zp->title);
-		free(zp->title);
-		zp->title = new_title;
-	    }
 	    /* add xp and yp to head of free list */
 	    assert(xp->next_sp == yp);
 	    yp->next_sp = free_list;

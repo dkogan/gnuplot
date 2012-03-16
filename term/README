@@ -1,8 +1,6 @@
 DOCUMENTATION FOR GNUPLOT TERMINAL DRIVER WRITERS
 By Russell Lang 1/90
-
 Updated for new file layout by drd 4/95
-
 Paragraphs about inclusion of TERM_HELP added by rcc 1/96
 
 No change to the interface between gnuplot and the terminal drivers,
@@ -13,11 +11,6 @@ but we would like to make the terminal drivers standalone
    contributed drivers
 2) To make it easy for users to add contributed drivers, by adding
    a single #include line to term.h
-3) To allow individual compilation on DOS, to save the overlay
-   manager from having to load _all_ drivers together.
-
-CORRECTION - scale() interface is no longer supported, since it
-is incompatible with multiplot.
 
 Whole of terminal driver should be contained in one <driver>.trm file,
 with a fairly strict layout as detailed below - this allows the
@@ -90,10 +83,10 @@ struct TERMENTRY {
 
 One consequence of (1) is that we would like drivers to be backwards
 compatible - drivers in the correct form below should work in future
-versions of gnuplot without change. C compilers guarantee to fill
-uninitialised members of a structure to zero, so gnuplot can detect old
-drivers, in which fields have not been initialised, and can point
-new interface entry pointers to dummy functions.
+versions of gnuplot without change. ISO C guarantees to fill uninitialised
+members of a static structure to zero, so gnuplot can detect old drivers,
+in which fields have not been initialised, and can point new interface entry
+pointers to dummy functions.
 
 We can add fields to the terminal structure, but only at the end of the list.
 If you design a terminal that can't work without a new interface being defined,
@@ -193,10 +186,8 @@ _scale(xs,ys) Called just before _graphics(). This takes the x and y
 scaling factors as information. If the terminal would like to do its
 own scaling, it returns TRUE. Otherwise, it can ignore the information
 and return FALSE: do_plot will do the scaling for you. null_scale is
-provided to do just this, so most drivers can ignore this function
-entirely. The Latex driver is currently the only one providing its own
-scaling. PLEASE DO NOT USE THIS INTERFACE - IT IS NOT COMPATIBLE WITH
-MULTIPLOT.
+provided to do just this, so most drivers can ignore this function.
+PLEASE DO NOT USE THIS INTERFACE - IT IS NOT COMPATIBLE WITH MULTIPLOT.
 
 _graphics()  Called just before a plot is going to be displayed.  This
 procedure should set the device into graphics mode.  Devices which can't
@@ -296,9 +287,12 @@ An _arrow() function called do_arrow() is provided in term.c which will
 draw arrows using the _move() and _vector() functions.  
 Drivers should use do_arrow unless it causes problems.
 
-_set_font() is called to set the font of labels, etc. [new 3.7 feature]
+_set_font() is called to set the font of labels, etc.
   - fonts are selected as strings "name,size".
   - _set_font("") restores the terminal's default font.
+The core code does not currently use this entry point, but many 
+terminal drivers use it internally to process font requests either
+in "set term" or enhanced text strings.
 
 _pointsize() is used to set the pointsize for subsequent points
 
@@ -309,6 +303,7 @@ _flags stores various flags describing driver capabilities.
   - TERM_BINARY - output file must be opened in binary mode
   - TERM_ENHANCED_TEXT - terminal is currently in enhanced text mode
   - TERM_NO_OUTPUTFILE - terminal does not use gpoutfile
+  See other flags defined in term_api.h
 
 _suspend() - Called before gnuplot issues a prompt in multiplot mode.
    Called only in interactive mode, and only for drivers that have set the
@@ -353,9 +348,7 @@ _set_cursor(int c, int x, int y) - Set cursor style and corner of
 _set_clipboard(const char s[]) - Write a string to the clipboard.
 
 
-The following four functions were conditioned on #ifdef PM3D; this necessity
-was removed in August 2005. For further documentation about pm3d routines,
-see also pm3d/old-docs/README-pm3d.
+The following four functions support PM3D and RGB colors.
 
 _make_palette(t_sm_palette *palette) - If argument is NULL, return
    number of colors available.  If the number of colors is not limited
@@ -406,11 +399,14 @@ _image(unsigned M, unsigned N, coordval *image, gpiPoint *corner, t_imagecolor c
    along rows finishing in the lower right corner.  If 'color_mode' is
    IC_PALETTE, the terminal is to use palette lookup to generate color
    information.  In this scenario the size of 'image' is M*N.  If
-   'color_mode' is IC_RGB, the terminal is to use RGB components.  In
-   this scenario the size of 'image' is 3*M*N.  The data appears in RGB
-   triples, i.e., image[0] = R(1,1), image[1] = G(1,1), image[2] =
-   B(1,1), image[3] = R(1,2), image[4] = G(1,2), ..., image[3*M*N-1] =
-   B(M,N).  The 'image' is actually an "input" image in the sense that
+   'color_mode' is IC_RGB, successive bytes of the data structure are 
+   interpreted as RGB components of a single pixel.  In this scenario
+   the size of 'image' is 3*M*N.  The data appears in RGB triples, i.e.,
+   image[0] = R(1,1), image[1] = G(1,1), image[2] = B(1,1), 
+   image[3] = R(1,2), image[4] = G(1,2), ..., image[3*M*N-1] = B(M,N).
+   The mode IC_RGBA is similar except that four values red, green, blue,
+   alpha per pixel are passed to the terminal in the image structure.
+   The 'image' is actually an "input" image in the sense that
    it must also be properly resampled for the output device.  Many output
    media, e.g., PostScript, do this work via various driver functions.
    To determine the appropriate rescaling, the 'corner' information
@@ -428,7 +424,9 @@ _image(unsigned M, unsigned N, coordval *image, gpiPoint *corner, t_imagecolor c
 
 _layer(t_termlayer syncpoint)
    Driver-specific synchronization or other layering commands.
-   As of this point (Jan 2009) used only by fig lua post pslatex and svg.
+   For example, the BEGIN_KEY_SAMPLE/END_KEY_SAMPLE sync points allow
+   a driver to respond differently to mouse-clicks on the key sample
+   than to mouse clicks elsewhere.
    See term_api.h for defined synchronization points. Any driver that 
    implements term->layer() must silently ignore unrecognized syncpoints.
 
@@ -488,6 +486,12 @@ bitmap in memory, drawing lines and writing text. A simple driver
 need provide only a text() entry point, which converts and outputs
 the stored bitmap in the format required by the device.
 
+As of version 4.5, inclusion of bitmap.c and the terminal drivers
+that depend on it is controlled by ./configure --with-bitmap-terminals.
+This may be desirable because the license for bitmap.c is more
+restrictive than the gnuplot license itself, and because the terminals
+it supports are mostly obsolete.
+
 Internally, the bitmap is built of one or more planes of 1
 bit per pixel. In fact, I think the library would be easier to
 use if it offered one or more planes of pixels with 1,2,4 or 8
@@ -543,17 +547,6 @@ the initialisation that presently has to be done by the driver graphics()
 entry point.  Also, one day I would like to have parsing, including
 terminal driver options, table-driven, but I'm getting ahead of myself
 here.
-
-
-At present, bitmap.c is linked into gnuplot unconditionally. Perhaps
-it should be put into a library, so that it is linked in only if
-any of the user-selected drivers require bitmap support.
-
-There may be scope to do similar things with some of the other
-stuff that is shared by several drivers. Rather than requiring,
-for example, that LATEX driver is required if EMTEX is to be used,
-the shared routines could be extracted to a library and linked
-if any of the drivers which use them are used.  Just a thought...
 
 ------------------------------------
 

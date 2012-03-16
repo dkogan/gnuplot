@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: scanner.c,v 1.27.2.1 2010/01/30 05:07:52 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: scanner.c,v 1.31.2.2 2011/11/29 04:03:57 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - scanner.c */
@@ -40,14 +40,10 @@ static char *RCSid() { return RCSid("$Id: scanner.c,v 1.27.2.1 2010/01/30 05:07:
 #include "command.h"
 #include "util.h"
 
+int curly_brace_count;
+
 static int get_num __PROTO((char str[]));
 static void substitute __PROTO((char **strp, size_t *str_lenp, int current));
-
-#ifdef AMIGA_AC_5
-#define O_RDONLY	0
-int open(const char *_name, int _mode,...);
-int close(int);
-#endif /* AMIGA_AC_5 */
 
 #ifdef VMS
 #include <descrip.h>
@@ -71,6 +67,19 @@ int close(int);
 				APPEND_TOKEN
 
 static int t_num;		/* number of token I'm working on */
+
+TBOOLEAN
+legal_identifier(char *p)
+{
+    if (!p || !(*p) || isdigit(*p))
+	return FALSE;
+    while (*p) {
+	if (!isident(*p))
+	    return FALSE;
+	p++;
+    }
+    return TRUE;
+}
 
 /*
  * scanner() breaks expression[] into lexical units, storing them in token[].
@@ -115,6 +124,8 @@ scanner(char **expressionp, size_t *expressionlenp)
     int quote;
     char brace;
 
+    curly_brace_count = 0;
+
     for (current = t_num = 0; expression[current] != NUL; current++) {
 	if (t_num + 1 >= token_table_size) {
 	    /* leave space for dummy end token */
@@ -150,24 +161,24 @@ scanner(char **expressionp, size_t *expressionlenp)
 	    } /* do nothing if the . is a token by itself */
 
 	} else if (expression[current] == LBRACE) {
+	    int partial;
 	    token[t_num].is_token = FALSE;
 	    token[t_num].l_val.type = CMPLX;
-#ifdef __PUREC__
-	    {
-		char l[80];
-		if ((sscanf(&expression[++current], "%lf,%lf%[ }]s",
-			    &token[t_num].l_val.v.cmplx_val.real,
-			    &token[t_num].l_val.v.cmplx_val.imag,
-			    &l) != 3) || (!strchr(l, RBRACE)))
-		    int_error(t_num, "invalid complex constant");
-	    }
-#else
-	    if ((sscanf(&expression[++current], "%lf , %lf %c",
+	    partial = sscanf(&expression[++current], "%lf , %lf %c",
 			&token[t_num].l_val.v.cmplx_val.real,
 			&token[t_num].l_val.v.cmplx_val.imag,
-			&brace) != 3) || (brace != RBRACE))
+			&brace);
+
+	    if (partial <= 0) {
+		curly_brace_count++;
+		token[t_num++].is_token = TRUE;
+		current--;
+		continue;
+	    }
+
+	    if (partial != 3 || brace != RBRACE)
 		int_error(t_num, "invalid complex constant");
-#endif
+
 	    token[t_num].length += 2;
 	    while (expression[++current] != RBRACE) {
 		token[t_num].length++;
@@ -222,6 +233,9 @@ scanner(char **expressionp, size_t *expressionlenp)
 	    case '?':
 	    case ',':
 	    case '$':		/* div */
+		break;
+	    case '}':		/* complex constants will not end up here */
+		curly_brace_count--;
 		break;
 	    case '&':
 	    case '|':

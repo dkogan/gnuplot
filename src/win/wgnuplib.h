@@ -1,5 +1,5 @@
 /*
- * $Id: wgnuplib.h,v 1.28.2.2 2010/02/16 07:05:39 mikulik Exp $
+ * $Id: wgnuplib.h,v 1.53 2011/11/18 07:48:28 markisch Exp $
  */
 
 /* GNUPLOT - win/wgnuplib.h */
@@ -40,38 +40,13 @@
  *   Russell Lang
  */
 
-/* this file contains items to be visible outside wgnuplot.dll */
-
 #include <windows.h>
-
-#ifdef _WINDOWS
-# ifndef _Windows
-#  define _Windows
-# endif
-#endif
-
-/* HBB 19990506: The following used to be #ifdef __DLL__.
- * But  _export is needed outside the DLL, as well. The long-standing
- * bug crashing 16bit wgnuplot on Alt-F4 or pressing the 'close' button
- * stemmed here.  */
-#ifndef WIN32
-#define WINEXPORT _export
-#else
-#define WINEXPORT
-#endif
+#include "screenbuf.h"
+#include "term_api.h"
 
 /* Functions flagged WDPROC are to be export by the DLL, so they can be called
  * directly from win.trm or the gnuplot core */
-#define WDPROC WINAPI WINEXPORT
-
-/* HBB: bumped version for pointsize, linewidth and PM3D implementation */
-/* HBB: bumped version for massive changes due to mouse-ing and removal of
- *      variables no longer needed, in struct GW */
-/* HBB: bumped version because of changes in PM3D interface and pointtypes */
-/* HBB: bumped version for filledboxes support */
-/* HBB: bumped version for larger NUMMENU in wresourc.h */
-#define WGNUPLOTVERSION  "1.6   2003-01-23"
-BOOL WDPROC CheckWGNUPLOTVersion(LPSTR str);
+#define WDPROC WINAPI
 
 /* ================================== */
 /* symbols for the two icons          */
@@ -80,17 +55,8 @@ BOOL WDPROC CheckWGNUPLOTVersion(LPSTR str);
 
 /* ================================== */
 /* For WIN32 API's */
-#ifdef WIN32
 /* #define DEFAULT_CHARSET ANSI_CHARSET */
-# define OFFSETOF(x)  (x)
-# define SELECTOROF(x)  (x)
 # define MoveTo(hdc,x,y) MoveToEx(hdc,x,y,(LPPOINT)NULL);
-# if !defined(__TURBOC__) || (__TURBOC__>=0x410) /* Borland C has these defines, already... */
-#  define farmalloc(x) malloc(x)
-#  define farrealloc(s,n) realloc(s,n)
-#  define farfree(s) free(s)
-# endif /* __TURBOC__ */
-#endif
 
 #if defined(__MINGW32__) && (__GNUC__ < 3) && !defined(CYGWIN)
 /* windowsx.h in MinGW32 2.x doesn't define some of the more traditional
@@ -116,9 +82,9 @@ typedef struct tagPRINT {
 	POINT	pdef;
 	POINT	psize;
 	POINT	poff;
-	struct tagPRINT FAR *next;
+	struct tagPRINT *next;
 } GP_PRINT;
-typedef GP_PRINT FAR*  GP_LPPRINT;
+typedef GP_PRINT *  GP_LPPRINT;
 
 
 /* ================================== */
@@ -141,7 +107,7 @@ typedef struct tagPW
 	WNDPROC	lpfnCancel;
 	WNDPROC	lpfnPauseButtonProc;
 } PW;
-typedef PW FAR*  LPPW;
+typedef PW *  LPPW;
 
 int WDPROC PauseBox(LPPW lppw);
 
@@ -152,20 +118,20 @@ typedef struct tagMW
 {
 	LPSTR	szMenuName;		/* required */
 	HMENU	hMenu;
-	BYTE FAR * FAR *macro;
-	BYTE FAR *macrobuf;
+	BYTE	**macro;
+	BYTE	*macrobuf;
 	int		nCountMenu;
 	DLGPROC	lpProcInput;
 	char	*szPrompt;
 	char	*szAnswer;
 	int		nChar;
 	int		nButton;
+	HWND	hToolbar;
 	HWND	hButton[BUTTONMAX];
 	int		hButtonID[BUTTONMAX];
-	WNDPROC	lpfnMenuButtonProc;
-	WNDPROC	lpfnButtonProc[BUTTONMAX];
 } MW;
-typedef MW FAR * LPMW;
+typedef MW * LPMW;
+
 
 /* ================================== */
 /* wtext.c text window structure */
@@ -178,40 +144,42 @@ typedef struct tagTW
 	HINSTANCE hPrevInstance;	/* required */
 	LPSTR	Title;			/* required */
 	LPMW	lpmw;			/* optional */
-	POINT	ScreenSize;		/* optional */
+	POINT	ScreenSize;		/* optional */  /* size of the visible screen in characters */
 	unsigned int KeyBufSize;	/* optional */
 	LPSTR	IniFile;		/* optional */
 	LPSTR	IniSection;		/* optional */
 	LPSTR	DragPre;		/* optional */
 	LPSTR	DragPost;		/* optional */
-	int		nCmdShow;		/* optional */
+	int	nCmdShow;		/* optional */
 	FARPROC shutdown;		/* optional */
 	HICON	hIcon;			/* optional */
 	LPSTR   AboutText;		/* optional */
 	HMENU	hPopMenu;
 	HWND	hWndText;
 	HWND	hWndParent;
+	HWND	hStatusbar;
 	POINT	Origin;
 	POINT	Size;
-	BYTE FAR *ScreenBuffer;
-	BYTE FAR *AttrBuffer;
-	BYTE FAR *KeyBuf;
-	BYTE FAR *KeyBufIn;
-	BYTE FAR *KeyBufOut;
+	SB	ScreenBuffer;
+	BOOL	bWrap;			/* wrap long lines */
+	BYTE	*KeyBuf;
+	BYTE	*KeyBufIn;
+	BYTE	*KeyBufOut;
 	BYTE	Attr;
 	BOOL	bFocus;
 	BOOL	bGetCh;
 	BOOL	bSysColors;
 	HBRUSH	hbrBackground;
 	char	fontname[MAXFONTNAME];	/* font name */
-	int		fontsize;				/* font size in pts */
+	int	fontsize;		/* font size in pts */
 	HFONT	hfont;
-	int		CharAscent;
-	int		ButtonHeight;
-	int		CaretHeight;
-	int		CursorFlag;
-	POINT	CursorPos;
-	POINT	ClientSize;
+	int	CharAscent;
+	int	ButtonHeight;
+	int	StatusHeight;
+	int	CaretHeight;
+	int	CursorFlag;		/* scroll to cursor after \n & \r */
+	POINT	CursorPos;		/* cursor position on screen */
+	POINT	ClientSize;		/* size of the client window in pixels */
 	POINT	CharSize;
 	POINT	ScrollPos;
 	POINT	ScrollMax;
@@ -219,7 +187,7 @@ typedef struct tagTW
 	POINT	MarkEnd;
 	BOOL	Marking;
 } TW;
-typedef TW FAR*  LPTW;
+typedef TW *  LPTW;
 
 
 #ifndef WGP_CONSOLE
@@ -228,13 +196,14 @@ typedef TW FAR*  LPTW;
 void WDPROC TextMessage(void);
 int WDPROC TextInit(LPTW lptw);
 void WDPROC TextClose(LPTW lptw);
-void WDPROC TextToCursor(LPTW lptw);
 int WDPROC  TextKBHit(LPTW);
 int WDPROC TextGetCh(LPTW);
 int WDPROC TextGetChE(LPTW);
 LPSTR WDPROC TextGetS(LPTW lptw, LPSTR str, unsigned int size);
 int WDPROC TextPutCh(LPTW, BYTE);
 int WDPROC TextPutS(LPTW lptw, LPSTR str);
+#if 0
+/* The new screen buffer currently does not support these */
 void WDPROC TextGotoXY(LPTW lptw, int x, int y);
 int  WDPROC TextWhereX(LPTW lptw);
 int  WDPROC TextWhereY(LPTW lptw);
@@ -244,6 +213,7 @@ void WDPROC TextClearEOS(LPTW lptw);
 void WDPROC TextInsertLine(LPTW lptw);
 void WDPROC TextDeleteLine(LPTW lptw);
 void WDPROC TextScrollReverse(LPTW lptw);
+#endif
 void WDPROC TextAttr(LPTW lptw, BYTE attr);
 #endif /* WGP_CONSOLE */
 
@@ -258,14 +228,17 @@ void WDPROC AboutBox(HWND hwnd, LPSTR str);
  * by the 'Line styles...' dialog, and save to/from wgnuplot.ini). */
 #define WGNUMPENS 15
 
+/* maximum number of plots which can be enabled/disabled via toolbar */
+#define MAXPLOTSHIDE 10
+
 /* maximum number of different colors per palette, used to be hardcoded (256) */
 #define WIN_PAL_COLORS 4096
 
 /* Information about one graphical operation to be stored by the
  * driver for the sake of redraws. Array of GWOP kept in global block */
 struct GWOP {
-	WORD op;
-	WORD x, y;
+	UINT op;
+	UINT x, y;
 	HLOCAL htext;
 };
 
@@ -273,13 +246,14 @@ struct GWOP {
 struct GWOPBLK {			/* kept in local memory */
 	struct GWOPBLK *next;
 	HGLOBAL hblk;			/* handle to a global block */
-	struct GWOP FAR *gwop;	/* pointer to global block if locked */
+	struct GWOP *gwop;	/* pointer to global block if locked */
 	UINT used;				/* number of GWOP's used */
 };
 
 /* ops */
 #define W_endoflist 0
 
+#define WIN_POINT_TYPES 15	/* required by win.trm */
 #define W_dot 10
 #define W_plus 11
 #define W_cross 12
@@ -305,94 +279,134 @@ struct GWOPBLK {			/* kept in local memory */
 #define W_text_angle 35
 #define W_pointsize 36
 #define W_line_width 37
-#define W_pm3d_setcolor 38
-#define W_pm3d_filled_polygon_pt   39
-#define W_pm3d_filled_polygon_draw 40
+#define W_setcolor 38
+#define W_filled_polygon_pt   39
+#define W_filled_polygon_draw 40
 #define W_boxfill 41
-#define W_fillstyle 42		/* NOTE HBB 20010916: used #if _FILLEDBOXES */
+#define W_fillstyle 42
 #define W_font 43
-#define W_image 50
+#define W_enhanced_text 44
+#define W_image 45
+#define W_layer 46
+#define W_text_encoding 47
 
 typedef struct tagGW {
 	GP_LPPRINT	lpr;		/* must be first */
 	HINSTANCE hInstance;	/* required */
 	HINSTANCE hPrevInstance;	/* required */
+	int		Id;	/* plot number */
 	LPSTR	Title;		/* required */
-	int	xmax;		/* required */
-	int	ymax;		/* required */
+	int		xmax;		/* required */
+	int		ymax;		/* required */
 	LPTW	lptw;		/* optional */  /* associated text window */
 	POINT	Origin;		/* optional */	/* origin of graph window */
 	POINT	Size;		/* optional */	/* size of graph window */
 	LPSTR	IniFile;	/* optional */
 	LPSTR	IniSection;	/* optional */
 	HWND	hWndGraph;	/* window handle */
+	HWND	hStatusbar;	/* window handle of status bar */
+	int		StatusHeight;	/* height of status line area */
+	HWND	hToolbar;
+	int		ToolbarHeight;
 	HMENU	hPopMenu;	/* popup menu */
-	int	pen;		/* current pen number */
-	int	htic;		/* horizontal size of point symbol (xmax units) */
-	int 	vtic;		/* vertical size of point symbol (ymax units)*/
-	int	hchar;		/* horizontal size of character (xmax units) */
-	int	vchar;		/* vertical size of character (ymax units)*/
-	int	angle;		/* text angle */
-	BOOL	rotate;		/* can text be rotated 90 degrees ? */
-	char	fontname[MAXFONTNAME];	/* font name */
-	int	fontsize;	/* font size in pts */
-	char	deffontname[MAXFONTNAME]; /* default font name */
-	int	deffontsize;	/* default font size */
-	HFONT	hfonth;		/* horizonal font */
-	HFONT	hfontv;		/* rotated font (arbitrary angle) */
-	LOGFONT lf;		/* cached to speed up rotated fonts */
-	BOOL	resized;	/* has graph window been resized? */
-	BOOL	graphtotop;	/* bring graph window to top after every plot? */
-	BOOL	color;		/* color pens? */
-	HPEN	hapen;		/* stored current pen */
-	LOGPEN	colorpen[WGNUMPENS+2];	/* color pen definitions */
-	LOGPEN	monopen[WGNUMPENS+2];	/* mono pen definitions */
-	COLORREF background;		/* background color */
-	HBRUSH	hbrush;		/* background brush */
-	HBRUSH	colorbrush[WGNUMPENS+2];   /* brushes to fill points */
+
 	struct GWOPBLK *gwopblk_head;
 	struct GWOPBLK *gwopblk_tail;
 	unsigned int nGWOP;
 	BOOL	locked;		/* locked if being written */
-	double  org_pointsize;	/* Original Pointsize */
-	int		statuslineheight;	/* height of status line area */
+
+	BOOL	initialized;	/* already initialized? */
+	BOOL	graphtotop;	/* bring graph window to top after every plot? */
+	BOOL	color;		/* color pens? */
+	BOOL	dashed;		/* dashed lines? */
+	BOOL	doublebuffer;	/* double buffering? */
+	BOOL	oversample;	/* oversampling? */
+	BOOL	antialiasing;
+	BOOL	polyaa;		/* anti-aliasing for polygons ? */
+	BOOL	patternaa;	/* anti-aliasing for polygons ? */
+
+	BOOL	hideplot[MAXPLOTSHIDE];
+	BOOL	hidegrid;
+	unsigned int numplots;
+	BOOL	hasgrid;
+	LPRECT	keyboxes;
+	unsigned int maxkeyboxes;
+
+	int		htic;		/* horizontal size of point symbol (xmax units) */
+	int 	vtic;		/* vertical size of point symbol (ymax units)*/
+	int		hchar;		/* horizontal size of character (xmax units) */
+	int		vchar;		/* vertical size of character (ymax units)*/
+
+	char	fontname[MAXFONTNAME];	/* current font name */
+	int		fontsize;	/* current font size in pts */
+	char	deffontname[MAXFONTNAME]; /* default font name */
+	int		deffontsize;	/* default font size */
+	int		angle;		/* text angle */
+	BOOL	rotate;		/* can text be rotated 90 degrees ? */
+	int		justify;	/* text justification */
+	HFONT	hfonth;		/* horizonal font */
+	HFONT	hfontv;		/* rotated font (arbitrary angle) */
+	LOGFONT	lf;			/* cached to speed up rotated fonts */
+	double	org_pointsize;	/* Original Pointsize */
+	int		encoding_error; /* last unknown encoding */
+	double	fontscale;	/* scale factor for font sizes */
+	enum set_encoding_id encoding;	/* text encoding */
+
+	HPEN	hapen;		/* stored current pen */
+	HPEN	hsolid;		/* solid sibling of current pen */
+	HPEN	hnull;		/* empty null pen */
+	LOGPEN	colorpen[WGNUMPENS+2];	/* color pen definitions */
+	LOGPEN	monopen[WGNUMPENS+2];	/* mono pen definitions */
+	double	linewidth;	/* scale factor for linewidth */
+
+	HBRUSH	colorbrush[WGNUMPENS+2];   /* brushes to fill points */
+	COLORREF background;		/* background color */
+	HBRUSH	hbrush;				/* background brush */
+	HBRUSH	hcolorbrush;		/* */
+	int		sampling;	/* current sampling factor */
+
+	struct tagGW * next;		/* pointer to next window */
 } GW;
-typedef GW FAR*  LPGW;
+typedef GW *  LPGW;
 
 #define WINFONTSIZE 10
-#define WIN30FONT "Courier"
-#define WINFONT "Arial"
-
-#define MAXTITLELEN 120
+#define WINFONT "Tahoma"
+#ifndef WINJPFONT
+#define WINJPFONT "MS PGothic"
+#endif
 #define WINGRAPHTITLE "gnuplot graph"
 
-#if 0
-enum JUSTIFY {
-	LEFT, CENTRE, RIGHT
-};
-#endif
+extern termentry * WIN_term;
+extern char WIN_inifontname[MAXFONTNAME];
+extern int WIN_inifontsize;
 
+void WDPROC GraphInitStruct(LPGW lpgw);
 void WDPROC GraphInit(LPGW lpgw);
 void WDPROC GraphClose(LPGW lpgw);
 void WDPROC GraphStart(LPGW lpgw, double pointsize);
 void WDPROC GraphEnd(LPGW lpgw);
 void WDPROC GraphChangeTitle(LPGW lpgw);
 void WDPROC GraphResume(LPGW lpgw);
-void WDPROC GraphOp(LPGW lpgw, WORD op, WORD x, WORD y, LPCSTR str);
-void WDPROC GraphOpSize(LPGW lpgw, WORD op, WORD x, WORD y, LPCSTR str, DWORD size);
+void WDPROC GraphOp(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str);
+void WDPROC GraphOpSize(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str, DWORD size);
 void WDPROC GraphPrint(LPGW lpgw);
 void WDPROC GraphRedraw(LPGW lpgw);
-void WDPROC GraphChangeFont(LPGW lpgw, LPCSTR font, int fontsize, HDC hdc, RECT rect);
-unsigned int WDPROC GraphGetTextLength(LPGW lpgw, LPCSTR text, LPCSTR fontname, int fontsize);
-int WDPROC GraphGetFontScaling(LPGW lpgw, LPCSTR font, int fontsize);
-void	ReadGraphIni(LPGW lpgw);
 void WDPROC win_close_terminal_window(LPGW lpgw);
+TBOOLEAN GraphHasWindow(LPGW lpgw);
 
 #ifdef USE_MOUSE
-void WDPROC Graph_set_cursor (LPGW lpgw, int c, int x, int y );
-void WDPROC Graph_set_ruler (LPGW lpgw, int x, int y );
+void WDPROC Graph_set_cursor(LPGW lpgw, int c, int x, int y);
+void WDPROC Graph_set_ruler(LPGW lpgw, int x, int y);
 void WDPROC Graph_put_tmptext(LPGW lpgw, int i, LPCSTR str);
-void WDPROC Graph_set_clipboard (LPGW lpgw, LPCSTR s);
+void WDPROC Graph_set_clipboard(LPGW lpgw, LPCSTR s);
 #endif
+
+/* BM: callback functions for enhanced text */
+void WDPROC GraphEnhancedOpen(char *fontname, double fontsize, double base,
+    BOOL widthflag, BOOL showflag, int overprint);
+void WDPROC GraphEnhancedFlush(void);
+
+void WIN_update_options __PROTO((void));
+
 
 /* ================================== */

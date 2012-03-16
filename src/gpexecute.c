@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gpexecute.c,v 1.16 2009/02/19 21:15:49 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gpexecute.c,v 1.18 2011/03/13 19:55:29 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - gpexecute.c */
@@ -135,11 +135,6 @@ gp_execute(char *s)
 	((char *) input_from_PM_Terminal)[0] = 0;
 	return;
     }
-#ifdef GNUPMDRV
-    /* write the command to clipboard */
-    if (bSend2gp == TRUE)
-	TextToClipboard(input_from_PM_Terminal);
-#endif
     gp_post_shared_mem();
 }
 
@@ -246,9 +241,6 @@ gp_exec_event(char type, int mx, int my, int par1, int par2, int winid)
     }
 #endif
 #ifdef WIN_IPC
-    /* FIXME HBB 20010216: this breaks the wgnuplot.exe+wgnuplot.dll type of
-     * compilation (for Win16). do_event is in the main program(mouse.c), but
-     * gpexecute is in the DLL --> can't reach it, from here. */
     do_event(&ge);
     return;
 #endif

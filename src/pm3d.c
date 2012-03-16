@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.77 2009/03/26 00:49:16 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.85 2011/09/04 11:06:19 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - pm3d.c */
@@ -31,6 +31,8 @@ static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.77 2009/03/26 00:49:16 sfea
 
 #include <stdlib.h> /* qsort() */
 
+/* Needed by routine filled_quadrangle() in color.c */
+struct lp_style_type pm3d_border_lp;
 
 /*
   Global options for pm3d algorithm (to be accessed by set / show).
@@ -53,7 +55,10 @@ typedef struct {
     double gray;
     double z; /* maximal z value after rotation to graph coordinate system */
     gpdPoint corners[4];
-    gpiPoint icorners[4]; /* also if EXTENDED_COLOR_SPECS is not defined */
+#ifdef EXTENDED_COLOR_SPECS
+    gpiPoint icorners[4];
+#endif
+    t_colorspec *border_color;	/* Only used by depthorder processing */
 } quadrangle;
 
 static int allocated_quadrangles = 0;
@@ -68,6 +73,7 @@ static void pm3d_plot __PROTO((struct surface_points *, int));
 static void pm3d_option_at_error __PROTO((void));
 static void pm3d_rearrange_part __PROTO((struct iso_curve *, const int, struct iso_curve ***, int *));
 static void filled_color_contour_plot  __PROTO((struct surface_points *, int));
+static TBOOLEAN color_from_rgbvar = FALSE;
 
 /*
  * Utility routines.
@@ -81,14 +87,6 @@ static void filled_color_contour_plot  __PROTO((struct surface_points *, int));
 static double
 geomean4 (double x1, double x2, double x3, double x4)
 {
-#if 0
-    /* return 0 if any of the number is negative */
-    if (x1 <= 0) x1 = 1;
-    if (x2 > 0) x1 *= x2;
-    if (x3 > 0) x1 *= x3;
-    if (x4 > 0) x1 *= x4;
-    return pow(x1, 0.25);
-#else
     /* honor signess, i.e. sign(geomean) = sign(prod(x_i)) */
     int neg = (x1 < 0) + (x2 < 0) + (x3 < 0) + (x4 < 0);
     x1 *= x2 * x3 * x4;
@@ -105,7 +103,6 @@ geomean4 (double x1, double x2, double x3, double x4)
     }
 #endif
     return (neg <= 2) ? x1 : -x1;
-#endif
 }
 
 
@@ -164,7 +161,7 @@ z2cb(double z)
     if (Z_AXIS.log && !CB_AXIS.log) /* log z, linear cb */
 	return exp(z * Z_AXIS.log_base); /* unlog(z) */
     if (!Z_AXIS.log && CB_AXIS.log) /* linear z, log cb */
-	return (log(z) / CB_AXIS.log_base);
+	return (z<=0) ? 0.0 : (log(z) / CB_AXIS.log_base);
     /* both are log */
     if (Z_AXIS.base==CB_AXIS.base) /* can we compare double numbers like that? */
 	return z;
@@ -366,26 +363,33 @@ void pm3d_depth_queue_flush(void)
 	quadrangle* qp;
 	quadrangle* qe;
 	gpdPoint* gpdPtr;
-	gpiPoint* gpiPtr;
+#ifdef EXTENDED_COLOR_SPECS
+	gpdPoint* gpiPtr;
+	double w = trans_mat[3][3];
+#endif
 	vertex out;
 	double z = 0; /* assignment keeps the compiler happy */
-	double w = trans_mat[3][3];
 	int i;
 
 	for (qp = quadrangles, qe = quadrangles + current_quadrangle; qp != qe; qp++) {
 
 	    gpdPtr = qp->corners;
+#ifdef EXTENDED_COLOR_SPECS
 	    gpiPtr = qp->icorners;
+#endif
 
-	    for (i = 0; i < 4; i++, gpdPtr++, gpiPtr++) {
+	    for (i = 0; i < 4; i++, gpdPtr++) {
 
 		map3d_xyz(gpdPtr->x, gpdPtr->y, gpdPtr->z, &out);
 
 		if (i == 0 || out.z > z)
 		    z = out.z;
 
+#ifdef EXTENDED_COLOR_SPECS
 		gpiPtr->x = (unsigned int) ((out.x * xscaler / w) + xmiddle);
 		gpiPtr->y = (unsigned int) ((out.y * yscaler / w) + ymiddle);
+		gpiPtr++;
+#endif
 	    }
 
 	    qp->z = z; /* maximal z value of all four corners */
@@ -395,8 +399,17 @@ void pm3d_depth_queue_flush(void)
 
 	for (qp = quadrangles, qe = quadrangles + current_quadrangle; qp != qe; qp++) {
 
-	    set_color(qp->gray);
+	    if (color_from_rgbvar)
+		set_rgbcolor(qp->gray);
+	    else
+		set_color(qp->gray);
+	    if (pm3d.hidden3d_tag < 0)
+		pm3d_border_lp.pm3d_color = *(qp->border_color);
+#ifdef EXTENDED_COLOR_SPECS
 	    ifilled_quadrangle(qp->icorners);
+#else
+	    filled_quadrangle(qp->corners);
+#endif
 	}
     }
 
@@ -430,9 +443,18 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 
     /* just a shortcut */
     TBOOLEAN color_from_column = this_plot->pm3d_color_from_column;
+    
+    color_from_rgbvar = (this_plot->lp_properties.pm3d_color.type == TC_RGB
+			&&  this_plot->lp_properties.pm3d_color.value == -1);
 
     if (this_plot == NULL)
 	return;
+
+    /* Apply and save the user-requested line properties */
+    pm3d_border_lp = this_plot->lp_properties;
+    if (pm3d.hidden3d_tag > 0)
+	lp_use_properties(&pm3d_border_lp, pm3d.hidden3d_tag);
+    term_apply_lp_properties(&pm3d_border_lp);
 
     if (at_which_z != PM3D_AT_BASE && at_which_z != PM3D_AT_TOP && at_which_z != PM3D_AT_SURFACE)
 	return;
@@ -671,7 +693,20 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		    cb4 = z2cb(pointsB[ii1].z);
 		}
 		switch (pm3d.which_corner_color) {
-		    case PM3D_WHICHCORNER_MEAN: avgC = (cb1 + cb2 + cb3 + cb4) * 0.25; break;
+		    default:
+		    case PM3D_WHICHCORNER_MEAN:
+			if (color_from_rgbvar) {
+			    int r = (((int)cb1)&0xff0000)+(((int)cb2)&0xff0000)
+			    	  + (((int)cb3)&0xff0000)+(((int)cb4)&0xff0000);
+			    int g = (((int)cb1)&0xff00)+(((int)cb2)&0xff00)
+			    	  + (((int)cb3)&0xff00)+(((int)cb4)&0xff00);
+			    int b = (((int)cb1)&0xff)+(((int)cb2)&0xff)
+			    	  + (((int)cb3)&0xff)+(((int)cb4)&0xff);
+			    avgC = ((r>>2)&0xff0000) + ((g>>2)&0xff00) + ((b>>2)&0xff);
+			} else {
+    			    avgC = (cb1 + cb2 + cb3 + cb4) * 0.25;
+			}
+			break;
 		    case PM3D_WHICHCORNER_GEOMEAN: avgC = geomean4(cb1, cb2, cb3, cb4); break;
 		    case PM3D_WHICHCORNER_MEDIAN: avgC = median4(cb1, cb2, cb3, cb4); break;
 		    case PM3D_WHICHCORNER_MIN: avgC = minimum4(cb1, cb2, cb3, cb4); break;
@@ -680,10 +715,12 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		    case PM3D_WHICHCORNER_C2: avgC = cb2; break;
 		    case PM3D_WHICHCORNER_C3: avgC = cb3; break;
 		    case PM3D_WHICHCORNER_C4: avgC = cb4; break;
-		    default: int_error(NO_CARET, "cannot be here"); avgC = 0;
 		}
-		/* transform z value to gray, i.e. to interval [0,1] */
-		gray = cb2gray(avgC);
+
+		if (color_from_rgbvar) /* we were given an explicit color */
+			gray = avgC;
+		else /* transform z value to gray, i.e. to interval [0,1] */
+			gray = cb2gray(avgC);
 
 		/* print the quadrangle with the given color */
 		FPRINTF((stderr, "averageColor %g\tgray=%g\tM %g %g L %g %g L %g %g L %g %g\n",
@@ -691,8 +728,12 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		       pointsB[ii1].x, pointsB[ii1].y, pointsA[i1].x, pointsA[i1].y));
 
 		/* set the color */
-		if (pm3d.direction != PM3D_DEPTH)
-		    set_color(gray);
+		if (pm3d.direction != PM3D_DEPTH) {
+		    if (color_from_rgbvar)
+			set_rgbcolor(gray);
+		    else
+			set_color(gray);
+		}
 #ifdef EXTENDED_COLOR_SPECS
 	      }
 #endif
@@ -852,16 +893,24 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 			    case PM3D_WHICHCORNER_C4: avgC = cb4; break;
 			    default: int_error(NO_CARET, "cannot be here"); avgC = 0;
 			}
-			/* transform z value to gray, i.e. to interval [0,1] */
-			gray = cb2gray(avgC);
+
+			if (color_from_rgbvar) /* we were given an explicit color */
+				gray = avgC;
+			else /* transform z value to gray, i.e. to interval [0,1] */
+				gray = cb2gray(avgC);
+
 			if (pm3d.direction != PM3D_DEPTH) {
-			    set_color(gray);
+			    if (color_from_rgbvar)
+				set_rgbcolor(gray);
+			    else
+				set_color(gray);
 			    filled_quadrangle(corners);
 			} else {
 			    /* copy quadrangle */
 			    quadrangle* qp = quadrangles + current_quadrangle;
 			    memcpy(qp->corners, corners, 4 * sizeof (gpdPoint));
 			    qp->gray = gray;
+			    qp->border_color = &this_plot->lp_properties.pm3d_color;
 			    current_quadrangle++;
 			}
 		    }
@@ -874,6 +923,7 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		    quadrangle* qp = quadrangles + current_quadrangle;
 		    memcpy(qp->corners, corners, 4 * sizeof (gpdPoint));
 		    qp->gray = gray;
+		    qp->border_color = &this_plot->lp_properties.pm3d_color;
 		    current_quadrangle++;
 		}
 	    } /* interpolate between points */
@@ -970,9 +1020,8 @@ pm3d_draw_one(struct surface_points *plot)
 	/* Draw either at 'where' option of the given surface or at pm3d.where
 	 * global option. */
 
-    if (!where[0]) {
+    if (!where[0])
 	return;
-    }
 
     /* for pm3dCompress.awk */
     if (gppsfile && (pm3d.direction != PM3D_DEPTH))
@@ -1069,7 +1118,9 @@ set_plot_with_palette(int plot_num, int plot_mode)
 	    &&  this_2dplot->lp_properties.pm3d_color.type > TC_RGB)
 		return;
 	    if (this_2dplot->labels
-	    &&  this_2dplot->labels->textcolor.type >= TC_CB)
+	    && (this_2dplot->labels->textcolor.type == TC_CB
+	    ||  this_2dplot->labels->textcolor.type == TC_FRAC
+	    ||  this_2dplot->labels->textcolor.type == TC_Z))
 		return;
 	    this_2dplot = this_2dplot->next;
 	}

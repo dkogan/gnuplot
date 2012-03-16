@@ -1,5 +1,5 @@
 /*
- * $Id: scanner.h,v 1.6 2004/04/13 17:24:00 broeker Exp $
+ * $Id: scanner.h,v 1.7.2.1 2011/11/28 19:51:08 sfeam Exp $
  */
 
 /* GNUPLOT - scanner.h */
@@ -46,8 +46,11 @@
 
 /* Variables of scanner.c needed by other modules: */
 
+extern int curly_brace_count;
+
 /* Prototypes of functions exported by scanner.c */
 
+TBOOLEAN legal_identifier __PROTO((char *p));
 int scanner __PROTO((char **expression, size_t *line_lengthp));
 
 #endif /* GNUPLOT_SCANNER_H */

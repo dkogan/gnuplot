@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.227.2.3 2009/12/20 03:54:42 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.261.2.3 2012/03/02 20:00:04 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -69,6 +69,9 @@ static char *RCSid() { return RCSid("$Id: show.c,v 1.227.2.3 2009/12/20 03:54:42
 #include "pm3d.h"
 #include "getcolor.h"
 #include <ctype.h>
+#ifdef WIN32
+#include "win/winmain.h"
+#endif
 
 /******** Local functions ********/
 
@@ -79,6 +82,7 @@ static void show_autoscale __PROTO((void));
 static void show_bars __PROTO((void));
 static void show_border __PROTO((void));
 static void show_boxwidth __PROTO((void));
+static void show_boxplot __PROTO((void));
 static void show_fillstyle __PROTO((void));
 static void show_clip __PROTO((void));
 static void show_contour __PROTO((void));
@@ -92,7 +96,13 @@ static void show_dummy __PROTO((void));
 static void show_format __PROTO((void));
 static void show_styles __PROTO((const char *name, enum PLOT_STYLE style));
 static void show_style __PROTO((void));
+#ifdef EAM_OBJECTS
+static void show_style_rectangle __PROTO((void));
+static void show_style_circle __PROTO((void));
+static void show_style_ellipse __PROTO((void));
+#endif
 static void show_grid __PROTO((void));
+static void show_raxis __PROTO((void));
 static void show_zeroaxis __PROTO((AXIS_INDEX));
 static void show_label __PROTO((int tag));
 static void show_keytitle __PROTO((void));
@@ -111,11 +121,13 @@ static void show_palette_gradient __PROTO((void));
 static void show_palette_colornames __PROTO((void));
 static void show_colorbox __PROTO((void));
 static void show_pointsize __PROTO((void));
+static void show_pointintervalbox __PROTO((void));
 static void show_encoding __PROTO((void));
 static void show_decimalsign __PROTO((void));
 static void show_fit __PROTO((void));
 static void show_polar __PROTO((void));
 static void show_print __PROTO((void));
+static void show_psdir __PROTO((void));
 static void show_angles __PROTO((void));
 static void show_samples __PROTO((void));
 static void show_isosamples __PROTO((void));
@@ -151,6 +163,7 @@ static void show_plot __PROTO((void));
 static void show_variables __PROTO((void));
 
 static void show_linestyle __PROTO((int tag));
+static void show_linetype __PROTO((int tag));
 static void show_arrowstyle __PROTO((int tag));
 static void show_arrow __PROTO((int tag));
 
@@ -243,6 +256,9 @@ show_command()
     case S_GRID:
 	show_grid();
 	break;
+    case S_RAXIS:
+	show_raxis();
+	break;
     case S_ZEROAXIS:
 	show_zeroaxis(FIRST_X_AXIS);
 	show_zeroaxis(FIRST_Y_AXIS);
@@ -282,16 +298,14 @@ show_command()
 	CHECK_TAG_GT_ZERO;
 	show_arrow(tag);
 	break;
-#ifdef BACKWARDS_COMPATIBLE
     case S_LINESTYLE:
 	CHECK_TAG_GT_ZERO;
 	show_linestyle(tag);
 	break;
-#else
-    case S_LINESTYLE:
-	error_message = "keyword 'linestyle' deprecated, use 'show style line'";
+    case S_LINETYPE:
+	CHECK_TAG_GT_ZERO;
+	show_linetype(tag);
 	break;
-#endif
     case S_KEYTITLE:
 	show_keytitle();
 	break;
@@ -332,6 +346,9 @@ show_command()
 	c_token--;
 	show_palette_colornames();
 	break;
+    case S_POINTINTERVALBOX:
+	show_pointintervalbox();
+	break;
     case S_POINTSIZE:
 	show_pointsize();
 	break;
@@ -352,6 +369,9 @@ show_command()
 	break;
     case S_PRINT:
 	show_print();
+	break;
+    case S_PSDIR:
+	show_psdir();
 	break;
     case S_OBJECT:
 #ifdef EAM_OBJECTS
@@ -439,7 +459,7 @@ show_command()
 	show_timestamp();
 	break;
     case S_RRANGE:
-	show_range(R_AXIS);
+	show_range(POLAR_AXIS);
 	break;
     case S_TRANGE:
 	show_range(T_AXIS);
@@ -561,6 +581,9 @@ show_command()
     case S_CBDTICS:
     case S_CBMTICS:
 	show_tics(FALSE, FALSE, FALSE, FALSE, FALSE, TRUE);
+	break;
+    case S_RTICS:
+	show_ticdef(POLAR_AXIS);
 	break;
     case S_X2TICS:
     case S_X2DTICS:
@@ -696,6 +719,7 @@ disp_at(struct at_type *curr_at, int level)
 		(void) putc('\n', stderr);
 	    break;
 	case CALLN:
+	case SUM:
 	    fprintf(stderr, " %s", arg->udf_arg->udf_name);
 	    if (level < 6) {
 		if (arg->udf_arg->at) {
@@ -745,6 +769,7 @@ show_all()
     show_format();
     show_style();
     show_grid();
+    show_raxis();
     show_zeroaxis(FIRST_X_AXIS);
     show_zeroaxis(FIRST_Y_AXIS);
     show_zeroaxis(FIRST_Z_AXIS);
@@ -761,6 +786,7 @@ show_all()
     show_colorbox();
     show_pm3d();
     show_pointsize();
+    show_pointintervalbox();
     show_encoding();
     show_decimalsign();
     show_fit();
@@ -814,6 +840,7 @@ show_all()
     show_timefmt();
     show_loadpath();
     show_fontpath();
+    show_psdir();
     show_locale();
     show_zero();
     show_datafile();
@@ -871,6 +898,9 @@ show_version(FILE *fp)
 #else
 		"LIBREADLINE  "
 #endif
+#if defined(HAVE_LIBREADLINE) && defined(MISSING_RL_TILDE_EXPANSION)
+		"+READLINE_IS_REALLY_EDITLINE  "
+#endif
 #ifdef GNUPLOT_HISTORY
 		"+"
 #else
@@ -920,17 +950,16 @@ show_version(FILE *fp)
 		"";
 
 	    const char *nocwdrc =
-#ifdef NOCWDRC
+#ifdef USE_CWDRC
 		"+"
 #else
 		"-"
 #endif
-		"NOCWDRC  ";
+		"USE_CWDRC  ";
 
 	    const char *x11 =
 #ifdef X11
 		"+X11  "
-#endif
 		"+X11_POLYGON  "
 #ifdef USE_X11_MULTIBYTE
 		"+MULTIBYTE  "
@@ -938,23 +967,12 @@ show_version(FILE *fp)
 #ifdef EXTERNAL_X11_WINDOW
 		"+X11_EXTERNAL "
 #endif
+#endif
 		"";
 
 	    const char *use_mouse =
 #ifdef USE_MOUSE
 		"+USE_MOUSE  "
-#endif
-		"";
-
-	    const char *unixplot =
-#ifdef UNIXPLOT
-		"+UNIXPLOT  "
-#endif
-		"";
-
-	    const char *gnugraph =
-#ifdef GNUGRAPH
-		"+GNUGRAPH  "
 #endif
 		"";
 
@@ -982,15 +1000,21 @@ show_version(FILE *fp)
 		"+THIN_SPLINES  "
 # endif
 		"+IMAGE  "
+		"+USER_LINETYPES "
+#ifdef USE_STATS
+		"+STATS "
+#else
+		"-STATS "
+#endif
 	    "";
 
 	    sprintf(compile_options, "\
-%s%s%s%s\n\
+%s%s\n%s%s\n\
 %s%s\n\
-%s%s%s%s%s%s\n%s\n",
+%s%s%s%s\n%s\n",
 		    rdline, gnu_rdline, compatibility, binary_files,
 		    libgd, linuxvga,
-		    nocwdrc, x11, use_mouse, unixplot, gnugraph, hiddenline,
+		    nocwdrc, x11, use_mouse, hiddenline,
 		    plotoptions);
 	}
 
@@ -1017,41 +1041,37 @@ show_version(FILE *fp)
     strcpy(fmt, "\
 %s\n\
 %s\t%s\n\
-%s\tVersion %s patchlevel %s\n\
-%s\tlast modified %s\n\
-%s\tSystem: %s %s\n\
+%s\tVersion %s patchlevel %s    last modified %s\n\
+%s\tBuild System: %s %s\n\
 %s\n\
 %s\t%s\n\
 %s\tThomas Williams, Colin Kelley and many others\n\
 %s\n\
 %s\tgnuplot home:     http://www.gnuplot.info\n\
 ");
-#if 0 /* instead of RELEASE_VERSION */
+#ifdef DEVELOPMENT_VERSION
     strcat(fmt, "%s\tmailing list:     %s\n");
 #endif
     strcat(fmt, "\
-%s\tfaq, bugs, etc:   type \"help seeking-assistance\"\n\
-%s\timmediate help:   type \"help\"\n\
-%s\tplot window:      hit 'h'\n\
+%s\tfaq, bugs, etc:   type \"help FAQ\"\n\
+%s\timmediate help:   type \"help\"  (plot window: hit 'h')\n\
 ");
 
     fprintf(fp, fmt,
 	    p,			/* empty line */
 	    p, PROGRAM,
-	    p, gnuplot_version, gnuplot_patchlevel,
-	    p, gnuplot_date,
+	    p, gnuplot_version, gnuplot_patchlevel, gnuplot_date,
 	    p, os_name, os_rel,
 	    p,			/* empty line */
 	    p, gnuplot_copyright,
 	    p,			/* authors */
 	    p,			/* empty line */
 	    p,			/* website */
-#if 0 /* instead of RELEASE_VERSION */
+#ifdef DEVELOPMENT_VERSION
 	    p, help_email,	/* mailing list */
 #endif
 	    p,			/* type "help" */
-	    p,			/* type "help seeking-assistance" */
-	    p			/* hit 'h' */
+	    p 			/* type "help seeking-assistance" */
 	    );
 
 
@@ -1062,8 +1082,12 @@ show_version(FILE *fp)
 	c_token++;
 	fprintf(stderr, "Compile options:\n%s\n", compile_options);
 
+#ifndef WIN32
 	if ((helpfile = getenv("GNUHELP")) == NULL)
 	    helpfile = HELPFILE;
+#else
+	helpfile = winhelpname;
+#endif
 
 #ifdef X11
 	{
@@ -1083,6 +1107,9 @@ show_version(FILE *fp)
 
 	fprintf(stderr, "HELPFILE           = \"%s\"\n", helpfile);
 
+#if defined(WIN32) && !defined(WGP_CONSOLE)
+	fprintf(stderr, "MENUNAME           = \"%s\"\n", szMenuName);
+#endif
     }
 }
 
@@ -1116,7 +1143,7 @@ show_autoscale()
     }
 
     if (polar) {
-	SHOW_AUTOSCALE(R_AXIS)
+	SHOW_AUTOSCALE(POLAR_AXIS)
     }
 
     SHOW_AUTOSCALE(FIRST_X_AXIS );
@@ -1176,6 +1203,37 @@ show_boxwidth()
 	fprintf(stderr, "\tboxwidth is %g %s\n", boxwidth,
 		(boxwidth_is_absolute) ? "absolute" : "relative");
     }
+}
+
+/* process 'show boxplot' command */
+static void
+show_boxplot()
+{
+    fprintf(stderr, "\tboxplot representation is %s\n",
+	    boxplot_opts.plotstyle == FINANCEBARS ? "finance bar" : "box and whisker");
+    fprintf(stderr, "\tboxplot range extends from the ");
+    if (boxplot_opts.limit_type == 1)
+	fprintf(stderr, "  median to include %5.2f of the points\n",
+		boxplot_opts.limit_value);
+    else
+	fprintf(stderr, "  box by %5.2f of the interquartile distance\n",
+		boxplot_opts.limit_value);
+    if (boxplot_opts.outliers)
+	fprintf(stderr, "\toutliers will be drawn using point type %d\n",
+		boxplot_opts.pointtype+1);
+    else
+	fprintf(stderr,"\toutliers will not be drawn\n");
+    fprintf(stderr,"\tseparation between boxplots is %g\n",
+		boxplot_opts.separation);
+    fprintf(stderr,"\tfactor labels %s\n",
+		(boxplot_opts.labels == BOXPLOT_FACTOR_LABELS_X)    ? "will be put on the x axis"  :
+		(boxplot_opts.labels == BOXPLOT_FACTOR_LABELS_X2)   ? "will be put on the x2 axis" :
+		(boxplot_opts.labels == BOXPLOT_FACTOR_LABELS_AUTO) ? "are automatic" :
+		"are off");
+    fprintf(stderr,"\tfactor labels will %s\n",
+		boxplot_opts.sort_factors ? 
+		"be sorted alphabetically" : 
+		"appear in the order they were found");
 }
 
 
@@ -1327,12 +1385,13 @@ show_dgrid3d()
 		dgrid3d_col_fineness );
       } else {
 	fprintf(stderr, 
-		"\tdata grid3d is enabled for mesh of size %dx%d, kernel=%s, scale factors x=%f, y=%f\n", 
+		"\tdata grid3d is enabled for mesh of size %dx%d, kernel=%s,\n\tscale factors x=%f, y=%f%s\n", 
 		dgrid3d_row_fineness,
 		dgrid3d_col_fineness,
 		reverse_table_lookup(dgrid3d_mode_tbl, dgrid3d_mode),
 		dgrid3d_x_scale,
-		dgrid3d_y_scale );
+		dgrid3d_y_scale,
+		dgrid3d_kdensity ? ", kdensity2d mode" : "" );
       }
     else
 	fputs("\tdata grid3d is disabled\n", stderr);
@@ -1398,6 +1457,7 @@ show_format()
     SHOW_FORMAT(SECOND_Y_AXIS);
     SHOW_FORMAT(FIRST_Z_AXIS );
     SHOW_FORMAT(COLOR_AXIS);
+    SHOW_FORMAT(POLAR_AXIS);
 #undef SHOW_FORMAT
 }
 
@@ -1448,6 +1508,24 @@ show_style()
 	CHECK_TAG_GT_ZERO;
 	show_arrowstyle(tag);
 	break;
+    case SHOW_STYLE_BOXPLOT:
+	show_boxplot();
+	c_token++;
+	break;
+#ifdef EAM_OBJECTS
+    case SHOW_STYLE_RECTANGLE:
+	show_style_rectangle();
+	c_token++;
+	break;
+    case SHOW_STYLE_CIRCLE:
+	show_style_circle();
+	c_token++;
+	break;
+    case SHOW_STYLE_ELLIPSE:
+	show_style_ellipse(); 
+	c_token++;
+	break;
+#endif
     default:
 	/* show all styles */
 	show_styles("Data",data_style);
@@ -1457,27 +1535,67 @@ show_style()
 	show_increment();
 	show_histogram();
 	show_arrowstyle(0);
+	show_boxplot();
 #ifdef EAM_OBJECTS
-	/* Fall through (FIXME: this is ugly) */
-    case SHOW_STYLE_RECTANGLE:
-	fprintf(stderr, "\tRectangle style is %s, fill color ",
-		default_rectangle.layer > 0 ? "front" : 
-		default_rectangle.layer < 0 ? "behind" : "back");
-	if (default_rectangle.lp_properties.use_palette)
-	    save_pm3dcolor(stderr, &default_rectangle.lp_properties.pm3d_color);
-	else if (default_rectangle.lp_properties.l_type == LT_BACKGROUND)
-	    fprintf(stderr, "background");
-	else
-	    fprintf(stderr, "lt %d",default_rectangle.lp_properties.l_type+1);
-	fprintf(stderr, ", lw %.1f ", default_rectangle.lp_properties.l_width);
-	fprintf(stderr, ", fillstyle");
-	save_fillstyle(stderr, &default_rectangle.fillstyle);
-	c_token++;
+	show_style_rectangle();
+	show_style_circle();
+	show_style_ellipse();
 #endif
 	break;
     }
 #undef CHECK_TAG_GT_ZERO
 }
+
+#ifdef EAM_OBJECTS
+/* called by show_style() - defined for aesthetic reasons */
+static void
+show_style_rectangle() 
+{
+    SHOW_ALL_NL;
+    fprintf(stderr, "\tRectangle style is %s, fill color ",
+		default_rectangle.layer > 0 ? "front" : 
+		default_rectangle.layer < 0 ? "behind" : "back");
+    if (default_rectangle.lp_properties.use_palette)
+	save_pm3dcolor(stderr, &default_rectangle.lp_properties.pm3d_color);
+    else if (default_rectangle.lp_properties.l_type == LT_BACKGROUND)
+	fprintf(stderr, "background");
+    else
+	fprintf(stderr, "lt %d",default_rectangle.lp_properties.l_type+1);
+    fprintf(stderr, ", lw %.1f ", default_rectangle.lp_properties.l_width);
+    fprintf(stderr, ", fillstyle");
+    save_fillstyle(stderr, &default_rectangle.fillstyle);
+}
+
+static void
+show_style_circle()
+{
+    SHOW_ALL_NL;
+    fprintf(stderr, "\tCircle style has default radius ");
+    show_position(&default_circle.o.circle.extent);
+    fputs("\n", stderr);
+}
+
+static void
+show_style_ellipse() 
+{
+    SHOW_ALL_NL;
+    fprintf(stderr, "\tEllipse style has default size ");
+    show_position(&default_ellipse.o.ellipse.extent);
+    fprintf(stderr, ", default angle is %.1f degrees", default_ellipse.o.ellipse.orientation);
+    
+    switch (default_ellipse.o.ellipse.type) {
+        case ELLIPSEAXES_XY:
+            fputs(", diameters are in different units (major: x axis, minor: y axis)\n", stderr);
+	    break;
+	case ELLIPSEAXES_XX:
+	    fputs(", both diameters are in the same units as the x axis\n", stderr);
+	    break;
+	case ELLIPSEAXES_YY:
+	    fputs(", both diameters are in the same units as the y axis\n", stderr);
+	    break;
+    }
+}
+#endif
 
 /* called by show_data() and show_func() */
 static void
@@ -1531,6 +1649,7 @@ show_grid()
     SHOW_GRID(SECOND_Y_AXIS);
     SHOW_GRID(FIRST_Z_AXIS );
     SHOW_GRID(COLOR_AXIS);
+    SHOW_GRID(POLAR_AXIS);
 #undef SHOW_GRID
     fputs(" tics\n", stderr);
 
@@ -1548,6 +1667,11 @@ show_grid()
     fprintf(stderr, "\tGrid drawn at %s\n", (grid_layer==-1) ? "default layer" : ((grid_layer==0) ? "back" : "front"));
 }
 
+static void
+show_raxis()
+{
+    fprintf(stderr,"raxis is %sdrawn\n",raxis ? "" : "not ");
+}
 
 /* process 'show {x|y|z}zeroaxis' command */
 static void
@@ -1768,6 +1892,9 @@ show_key()
 	fputc('\n', stderr);
     } else
 	fprintf(stderr, "not boxed\n");
+   
+    if (key->front)
+	fprintf(stderr, "\tkey box is opaque and drawn in front of the graph\n");
 
     fprintf(stderr, "\
 \tsample length is %g characters\n\
@@ -1783,6 +1910,18 @@ show_key()
 	    key->auto_titles == FILENAME_KEYTITLES ? "with filename" :
 	    key->auto_titles == COLUMNHEAD_KEYTITLES
 	    ? "with column header" : "");
+
+    fputs("\tmaximum number of columns is ", stderr);
+    if (key->maxcols > 0)
+	fprintf(stderr, "%d for horizontal alignment\n", key->maxcols);
+    else
+	fputs("calculated automatically\n", stderr);
+    fputs("\tmaximum number of rows is ", stderr);
+    if (key->maxrows > 0)
+	fprintf(stderr, "%d for vertical alignment\n", key->maxrows);
+    else
+	fputs("calculated automatically\n", stderr);
+
     show_keytitle();
 }
 
@@ -1826,6 +1965,7 @@ show_logscale()
     SHOW_LOG(SECOND_X_AXIS);
     SHOW_LOG(SECOND_Y_AXIS);
     SHOW_LOG(COLOR_AXIS );
+    SHOW_LOG(POLAR_AXIS );
 #undef SHOW_LOG
 
     if (count == 0)
@@ -1903,6 +2043,23 @@ show_print()
     SHOW_ALL_NL;
 
     fprintf(stderr, "\tprint output is sent to '%s'\n", print_show_output());
+}
+
+/* process 'show print' command */
+static void
+show_psdir()
+{
+    SHOW_ALL_NL;
+
+    fprintf(stderr, "\tdirectory from 'set psdir': ");
+    fprintf(stderr, "%s\n", PS_psdir ? PS_psdir : "none");
+    fprintf(stderr, "\tenvironment variable GNUPLOT_PS_DIR: ");
+    fprintf(stderr, "%s\n", getenv("GNUPLOT_PS_DIR") ? getenv("GNUPLOT_PS_DIR") : "none");
+#ifdef GNUPLOT_PS_DIR
+    fprintf(stderr, "\tdefault system directory \"%s\"\n", GNUPLOT_PS_DIR);
+#else
+    fprintf(stderr, "\tfall through to built-in defaults\n");
+#endif
 }
 
 
@@ -2143,7 +2300,7 @@ show_palette()
 	    fputs( "\tcolor mapping by defined gradient\n", stderr );
 	    break;
 	  case SMPAL_COLOR_MODE_FUNCTIONS:
-	    fputs("\tcolor maping is done by user defined functions\n",stderr);
+	    fputs("\tcolor mapping is done by user defined functions\n",stderr);
 	    if (sm_palette.Afunc.at && sm_palette.Afunc.definition)
 	        fprintf( stderr, "\t  A-formula: %s\n",
 			 sm_palette.Afunc.definition);
@@ -2153,6 +2310,11 @@ show_palette()
 	    if (sm_palette.Cfunc.at && sm_palette.Cfunc.definition)
 	        fprintf( stderr, "\t  C-formula: %s\n",
 			 sm_palette.Cfunc.definition);
+	    break;
+	  case SMPAL_COLOR_MODE_CUBEHELIX:
+	    fprintf(stderr, "\tCubehelix color palette: start %g cycles %g saturation %g\n",
+			sm_palette.cubehelix_start, sm_palette.cubehelix_cycles,
+			sm_palette.cubehelix_saturation);
 	    break;
 	  default:
 	    fprintf( stderr, "%s:%d oops: Unknown color mode '%c'.\n",
@@ -2240,7 +2402,7 @@ show_colorbox()
 	    fputs("at DEFAULT position\n", stderr);
 	    break;
 	case SMCOLOR_BOX_USER:
-	    fputs("at USER position: ", stderr);
+	    fputs("at USER origin: ", stderr);
 	    show_position(&color_box.origin);
 	    fputs("\n\t          size: ", stderr);
 	    show_position(&color_box.size);
@@ -2290,11 +2452,11 @@ show_pm3d()
 	fputs("at least 1 point of the quadrangle in x,y ranges\n", stderr);
     else
 	fputs( "all 4 points of the quadrangle in x,y ranges\n", stderr);
-    if (pm3d.hidden3d_tag) {
-	fprintf(stderr,"\tpm3d-hidden3d is on an will use linestyle %d\n",
+    if (pm3d.hidden3d_tag > 0) {
+	fprintf(stderr,"\tpm3d-hidden3d is on and will use linestyle %d\n",
 	    pm3d.hidden3d_tag);
     } else {
-	fputs("\tpm3d-hidden3d is off\n", stderr);
+	fprintf(stderr,"\tpm3d-hidden3d is %s\n", pm3d.hidden3d_tag ? "on" : "off");
     }
 
     fprintf(stderr,"\tsteps for bilinear interpolation: %d,%d\n",
@@ -2317,6 +2479,14 @@ show_pointsize()
 {
     SHOW_ALL_NL;
     fprintf(stderr, "\tpointsize is %g\n", pointsize);
+}
+
+/* process 'show pointintervalbox' command */
+static void
+show_pointintervalbox()
+{
+    SHOW_ALL_NL;
+    fprintf(stderr, "\tpointintervalbox is %g\n", pointintervalbox);
 }
 
 
@@ -2346,6 +2516,8 @@ show_decimalsign()
         fprintf(stderr, "\tdecimalsign for output is %s \n", decimalsign);
     else
         fprintf(stderr, "\tdecimalsign for output has default value (normally '.')\n");
+
+    fprintf(stderr, "\tdegree sign for output is %s \n", degree_sign);
 }
 
 
@@ -2355,11 +2527,9 @@ show_fit()
 {
     SHOW_ALL_NL;
 
-#ifdef GP_FIT_ERRVARS
     fprintf(stderr, "\
 \tfit will%s place parameter errors in variables\n",
 	    fit_errorvariables ? "" : " not");
-#endif /* GP_FIT_ERRVARS */
 
     if (fitlogfile != NULL) {
         fprintf(stderr, "\
@@ -2454,13 +2624,9 @@ show_hidden3d()
 {
     SHOW_ALL_NL;
 
-#ifdef LITE
-    printf(" Hidden Line Removal Not Supported in LITE version\n");
-#else
     fprintf(stderr, "\thidden surface is %s\n",
 	    hidden3d ? "removed" : "drawn");
     show_hidden3doptions();
-#endif /* LITE */
 }
 
 static void
@@ -2627,7 +2793,7 @@ static void
 show_range(AXIS_INDEX axis)
 {
     SHOW_ALL_NL;
-    if (axis_array[axis].is_timedata)
+    if (axis_array[axis].datatype == DT_TIMEDATE)
 	fprintf(stderr, "\tset %sdata time\n", axis_defaults[axis].name);
     fprintf(stderr,"\t");
     save_range(stderr, axis);
@@ -2649,7 +2815,9 @@ show_xyzlabel(const char *name, const char *suffix, text_label *label)
 	fprintf(stderr, ", using font \"%s\"", conv_text(label->font));
 
     if (label->rotate)
-	fprintf(stderr, ", rotated by %d degrees", label->rotate);
+	fprintf(stderr, ", rotated by %d degrees in 2D plots", label->rotate);
+    if (label->tag == ROTATE_IN_3D_LABEL_TAG)
+	fprintf(stderr, ", parallel to axis in 3D plots");
 
     if (label->textcolor.type)
 	save_textcolor(stderr, &label->textcolor);
@@ -2685,7 +2853,8 @@ show_data_is_timedate(AXIS_INDEX axis)
 {
     SHOW_ALL_NL;
     fprintf(stderr, "\t%s is set to %s\n", axis_defaults[axis].name,
-	    axis_array[axis].is_timedata ? "time" : "numerical");
+	    axis_array[axis].datatype == DT_TIMEDATE ? "time" :
+	    "numerical");
 }
 
 
@@ -2705,7 +2874,7 @@ show_timefmt()
     } else {
         /* show all currently active time axes' formats: */
 	for (axis = 0; axis<AXIS_ARRAY_SIZE; axis++)
-	    if (axis_array[axis].is_timedata)
+	    if (axis_array[axis].datatype == DT_TIMEDATE)
 		fprintf(stderr,
 			"\tread format for time on %s axis is \"%s\"\n",
 			axis_defaults[axis].name,
@@ -2929,6 +3098,30 @@ show_linestyle(int tag)
 	int_error(c_token, "linestyle not found");
 }
 
+/* Show linetype number <tag> (0 means show all) */
+static void
+show_linetype(int tag)
+{
+    struct linestyle_def *this_linestyle;
+    TBOOLEAN showed = FALSE;
+
+    if (tag == 0)
+	fprintf(stderr, "\tLinetypes repeat every %d unless explicitly defined\n",
+		linetype_recycle_count);
+
+    for (this_linestyle = first_perm_linestyle; this_linestyle != NULL;
+	 this_linestyle = this_linestyle->next) {
+	if (tag == 0 || tag == this_linestyle->tag) {
+	    showed = TRUE;
+	    fprintf(stderr, "\tlinetype %d, ", this_linestyle->tag);
+	    save_linetype(stderr, &(this_linestyle->lp_properties), TRUE);
+	    fputc('\n', stderr);
+	}
+    }
+    if (tag > 0 && !showed)
+	int_error(c_token, "linetype not found");
+}
+
 
 /* Show arrow style number <tag> (0 means show all) */
 static void
@@ -3014,7 +3207,25 @@ show_ticdef(AXIS_INDEX axis)
 
     if (axis_array[axis].ticdef.rangelimited)
 	fprintf(stderr, "\n\t  tics are limited to data range");
-    fprintf(stderr, "\n\t  labels are format \"%s\"", ticfmt);
+    fputs("\n\t  labels are ", stderr);
+    if (axis_array[axis].manual_justify) {
+    	switch (axis_array[axis].label.pos) {
+    	case LEFT:{
+		fputs("left justified, ", stderr);
+		break;
+	    }
+    	case RIGHT:{
+		fputs("right justified, ", stderr);
+		break;
+	    }
+    	case CENTRE:{
+		fputs("center justified, ", stderr);
+		break;
+	    }
+    	}
+    } else 
+        fputs("justified automatically, ", stderr);    
+    fprintf(stderr, "format \"%s\"", ticfmt);
     if (axis_array[axis].tic_rotate) {
 	fprintf(stderr," rotated");
 	fprintf(stderr," by %d",axis_array[axis].tic_rotate);
@@ -3045,7 +3256,7 @@ show_ticdef(AXIS_INDEX axis)
 		SHOW_NUM_OR_TIME(axis_array[axis].ticdef.def.series.start, axis);
 	    }
 	    fprintf(stderr, " by %g%s", axis_array[axis].ticdef.def.series.incr,
-		    axis_array[axis].is_timedata ? " secs" : "");
+		    axis_array[axis].datatype == DT_TIMEDATE ? " secs" : "");
 	    if (axis_array[axis].ticdef.def.series.end != VERYLARGE) {
 		fputs(" until ", stderr);
 		SHOW_NUM_OR_TIME(axis_array[axis].ticdef.def.series.end, axis);
@@ -3097,12 +3308,9 @@ disp_value(FILE *fp, struct value *val, TBOOLEAN need_quotes)
 	fprintf(fp, "%d", val->v.int_val);
 	break;
     case CMPLX:
-#ifdef HAVE_ISNAN
 	if (isnan(val->v.cmplx_val.real))
 	    fprintf(fp, "NaN");
-	else
-#endif
-	if (val->v.cmplx_val.imag != 0.0)
+	else if (val->v.cmplx_val.imag != 0.0)
 	    fprintf(fp, "{%s, %s}",
 		    num_to_str(val->v.cmplx_val.real),
 		    num_to_str(val->v.cmplx_val.imag));
@@ -3170,29 +3378,29 @@ conv_text(const char *t)
 	    *s++ = '\\';
 	    *s++ = 'n';
 	    break;
-#ifndef OSK
 	case '\r':
 	    *s++ = '\\';
 	    *s++ = 'r';
 	    break;
-#endif
 	case '"':
 	case '\\':
 	    *s++ = '\\';
 	    *s++ = *t;
 	    break;
 
-	default:{
-		if (isprint((unsigned char)*t))
-		    *s++ = *t;
-		else {
-		    *s++ = '\\';
-		    sprintf(s, "%03o", (unsigned char)*t);
-		    while (*s != NUL)
-			s++;
-		}
+	default:
+	    if (encoding == S_ENC_UTF8)
+		*s++ = *t;
+	    else if (isprint((unsigned char)*t))
+		*s++ = *t;
+	    else {
+		*s++ = '\\';
+		sprintf(s, "%03o", (unsigned char)*t);
+		while (*s != NUL)
+		    s++;
 	    }
 	    break;
+
 	}
 	t++;
     }

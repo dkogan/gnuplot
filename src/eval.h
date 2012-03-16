@@ -1,5 +1,5 @@
 /*
- * $Id: eval.h,v 1.32 2008/07/21 20:19:25 sfeam Exp $
+ * $Id: eval.h,v 1.39 2011/09/08 05:19:07 sfeam Exp $
  */
 
 /* GNUPLOT - eval.h */
@@ -44,7 +44,7 @@
 
 #include <stdio.h>		/* for FILE* */
 
-#define STACK_DEPTH 100		/* maximum size of the execution stack */
+#define STACK_DEPTH 250		/* maximum size of the execution stack */
 #define MAX_AT_LEN 150		/* max number of entries in action table */
 
 /* Type definitions */
@@ -53,14 +53,17 @@
 enum operators {
     /* keep this in line with table in eval.c */
     PUSH, PUSHC, PUSHD1, PUSHD2, PUSHD, POP,
-    CALL, CALLN, LNOT, BNOT, UMINUS,
+    CALL, CALLN, SUM, LNOT, BNOT, UMINUS,
     LOR, LAND, BOR, XOR, BAND, EQ, NE, GT, LT, GE, LE, PLUS, MINUS, MULT,
     DIV, MOD, POWER, FACTORIAL, BOOLE,
-    DOLLARS, /* for using extension - div */
+    DOLLARS, 
     CONCATENATE, EQS, NES, RANGE,
     ASSIGN,
     /* only jump operators go between jump and sf_start, for is_jump() */
-    JUMP, JUMPZ, JUMPNZ, JTERN, SF_START
+    JUMP, JUMPZ, JUMPNZ, JTERN, SF_START,
+
+    /* functions specific to using spec */
+    COLUMN, STRINGCOLUMN
 };
 #define is_jump(operator) \
     ((operator) >=(int)JUMP && (operator) <(int)SF_START)
@@ -94,11 +97,7 @@ typedef union argument {
 
 
 /* This type definition has to come after union argument has been declared. */
-#ifdef __ZTC__
-typedef void (*FUNC_PTR)(...);
-#else
 typedef void (*FUNC_PTR) __PROTO((union argument *arg));
-#endif
 
 /* standard/internal function table entry */
 typedef struct ft_entry {
@@ -160,10 +159,9 @@ void f_jtern __PROTO((union argument *x));
 void execute_at __PROTO((struct at_type *at_ptr));
 void evaluate_at __PROTO((struct at_type *at_ptr, struct value *val_ptr));
 void free_at __PROTO((struct at_type *at_ptr));
-#ifdef APOLLO
-void apollo_pfm_catch __PROTO((void));
-#endif
 struct udvt_entry * add_udv_by_name __PROTO((char *key));
+struct udvt_entry * get_udv_by_name __PROTO((char *key));
+void del_udv_by_name __PROTO(( char *key, TBOOLEAN isWildcard ));
 
 /* update GPVAL_ variables available to user */
 void update_gpval_variables __PROTO((int from_plot_command));

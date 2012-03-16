@@ -1,5 +1,5 @@
 /*
- * $Id: term.h,v 1.42 2009/01/09 00:30:35 sfeam Exp $
+ * $Id: term.h,v 1.54 2011/11/06 09:31:00 markisch Exp $
  */
 
 /* GNUPLOT - term.h */
@@ -39,7 +39,7 @@
  *   Edit this file depending on the set of terminals you wish to support.
  * Comment out the terminal types that you don't want or don't have, and
  * uncomment those that you want included. Be aware that some terminal
- * types (eg, SUN, UNIXPLOT) will require changes in the makefile
+ * types (eg, SUN) will require changes in the makefile
  * LIBS definition.
  */
 
@@ -97,11 +97,6 @@
 /* Platform dependent part                                                  */
 /****************************************************************************/
 
-/* Amiga */
-#ifdef AMIGA
-# include "amiga.trm"
-#endif
-
 
 /* Apple Macintosh */
 #ifdef _Macintosh
@@ -117,7 +112,7 @@
 
 /****************************************************************************/
 /* MS-DOS and Windows */
-#if defined(MSDOS) || defined(_Windows) || defined(DOS386)
+#if defined(MSDOS) || defined(_Windows)
 
 /* MSDOS with emx-gcc compiler */
 # if defined(MSDOS) && defined(__EMX__)
@@ -129,11 +124,6 @@
 /* MSDOS with djgpp compiler */
 # if defined(DJGPP) && (!defined(DJSVGA) || (DJSVGA != 0))
 #  include "djsvga.trm"
-# endif
-
-/* MSDOS with Zortech-C++ Compiler */
-# ifdef __ZTC__
-#  include "fg.trm"
 # endif
 
 /* All other Compilers */
@@ -188,16 +178,6 @@
 /* Terminals for various Unix platforms                                    */
 /***************************************************************************/
 
-/* Apollo Graphics Primitive Resource */
-#ifdef APOLLO
-/* with resizeable windows */
-# include "apollo.trm"
-#  ifdef GPR
-/* with fixed windows */
-#   include "gpr.trm"
-#  endif
-#endif /* Apollo */
-
 /* Linux VGA */
 #ifdef LINUXVGA
 # include "linux.trm"
@@ -207,18 +187,6 @@
 #  include "vgagl.trm"
 # endif
 #endif /* LINUXVGA */
-
-/* MGR Window system */
-#ifdef MGR
-# include "mgr.trm"
-#endif
-
-/* Redwood Graphics Interface Protocol UNIPLEX */
-/* Metafile, requires POSIX */
-#ifdef RGIP
-# include "rgip.trm"
-#endif
-
 
 /* SCO CGI drivers */
 #ifdef SCO
@@ -242,19 +210,11 @@
 #endif
 
 /****************************************************************************/
-/* Terminals not relevant for MSDOS, MS-Windows, Amiga             */
-#if !(defined(MSDOS) || defined(_Windows) || defined(AMIGA))
+/* Terminals not relevant for MSDOS, MS-Windows */
+#if !(defined(MSDOS) || defined(_Windows))
 
 /* AED 512 and AED 767 graphics terminals */
 /* # include "aed.trm" */
-
-# if defined(UNIXPLOT) || defined(GNUGRAPH)
-#  ifdef GNUGRAPH
-#   include "gnugraph.trm"
-#  else
-#   include "unixplot.trm"
-#  endif			/* !GNUGRAPH */
-# endif				/* UNIXPLOT || GNUGRAPH */
 
 /* gpic for groff */
 # include "gpic.trm"
@@ -269,7 +229,7 @@
 # include "tek.trm"
 
 
-#endif /* !MSDOS && !_Windows && !AMIGA */
+#endif /* !MSDOS && !_Windows */
 /****************************************************************************/
 
 
@@ -286,6 +246,9 @@
 /* #include "ai.trm" */
 
 /* HTML Canvas terminal */
+#if (defined(HAVE_GD_PNG) || defined(HAVE_CAIROPDF))
+# include "write_png_image.c"
+#endif
 #include "canvas.trm"
 
 /* Computer Graphics Metafile (eg ms office) */
@@ -325,17 +288,20 @@
 /* HP2647 and 2648 */
 #include "hp2648.trm"
 
-/* HP DeskJet 500 C */
-#include "hp500c.trm"
-
 /* HP7475, HP7220 plotters, and (hopefully) lots of others */
 #include "hpgl.trm"
+
+#ifndef NO_BITMAP_SUPPORT
+/* HP DeskJet 500 C */
+#include "hp500c.trm"
 
 /* HP Laserjet II */
 #include "hpljii.trm"
 
 /* HP PrintJet */
 #include "hppj.trm"
+
+#endif /* NO_BITMAP_SUPPORT */
 
 /* Imagen laser printers */
 #include "imagen.trm"
@@ -345,9 +311,6 @@
 
 /* Frame Maker MIF 3.00 format driver */
 #include "mif.trm"
-
-/* portable bit map */
-#include "pbm.trm"
 
 /* Adobe Portable Document Format (PDF) */
 /* NOTE THAT PDF REQUIRES A SEPARATE LIBRARY : see term/pdf.trm */
@@ -379,6 +342,11 @@
 /* Vectrix 384 printer, also Tandy colour */
 /* #include "v384.trm" */
 
+#ifndef NO_BITMAP_SUPPORT
+
+/* portable bit map */
+#include "pbm.trm"
+
 /* wire printers */
 /* Epson LX-800, Star NL-10, NX-1000 and lots of others */
 #define EPSONP
@@ -402,6 +370,7 @@
 /* the common driver file for all of these */
 #include "epson.trm"
 
+#endif /* NO_BITMAP_SUPPORT */
 
 /* TeX related terminals */
 #define EMTEX
@@ -433,6 +402,9 @@
 /* METAPOST */
 #include "metapost.trm"
 
+/* ConTeXt */
+#include "context.trm"
+
 #ifdef USE_GGI_DRIVER
 # include "ggi.trm"
 #endif
@@ -452,6 +424,10 @@
 
 #ifdef HAVE_LUA
 #include "lua.trm"
+#endif
+
+#ifdef QTTERM
+# include "qt.trm"
 #endif
 
 #endif /* !SHORT_TERMLIST */

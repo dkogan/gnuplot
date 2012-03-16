@@ -1,5 +1,5 @@
 /*
- * $Id: winmain.h,v 1.7 2008/10/10 22:23:20 mikulik Exp $
+ * $Id: winmain.h,v 1.10 2011/11/14 20:53:24 markisch Exp $
  */
 
 /* GNUPLOT - win/winmain.h */
@@ -49,13 +49,16 @@
 #include "wgnuplib.h"
 
 extern TW textwin;
-extern GW graphwin;
+extern LPGW graphwin;
+extern LPGW listgraphs;
 extern PW pausewin;
 extern MW menuwin;
 
+extern HWND help_window;
 extern LPSTR winhelpname;
 extern LPSTR szModuleName;
 extern LPSTR szPackageDir;
+extern LPSTR szMenuName;
 
 int Pause __PROTO((LPSTR str));
 void screen_dump __PROTO((void));

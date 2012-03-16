@@ -1,5 +1,5 @@
 /*
- * $Id: color.h,v 1.32 2008/12/10 06:53:13 sfeam Exp $
+ * $Id: color.h,v 1.35 2011/10/08 00:07:41 sfeam Exp $
  */
 
 /* GNUPLOT - color.h */
@@ -44,9 +44,11 @@ typedef struct t_colorspec {
 #define	TC_CB		4	/* "palette cb <value>" */
 #define	TC_FRAC		5	/* "palette frac <value> */
 #define	TC_Z		6	/* "palette z" */
+#define	TC_VARIABLE	7	/* only used for "tc", never "lc" */
 
 #define DEFAULT_COLORSPEC {TC_DEFAULT, 0, 0.0}
 #define BLACK_COLORSPEC {TC_LT, LT_BLACK, 0.0}
+#define BACKGROUND_COLORSPEC {TC_LT, LT_BACKGROUND, 0.0}
 
 #ifdef EXTENDED_COLOR_SPECS
 typedef struct {
@@ -77,8 +79,9 @@ typedef enum {
     SMPAL_COLOR_MODE_GRAY = 'g',      /* grayscale only */
     SMPAL_COLOR_MODE_RGB = 'r',       /* one of several fixed transforms */
     SMPAL_COLOR_MODE_FUNCTIONS = 'f', /* user defined transforms */
-    SMPAL_COLOR_MODE_GRADIENT = 'd'   /* interpolated table:
+    SMPAL_COLOR_MODE_GRADIENT = 'd',  /* interpolated table:
 				       * explicitly defined or read from file */
+    SMPAL_COLOR_MODE_CUBEHELIX = 'c'
 } palette_color_mode;
 
 
@@ -187,8 +190,14 @@ typedef struct {
   struct udft_entry Bfunc;  /* G for RGB, S for HSV, M for CMY, ... */
   struct udft_entry Cfunc;  /* B for RGB, V for HSV, Y for CMY, ... */
 
-  /* gamma for gray scale palettes only */
+  /* gamma for gray scale and cubehelix palettes only */
   double gamma;
+
+  /* control parameters for the cubehelix palette scheme */
+  double cubehelix_start;	/* offset (radians) from colorwheel 0 */
+  double cubehelix_cycles;	/* number of times round the colorwheel */
+  double cubehelix_saturation;	/* color saturation */
+
 } t_sm_palette;
 
 

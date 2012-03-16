@@ -1,5 +1,5 @@
 /*
- * $Id: wxt.trm,v 1.24 2009/03/26 00:49:27 sfeam Exp $
+ * $Id: wxt.trm,v 1.29.2.1 2012/02/10 06:52:22 sfeam Exp $
  */
 
 /* GNUPLOT - wxt.trm */
@@ -59,14 +59,20 @@ TERM_PUBLIC void wxt_text_wrapper __PROTO ((void));
 /* terminal state, defined extern in wxt_term.h */
 int wxt_window_number = 0;
 TBOOLEAN wxt_enhanced_enabled = FALSE;
+TBOOLEAN wxt_dashed = FALSE;
+double wxt_dashlength = 1.0;
+int wxt_background = 0xffffff;
+rgb_color wxt_rgb_background = {1.,1.,1.};
 int wxt_persist = UNSET;
 int wxt_raise = UNSET;
 int wxt_ctrl = UNSET;
+int wxt_toggle = UNSET;
 int wxt_rounded = no;
 /* default text font family: */
 char wxt_set_fontname[MAX_ID_LEN + 1] = "";
 /* default text size*/
 int wxt_set_fontsize = 0;
+double wxt_set_fontscale = 1.0;
 /* window title */
 char wxt_title[MAX_ID_LEN + 1] = "";
 /* size of the plot area, in pixels
@@ -80,6 +86,7 @@ wxt_axis_state_t wxt_axis_state[4];
 
 enum WXT_id {
     WXT_FONT,
+    WXT_FONTSCALE,
     WXT_ENHANCED,
     WXT_NOENHANCED,
     WXT_SIZE,
@@ -93,10 +100,15 @@ enum WXT_id {
     WXT_CLOSE,
     WXT_ROUNDED,
     WXT_BUTT,
+    WXT_SOLID,
+    WXT_DASHED,
+    WXT_DASHLENGTH,
+    WXT_BACKGROUND,
     WXT_OTHER
 };
 
 static struct gen_table wxt_opts[] = {
+    {"fontscale",   WXT_FONTSCALE},
     {"font",   WXT_FONT},
     {"enh$anced", WXT_ENHANCED},
     {"noenh$anced", WXT_NOENHANCED},
@@ -111,6 +123,11 @@ static struct gen_table wxt_opts[] = {
     {"cl$ose", WXT_CLOSE},
     {"round$ed", WXT_ROUNDED},
     {"butt", WXT_BUTT},
+    {"solid", WXT_SOLID},
+    {"dash$ed", WXT_DASHED},
+    {"dashl$ength", WXT_DASHLENGTH},
+    {"dl", WXT_DASHLENGTH},
+    {"backg$round", WXT_BACKGROUND},
     {NULL, WXT_OTHER}
 };
 
@@ -130,6 +147,11 @@ TERM_PUBLIC void wxt_options()
 	TBOOLEAN set_raise = FALSE, set_ctrl = FALSE;
 	TBOOLEAN set_title = FALSE, set_close = FALSE;
 	TBOOLEAN set_capjoin = FALSE, set_size = FALSE;
+
+	if (term_interlock != NULL && term_interlock != (void *)wxt_init) {
+		term = NULL;
+		int_error(NO_CARET, "The wxt terminal cannot be used in a qt session");
+	}
 
 	while (!END_OF_COMMAND) {
 		FPRINTF((stderr, "processing token\n"));
@@ -155,6 +177,12 @@ TERM_PUBLIC void wxt_options()
 			free(s);
 			if (set_font) duplication=TRUE;
 			set_font = TRUE;
+			break;
+		case WXT_FONTSCALE:
+			c_token++;
+			wxt_set_fontscale = END_OF_COMMAND ? -1 : real_expression();
+			if (wxt_set_fontscale <= 0)
+			    wxt_set_fontscale = 1.;
 			break;
 		case WXT_ENHANCED:
 			c_token++;
@@ -246,6 +274,29 @@ TERM_PUBLIC void wxt_options()
 			wxt_rounded = no;
 			set_capjoin = TRUE;
 			break;
+		case WXT_DASHED:
+			c_token++;
+			wxt_dashed = TRUE;
+			break;
+		case WXT_DASHLENGTH:
+			c_token++;
+			wxt_dashlength = real_expression();
+			if (wxt_dashlength <= 0)
+			    wxt_dashlength = 1.0;
+			break;
+		case WXT_SOLID:
+			c_token++;
+			wxt_dashed = FALSE;
+			break;
+		case WXT_BACKGROUND:
+			{
+			c_token++;
+			wxt_background = parse_color_name();
+			wxt_rgb_background.r = (double)((wxt_background >> 16) & 0xff) / 255.;
+			wxt_rgb_background.g = (double)((wxt_background >>  8) & 0xff) / 255.;
+			wxt_rgb_background.b = (double)( wxt_background        & 0xff) / 255.;
+			break;
+			}
 		case WXT_OTHER:
 		default:
 			wxt_window_number = int_expression();
@@ -270,6 +321,21 @@ TERM_PUBLIC void wxt_options()
 		wxt_update_title(wxt_window_number);
 	}
 
+	if (wxt_dashed)
+		strncat(term_options, " dashed",  sizeof(term_options)-strlen(term_options));
+
+	if (wxt_dashlength != 1.0) {
+		char tmp_term_options[MAX_LINE_LEN+1] = "";
+		snprintf(tmp_term_options,sizeof(tmp_term_options), " dashlength %g", wxt_dashlength);
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+	}
+
+	if (wxt_background != 0xffffff) {
+		char tmp_term_options[MAX_LINE_LEN+1] = "";
+		snprintf(tmp_term_options,sizeof(tmp_term_options), " background '#%06x'", wxt_background);
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+	}
+
 	if (set_size) {
 		char tmp_term_options[MAX_LINE_LEN+1] = "";
 		snprintf(tmp_term_options, sizeof(tmp_term_options),
@@ -288,6 +354,12 @@ TERM_PUBLIC void wxt_options()
 		strncat(term_options, font_setting, sizeof(term_options)-strlen(term_options));
 		strncat(term_options, "\"", sizeof(term_options)-strlen(term_options));
 		free(font_setting);
+	}
+
+	if (wxt_set_fontscale != 1.0) {
+		char tmp_term_options[MAX_LINE_LEN+1] = "";
+		snprintf(tmp_term_options,sizeof(tmp_term_options), " fontscale %.1f", wxt_set_fontscale);
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
 	}
 
 	if (set_capjoin)
@@ -356,7 +428,7 @@ TERM_TABLE_START (wxt_driver)
     wxt_text_angle, wxt_justify_text,
     wxt_point, do_arrow, wxt_set_font,
     wxt_pointsize,
-    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL,
+    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH|TERM_FONTSCALE,
     wxt_text /* suspend */, 0 /* resume */, wxt_fillbox, wxt_linewidth
 #ifdef USE_MOUSE
     , wxt_waitforinput, wxt_put_tmptext, wxt_set_ruler, wxt_set_cursor, wxt_set_clipboard
@@ -364,6 +436,7 @@ TERM_TABLE_START (wxt_driver)
     , wxt_make_palette, 0 /* wxt_previous_palette */, wxt_set_color, wxt_filled_polygon
     , wxt_image
     , wxt_enhanced_open, wxt_enhanced_flush, wxt_enhanced_writec
+    , wxt_layer
 TERM_TABLE_END (wxt_driver)
 
 #undef LAST_TERM
@@ -387,10 +460,11 @@ START_HELP(wxt)
 "",
 " Syntax:",
 "         set term wxt {<n>}",
-"                      {size <width>,<height>}",
+"                      {size <width>,<height>} {background <rgb_color>}",
 "                      {{no}enhanced}",
-"                      {font <font>}",
+"                      {font <font>} {fontscale <scale>}",
 "                      {title \"title\"}",
+"                      {dashed|solid} {dashlength <dl>}",
 "                      {{no}persist}",
 "                      {{no}raise}",
 "                      {{no}ctrl}",

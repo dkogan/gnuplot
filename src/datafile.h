@@ -1,5 +1,5 @@
 /*
- * $Id: datafile.h,v 1.31 2009/03/13 05:10:56 sfeam Exp $
+ * $Id: datafile.h,v 1.35 2011/10/10 21:17:04 juhaszp Exp $
  */
 
 /* GNUPLOT - datafile.h */
@@ -53,6 +53,7 @@
 #define DF_FOUND_KEY_TITLE   (-6)
 #define DF_KEY_TITLE_MISSING (-7)
 #define DF_STRINGDATA	(-8)
+#define DF_COLUMN_HEADERS (-9)
 
 
 #ifndef MAXINT			/* should there be one already defined ? */
@@ -116,12 +117,14 @@ void df_showdata __PROTO((void));
 int df_2dbinary __PROTO((struct curve_points *));
 int df_3dmatrix __PROTO((struct surface_points *, int));
 void df_set_key_title __PROTO((struct curve_points *));
-void df_set_key_title_columnhead __PROTO((enum PLOT_TYPE));
+void df_set_key_title_columnhead __PROTO((struct curve_points *));
+char * df_parse_string_field __PROTO((char *));
 int expect_string __PROTO((const char column ));
 
 void df_reset_after_error __PROTO((void));
 void f_dollars __PROTO((union argument *x));
 void f_column  __PROTO((union argument *x));
+void f_columnhead  __PROTO((union argument *x));
 void f_valid   __PROTO((union argument *x));
 void f_timecolumn   __PROTO((union argument *x));
 void f_stringcolumn   __PROTO((union argument *x));

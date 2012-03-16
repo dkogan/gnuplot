@@ -1,5 +1,5 @@
 /*
- * $Id: plot.h,v 1.45 2008/03/30 03:27:54 sfeam Exp $
+ * $Id: plot.h,v 1.46.2.4 2012/02/25 12:02:07 juhaszp Exp $
  */
 
 /* GNUPLOT - plot.h */
@@ -51,6 +51,7 @@
 /* Variables of plot.c needed by other modules: */
 
 extern TBOOLEAN interactive;
+extern TBOOLEAN noinputfiles;
 extern TBOOLEAN persist_cl;
 
 extern const char *user_shell;
@@ -61,7 +62,12 @@ extern TBOOLEAN CallFromRexx;
 
 /* Prototypes of functions exported by plot.c */
 
+#if defined(__GNUC__)
+void bail_to_command_line __PROTO((void)) __attribute__((noreturn));
+#else
 void bail_to_command_line __PROTO((void));
+#endif
+
 void interrupt_setup __PROTO((void));
 void gp_expand_tilde __PROTO((char **));
 void get_user_env __PROTO((void));
@@ -73,6 +79,14 @@ void take_privilege __PROTO((void));
 
 #ifdef OS2
 int ExecuteMacro __PROTO((char *, int));
+#endif
+
+void restrict_popen __PROTO((void));
+
+#ifdef GNUPLOT_HISTORY
+void cancel_history __PROTO((void));
+#else
+#define cancel_history()  {}
 #endif
 
 #endif /* GNUPLOT_PLOT_H */

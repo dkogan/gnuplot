@@ -1,5 +1,5 @@
 /*
- * $Id: internal.h,v 1.19 2007/08/28 06:13:07 sfeam Exp $
+ * $Id: internal.h,v 1.23 2011/08/01 05:14:23 sfeam Exp $
  */
 
 /* GNUPLOT - internal.h */
@@ -44,6 +44,7 @@
 #include "eval.h"
 
 /* Prototypes from file "internal.c" */
+void eval_reset_after_error __PROTO((void));
 
 /* the basic operators of our stack machine for function evaluation: */
 void f_push __PROTO((union argument *x));
@@ -54,6 +55,7 @@ void f_pushd __PROTO((union argument *x));
 void f_pop __PROTO((union argument *x));
 void f_call __PROTO((union argument *x));
 void f_calln __PROTO((union argument *x));
+void f_sum __PROTO((union argument *x));
 void f_lnot __PROTO((union argument *x));
 void f_bnot __PROTO((union argument *x));
 void f_lor __PROTO((union argument *x));
@@ -88,6 +90,8 @@ void f_system __PROTO((union argument *x));
 void f_words __PROTO((union argument *x));
 void f_strftime __PROTO((union argument *x));
 void f_strptime __PROTO((union argument *x));
+void f_time __PROTO((union argument *x));
 void f_assign __PROTO((union argument *x));
+void f_value __PROTO((union argument *x));
 
 #endif /* GNUPLOT_INTERNAL_H */

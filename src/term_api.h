@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.80.2.3 2009/09/13 17:43:41 sfeam Exp $
+ * $Id: term_api.h,v 1.97.2.2 2012/02/10 06:52:22 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -57,6 +57,7 @@
 #define LT_UNDEFINED  (-5)
 #define LT_COLORFROMCOLUMN  (-6)	/* Used by hidden3d code */
 #define LT_DEFAULT    (-7)
+#define LT_SINGLECOLOR  (-8)		/* Used by hidden3d code */
 
 /* Constant value passed to (term->text_angle)(ang) to generate vertical
  * text corresponding to old keyword "rotate", which produced the equivalent
@@ -96,7 +97,7 @@ typedef struct lp_style_type {	/* contains all Line and Point properties */
     /* ... more to come ? */
 } lp_style_type;
 
-#define DEFAULT_LP_STYLE_TYPE {0, -2, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
+#define DEFAULT_LP_STYLE_TYPE {0, LT_BLACK, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
 
 typedef enum e_arrow_head {
 	NOHEAD = 0,
@@ -108,6 +109,7 @@ typedef enum e_arrow_head {
 extern const char *arrow_head_names[4];
 
 typedef struct arrow_style_type {    /* contains all Arrow properties */
+    int tag;                         /* -1 (local), AS_VARIABLE, or style index */
     int layer;	                     /* 0 = back, 1 = front */
     struct lp_style_type lp_properties;
     /* head options */
@@ -130,7 +132,11 @@ typedef enum termlayer {
 	TERM_LAYER_END_GRID,
 	TERM_LAYER_END_TEXT,
 	TERM_LAYER_BEFORE_PLOT,
-	TERM_LAYER_AFTER_PLOT
+	TERM_LAYER_AFTER_PLOT,
+	TERM_LAYER_BEGIN_KEYSAMPLE,
+	TERM_LAYER_END_KEYSAMPLE,
+	TERM_LAYER_RESET_PLOTNO,
+	TERM_LAYER_BEFORE_ZOOM
 } t_termlayer;
 
 typedef struct fill_style_type {
@@ -154,11 +160,7 @@ typedef struct t_image {
     TBOOLEAN fallback; /* true == don't use terminal-specific code */
 } t_image;
 
-/* values for the optional flags field - choose sensible defaults
- * these aren't really very sensible names - multiplot attributes
- * depend on whether stdout is redirected or not. Remember that
- * the default is 0. Thus most drivers can do multiplot only if
- * the output is redirected
+/* Values for the flags field of TERMENTRY
  */
 #define TERM_CAN_MULTIPLOT    1  /* tested if stdout not redirected */
 #define TERM_CANNOT_MULTIPLOT 2  /* tested if stdout is redirected  */
@@ -172,6 +174,8 @@ typedef struct t_image {
 #define TERM_ALPHA_CHANNEL  512  /* alpha channel transparency      */
 #define TERM_MONOCHROME    1024  /* term is running in mono mode    */
 #define TERM_LINEWIDTH     2048  /* support for set term linewidth  */
+#define TERM_FONTSCALE     4096  /* terminal supports fontscale     */
+#define TERM_IS_LATEX      8192  /* text uses TeX markup            */
 
 /* The terminal interface structure --- heart of the terminal layer.
  *
@@ -184,11 +188,7 @@ typedef struct t_image {
 
 typedef struct TERMENTRY {
     const char *name;
-#ifdef WIN16
-    const char GPFAR description[80];  /* to make text go in FAR segment */
-#else
     const char *description;
-#endif
     unsigned int xmax,ymax,v_char,h_char,v_tic,h_tic;
 
     void (*options) __PROTO((void));
@@ -272,16 +272,13 @@ typedef struct TERMENTRY {
 
 } TERMENTRY;
 
-#ifdef WIN16
-# define termentry TERMENTRY far
-#else
 # define termentry TERMENTRY
-#endif
 
 enum set_encoding_id {
    S_ENC_DEFAULT, S_ENC_ISO8859_1, S_ENC_ISO8859_2, S_ENC_ISO8859_9, S_ENC_ISO8859_15,
-   S_ENC_CP437, S_ENC_CP850, S_ENC_CP852, S_ENC_CP1250, S_ENC_CP1254,
-   S_ENC_KOI8_R, S_ENC_KOI8_U,
+   S_ENC_CP437, S_ENC_CP850, S_ENC_CP852, S_ENC_CP950, 
+   S_ENC_CP1250, S_ENC_CP1251, S_ENC_CP1254, 
+   S_ENC_KOI8_R, S_ENC_KOI8_U, S_ENC_SJIS,
    S_ENC_UTF8,
    S_ENC_INVALID
 };
@@ -335,6 +332,9 @@ extern double curr_arrow_headbackangle;
 /* arrow head filled or not */
 extern int curr_arrow_headfilled;
 
+/* Recycle count for user-defined linetypes */
+extern int linetype_recycle_count;
+
 /* Current 'output' file: name and open filehandle */
 extern char *outstr;
 extern FILE *gpoutfile;
@@ -352,6 +352,7 @@ extern FILE *gpoutfile;
    for PS, for instance).
 */
 extern FILE *gppsfile;
+extern char *PS_psdir;
 
 extern TBOOLEAN multiplot;
 
@@ -364,6 +365,10 @@ extern const struct gen_table set_encoding_tbl[];
 
 /* mouse module needs this */
 extern TBOOLEAN term_initialised;
+
+/* The qt and wxt terminals cannot be used in the same session. */
+/* Whichever one is used first to plot, this locks out the other. */
+extern void *term_interlock;
 
 /* Support for enhanced text mode. */
 extern char  enhanced_text[];
@@ -389,9 +394,6 @@ void term_check_multiplot_okay __PROTO((TBOOLEAN));
 
 void write_multiline __PROTO((unsigned int, unsigned int, char *, JUSTIFY, VERT_JUSTIFY, int, const char *));
 int estimate_strlen __PROTO((char *));
-#if 0 /* UNUSED */
-int term_count __PROTO((void));
-#endif /* UNUSED */
 void list_terms __PROTO((void));
 char* get_terminals_names __PROTO((void));
 struct termentry *set_term __PROTO((void));
@@ -443,8 +445,8 @@ void PM_set_gpPMmenu __PROTO((struct t_gpPMmenu * gpPMmenu));
 # endif
 #endif
 
-/* in misc.c */
 void lp_use_properties __PROTO((struct lp_style_type *lp, int tag));
+void load_linetype __PROTO((struct lp_style_type *lp, int tag));
 
 /* Wrappers for term->path() */
 void newpath __PROTO((void));

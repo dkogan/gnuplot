@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.48.2.2 2009/11/07 03:39:40 sfeam Exp $
+ * $Id: gp_cairo.c,v 1.60 2011/10/13 19:56:55 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -140,12 +140,17 @@ static rgb_color gp_cairo_colorlist[12] = {
 };
 
 /* correspondance between gnuplot linetypes and terminal colors */
+void gp_cairo_set_background( rgb_color background )
+{
+	gp_cairo_colorlist[0] = background;
+}
+
 rgb_color gp_cairo_linetype2color( int linetype )
 {
 	if (linetype<=LT_NODRAW)
-		linetype = LT_NODRAW; /* background color*/
-
-	return gp_cairo_colorlist[ linetype%9 +3 ];
+		return gp_cairo_colorlist[ 0 ];
+	else
+		return gp_cairo_colorlist[ linetype%9 +3 ];
 }
 
 /* initialize all fields of the plot structure */
@@ -163,6 +168,7 @@ void gp_cairo_initialize_plot(plot_struct *plot)
 	plot->dashlength = 1.0;
 	plot->text_angle = 0.0;
 	plot->color.r = 0.0; plot->color.g = 0.0; plot->color.b = 0.0;
+	plot->background.r = 1.0; plot->background.g = 1.0; plot->background.b = 1.0;
 
 	plot->opened_path = FALSE;
 
@@ -221,6 +227,7 @@ void gp_cairo_initialize_context(plot_struct *plot)
 	} else {
 	    cairo_set_line_cap  (plot->cr, CAIRO_LINE_CAP_SQUARE);
 	    cairo_set_line_join (plot->cr, CAIRO_LINE_JOIN_MITER);
+	    cairo_set_miter_limit(plot->cr, 3.8);
 	}
 
 }
@@ -284,7 +291,7 @@ void gp_cairo_set_font(plot_struct *plot, const char *name, int fontsize)
     char *c;
     char *fname;
 
-	FPRINTF((stderr,"set_font\n"));
+	FPRINTF(("set_font \"%s\" %d\n", name,fontsize));
 
 	/* Split out Bold and Italic attributes from font name */
 	fname = strdup(name);
@@ -674,7 +681,7 @@ gchar * gp_cairo_convert(plot_struct *plot, const char* string)
 		if (error != NULL) {
 			fprintf(stderr, "Unable to convert \"%s\": the sequence is invalid "\
 				"in the current charset (%s), %d bytes read out of %d\n",
-				string, charset, bytes_read, strlen(string));
+				string, charset, (int)bytes_read, (int)strlen(string));
 			string_utf8 = g_convert(string, bytes_read, "UTF-8", charset, NULL, NULL, NULL);
 			g_error_free (error);
 		} else
@@ -691,9 +698,12 @@ gchar * gp_cairo_convert(plot_struct *plot, const char* string)
  * the cairo/win32 backend for font rendering.  It has the effect of
  * testing for libfreetype support, and using that instead if possible.
  * Suggested by cairo developer Behdad Esfahbod. 
+ * Allin Cottrell suggests that this not necessary anymore for newer
+ * versions of cairo.
  */
-#ifdef WIN32
-PangoLayout *gp_cairo_create_layout (cairo_t *cr)
+#if defined(WIN32) && (CAIRO_VERSION_MAJOR < 2) && (CAIRO_VERSION_MINOR < 10)
+PangoLayout *
+gp_cairo_create_layout (cairo_t *cr)
 {
     static PangoFontMap *fontmap;
     PangoContext *context;
@@ -718,7 +728,8 @@ PangoLayout *gp_cairo_create_layout (cairo_t *cr)
     return layout;
 }
 #else
-PangoLayout *gp_cairo_create_layout (cairo_t *cr)
+PangoLayout *
+gp_cairo_create_layout (cairo_t *cr)
 {
     return pango_cairo_create_layout(cr);
 }
@@ -751,7 +762,7 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string)
 	if (!strcmp(plot->fontname,"Symbol")) {
 		FPRINTF((stderr,"Parsing a Symbol string\n"));
 		string_utf8 = gp_cairo_convert_symbol_to_unicode(plot, string);
-		strncpy(plot->fontname, "Sans", sizeof(plot->fontname));
+		strncpy(plot->fontname, gp_cairo_default_font(), sizeof(plot->fontname));
 		symbol_font_parsed = TRUE;
 	} else
 #endif /*MAP_SYMBOL*/
@@ -1029,10 +1040,10 @@ void gp_cairo_draw_fillbox(plot_struct *plot, int x, int y, int width, int heigh
 	gp_cairo_fill( plot, fillstyle, fillpar);
 
 	cairo_move_to(plot->cr, x, y);
-	cairo_rel_line_to(plot->cr,0, -height);
-	cairo_rel_line_to(plot->cr, width-1, 0);
+	cairo_rel_line_to(plot->cr, 0, -height);
+	cairo_rel_line_to(plot->cr, width, 0);
 	cairo_rel_line_to(plot->cr, 0, height);
-	cairo_rel_line_to(plot->cr, -width+1, 0);
+	cairo_rel_line_to(plot->cr, -width, 0);
 	cairo_close_path(plot->cr);
 	cairo_fill(plot->cr);
 }
@@ -1195,7 +1206,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 				sizeof(gp_cairo_enhanced_font));
 		} else {
 			strncpy(gp_cairo_enhanced_font,
-				"Sans", sizeof(gp_cairo_enhanced_font));
+				gp_cairo_default_font(), sizeof(gp_cairo_enhanced_font));
 		}
 		symbol_font_parsed = TRUE;
 	} else
@@ -1240,10 +1251,12 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		 * the saved attributes list, get extents */
 		underprinted_layout = gp_cairo_create_layout (plot->cr);
 		pango_layout_set_text (underprinted_layout, gp_cairo_underprinted_utf8, -1);
-		pango_layout_set_attributes (underprinted_layout, gp_cairo_enhanced_underprinted_AttrList);
+		if (!gp_cairo_enhanced_underprinted_AttrList)
+			fprintf(stderr,"uninitialized gp_cairo_enhanced_underprinted_AttrList!\n");
+		else
+			pango_layout_set_attributes (underprinted_layout, gp_cairo_enhanced_underprinted_AttrList);
 		pango_layout_get_extents(underprinted_layout, NULL, &underprinted_logical_rect);
 		g_object_unref (underprinted_layout);
-		pango_attr_list_unref( gp_cairo_enhanced_underprinted_AttrList );
 
 		/* compute the size of the text to overprint*/
 
@@ -1371,6 +1384,8 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 			sizeof(gp_cairo_underprinted_utf8)-strlen(gp_cairo_underprinted_utf8));
 		underprinted_end = strlen(gp_cairo_underprinted_utf8);
 
+		if (gp_cairo_enhanced_underprinted_AttrList)
+			pango_attr_list_unref( gp_cairo_enhanced_underprinted_AttrList );
 		gp_cairo_enhanced_underprinted_AttrList = pango_attr_list_new();
 
 		/* add text attributes to the underprinted list */
@@ -1549,7 +1564,7 @@ void gp_cairo_fill(plot_struct *plot, int fillstyle, int fillpar)
 		FPRINTF((stderr,"pattern fillpar = %d %lf %lf %lf\n",fillpar, plot->color.r, plot->color.g, plot->color.b));
 		return;
 	case FS_EMPTY: /* fill with background plot->color */
-		cairo_set_source_rgb(plot->cr, 1, 1, 1);
+		cairo_set_source_rgb(plot->cr, plot->background.r, plot->background.g, plot->background.b);
 		FPRINTF((stderr,"empty\n"));
 		return;
 	default:
@@ -1588,7 +1603,10 @@ void gp_cairo_fill_pattern(plot_struct *plot, int fillstyle, int fillpar)
 	    cairo_set_source_rgb( pattern_cr, 1.0, 1.0, 1.0);
 
 	cairo_paint(pattern_cr);
-	cairo_set_line_width(pattern_cr, PATTERN_SIZE/50.);
+	if (!strcmp(term->name,"pdfcairo")) /* Work-around for poor scaling in cairo <= 1.10 */
+	    cairo_set_line_width(pattern_cr, PATTERN_SIZE/150.);
+	else
+	    cairo_set_line_width(pattern_cr, PATTERN_SIZE/50.);
 	cairo_set_line_cap  (pattern_cr, CAIRO_LINE_CAP_BUTT);
 	cairo_set_source_rgb(pattern_cr, plot->color.r, plot->color.g, plot->color.b);
 
@@ -1708,7 +1726,7 @@ void gp_cairo_solid_background(plot_struct *plot)
 			cairo_status_to_string (cairo_status (plot->cr)));
 		exit(0);
 	}
-	cairo_set_source_rgb(plot->cr, 1.0, 1.0, 1.0);
+	cairo_set_source_rgb(plot->cr, plot->background.r, plot->background.g, plot->background.b);
 	cairo_paint(plot->cr);
 }
 
@@ -1736,6 +1754,19 @@ const char* gp_cairo_enhanced_get_fontname(plot_struct *plot)
 		return plot->fontname;
 	else
 		return gp_cairo_enhanced_font;
+}
+
+/* BM: New function to determine the default font.
+ * On Windows, the "Sans" alias normally is equivalent to 
+ * "Tahoma" but the resolution fails on some systems. */
+const char *
+gp_cairo_default_font(void)
+{
+#ifdef WIN32
+	return "Tahoma";
+#else
+	return "Sans";
+#endif
 }
 
 /*----------------------------------------------------------------------------

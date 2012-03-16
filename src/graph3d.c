@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.222.2.4 2010/02/27 21:52:38 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.253.2.3 2012/01/12 00:12:07 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graph3d.c */
@@ -95,6 +95,7 @@ float surface_rot_z = 30.0;
 float surface_rot_x = 60.0;
 float surface_scale = 1.0;
 float surface_zscale = 1.0;
+float surface_lscale = 0.0;
 
 /* Set by 'set view map': */
 int splot_map = FALSE;
@@ -161,38 +162,9 @@ static void place_arrows3d __PROTO((int));
 static void place_labels3d __PROTO((struct text_label * listhead, int layer));
 static int map3d_getposition __PROTO((struct position* pos, const char* what, double* xpos, double* ypos, double* zpos));
 
-/*
- * The Amiga SAS/C 6.2 compiler moans about macro envocations causing
- * multiple calls to functions. I converted these macros to inline
- * functions coping with the problem without loosing speed.
- * (MGR, 1993)
- */
-#ifdef AMIGA_SC_6_1
-GP_INLINE static TBOOLEAN
-i_inrange(int z, int min, int max)
-{
-    return ((min < max)
-	    ? ((z >= min) && (z <= max))
-	    : ((z >= max) && (z <= min)));
-}
-
-GP_INLINE static double
-f_max(double a, double b)
-{
-    return (max(a, b));
-}
-
-GP_INLINE static double
-f_min(double a, double b)
-{
-    return (min(a, b));
-}
-
-#else
 # define f_max(a,b) GPMAX((a),(b))
 # define f_min(a,b) GPMIN((a),(b))
 # define i_inrange(z,a,b) inrange((z),(a),(b))
-#endif
 
 #define apx_eq(x,y) (fabs(x-y) < 0.001)
 #define ABS(x) ((x) >= 0 ? (x) : -(x))
@@ -356,6 +328,12 @@ boundary3d(struct surface_points *plots, int count)
 
     key_rows = ptitl_cnt;
     key_cols = 1;
+    if (key_rows > key->maxrows && key->maxrows > 0) {
+	key_rows = key->maxrows;
+	key_cols = (ptitl_cnt - 1)/key_rows + 1;
+    }
+
+
     if (key->visible)
     if ((key->region == GPKEY_AUTO_EXTERIOR_MARGIN || key->region == GPKEY_AUTO_EXTERIOR_LRTBC)
 	&& key->margin == GPKEY_BMARGIN) {
@@ -367,6 +345,9 @@ boundary3d(struct surface_points *plots, int count)
 	    if (key_cols == 0)
 		key_cols = 1;
 	    key_rows = (int) ((ptitl_cnt - 1)/ key_cols) + 1;
+	    /* Limit the number of rows if requested by user */
+	    if (key_rows > key->maxrows && key->maxrows > 0)
+		key_rows = key->maxrows;
 	    /* now calculate actual no cols depending on no rows */
 	    key_cols = (int) ((ptitl_cnt - 1)/ key_rows) + 1;
 	    key_col_wth = (int) (plot_bounds.xright - plot_bounds.xleft) / key_cols;
@@ -408,6 +389,8 @@ boundary3d(struct surface_points *plots, int count)
 	    && key->margin == GPKEY_RMARGIN)) {
 	/* calculate max no rows, limited by plot_bounds.ytop-plot_bounds.ybot */
 	i = (int) (plot_bounds.ytop - plot_bounds.ybot) / t->v_char - 1 - ktitle_lines;
+	if (i > key->maxrows && key->maxrows > 0)
+	    i = key->maxrows;
 	/* HBB 20030321: div by 0 fix like above */
 	if (i == 0)
 	    i = 1;
@@ -466,6 +449,10 @@ boundary3d(struct surface_points *plots, int count)
 	yscaler = (plot_bounds.ytop - plot_bounds.ybot) / surface_scale;
     if (rmargin.scalex == screen || lmargin.scalex == screen)
 	xscaler = (plot_bounds.xright - plot_bounds.xleft) / surface_scale;
+
+    /* EAM Jul 2010 - prevent infinite loop or divide-by-zero if scaling is bad */
+    if (yscaler == 0) yscaler = 1;
+    if (xscaler == 0) xscaler = 1;
 
     /* HBB 20011011: 'set size {square|ratio}' for splots */
     if (splot_map && aspect_ratio != 0.0) {
@@ -575,7 +562,7 @@ place_arrows3d(int layer)
 	    continue;
 	if (get_arrow3d(this_arrow, &sx, &sy, &ex, &ey)) {
 	    term_apply_lp_properties(&(this_arrow->arrow_properties.lp_properties));
-	    apply_head_properties(&(this_arrow->arrow_properties));
+	    apply_3dhead_properties(&(this_arrow->arrow_properties));
 	    draw_clip_arrow(sx, sy, ex, ey, this_arrow->arrow_properties.head);
 	} else {
 	    FPRINTF((stderr,"place_arrows3d: skipping out-of-bounds arrow\n"));
@@ -667,8 +654,7 @@ do_3dplot(
     screen_ok = FALSE;
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_BACKTEXT);
+    (term->layer)(TERM_LAYER_BACKTEXT);
 
     /* now compute boundary for plot */
     boundary3d(plots, pcount);
@@ -705,7 +691,7 @@ do_3dplot(
     }
 
     /* Give a chance for rectangles to be behind everything else */
-    place_objects( first_object, -1, 3, NULL );
+    place_objects( first_object, -1, 3);
 
     term_apply_lp_properties(&border_lp);	/* border linetype */
 
@@ -828,7 +814,7 @@ do_3dplot(
 	draw_color_smooth_box(MODE_SPLOT);
 
     /* Add 'back' rectangles */
-    place_objects(first_object, 0, 3, &plot_bounds);
+    place_objects(first_object, 0, 3);
 
     /* PLACE LABELS */
     place_labels3d(first_label, 0);
@@ -837,15 +823,12 @@ do_3dplot(
     place_arrows3d(0);
 
     /* Sync point for epslatex text positioning */
-    if (term->layer)
-	(term->layer)(TERM_LAYER_FRONTTEXT);
+    (term->layer)(TERM_LAYER_FRONTTEXT);
 
-#ifndef LITE
     if (hidden3d && draw_surface && !quick) {
 	init_hidden_line_removal();
 	reset_hidden_line_removal();
     }
-#endif /* not LITE */
 
     /* WORK OUT KEY SETTINGS AND DO KEY TITLE / BOX */
 
@@ -876,6 +859,8 @@ do_3dplot(
 		key_cols = (int) (plot_bounds.xright - plot_bounds.xleft) / key_col_wth;
 		if (key_cols < 1) key_cols = 1;
 		key_rows = (int) (ptitl_cnt + key_cols - 1) / key_cols;
+		if (key_rows > key->maxrows && key->maxrows > 0)
+		    key_rows = key->maxrows;
 		/* now calculate actual no cols depending on no rows */
 		key_cols = (int) (ptitl_cnt + key_rows - 1) / key_rows;
 		key_col_wth = (int) (plot_bounds.xright - plot_bounds.xleft) / key_cols;
@@ -971,10 +956,11 @@ do_3dplot(
 
     /* DRAW SURFACES AND CONTOURS */
 
-#ifndef LITE
-    if (hidden3d && (hidden3d_layer == LAYER_BACK) && draw_surface && !quick)
+    if (hidden3d && (hidden3d_layer == LAYER_BACK) && draw_surface && !quick) {
+	(term->layer)(TERM_LAYER_BEFORE_PLOT);
 	plot3d_hidden(plots, pcount);
-#endif /* not LITE */
+	(term->layer)(TERM_LAYER_AFTER_PLOT);
+    }
 
     /* Set up bookkeeping for the individual key titles */
 #define NEXT_KEY_LINE()					\
@@ -1017,22 +1003,22 @@ do_3dplot(
 	    if (this_plot->plot_type == NODATA)
 		continue;
 
+	    /* Sync point for start of new curve (used by svg, post, ...) */
+	    (term->layer)(TERM_LAYER_BEFORE_PLOT);
+
 	    if (can_pm3d && PM3D_IMPLICIT == pm3d.implicit)
 		pm3d_draw_one(this_plot);
-
-	    /* Sync point for start of new curve (used by svg, post, ...) */
-	    if (term->layer)
-		(term->layer)(TERM_LAYER_BEFORE_PLOT);
-
-	    if (pm3d_order_depth && this_plot->plot_style != PM3DSURFACE)
-		pm3d_depth_queue_flush(); /* draw pending plots */
 
 	    lkey = (key->visible && this_plot->title && this_plot->title[0]
 				 && !this_plot->title_is_suppressed);
 
 	    if (lkey) {
-		/* EAM - force key text to black, then restore */
-		(*t->linetype)(LT_BLACK);
+		if (key->textcolor.type != TC_DEFAULT)
+		    /* Draw key text in same color as key title */
+		    apply_pm3dcolor(&key->textcolor, t);
+		else
+		    /* Draw key text in black */
+		    (*t->linetype)(LT_BLACK);
 		ignore_enhanced(this_plot->title_no_enhanced);
 		key_text(xl, yl, this_plot->title);
 		ignore_enhanced(FALSE);
@@ -1052,6 +1038,7 @@ do_3dplot(
 		    break;
 		}
 	    case STEPS:	/* HBB: I think these should be here */
+	    case FILLSTEPS:
 	    case FSTEPS:
 	    case HISTEPS:
 	    case LINES:
@@ -1078,9 +1065,13 @@ do_3dplot(
 	    case XYERRORBARS:	/* ignored; treat like points */
 	    case BOXXYERROR:	/* HBB: ignore these as well */
 	    case BOXERROR:
-	    case CANDLESTICKS:	/* HBB: dito */
+	    case CANDLESTICKS:	/* HBB: ditto */
+	    case BOXPLOT:
 	    case FINANCEBARS:
+#ifdef EAM_OBJECTS
 	    case CIRCLES:
+	    case ELLIPSES:
+#endif
 	    case POINTSTYLE:
 		if (draw_surface && !this_plot->opt_out_of_surface) {
 		    if (lkey) {
@@ -1230,25 +1221,20 @@ do_3dplot(
 		    case XYERRORBARS:	/* ignored; treat like points */
 		    case BOXERROR:	/* HBB: ignore these as well */
 		    case BOXXYERROR:
-		    case CANDLESTICKS:	/* HBB: dito */
+		    case CANDLESTICKS:	/* HBB: ditto */
+		    case BOXPLOT:
 		    case FINANCEBARS:
+#ifdef EAM_OBJECTS
 		    case CIRCLES:
+		    case ELLIPSES:
+#endif
 		    case POINTSTYLE:
-			if (this_plot->lp_properties.use_palette)
-			    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
-			else
 			key_sample_point(xl, yl, this_plot->lp_properties.p_type);
 			break;
 		    case LINESPOINTS:
-			if (this_plot->lp_properties.use_palette)
-			    key_sample_line_pm3d(this_plot, xl, yl);
-			else
 			key_sample_line(xl, yl);
 			break;
 		    case DOTS:
-			if (this_plot->lp_properties.use_palette)
-			    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
-			else
 			key_sample_point(xl, yl, -1);
 			break;
 
@@ -1257,26 +1243,30 @@ do_3dplot(
 		    }
 		    NEXT_KEY_LINE();
 		}
+
 		while (cntrs) {
 		    if (label_contours && cntrs->isNewLevel) {
-			if (key->visible) {
+			if (key->visible && !this_plot->title_is_suppressed) {
 			    (*t->linetype)(LT_BLACK);
 			    key_text(xl, yl, cntrs->label);
 			}
 			if (use_palette && thiscontour_lp_properties.pm3d_color.type == TC_Z)
 			    set_color( cb2gray( z2cb(cntrs->z) ) );
 			else {
-			    if (prefer_line_styles && label_contours) {
-				struct lp_style_type ls = thiscontour_lp_properties;
-				lp_use_properties(&ls, ++thiscontour_lp_properties.l_type+1);
-				term_apply_lp_properties(&ls);
-			    } else {
-				(*t->linetype) (++thiscontour_lp_properties.l_type);
-				thiscontour_lp_properties.use_palette = 0;
+			    struct lp_style_type ls = thiscontour_lp_properties;
+			    if (thiscontour_lp_properties.l_type == LT_COLORFROMCOLUMN) {
+		    		thiscontour_lp_properties.l_type = 0;
+				thiscontour_lp_properties.use_palette = TRUE;
 			    }
+			    if (prefer_line_styles && label_contours)
+				lp_use_properties(&ls, ++thiscontour_lp_properties.l_type+1);
+			    else
+				load_linetype(&ls, ++thiscontour_lp_properties.l_type+1);
+			    thiscontour_lp_properties.pm3d_color = ls.pm3d_color;
+			    term_apply_lp_properties(&thiscontour_lp_properties);
 			}
 
-			if (key->visible) {
+			if (key->visible && !this_plot->title_is_suppressed) {
 
 			    switch (this_plot->plot_style) {
 			    case IMPULSES:
@@ -1300,18 +1290,16 @@ do_3dplot(
 			    case BOXERROR:		/* HBB: treat these likewise */
 			    case BOXXYERROR:
 			    case CANDLESTICKS:	/* HBB: ditto */
+			    case BOXPLOT:
 			    case FINANCEBARS:
+#ifdef EAM_OBJECTS
 			    case CIRCLES:
+			    case ELLIPSES:
+#endif
 			    case POINTSTYLE:
-				if (this_plot->lp_properties.use_palette)
-				    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
-				else
 				    key_sample_point(xl, yl, this_plot->lp_properties.p_type);
 				break;
 			    case DOTS:
-				if (this_plot->lp_properties.use_palette)
-				    key_sample_point_pm3d(this_plot, xl, yl, this_plot->lp_properties.p_type);
-				else
 				    key_sample_point(xl, yl, -1);
 				break;
 
@@ -1356,20 +1344,14 @@ do_3dplot(
 		    case BOXXYERROR:
 		    case CANDLESTICKS:
 		    case FINANCEBARS:
+#ifdef EAM_OBJECTS
 		    case CIRCLES:
+		    case ELLIPSES:		    
+#endif
 			/* treat all the above like points */
 		    case DOTS:
 		    case POINTSTYLE:
-			/* the following is needed, because
-			 * 'draw3d_point_unconditional()' in 'util3d.c'
-			 * calls 'term_apply_lp_properties()' again
-			 */
-			{
-			struct lp_style_type ls = thiscontour_lp_properties;
-			if (prefer_line_styles && label_contours)
-			    lp_use_properties(&ls, thiscontour_lp_properties.l_type+1);
-			cntr3d_points(cntrs, &ls);
-			}
+			cntr3d_points(cntrs, &thiscontour_lp_properties);
 			break;
 
 		    default:
@@ -1381,8 +1363,7 @@ do_3dplot(
 	    } /* draw contours */
 	    
 	    /* Sync point for end of this curve (used by svg, post, ...) */
-	    if (term->layer)
-		(term->layer)(TERM_LAYER_AFTER_PLOT);
+	    (term->layer)(TERM_LAYER_AFTER_PLOT);
 
 	} /* loop over surfaces */
 
@@ -1390,10 +1371,11 @@ do_3dplot(
 	pm3d_depth_queue_flush(); /* draw pending plots */
     }
 
-#ifndef LITE
-    if (hidden3d && (hidden3d_layer == LAYER_FRONT) && draw_surface && !quick)
+    if (hidden3d && (hidden3d_layer == LAYER_FRONT) && draw_surface && !quick) {
+	(term->layer)(TERM_LAYER_BEFORE_PLOT);
 	plot3d_hidden(plots, pcount);
-#endif /* not LITE */
+	(term->layer)(TERM_LAYER_AFTER_PLOT);
+    }
 
     /* DRAW GRID AND BORDER */
 #ifndef USE_GRID_LAYERS
@@ -1419,7 +1401,7 @@ do_3dplot(
 	draw_color_smooth_box(MODE_SPLOT);
 
     /* Add 'front' rectangles */
-    place_objects(first_object, 1, 3, &plot_bounds);
+    place_objects(first_object, 1, 3);
 
     /* PLACE LABELS */
     place_labels3d(first_label, 1);
@@ -1447,11 +1429,10 @@ do_3dplot(
 
     term_end_plot();
 
-#ifndef LITE
     if (hidden3d && draw_surface) {
 	term_hidden_line_removal();
     }
-#endif /* not LITE */
+
 }
 
 
@@ -1562,13 +1543,11 @@ plot3d_lines(struct surface_points *plot)
     double lx[2], ly[2], lz[2];	/* two edge points */
     TBOOLEAN rgb_from_column;
 
-#ifndef LITE
 /* These are handled elsewhere.  */
     if (plot->has_grid_topology && hidden3d)
 	return;
-#endif /* not LITE */
 
-    rgb_from_column = can_pm3d && plot->pm3d_color_from_column
+    rgb_from_column = plot->pm3d_color_from_column
 			&& plot->lp_properties.pm3d_color.type == TC_RGB
 			&& plot->lp_properties.pm3d_color.value < 0.0;
 
@@ -1579,7 +1558,7 @@ plot3d_lines(struct surface_points *plot)
 
 	    if (rgb_from_column)
 		set_rgbcolor((int)points[i].CRD_COLOR);
-	    else if (can_pm3d && plot->lp_properties.pm3d_color.type == TC_LINESTYLE) {
+	    else if (plot->lp_properties.pm3d_color.type == TC_LINESTYLE) {
 		plot->lp_properties.pm3d_color.lt = (int)(points[i].CRD_COLOR);
 		apply_pm3dcolor(&(plot->lp_properties.pm3d_color), term);
 	    }
@@ -1600,7 +1579,7 @@ plot3d_lines(struct surface_points *plot)
 				 * Calculate intersection point and draw
 				 * vector from there
 				 */
-				edge3d_intersect(points, i, &clip_x, &clip_y, &clip_z);
+				edge3d_intersect(points, i-1, i, &clip_x, &clip_y, &clip_z);
 
 				map3d_xy(clip_x, clip_y, clip_z, &xx0, &yy0);
 
@@ -1623,7 +1602,7 @@ plot3d_lines(struct surface_points *plot)
 			     * vector to it
 			     */
 
-			    edge3d_intersect(points, i, &clip_x, &clip_y, &clip_z);
+			    edge3d_intersect(points, i-1, i, &clip_x, &clip_y, &clip_z);
 
 			    map3d_xy(clip_x, clip_y, clip_z, &xx0, &yy0);
 
@@ -1636,7 +1615,7 @@ plot3d_lines(struct surface_points *plot)
 			     * Calculate the two 3D intersection points
 			     * if present
 			     */
-			    if (two_edge3d_intersect(points, i, lx, ly, lz)) {
+			    if (two_edge3d_intersect(points, i-1, i, lx, ly, lz)) {
 
 				map3d_xy(lx[0], ly[0], lz[0], &x, &y);
 
@@ -1673,8 +1652,8 @@ static void
 plot3d_lines_pm3d(struct surface_points *plot)
 {
     struct iso_curve** icrvs_pair[2];
-    int invert[2];
-    int n[2];
+    int invert[2] = {0,0};
+    int n[2] = {0,0};
 
     int i, set, scan;
     int x, y, xx0, yy0;	/* point in terminal coordinates */
@@ -1697,17 +1676,15 @@ plot3d_lines_pm3d(struct surface_points *plot)
 	return;
     }
 
-#ifndef LITE
-/* These are handled elsewhere.  */
+    /* These are handled elsewhere.  */
     if (plot->has_grid_topology && hidden3d)
 	return;
-#endif /* not LITE */
 
     /* split the bunch of scans in two sets in
      * which the scans are already depth ordered */
     pm3d_rearrange_scan_array(plot,
-	icrvs_pair, n, invert,
-	icrvs_pair + 1, n + 1, invert + 1);
+	icrvs_pair, &n[0], &invert[0],
+	icrvs_pair + 1, &n[1], &invert[1]);
 
     for (set = 0; set < 2; set++) {
 
@@ -1754,7 +1731,7 @@ plot3d_lines_pm3d(struct surface_points *plot)
 				     * Calculate intersection point and draw
 				     * vector from there
 				     */
-				    edge3d_intersect(points, i, &clip_x, &clip_y, &clip_z);
+				    edge3d_intersect(points, i-step, i, &clip_x, &clip_y, &clip_z);
 
 				    map3d_xy(clip_x, clip_y, clip_z, &xx0, &yy0);
 
@@ -1781,7 +1758,7 @@ plot3d_lines_pm3d(struct surface_points *plot)
 				 * vector to it
 				 */
 
-				edge3d_intersect(points, i, &clip_x, &clip_y, &clip_z);
+				edge3d_intersect(points, i-step, i, &clip_x, &clip_y, &clip_z);
 
 				map3d_xy(clip_x, clip_y, clip_z, &xx0, &yy0);
 
@@ -1799,7 +1776,7 @@ plot3d_lines_pm3d(struct surface_points *plot)
 				 * Calculate the two 3D intersection points
 				 * if present
 				 */
-				if (two_edge3d_intersect(points, i, lx, ly, lz)) {
+				if (two_edge3d_intersect(points, i-step, i, lx, ly, lz)) {
 
 				    map3d_xy(lx[0], ly[0], lz[0], &x, &y);
 
@@ -1851,6 +1828,7 @@ plot3d_points(struct surface_points *plot, int p_type)
 	struct coordinate GPHUGE *point;
 	int colortype = plot->lp_properties.pm3d_color.type;
 	TBOOLEAN rgb_from_column = plot->pm3d_color_from_column
+			&& colortype == TC_RGB
 			&& plot->lp_properties.pm3d_color.value < 0.0;
 
 	/* Apply constant color outside of the loop */
@@ -1890,7 +1868,7 @@ cntr3d_impulses(struct gnuplot_contours *cntr, struct lp_style_type *lp)
 	for (i = 0; i < cntr->num_pts; i++) {
 	    map3d_xyz(cntr->coords[i].x, cntr->coords[i].y, cntr->coords[i].z,
 		      &vertex_on_surface);
-	    map3d_xyz(cntr->coords[i].x, cntr->coords[i].y, base_z,
+	    map3d_xyz(cntr->coords[i].x, cntr->coords[i].y, 0.0,
 		      &vertex_on_base);
 	    /* HBB 20010822: Provide correct color-coding for
 	     * "linetype palette" PM3D mode */
@@ -2066,7 +2044,7 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 {
     int x, y;		/* point in terminal coordinates */
     struct termentry *t = term;
-    BoundingBox *clip_save;
+    BoundingBox *clip_save = clip_area;
 
     if (draw_border && splot_map) {
 	if (border_layer == current_layer) {
@@ -2279,10 +2257,8 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
     if (whichgrid == BORDERONLY)
 	return;
 
-    if (splot_map) {
-	clip_save = clip_area;
+    if (splot_map)
 	clip_area = NULL;
-    }
 
     /* Draw ticlabels and axis labels. x axis, first:*/
     if (X_AXIS.ticmode || X_AXIS.label.text) {
@@ -2310,6 +2286,8 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	}
 
 	if (X_AXIS.label.text) {
+	    int angle = 0;
+
 	    /* label at xaxis_y + 1/4 of (xaxis_y-other_y) */
 #ifdef USE_GRID_LAYERS /* FIXME: still needed??? what for? */
 	    if ((surface_rot_x <= 90 && BACKGRID != whichgrid) ||
@@ -2345,8 +2323,20 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 #define DEFAULT_Y_DISTANCE 0.5
 		y1 -= (unsigned int) ((1 + DEFAULT_Y_DISTANCE) * t->v_char);
 #undef DEFAULT_Y_DISTANCE
+		angle = X_AXIS.label.rotate;
 	    } else { /* usual 3d set view ... */
 		double step = (xaxis_y - other_end) / 4;
+		/* The only angle that makes sense is running parallel to the axis */
+		if (X_AXIS.label.tag == ROTATE_IN_3D_LABEL_TAG) {
+		    double ang, angx0, angx1, angy0, angy1;
+		    map3d_xy_double(X_AXIS.min, xaxis_y, base_z, &angx0, &angy0);
+		    map3d_xy_double(X_AXIS.max, xaxis_y, base_z, &angx1, &angy1);
+		    ang = atan2(angy1-angy0, angx1-angx0) / DEG2RAD;
+		    angle = (ang > 0) ? floor(ang + 0.5) : floor(ang - 0.5);
+		    step /= 2;
+		    if (step > 0)
+			angle += 180;
+		}
 
 		if (X_AXIS.ticmode & TICS_ON_AXIS) {
 		    map3d_xyz(mid_x, (X_AXIS.tic_in ? step : -step)/2., base_z, &v1);
@@ -2365,14 +2355,13 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	    y1 += tmpy;
 	    ignore_enhanced(X_AXIS.label.noenhanced);
 	    apply_pm3dcolor(&(X_AXIS.label.textcolor),t);
-	    if (X_AXIS.label.rotate != 0 && splot_map && (term->text_angle)(X_AXIS.label.rotate)) {
+	    if (angle != 0 && (term->text_angle)(angle)) {
 		write_multiline(x1, y1, X_AXIS.label.text, CENTRE, JUST_TOP,
-			    X_AXIS.label.rotate, X_AXIS.label.font);
+			    angle, X_AXIS.label.font);
 		(term->text_angle)(0);
 	    } else {
-		write_multiline(x1, y1, X_AXIS.label.text,
-			    CENTRE, JUST_TOP, 0,
-			    X_AXIS.label.font);
+		write_multiline(x1, y1, X_AXIS.label.text, CENTRE, JUST_TOP,
+			    0, X_AXIS.label.font);
 	    }
 	    reset_textcolor(&(X_AXIS.label.textcolor),t);
 	    ignore_enhanced(FALSE);
@@ -2413,7 +2402,7 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 		unsigned int x1, y1;
 		int tmpx, tmpy;
 		int h_just, v_just;
-		int angle;
+		int angle = 0;
 
 		if (splot_map) { /* case 'set view map' */
 		    /* copied from ytick_callback(): baseline of tics labels */
@@ -2463,6 +2452,17 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 		    angle = Y_AXIS.label.rotate;
 		} else { /* usual 3d set view ... */
 		    double step = (other_end - yaxis_x) / 4;
+		    /* The only angle that makes sense is running parallel to the axis */
+		    if (Y_AXIS.label.tag == ROTATE_IN_3D_LABEL_TAG) {
+			double ang, angx0, angx1, angy0, angy1;
+			map3d_xy_double(yaxis_x, Y_AXIS.min, base_z, &angx0, &angy0);
+			map3d_xy_double(yaxis_x, Y_AXIS.max, base_z, &angx1, &angy1);
+			ang = atan2(angy1-angy0, angx1-angx0) / DEG2RAD;
+			angle = (ang > 0) ? floor(ang + 0.5) : floor(ang - 0.5);
+			step /= 2;
+			if (step > 0)
+			    angle += 180;
+		    }
 		    if (Y_AXIS.ticmode & TICS_ON_AXIS) {
 			map3d_xyz((X_AXIS.tic_in ? -step : step)/2., mid_y, base_z, &v1);
 		    } else {
@@ -2475,8 +2475,6 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 		    TERMCOORD(&v1, x1, y1);
 		    h_just = CENTRE;
 		    v_just = JUST_TOP;
-		    /* No Y-label rotation in 3D plot mode */
-		    angle = 0;
 		}
 
 		map3d_position_r(&(Y_AXIS.label.offset), &tmpx, &tmpy, "graphbox");
@@ -2487,7 +2485,7 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 		ignore_enhanced(Y_AXIS.label.noenhanced);
 		apply_pm3dcolor(&(Y_AXIS.label.textcolor),t);
 
-		if (angle != 0 && splot_map && (term->text_angle)(angle)) {
+		if (angle != 0 && (term->text_angle)(angle)) {
 		    write_multiline(x1, y1, Y_AXIS.label.text, h_just, v_just,
 				    angle, Y_AXIS.label.font);
 		    (term->text_angle)(0);
@@ -2624,13 +2622,11 @@ xtick_callback(
 
     map3d_xyz(place, xaxis_y, base_z, &v1);
     if (grid.l_type > LT_NODRAW) {
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_BEGIN_GRID);
+	(t->layer)(TERM_LAYER_BEGIN_GRID);
 	/* to save mapping twice, map non-axis y */
 	map3d_xyz(place, other_end, base_z, &v2);
 	draw3d_line(&v1, &v2, &grid);
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_END_GRID);
+	(t->layer)(TERM_LAYER_END_GRID);
     }
     if ((X_AXIS.ticmode & TICS_ON_AXIS)
 	&& !Y_AXIS.log
@@ -2649,9 +2645,21 @@ xtick_callback(
 	int just;
 	unsigned int x2, y2;
 	int angle;
+	int offsetx, offsety;
+
+	/* Skip label if we've already written a user-specified one here */
+#	define MINIMUM_SEPARATION 0.001
+	while (userlabels) {
+	    if (fabs((place - userlabels->position) / (X_AXIS.max - X_AXIS.min))
+		<= MINIMUM_SEPARATION) {
+		text = NULL;
+		break;
+	    }
+	    userlabels = userlabels->next;
+	}
+#	undef MINIMUM_SEPARATION
 
 	/* get offset */
-	int offsetx, offsety;
 	map3d_position_r(&(axis_array[axis].ticdef.offset),
 		       &offsetx, &offsety, "xtics");
 	if (tic_unitx * xscaler < -0.9)
@@ -2660,6 +2668,9 @@ xtick_callback(
 	    just = CENTRE;
 	else
 	    just = RIGHT;
+	/* allow manual justification of tick labels, but only for "set view map" */
+	if (splot_map && axis_array[axis].manual_justify)
+	    just = axis_array[axis].label.pos;
 	v2.x = v1.x - tic_unitx * t->h_char * 1;
 	v2.y = v1.y - tic_unity * t->v_char * 1;
 	if (!axis_array[axis].tic_in) {
@@ -2707,12 +2718,10 @@ ytick_callback(
 
     map3d_xyz(yaxis_x, place, base_z, &v1);
     if (grid.l_type > LT_NODRAW) {
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_BEGIN_GRID);
+	(t->layer)(TERM_LAYER_BEGIN_GRID);
 	map3d_xyz(other_end, place, base_z, &v2);
 	draw3d_line(&v1, &v2, &grid);
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_END_GRID);
+	(t->layer)(TERM_LAYER_END_GRID);
     }
     if (Y_AXIS.ticmode & TICS_ON_AXIS
 	&& !X_AXIS.log
@@ -2731,9 +2740,21 @@ ytick_callback(
 	int just;
 	unsigned int x2, y2;
 	int angle;
+	int offsetx, offsety;
+
+	/* Skip label if we've already written a user-specified one here */
+#	define MINIMUM_SEPARATION 0.001
+	while (userlabels) {
+	    if (fabs((place - userlabels->position) / (Y_AXIS.max - Y_AXIS.min))
+		<= MINIMUM_SEPARATION) {
+		text = NULL;
+		break;
+	    }
+	    userlabels = userlabels->next;
+	}
+#	undef MINIMUM_SEPARATION
 
 	/* get offset */
-	int offsetx, offsety;
 	map3d_position_r(&(axis_array[axis].ticdef.offset),
 		       &offsetx, &offsety, "ytics");
 
@@ -2743,6 +2764,9 @@ ytick_callback(
 	    just = CENTRE;
 	else
 	    just = RIGHT;
+	/* allow manual justification of tick labels, but only for "set view map" */
+	if (splot_map && axis_array[axis].manual_justify)
+	    just = axis_array[axis].label.pos;
 	v2.x = v1.x - tic_unitx * t->h_char * 1;
 	v2.y = v1.y - tic_unity * t->v_char * 1;
 	if (!axis_array[axis].tic_in) {
@@ -2793,14 +2817,12 @@ ztick_callback(
     else
 	map3d_xyz(zaxis_x, zaxis_y, place, &v1);
     if (grid.l_type > LT_NODRAW) {
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_BEGIN_GRID);
+	(t->layer)(TERM_LAYER_BEGIN_GRID);
 	map3d_xyz(back_x, back_y, place, &v2);
 	map3d_xyz(right_x, right_y, place, &v3);
 	draw3d_line(&v1, &v2, &grid);
 	draw3d_line(&v2, &v3, &grid);
-	if (t->layer)
-	    (t->layer)(TERM_LAYER_END_GRID);
+	(t->layer)(TERM_LAYER_END_GRID);
     }
     v2.x = v1.x + len / (double)xscaler;
     v2.y = v1.y;
@@ -2810,8 +2832,21 @@ ztick_callback(
 
     if (text) {
 	unsigned int x1, y1;
-	/* get offset */
 	int offsetx, offsety;
+
+	/* Skip label if we've already written a user-specified one here */
+#	define MINIMUM_SEPARATION 0.001
+	while (userlabels) {
+	    if (fabs((place - userlabels->position) / (Z_AXIS.max - Z_AXIS.min))
+		<= MINIMUM_SEPARATION) {
+		text = NULL;
+		break;
+	    }
+	    userlabels = userlabels->next;
+	}
+#	undef MINIMUM_SEPARATION
+
+	/* get offset */
 	map3d_position_r(&(axis_array[axis].ticdef.offset),
 		       &offsetx, &offsety, "ztics");
 
@@ -3000,6 +3035,7 @@ key_text(int xl, int yl, char *text)
 {
     legend_key *key = &keyT;
 
+    (term->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
     if (key->just == GPKEY_LEFT && key->region != GPKEY_USER_PLACEMENT) {
 	(*term->justify_text) (LEFT);
 	(*term->put_text) (xl + key_text_left, yl, text);
@@ -3011,6 +3047,7 @@ key_text(int xl, int yl, char *text)
 	    (*term->put_text) (x, yl, text);
 	}
     }
+    (term->layer)(TERM_LAYER_END_KEYSAMPLE);
 }
 
 static void
@@ -3024,7 +3061,9 @@ key_sample_line(int xl, int yl)
     else
 	clip_area = &canvas;
 
+    (term->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
     draw_clip_line(xl + key_sample_left, yl, xl + key_sample_right, yl);
+    (term->layer)(TERM_LAYER_END_KEYSAMPLE);
 
     clip_area = clip_save;
 }
@@ -3040,8 +3079,10 @@ key_sample_point(int xl, int yl, int pointtype)
     else
 	clip_area = &canvas;
 
+    (term->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
     if (!clip_point(xl + key_point_offset, yl))
 	(*term->point) (xl + key_point_offset, yl, pointtype);
+    (term->layer)(TERM_LAYER_END_KEYSAMPLE);
 
     clip_area = clip_save;
 }
@@ -3094,9 +3135,12 @@ key_sample_line_pm3d(struct surface_points *plot, int xl, int yl)
     int i = 1, x1 = xl + key_sample_left, x2;
     double cbmin, cbmax;
     double gray, gray_from, gray_to, gray_step;
+    int colortype = plot->lp_properties.pm3d_color.type;
 
     /* If plot uses a constant color, set it here and then let simpler routine take over */
-    if (plot->lp_properties.use_palette && plot->lp_properties.pm3d_color.type == TC_RGB) {
+    if ((colortype == TC_RGB && plot->lp_properties.pm3d_color.value >= 0.0)
+    || (colortype == TC_LT)
+    || (colortype == TC_LINESTYLE && plot->lp_properties.l_type != LT_COLORFROMCOLUMN)) {
 	apply_pm3dcolor(&(plot->lp_properties.pm3d_color), term);
 	key_sample_line(xl,yl);
 	return;
@@ -3146,15 +3190,19 @@ key_sample_point_pm3d(
     int i = 0, x1 = xl + key_sample_left, x2;
     double cbmin, cbmax;
     double gray, gray_from, gray_to, gray_step;
+    int colortype = plot->lp_properties.pm3d_color.type;
     /* rule for number of steps: 3*char_width*pointsize or char_width for dots,
      * but at least 3 points */
     double step = term->h_char * (pointtype == -1 ? 1 : 3*(1+(pointsize-1)/2));
     int steps = (int)(((double)(key_sample_right - key_sample_left)) / step + 0.5);
+
     if (steps < 2) steps = 2;
     step = ((double)(key_sample_right - key_sample_left)) / steps;
 
     /* If plot uses a constant color, set it here and then let simpler routine take over */
-    if (plot->lp_properties.use_palette && plot->lp_properties.pm3d_color.type == TC_RGB) {
+    if ((colortype == TC_RGB && plot->lp_properties.pm3d_color.value >= 0.0)
+    || (colortype == TC_LT)
+    || (colortype == TC_LINESTYLE && plot->lp_properties.l_type != LT_COLORFROMCOLUMN)) {
 	apply_pm3dcolor(&(plot->lp_properties.pm3d_color), term);
 	key_sample_point(xl,yl,pointtype);
 	return;
@@ -3202,24 +3250,34 @@ plot3d_vectors(struct surface_points *plot)
 {
     int i;
     double x1, y1, x2, y2;
+    arrow_style_type ap;
     struct coordinate GPHUGE *heads = plot->iso_crvs->points;
     struct coordinate GPHUGE *tails = plot->iso_crvs->next->points;
 
-    /* Only necessary once because all arrows equal */
-    term_apply_lp_properties(&(plot->arrow_properties.lp_properties));
-    apply_head_properties(&(plot->arrow_properties));
+    /* Only necessary once, unless variable arrow style */
+    ap = plot->arrow_properties;
+    term_apply_lp_properties(&ap.lp_properties);
+    apply_3dhead_properties(&ap);
 
     for (i = 0; i < plot->iso_crvs->p_count; i++) {
 	
 	if (heads[i].type == UNDEFINED || tails[i].type == UNDEFINED)
 	    continue;
-		
-	check_for_variable_color(plot, &heads[i]);
+
+	/* variable arrow style read from extra data column */
+	if (plot->arrow_properties.tag == AS_VARIABLE) {
+	    int as= heads[i].CRD_COLOR;
+	    arrow_use_properties(&ap, as);
+	    term_apply_lp_properties(&ap.lp_properties);
+	    apply_head_properties(&ap);
+	} else {
+	    check_for_variable_color(plot, &heads[i]);
+	}
 
 	if (heads[i].type == INRANGE && tails[i].type == INRANGE) {
 	    map3d_xy_double(heads[i].x, heads[i].y, heads[i].z, &x1, &y1);
 	    map3d_xy_double(tails[i].x, tails[i].y, tails[i].z, &x2, &y2);
-	    draw_clip_arrow((int)x1, (int)y1, (int)x2, (int)y2, plot->arrow_properties.head);
+	    draw_clip_arrow((int)x1, (int)y1, (int)x2, (int)y2, ap.head);
 	}
     }
 }
