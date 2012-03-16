@@ -1,7 +1,5 @@
-Index: gnuplot-4.4.0/src/Makefile.am
-===================================================================
---- gnuplot-4.4.0.orig/src/Makefile.am	2010-03-06 02:09:39.000000000 +0000
-+++ gnuplot-4.4.0/src/Makefile.am	2010-03-27 11:08:23.000000000 +0000
+--- a/src/Makefile.am
++++ b/src/Makefile.am
 @@ -2,7 +2,7 @@
  AUTOMAKE_OPTIONS = ansi2knr foreign 1.2h
  

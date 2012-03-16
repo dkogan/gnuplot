@@ -1,8 +1,6 @@
-Index: gnuplot-4.4.0/term/gd.trm
-===================================================================
---- gnuplot-4.4.0.orig/term/gd.trm	2010-02-25 02:29:20.000000000 +0000
-+++ gnuplot-4.4.0/term/gd.trm	2010-03-27 11:08:24.000000000 +0000
-@@ -978,7 +978,7 @@
+--- a/term/gd.trm
++++ b/term/gd.trm
+@@ -979,7 +979,7 @@
  	if (external_default)
  		png_state.ttffont = gp_strdup(external_default);
  	else	/* Might as well try some plausible font; it's no worse than failing immediately */
