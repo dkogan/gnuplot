@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: fit.c,v 1.69 2009/03/13 01:28:57 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: fit.c,v 1.78 2011/11/15 20:23:43 sfeam Exp $"); }
 #endif
 
 /*  NOTICE: Change of Copyright Status
@@ -76,17 +76,15 @@ static void Dblfn __PROTO(());
 #define Dblf5 Dblfn
 #define Dblf6 Dblfn
 
-#if defined(MSDOS) || defined(DOS386)	/* non-blocking IO stuff */
+#if defined(MSDOS) 	/* non-blocking IO stuff */
 # include <io.h>
-# ifndef _Windows		/* WIN16 does define MSDOS .... */
-#  include <conio.h>
-# endif
+# include <conio.h>
 # include <dos.h>
-#else /* !(MSDOS || DOS386) */
+#else /* !(MSDOS) */
 # ifndef VMS
 #  include <fcntl.h>
 # endif				/* !VMS */
-#endif /* !(MSDOS || DOS386) */
+#endif /* !(MSDOS) */
 
 enum marq_res {
     OK, ML_ERROR, BETTER, WORSE
@@ -113,7 +111,7 @@ typedef enum marq_res marq_res_t;
 #define LAMBDA_UP_FACTOR 10
 #define LAMBDA_DOWN_FACTOR 10
 
-#if defined(MSDOS) || defined(OS2) || defined(DOS386)
+#if defined(MSDOS) || defined(OS2)
 # define PLUSMINUS   "\xF1"	/* plusminus sign */
 #else
 # define PLUSMINUS   "+/-"
@@ -128,10 +126,8 @@ char fitbuf[256];
 
 /* log-file for fit command */
 char *fitlogfile = NULL;
-
-#ifdef GP_FIT_ERRVARS
 TBOOLEAN fit_errorvariables = FALSE;
-#endif /* GP_FIT_ERRVARS */
+TBOOLEAN fit_quiet = FALSE;
 
 /* private variables: */
 
@@ -206,10 +202,7 @@ static char *get_next_word __PROTO((char **s, char *subst));
 static double createdvar __PROTO((char *varname, double value));
 static void splitpath __PROTO((char *s, char *p, char *f));
 static void backup_file __PROTO((char *, const char *));
-
-#ifdef GP_FIT_ERRVARS
 static void setvarerr __PROTO((char *varname, double value));
-#endif
 
 /*****************************************************************
     Small function to write the last fit command into a file
@@ -256,7 +249,7 @@ ctrlc_setup()
  *
  *  I hope that other OSes do it better, if not... add #ifdefs :-(
  */
-#if (defined(__EMX__) || !defined(MSDOS) && !defined(DOS386))
+#if (defined(__EMX__) || !defined(MSDOS))
     (void) signal(SIGINT, (sigfunc) ctrlc_handle);
 #endif
 }
@@ -265,7 +258,7 @@ ctrlc_setup()
 /*****************************************************************
     getch that handles also function keys etc.
 *****************************************************************/
-#if defined(MSDOS) || defined(DOS386)
+#if defined(MSDOS)
 
 /* HBB 980317: added a prototype... */
 int getchx __PROTO((void));
@@ -293,8 +286,9 @@ error_ex()
     memcpy(fitbuf, "         ", 9);	/* start after GNUPLOT> */
     sp = strchr(fitbuf, NUL);
     while (*--sp == '\n');
-    strcpy(sp + 1, "\n\n");	/* terminate with exactly 2 newlines */
+    strcpy(sp + 1, "\n");
     fputs(fitbuf, STANDARD);
+    strcpy(sp + 2, "\n");	/* terminate with exactly 2 newlines */
     if (log_f) {
 	fprintf(log_f, "BREAK: %s", fitbuf);
 	(void) fclose(log_f);
@@ -307,7 +301,8 @@ error_ex()
     /* restore original SIGINT function */
     interrupt_setup();
 
-    bail_to_command_line();
+    /* exit via int_error() so that it can clean up state variables */
+    int_error(NO_CARET,"error during fit");
 }
 
 /* HBB 990829: removed the debug print routines */
@@ -397,7 +392,8 @@ marquardt(double a[], double **C, double *chisq, double *lambda)
     }
     if (tmp_chisq < *chisq) {	/* Success, accept new solution */
 	if (*lambda > MIN_LAMBDA) {
-	    (void) putc('/', stderr);
+	    if (!fit_quiet)
+	        (void) putc('/', stderr);
 	    *lambda /= lambda_down_factor;
 	}
 	*chisq = tmp_chisq;
@@ -409,7 +405,8 @@ marquardt(double a[], double **C, double *chisq, double *lambda)
 	    a[j] = temp_a[j];
 	return BETTER;
     } else {			/* failure, increase lambda and return */
-	(void) putc('*', stderr);
+        if (!fit_quiet)
+	    (void) putc('*', stderr);
 	*lambda *= lambda_up_factor;
 	return WORSE;
     }
@@ -572,8 +569,7 @@ fit_interrupt()
 		    (void) Gcomplex(&v, a[i], 0.0);
 		    setvar(par_name[i], v);
 		}
-		safe_strncpy(gp_input_line, tmp, gp_input_line_len);
-		(void) do_line();
+		do_string(tmp);
 	    }
 	}
     }
@@ -605,7 +601,8 @@ regress(double a[])
 	Eex("FIT: error occurred during fit");
     res = BETTER;
 
-    show_fit(iter, chisq, chisq, a, lambda, STANDARD);
+    if (!fit_quiet)
+        show_fit(iter, chisq, chisq, a, lambda, STANDARD);
     show_fit(iter, chisq, chisq, a, lambda, log_f);
 
     /* Reset flag describing fit result status */
@@ -632,7 +629,7 @@ regress(double a[])
  *  HBB: I think this can be enabled for DJGPP V2. SIGINT is actually
  *  handled there, AFAIK.
  */
-#if ((defined(MSDOS) || defined(DOS386)) && !defined(__EMX__))
+#if (defined(MSDOS) && !defined(__EMX__))
 	if (kbhit()) {
 	    do {
 		getchx();
@@ -640,6 +637,7 @@ regress(double a[])
 	    ctrlc_flag = TRUE;
 	}
 #endif
+
 
 	if (ctrlc_flag) {
 	    show_fit(iter, chisq, last_chisq, a, lambda, STANDARD);
@@ -652,7 +650,8 @@ regress(double a[])
 	    last_chisq = chisq;
 	}
 	if ((res = marquardt(a, C, &chisq, &lambda)) == BETTER)
-	    show_fit(iter, chisq, last_chisq, a, lambda, STANDARD);
+	    if (!fit_quiet)
+	        show_fit(iter, chisq, last_chisq, a, lambda, STANDARD);
     } while ((res != ML_ERROR)
 	     && (lambda < MAX_LAMBDA)
 	     && ((maxiter == 0) || (iter <= maxiter))
@@ -692,13 +691,11 @@ regress(double a[])
 
     /* compute errors in the parameters */
 
-#ifdef GP_FIT_ERRVARS
     if (fit_errorvariables)
 	/* Set error variable to zero before doing this */
 	/* Thus making sure they are created */
 	for (i = 0; i < num_params; i++)
 	    setvarerr(par_name[i], 0.0);
-#endif
 
     if (num_data == num_params) {
 	int k;
@@ -777,10 +774,8 @@ regress(double a[])
 
 	    Dblf6("%-15.15s = %-15g  %-3.3s %-12.4g (%.4g%%)\n",
 		  par_name[i], a[i], PLUSMINUS, dpar[i], temp);
-#ifdef GP_FIT_ERRVARS
 	    if (fit_errorvariables)
 		setvarerr(par_name[i], dpar[i]);
-#endif
 	}
 
 	Dblf("\n\ncorrelation matrix of the fit parameters:\n\n");
@@ -918,7 +913,6 @@ setvar(char *varname, struct value data)
     udv_ptr->udv_undef = FALSE;
 }
 
-#ifdef GP_FIT_ERRVARS
 /*****************************************************************
             Set a GNUPLOT user-defined variable for an error
             variable: so take the parameter name, turn it
@@ -939,7 +933,6 @@ setvarerr(char *varname, double value)
 	setvar(pErrValName, errval);
 	free(pErrValName);
 }
-#endif /* GP_FIT_ERRVARS */
 
 /*****************************************************************
     Read INTGR Variable value, return 0 if undefined or wrong type
@@ -1198,7 +1191,7 @@ log_axis_restriction(FILE *log_f, AXIS_INDEX axis, char *name)
     fprintf(log_f, "\t%s range restricted to [", name);
     if (this_axis->autoscale & AUTOSCALE_MIN) {
 	putc('*', log_f);
-    } else if (this_axis->is_timedata) {
+    } else if (this_axis->datatype == DT_TIMEDATE) {
 	putc('"', log_f);
 	gstrftime(s, 80, this_axis->timefmt, this_axis->min);
 	fputs(s, log_f);
@@ -1210,7 +1203,7 @@ log_axis_restriction(FILE *log_f, AXIS_INDEX axis, char *name)
     fputs(" : ", log_f);
     if (this_axis->autoscale & AUTOSCALE_MAX) {
 	putc('*', log_f);
-    } else if (this_axis->is_timedata) {
+    } else if (this_axis->datatype == DT_TIMEDATE) {
 	putc('"', log_f);
 	gstrftime(s, 80, this_axis->timefmt, this_axis->max);
 	fputs(s, log_f);
@@ -1246,6 +1239,7 @@ fit_command()
     time_t timer;
     int token1, token2, token3;
     char *tmp, *file_name;
+    AXIS saved_axis;
 
     c_token++;
 
@@ -1276,15 +1270,15 @@ fit_command()
       if (num_ranges > 5)
 	int_error(c_token, "only 6 range specs are permitted");
       i=var_order[num_ranges];
-      /* Store the Z axis dummy variable and range (if any) in the
-       * axis for the next independent variable.  Save the current
-       * values in an otherwise unused axis, so they can be restored
-       * later if there are fewer than 5 independent variables. */
-      axis_array[SECOND_Z_AXIS] = axis_array[i]; /* copy entire structure */
+      /* Store the Z axis dummy variable and range (if any) in the axis
+       * for the next independent variable.  Save the current values to be
+       * restored later if there are fewer than 5 independent variables.
+       */
+      saved_axis = axis_array[i];
       dummy_token[6] = dummy_token[i];
 
       dummy_token[num_ranges] = -1;
-      PARSE_NAMED_RANGE(i, dummy_token[num_ranges]); /* FIXME both should be i? */
+      dummy_token[num_ranges] = parse_named_range(i, dummy_token[num_ranges]);
       zrange_token = c_token;
       num_ranges++;
     }
@@ -1335,11 +1329,11 @@ fit_command()
      * We need to check if one of the columns is time data, like
      * in plot2d and plot3d */
 
-    if (X_AXIS.is_timedata) {
+    if (X_AXIS.datatype == DT_TIMEDATE) {
 	if (columns < 2)
 	    int_error(c_token, "Need full using spec for x time data");
     }
-    if (Y_AXIS.is_timedata) {
+    if (Y_AXIS.datatype == DT_TIMEDATE) {
 	if (columns < 1)
 	    int_error(c_token, "Need using spec for y time data");
     }
@@ -1374,7 +1368,7 @@ fit_command()
 	Z_AXIS.max = axis_array[i].max;
       
       /* restore former values */
-      axis_array[i] = axis_array[SECOND_Z_AXIS]; /* copy entire structure */
+      axis_array[i] = saved_axis;
       dummy_token[num_ranges-1] = dummy_token[6];
     }
 
@@ -1742,17 +1736,20 @@ Dblfn(const char *fmt, va_dcl)
 
     VA_START(args, fmt);
 # if defined(HAVE_VFPRINTF) || _LIBC
-    vfprintf(STANDARD, fmt, args);
+    if (!fit_quiet)
+        vfprintf(STANDARD, fmt, args);
     va_end(args);
     VA_START(args, fmt);
     vfprintf(log_f, fmt, args);
 # else
-    _doprnt(fmt, args, STANDARD);
+    if (!fit_quiet)
+        _doprnt(fmt, args, STANDARD);
     _doprnt(fmt, args, log_f);
 # endif
     va_end(args);
 #else
-    fprintf(STANDARD, fmt, a1, a2, a3, a4, a5, a6, a7, a8);
+    if (!fit_quiet)
+        fprintf(STANDARD, fmt, a1, a2, a3, a4, a5, a6, a7, a8);
     fprintf(log_f, fmt, a1, a2, a3, a4, a5, a6, a7, a8);
 #endif /* VA_START */
 }

@@ -2,7 +2,7 @@
 # Makefile fragment to generate makefile.all and update version.c
 
 # Non-core sources and version.c
-noncoresrc = amiga.c ansi2knr.c bf_test.c corplot.c gpexecute.c gplt_x11.c \
+noncoresrc = ansi2knr.c bf_test.c corplot.c gpexecute.c gplt_x11.c \
 os9.c strftime.c version.c vms.c
 
 coresrc := $(filter-out $(noncoresrc),$(wildcard *.c))
@@ -14,6 +14,8 @@ file_version := $(shell sed -n 's/.*gnuplot_version.*"\(.*\)".*/\1/p' ./version.
 
 patchlevel := $(shell cat ../PATCHLEVEL)
 file_pl := $(shell sed -n 's/.*gnuplot_patchlevel.*"\(.*\)".*/\1/p' ./version.c|tr -d ' ')
+
+last_change := $(shell dd if=../ChangeLog bs=11 count=1 2> /dev/null)
 
 date := $(shell date)
 
@@ -30,7 +32,10 @@ makefile.all: Makefile.maint
 	 | tr @% '\012\012' >>$@t
 	@if cmp -s $@ $@t; then rm -f $@t; else mv $@t $@; fi
 
-version.c: ../VERSION ../PATCHLEVEL
+makefile.awc: makefile.all
+	sed -e 's/\\/\&/g' makefile.all > $@
+
+version.c: ../VERSION ../PATCHLEVEL ../ChangeLog
 	@echo Making $@
 	@if [ "$(version)" != "$(file_version)" -o \
 	     "$(patchlevel)" != "$(file_pl)" ]; then \
@@ -41,3 +46,7 @@ version.c: ../VERSION ../PATCHLEVEL
 	      -e "s/@DATE@/$(date)/" $@ >$@t; \
 	  if cmp -s $@ $@t; then rm -f $@t; else mv $@t $@; fi \
 	fi
+#	Take most recent change date from the very top of ChangeLog
+	sed -e '/^const char gnuplot_date/ s/"[^"]*"/"$(last_change)"/' \
+	    $@ > $@t;
+	mv $@t $@

@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.h,v 1.32 2009/03/26 00:49:18 sfeam Exp $
+ * $Id: wxt_gui.h,v 1.36 2011/11/06 04:06:10 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.h */
@@ -103,6 +103,11 @@
 #include <vector>
 #include <list>
 
+/* suprisingly Cocoa version of wxWidgets does not define _Bool ! */
+#ifdef __WXOSX_COCOA__
+#define _Bool bool
+#endif
+
 extern "C" {
 /* for interactive */
 # include "plot.h"
@@ -148,9 +153,9 @@ extern "C" {
 
 /* depending on the platform, and mostly because of the Windows terminal which
  * already has its event loop, we may or may not be multithreaded */
-#if defined(__WXGTK__) || defined(__WXMAC__)
+#if defined(__WXGTK__)
 # define WXT_MULTITHREADED
-#elif defined(__WXMSW__)
+#elif defined(__WXMSW__) || defined(__WXMAC__)
 # define WXT_MONOTHREADED
 #else
 # error "wxt does not know if this platform has to be mono- or multi-threaded"
@@ -271,7 +276,8 @@ typedef enum wxt_gp_command_t {
 	command_text_angle,
 	command_fillbox,
 	command_filled_polygon,
-	command_image
+	command_image,
+	command_layer
 } wxt_gp_command_t;
 
 /* base structure for storing gnuplot commands */
@@ -310,6 +316,7 @@ public :
 	/* event handlers (these functions should _not_ be virtual)*/
 	void OnPaint( wxPaintEvent &event );
 	void OnEraseBackground( wxEraseEvent &event );
+	void OnMouseLeave( wxMouseEvent &event );
 	void OnSize( wxSizeEvent& event );
 	void OnMotion( wxMouseEvent& event );
 	void OnLeftDown( wxMouseEvent& event );
@@ -318,6 +325,7 @@ public :
 	void OnMiddleUp( wxMouseEvent& event );
 	void OnRightDown( wxMouseEvent& event );
 	void OnRightUp( wxMouseEvent& event );
+	void OnMouseWheel( wxMouseEvent& event );
 	void OnKeyDownChar( wxKeyEvent& event );
 
 	void UpdateModifiers( wxMouseEvent& event );
@@ -426,6 +434,7 @@ class wxtConfigDialog : public wxDialog
 	bool raise_setting;
 	bool persist_setting;
 	bool ctrl_setting;
+	bool toggle_setting;
 	/* rendering_setting :
 	 * 0 = no antialiasing, no oversampling
 	 * 1 = antialiasing, no oversampling
@@ -441,7 +450,7 @@ class wxtFrame : public wxFrame
 {
 public:
 	/* constructor*/
-	wxtFrame( const wxString& title, wxWindowID id, int xpos, int ypos, int width, int height );
+	wxtFrame( const wxString& title, wxWindowID id );
 
 	/* event handlers (these functions should _not_ be virtual)*/
 	void OnClose( wxCloseEvent& event );
@@ -567,6 +576,7 @@ static void wxt_command_push(gp_command command);
  * returns true if the event has really been processed - it will
  * not if the window is not the current one. */
 static bool wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id);
+static void wxt_check_for_toggle(unsigned int x, unsigned int y);
 
 /* process one event, returns true if it ends the pause */
 static bool wxt_process_one_event(struct gp_event_t *);

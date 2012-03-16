@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: version.c,v 1.89.2.8 2010/03/05 06:52:24 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: version.c,v 1.100.2.3 2012/03/02 20:00:04 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - version.c */
@@ -39,30 +39,17 @@ static char *RCSid() { return RCSid("$Id: version.c,v 1.89.2.8 2010/03/05 06:52:
 #include "syscfg.h"		/* for FAQ_LOCATION */
 
 
-const char gnuplot_version[] = "4.4";
+const char gnuplot_version[] = "4.6";
 const char gnuplot_patchlevel[] = "0";
-const char gnuplot_date[] = "March 2010";
-const char gnuplot_copyright[] = "Copyright (C) 1986-1993, 1998, 2004, 2007-2010";
+const char gnuplot_date[] = "2012-03-04 ";
+const char gnuplot_copyright[] = "Copyright (C) 1986-1993, 1998, 2004, 2007-2012";
+
+const char faq_location[] = FAQ_LOCATION;
 
 char *compile_options = (void *)0;	/* Will be loaded at runtime */
 
-# ifndef FAQ_LOCATION
-#  define FAQ_LOCATION "http://www.gnuplot.info/faq/"
-# endif
-# ifndef HELPMAIL
-#  define HELPMAIL "gnuplot-info@lists.sourceforge.net";
-# endif
-# ifndef CONTACT
-#  define CONTACT "gnuplot-beta@lists.sourceforge.ent";
-# endif
-# ifndef SUPPORT
-#  define SUPPORT "http://sf.net/projects/gnuplot/support"
-# endif
-
-const char faq_location[] = FAQ_LOCATION;
-const char bug_email[] = CONTACT;
-const char help_email[] = HELPMAIL;
-const char bug_report[] = SUPPORT;
+const char bug_email[] = "gnuplot-beta@lists.sourceforge.net";
+const char help_email[] = "gnuplot-beta@lists.sourceforge.net";
 
 char os_name[32];
 char os_rel[32];

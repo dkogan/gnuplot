@@ -1,6 +1,9 @@
+#define WINVER 0x0410
 #include <windows.h>
-#ifdef WIN32
 #include "wgnuplib.rc"
+
+#ifndef NO_MANIFEST
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "wgnuplot.exe.manifest"
 #endif
 
 #ifdef MSRC
@@ -11,10 +14,6 @@
    * geticon win\wgnuplot.rc
    * rc -30 -k -dMSRC win\wgnuplot.rc wgnuplot.exe
    */
-
-#ifdef WXWIDGETS
-# include "wx/msw/wx.rc"
-#endif
 
 GRPICON ICON "grpicon.ico"
 TEXTICON ICON  "texticon.ico"

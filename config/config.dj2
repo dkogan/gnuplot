@@ -39,14 +39,8 @@
 /* #undef GIF_ANIMATION */
 /* Don't change it here -- this define is set in config/makefile.dj2. */
 
-/* Define if you want to use the GNU version of the Unix plot library. */
-/* #undef GNUGRAPH */
-
 /* Define if you want to use a gnuplot history file. */
 #define GNUPLOT_HISTORY 1
-
-/* Define to allow 'fit' to create parameter error variables. */
-#define GP_FIT_ERRVARS 1
 
 /* Define to allow command line macros. EXPERIMENTAL */
 #define GP_MACROS 1
@@ -408,14 +402,12 @@
 /* Define if this is a Linux system with SuperVGA library. */
 /* #undef LINUXVGA */
 
-/* Define if you want to use the MGR Window system. */
-/* #undef MGR */
-
 /* Define if this is an MSDOS system. */
 #define MSDOS 1
 
-/* Define if you do not want to read .gnuplot in the current directory. */
-/* #undef NOCWDRC */
+/* Define if you want to read .gnuplot from current directory
+   (SECURITY RISK!). */
+/* #undef USE_CWDRC */
 
 /* Name of package */
 /* #undef PACKAGE */
@@ -450,9 +442,6 @@
 /* Define as the return type of signal handlers (`int' or `void'). */
 #define RETSIGTYPE void
 
-/* Define if you want to use the Redwood Graphics Interface Protocol. */
-/* #undef RGIP */
-
 /* Define to the type of arg 1 for `select'. */
 #define SELECT_TYPE_ARG1 int
 
@@ -476,9 +465,6 @@
 
 /* Define if the 3dkit libray is present. */
 /* #undef THREEDKIT */
-
-/* Define if you want to use the standard Unix plot library. */
-/* #undef UNIXPLOT */
 
 /* Define if you want to use the experimental ggi driver. */
 /* #undef USE_GGI_DRIVER */

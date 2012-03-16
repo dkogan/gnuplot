@@ -1,21 +1,24 @@
-/* config.h for makefile.nt
+/* config.h for msvc/Makefile
  *
  * Prepared according to config.h from ./configure and by means of
- * config_strip.sh as of gnuplot 4.3 in February 2008.
+ * config_strip.sh as of gnuplot 4.5 in November 2011.
  */
 
 
 /* Define to allow use of deprecated syntax and terminal behaviour. */
-#define BACKWARDS_COMPATIBLE 1
-
-/* Define if you want to support files in binary format. */
-#define BINARY_DATA_FILE 1
+/* #undef BACKWARDS_COMPATIBLE */
 
 /* Define if you want to use the CGI terminal under SCO. */
 /* #undef CGI */
 
 /* Define if you want online help and subtopic tables sorted by column. */
 /* #undef COLUMN_HELP */
+
+/* Define to treat spacebar like any other keystroke. */
+/* #undef DISABLE_SPACE_RAISES_CONSOLE */
+
+/* Contact address for modified and binary distributed gnuplot versions */
+/* #undef DIST_CONTACT */
 
 /* Define if you want to use libgrx20 with MSDOS/djgpp. */
 /* #undef DJSVGA */
@@ -37,18 +40,12 @@
 
 /* Define if libgd supports animated gifs. */
 /* #undef GIF_ANIMATION */
-/* Don't change it here -- this define is set in config/makefile.nt. */
-
-/* Define if you want to use the GNU version of the Unix plot library. */
-/* #undef GNUGRAPH */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define if you want to use a gnuplot history file. */
 #define GNUPLOT_HISTORY 1
 
-/* Define to allow 'fit' to create parameter error variables. */
-#define GP_FIT_ERRVARS 1
-
-/* Define to allow command line macros. EXPERIMENTAL */
+/* Define to allow command line macros. */
 #define GP_MACROS 1
 
 /* Define if you want to use a newer version of libgrx under MSDOS/djgpp. */
@@ -66,8 +63,13 @@
 /* Define to 1 if you have the `bzero' function. */
 /* #undef HAVE_BZERO */
 
+/* libcairo support for eps (cairo >= 1.6) */
+/* #undef HAVE_CAIROEPS */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
+
 /* Define if you want the cairo-based terminals. */
 /* #undef HAVE_CAIROPDF */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define to 1 if you have the declaration of `signgam', and to 0 if you
    don't. */
@@ -78,6 +80,9 @@
 
 /* Define to 1 if you have the `doprnt' function. */
 /* #undef HAVE_DOPRNT */
+
+/* Define to 1 if you have the <editline/readline.h> header file. */
+/* #undef HAVE_EDITLINE_READLINE_H */
 
 /* Define to 1 if you have the `erf' function. */
 /* #undef HAVE_ERF */
@@ -99,23 +104,23 @@
 
 /* Define if libgd supports gif. */
 /* #undef HAVE_GD_GIF */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define to 1 if you have the <gd.h> header file. */
 /* #undef HAVE_GD_H */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define if libgd supports jpeg. */
 /* #undef HAVE_GD_JPEG */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define if libgd supports png. */
 /* #undef HAVE_GD_PNG */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define if libgd supports TrueType fonts through libfreetype. */
 /* #undef HAVE_GD_TTF */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define to 1 if you have the `getcwd' function. */
 #define HAVE_GETCWD 1
@@ -132,17 +137,21 @@
 /* Define to use gtk+ functions to handle cairo */
 /* #undef HAVE_GTK28 */
 
+/* define if you have libiconv and iconv.h */
+/* #undef HAVE_ICONV */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
+
 /* Define to 1 if you have the `index' function. */
 /* #undef HAVE_INDEX */
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 /* #undef HAVE_INTTYPES_H */
 
-/* Define to 1 if you have the `isnan' function. */
-#define HAVE_ISNAN 1
-
 /* Define if you use have kpsexpand (TeX). */
 /* #undef HAVE_KPSEXPAND */
+
+/* Define to 1 if you have the <langinfo.h> header file. */
+/* #undef HAVE_LANGINFO_H */
 
 /* Define to 1 if you have the `lgamma' function. */
 /* #undef HAVE_LGAMMA */
@@ -153,16 +162,19 @@
 /* Define to 1 if you have the <libc.h> header file. */
 /* #undef HAVE_LIBC_H */
 
+/* Define if you are using the BSD editline library. */
+/* #undef HAVE_LIBEDITLINE */
+
 /* Define if you have gd library. */
 /* #undef HAVE_LIBGD */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define to 1 if you have the `m' library (-lm). */
 /* #undef HAVE_LIBM */
 
 /* Define to 1 if you have the `pdf' library (-lpdf). */
 /* #undef HAVE_LIBPDF */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define if your pdf library is too old to use PDF_begin_document. */
 /* #undef HAVE_LIBPDF_OPEN_FILE */
@@ -172,13 +184,21 @@
 
 /* Define if you have zlib. */
 /* #undef HAVE_LIBZ */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define to 1 if you have the <limits.h> header file. */
 #define HAVE_LIMITS_H 1
 
 /* Define to 1 if you have the <locale.h> header file. */
 #define HAVE_LOCALE_H 1
+
+/* Define if you want the lua/TikZ terminal. */
+/* #undef HAVE_LUA */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
+
+/* Define to 1 if you have the <lua.h> header file. */
+/* #undef HAVE_LUA_H */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define to 1 if you have the <malloc.h> header file. */
 #define HAVE_MALLOC_H 1
@@ -239,7 +259,7 @@
 
 /* Define to 1 if you have the `setvbuf' function. */
 /* #define HAVE_SETVBUF	1 */
-  /* it is defined, but setvbuf(stdout) does not work for the MS Windows GUI redirected stdout */
+  /* it is defined, but setvbuf(stdout) does not work for Windows GUI redirected stdout */
 
 /* Define to 1 if you have the <sgtty.h> header file. */
 /* #undef HAVE_SGTTY_H */
@@ -296,8 +316,14 @@
 /* Define to 1 if you have the `strncasecmp' function. */
 /* #undef HAVE_STRNCASECMP */
 
+/* Define to 1 if you have the `strndup' function. */
+/* #undef HAVE_STRNDUP */
+
 /* Define to 1 if you have the `strnicmp' function. */
 #define HAVE_STRNICMP 1
+
+/* Define to 1 if you have the `strnlen' function. */
+#define HAVE_STRNLEN 1
 
 /* Define to 1 if you have the `strrchr' function. */
 #define HAVE_STRRCHR 1
@@ -377,6 +403,12 @@
 /* Define to 1 if you have the <vgagl.h> header file. */
 /* #undef HAVE_VGAGL_H */
 
+/* Define to 1 if you have the <wchar.h> header file. */
+#define HAVE_WCHAR_H 1
+
+/* Define to 1 if you have the `wcwidth' function. */
+/* #undef HAVE_WCWIDTH */
+
 /* Define to 1 if `fork' works. */
 /* #undef HAVE_WORKING_FORK */
 
@@ -390,7 +422,7 @@
 /* #undef HIDDEN3D_GRIDBOX */
 
 /* Define to enable quadtree optimization in hidden3d code. */
-/* #undef HIDDEN3D_QUADTREE */
+#define HIDDEN3D_QUADTREE 1
 
 /* Define to enable handling point size in hidden3d code. */
 #define HIDDEN3D_VAR_PTSIZE 1
@@ -398,14 +430,27 @@
 /* Define if this is a Linux system with SuperVGA library. */
 /* #undef LINUXVGA */
 
-/* Define if you want to use the MGR Window system. */
-/* #undef MGR */
+/* Define to 1 if malloc(0)==0 */
+/* #undef MALLOC_ZERO_RETURNS_ZERO */
+
+/* Define if your libreadline has no rl_ding */
+/* #undef MISSING_RL_DING */
+
+/* Define if your libreadline has no rl_force_update_display */
+/* #undef MISSING_RL_FORCED_UPDATE_DISPLAY */
+
+/* Define if your libreadline has no rl_complete_with_tilde_expansion */
+/* #undef MISSING_RL_TILDE_EXPANSION */
 
 /* Define if this is an MSDOS system. */
 /* #undef MSDOS */
 
-/* Define if you do not want to read .gnuplot in the current directory. */
-/* #undef NOCWDRC */
+/* Define if you want to read .gnuplot from current directory
+   (SECURITY RISK!). */
+/* #undef USE_CWDRC */
+
+/* Define to disable terminals that depend on code in bitmap.c */
+/* #undef NO_BITMAP_SUPPORT */
 
 /* Name of package */
 /* #undef PACKAGE */
@@ -427,6 +472,7 @@
 
 /* Define if you do have the popen and pclose functions. */
 /* #undef PIPES */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Unix-type of Interprocess Communication is required for mouse support. */
 /* #undef PIPE_IPC */
@@ -434,14 +480,14 @@
 /* Define to 1 if the C compiler supports function prototypes. */
 #define PROTOTYPES 1
 
+/* Define if you want the Qt terminal. */
+/* #undef QTTERM */
+
 /* Define if you want to use the included readline function. */
 #define READLINE 1
 
 /* Define as the return type of signal handlers (`int' or `void'). */
 #define RETSIGTYPE void
-
-/* Define if you want to use the Redwood Graphics Interface Protocol. */
-/* #undef RGIP */
 
 /* Define to the type of arg 1 for `select'. */
 /* #undef SELECT_TYPE_ARG1 */
@@ -467,15 +513,15 @@
 /* Define if the 3dkit libray is present. */
 /* #undef THREEDKIT */
 
-/* Define if you want to use the standard Unix plot library. */
-/* #undef UNIXPLOT */
-
 /* Define if you want to use the experimental ggi driver. */
 /* #undef USE_GGI_DRIVER */
 
 /* Define if you want to have mouse support in interactive terminals. */
 /* #undef USE_MOUSE */
-/* Don't change it here -- this define is set in config/makefile.nt. */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
+
+/* Define to add support for generating a statistical summary of data */
+#define USE_STATS 1
 
 /* Define to enable multi-byte font support for x11 */
 /* #undef USE_X11_MULTIBYTE */
@@ -491,6 +537,7 @@
 
 /* Define if you want the wxwidgets terminal. */
 /* #undef WXWIDGETS */
+/* Don't change it here -- this define is set in config/msvc/Makefile. */
 
 /* Define if you are using the X11 window system. */
 /* #undef X11 */
@@ -509,7 +556,9 @@
 
 /* Define to `__inline__' or `__inline' if that's what the C compiler
    calls it, or to nothing if 'inline' is not supported under any name.  */
+#ifndef __cplusplus
 /* #undef inline */
+#endif
 
 /* Define to `int' if <sys/types.h> does not define. */
 /* #undef pid_t */
@@ -527,11 +576,6 @@
  */
 
 
-/* FIXME: __WIN32__ is only refered to in plot.c */
-#ifndef __WIN32__
-# define __WIN32__
-#endif
-
 #ifndef WIN32
 # define WIN32
 #endif
@@ -541,17 +585,25 @@
 # define WIN_IPC 1
 #endif
 
+#define HAVE_GDIPLUS
+
 #define GP_INLINE __inline
 #define GP_EXCEPTION_NAME _exception
 #define GP_MATHERR _matherr
 #define snprintf _snprintf
 /*#define vsnprintf _vsnprintf*/
 #define isnan _isnan
+#define ftruncate _chsize
+
+#ifdef PIPES
+# define popen _popen
+# define pclose _pclose
+#endif
 
 /* gnuplot.gih is not used by wgnuplot */
 #define NO_GIH 1
 
 /* The Microsoft visual C++ compiler spews about 1000 warnings during */
 /* compilation of gnuplot. The following lines disable most of them.  */
-#pragma warning(disable: 4018 4056 4244 4305 4761 4756 4996)
+#pragma warning(disable: 4018 4056 4113 4244 4305 4761 4756 4996)
 #define _CRT_SECURE_NO_WARNINGS

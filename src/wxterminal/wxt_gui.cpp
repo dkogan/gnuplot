@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.72.2.4 2010/01/31 20:28:47 mikulik Exp $
+ * $Id: wxt_gui.cpp,v 1.91.2.3 2012/03/04 19:14:37 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -116,6 +116,30 @@
 #include "bitmaps/png/config_png.h"
 #include "bitmaps/png/help_png.h"
 
+/* Interactive toggle control variables
+ */
+static int wxt_cur_plotno = 0;
+static TBOOLEAN wxt_in_key_sample = FALSE;
+static TBOOLEAN wxt_in_plot = FALSE;
+static TBOOLEAN wxt_zoom_command = FALSE;
+#ifdef USE_MOUSE
+typedef struct {
+	unsigned int left;
+	unsigned int right;
+	unsigned int ytop;
+	unsigned int ybot;
+	TBOOLEAN hidden;
+} wxtBoundingBox;
+wxtBoundingBox *wxt_key_boxes = NULL;
+int wxt_max_key_boxes = 0;
+#else
+#define wxt_update_key_box(x,y)
+#endif
+
+#ifdef __WXMAC__
+#include <ApplicationServices/ApplicationServices.h>
+#endif
+
 /* ---------------------------------------------------------------------------
  * event tables and other macros for wxWidgets
  * --------------------------------------------------------------------------*/
@@ -147,6 +171,7 @@ BEGIN_EVENT_TABLE( wxtFrame, wxFrame )
 END_EVENT_TABLE()
 
 BEGIN_EVENT_TABLE( wxtPanel, wxPanel )
+	EVT_LEAVE_WINDOW( wxtPanel::OnMouseLeave )
 	EVT_PAINT( wxtPanel::OnPaint )
 	EVT_ERASE_BACKGROUND( wxtPanel::OnEraseBackground )
 	EVT_SIZE( wxtPanel::OnSize )
@@ -158,6 +183,7 @@ BEGIN_EVENT_TABLE( wxtPanel, wxPanel )
 	EVT_MIDDLE_UP( wxtPanel::OnMiddleUp )
 	EVT_RIGHT_DOWN( wxtPanel::OnRightDown )
 	EVT_RIGHT_UP( wxtPanel::OnRightUp )
+	EVT_MOUSEWHEEL( wxtPanel::OnMouseWheel )
 	EVT_CHAR( wxtPanel::OnKeyDownChar )
 #endif /*USE_MOUSE*/
 END_EVENT_TABLE()
@@ -211,6 +237,12 @@ IMPLEMENT_APP_NO_MAIN(wxtApp)
 
 bool wxtApp::OnInit()
 {
+#ifdef __WXMAC__
+	ProcessSerialNumber PSN;
+	GetCurrentProcess(&PSN);
+	TransformProcessType(&PSN, kProcessTransformToForegroundApplication);
+#endif
+
 	/* Usually wxWidgets apps create their main window here.
 	 * However, in the context of multiple plot windows, the same code is written in wxt_init().
 	 * So, to avoid duplication of the code, we do only what is strictly necessary.*/
@@ -267,7 +299,12 @@ bool wxtApp::OnInit()
 void wxtApp::LoadPngIcon(const unsigned char *embedded_png, int length, int icon_number)
 {
 	wxMemoryInputStream pngstream(embedded_png, length);
+#ifdef __WXOSX_COCOA__
+	/* 16x16 bitmaps on wxCocoa cause blurry toolbar images, resize them to 24x24 */
+	toolBarBitmaps[icon_number] = new wxBitmap(wxImage(pngstream, wxBITMAP_TYPE_PNG).Resize(wxSize(24, 24), wxPoint(4, 4)));
+#else
 	toolBarBitmaps[icon_number] = new wxBitmap(wxImage(pngstream, wxBITMAP_TYPE_PNG));
+#endif
 }
 
 /* load a cursor */
@@ -310,7 +347,7 @@ void wxtApp::OnCreateWindow( wxCommandEvent& event )
 	wxt_window_t *window = (wxt_window_t*) event.GetClientData();
 
 	FPRINTF((stderr,"wxtApp::OnCreateWindow\n"));
-	window->frame = new wxtFrame( window->title, window->id, 50, 50, 640, 480 );
+	window->frame = new wxtFrame( window->title, window->id );
 	window->frame->Show(true);
 	FPRINTF((stderr,"new plot window opened\n"));
 	/* make the panel able to receive keyboard input */
@@ -342,9 +379,8 @@ void wxtApp::SendEvent( wxEvent &event)
  * ----------------------------------------------------------------------------*/
 
 /* frame constructor*/
-wxtFrame::wxtFrame( const wxString& title, wxWindowID id, int xpos, int ypos, int width, int height )
-	: wxFrame((wxFrame *)NULL, id, title, wxPoint(xpos,ypos),
-			wxSize(width,height), wxDEFAULT_FRAME_STYLE|wxWANTS_CHARS)
+wxtFrame::wxtFrame( const wxString& title, wxWindowID id )
+	: wxFrame((wxFrame *)NULL, id, title, wxDefaultPosition, wxDefaultSize, wxDEFAULT_FRAME_STYLE|wxWANTS_CHARS)
 {
 	FPRINTF((stderr,"wxtFrame constructor\n"));
 
@@ -370,7 +406,12 @@ wxtFrame::wxtFrame( const wxString& title, wxWindowID id, int xpos, int ypos, in
 	toolbar->AddTool(Toolbar_CopyToClipboard, wxT("Copy"),
 				*(toolBarBitmaps[0]), wxT("Copy the plot to clipboard"));
 #ifdef USE_MOUSE
+#ifdef __WXOSX_COCOA__
+	/* wx 2.9 Cocoa bug & crash workaround for Lion, which does not have toolbar separators anymore */
+	toolbar->AddStretchableSpace();
+#else
 	toolbar->AddSeparator();
+#endif
 	toolbar->AddTool(Toolbar_Replot, wxT("Replot"),
 				*(toolBarBitmaps[1]), wxT("Replot"));
 	toolbar->AddTool(Toolbar_ToggleGrid, wxT("Toggle grid"),
@@ -382,7 +423,12 @@ wxtFrame::wxtFrame( const wxString& title, wxWindowID id, int xpos, int ypos, in
 	toolbar->AddTool(Toolbar_Autoscale, wxT("Autoscale"),
 				*(toolBarBitmaps[5]), wxT("Apply autoscale"));
 #endif /*USE_MOUSE*/
+#ifdef __WXOSX_COCOA__
+	/* wx 2.9 Cocoa bug & crash workaround for Lion, which does not have toolbar separators anymore */
+	toolbar->AddStretchableSpace();
+#else
 	toolbar->AddSeparator();
+#endif
 	toolbar->AddTool(Toolbar_Config, wxT("Terminal configuration"),
 				*(toolBarBitmaps[6]), wxT("Open configuration dialog"));
 	toolbar->AddTool(Toolbar_Help, wxT("Help"),
@@ -536,6 +582,10 @@ void wxtFrame::OnSize( wxSizeEvent& event )
 	 * So we must check for the panel to be properly initialized before.*/
 	if (panel)
 		panel->SetSize( this->GetClientSize() );
+#ifdef __WXOSX_COCOA__
+	/* wx 2.9 Cocoa bug workaround, that does not adjust layout for status bar on resize */
+	PositionStatusBar();
+#endif
 }
 
 /* wrapper for AddPendingEvent or ProcessEvent */
@@ -739,7 +789,10 @@ void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 		tmp_pen = wxPen(wxT("black"), 1, wxSOLID);
 		tmp_pen.SetCap( wxCAP_ROUND );
 		dc.SetPen( tmp_pen );
+#ifndef __WXOSX_COCOA__
+		/* wx 2.9 Cocoa bug workaround, which has no logical functions support */
 		dc.SetLogicalFunction( wxINVERT );
+#endif
 		dc.DrawLine( zoom_x1, zoom_y1, mouse_x, zoom_y1 );
 		dc.DrawLine( mouse_x, zoom_y1, mouse_x, mouse_y );
 		dc.DrawLine( mouse_x, mouse_y, zoom_x1, mouse_y );
@@ -773,7 +826,10 @@ void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 		tmp_pen = wxPen(wxT("black"), 1, wxSOLID);
 		tmp_pen.SetCap(wxCAP_BUTT);
 		dc.SetPen( tmp_pen );
+#ifndef __WXOSX_COCOA__
+		/* wx 2.9 Cocoa bug workaround, which has no logical functions support */
 		dc.SetLogicalFunction( wxINVERT );
+#endif
 		dc.CrossHair( (int)wxt_ruler_x, (int)wxt_ruler_y );
 		dc.SetLogicalFunction( wxCOPY );
 	}
@@ -782,7 +838,10 @@ void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 		tmp_pen = wxPen(wxT("black"), 1, wxSOLID);
 		tmp_pen.SetCap(wxCAP_BUTT);
 		dc.SetPen( tmp_pen );
+#ifndef __WXOSX_COCOA__
+		/* wx 2.9 Cocoa bug workaround, which has no logical functions support */
 		dc.SetLogicalFunction( wxINVERT );
+#endif
 		dc.DrawLine((int)wxt_ruler_x, (int)wxt_ruler_y, mouse_x, mouse_y);
 		dc.SetLogicalFunction( wxCOPY );
 	}
@@ -792,6 +851,14 @@ void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 /* avoid flickering under win32 */
 void wxtPanel::OnEraseBackground( wxEraseEvent &WXUNUSED(event) )
 {
+}
+
+/* avoid leaving cross cursor when leaving window on Mac */
+void wxtPanel::OnMouseLeave( wxMouseEvent &WXUNUSED(event) )
+{
+#ifdef __WXMAC__
+	::wxSetCursor(wxNullCursor);
+#endif
 }
 
 /* when the window is resized */
@@ -855,6 +922,8 @@ void wxtPanel::OnLeftDown( wxMouseEvent& event )
 	y = (int) gnuplot_y( &plot, event.GetY() );
 
 	UpdateModifiers(event);
+	if (wxt_toggle)
+		wxt_check_for_toggle(x, y);
 
 	wxt_exec_event(GE_buttonpress, x, y, 1, 0, this->GetId());
 }
@@ -929,6 +998,16 @@ void wxtPanel::OnRightUp( wxMouseEvent& event )
 		/* start a watch to send the time elapsed between up and down */
 		right_button_sw.Start();
 	}
+}
+
+/* mouse wheel event */
+void wxtPanel::OnMouseWheel( wxMouseEvent& event )
+{
+	UpdateModifiers(event);
+
+	wxt_exec_event(GE_buttonpress, 0, 0, 
+			event.GetWheelRotation() > 0 ? 4 : 5, 
+			0, this->GetId());
 }
 
 /* the state of the modifiers is checked each time a key is pressed instead of
@@ -1098,6 +1177,71 @@ void wxtPanel::OnKeyDownChar( wxKeyEvent &event )
 	 *	GP_Linefeed, GP_Clear, GP_Sys_Req, GP_Begin
 	 */
 }
+
+/* --------------------------------------------------------
+ * Bookkeeping for clickable hot spots
+ * --------------------------------------------------------*/
+
+/* Initialize boxes starting from i */
+static void wxt_initialize_key_boxes(int i)
+{
+	for (; i<wxt_max_key_boxes; i++) {
+		wxt_key_boxes[i].left = wxt_key_boxes[i].ybot = INT_MAX;
+		wxt_key_boxes[i].right = wxt_key_boxes[i].ytop = 0;
+	}
+}
+static void wxt_initialize_hidden(int i)
+{
+	for (; i<wxt_max_key_boxes; i++)
+		wxt_key_boxes[i].hidden = FALSE;
+}
+
+
+/* Update the box enclosing the key sample for the current plot
+ * so that later we can detect mouse clicks in that area
+ */
+static void wxt_update_key_box( unsigned int x, unsigned int y )
+{
+	if (wxt_cur_plotno >= wxt_max_key_boxes) {
+		wxt_max_key_boxes += 10;
+		wxt_key_boxes = (wxtBoundingBox *)realloc(wxt_key_boxes, 
+				wxt_max_key_boxes * sizeof(wxtBoundingBox));
+		wxt_initialize_key_boxes(wxt_cur_plotno);
+		wxt_initialize_hidden(wxt_cur_plotno);
+	}
+	wxtBoundingBox *bb = &(wxt_key_boxes[wxt_cur_plotno]);
+	y = term->ymax - y;
+	if (x < bb->left)  bb->left = x;
+	if (x > bb->right) bb->right = x;
+	if (y < bb->ybot)  bb->ybot = y;
+	if (y > bb->ytop)  bb->ytop = y;
+}
+
+/* Called from wxtPanel::OnLeftDown
+ * If the mouse click was on top of a key sample then toggle the
+ * corresponding plot on/off
+ */
+static void wxt_check_for_toggle(unsigned int x, unsigned int y)
+{
+	int i;
+	for (i=1; i<=wxt_cur_plotno && i<wxt_max_key_boxes; i++) {
+		if (wxt_key_boxes[i].left == INT_MAX)
+			continue;
+		if (x < wxt_key_boxes[i].left)
+			continue;
+		if (x > wxt_key_boxes[i].right)
+			continue;
+		if (y < wxt_key_boxes[i].ybot)
+			continue;
+		if (y > wxt_key_boxes[i].ytop)
+			continue;
+		wxt_key_boxes[i].hidden = !wxt_key_boxes[i].hidden;
+		wxt_current_panel->wxt_cairo_refresh();
+
+	}
+}
+
+
 #endif /*USE_MOUSE*/
 
 #ifndef DISABLE_SPACE_RAISES_CONSOLE
@@ -1120,7 +1264,8 @@ void wxtPanel::RaiseConsoleWindow()
 	window_env = getenv("WINDOWID");
 	if (window_env)
 		sscanf(window_env, "%lu", &windowid);
-	
+
+/* NOTE: This code uses DCOP, a KDE3 mechanism that no longer exists in KDE4 */
 	char *ptr = getenv("KONSOLE_DCOP_SESSION"); /* Try KDE's Konsole first. */
 	if (ptr) {
 		/* We are in KDE's Konsole, or in a terminal window detached from a Konsole.
@@ -1174,6 +1319,7 @@ void wxtPanel::RaiseConsoleWindow()
 		if (konsole_name) free(konsole_name);
 		if (cmd) free(cmd);
 	}
+/* NOTE: End of DCOP/KDE3 code (doesn't work in KDE4) */
 	/* now test for GNOME multitab console */
 	/* ... if somebody bothers to implement it ... */
 	/* we are not running in any known (implemented) multitab console */
@@ -1184,7 +1330,7 @@ void wxtPanel::RaiseConsoleWindow()
 	}
 #endif /* USE_GTK */
 
-#ifdef _Windows
+#if defined(_Windows) && !defined(WGP_CONSOLE)
 	/* Make sure the text window is visible: */
 	ShowWindow(textwin.hWndParent, SW_SHOW);
 	/* and activate it (--> Keyboard focus goes there */
@@ -1244,6 +1390,7 @@ void wxtConfigDialog::OnButton( wxCommandEvent& event )
 		wxt_raise = raise_setting?yes:no;
 		wxt_persist = persist_setting?yes:no;
 		wxt_ctrl = ctrl_setting?yes:no;
+		wxt_toggle = toggle_setting?yes:no;
 
 		switch (rendering_setting) {
 		case 0 :
@@ -1272,6 +1419,8 @@ void wxtConfigDialog::OnButton( wxCommandEvent& event )
 			wxLogError(wxT("Cannot write persist"));
 		if (!pConfig->Write(wxT("ctrl"), ctrl_setting))
 			wxLogError(wxT("Cannot write ctrl"));
+		if (!pConfig->Write(wxT("toggle"), toggle_setting))
+			wxLogError(wxT("Cannot write toggle"));
 		if (!pConfig->Write(wxT("rendering"), rendering_setting))
 			wxLogError(wxT("Cannot write rendering_setting"));
 		if (!pConfig->Write(wxT("hinting"), hinting_setting))
@@ -1302,6 +1451,7 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	pConfig->Read(wxT("raise"),&raise_setting);
 	pConfig->Read(wxT("persist"),&persist_setting);
 	pConfig->Read(wxT("ctrl"),&ctrl_setting);
+	pConfig->Read(wxT("toggle"),&toggle_setting);
 	pConfig->Read(wxT("rendering"),&rendering_setting);
 	pConfig->Read(wxT("hinting"),&hinting_setting);
 
@@ -1314,6 +1464,10 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	wxCheckBox *check3 = new wxCheckBox (this, wxID_ANY,
 		wxT("Replace 'q' by <ctrl>+'q' and <space> by <ctrl>+<space> (ctrl)"),
 		wxDefaultPosition, wxDefaultSize, 0, wxGenericValidator(&ctrl_setting));
+
+	wxCheckBox *check4 = new wxCheckBox (this, wxID_ANY,
+		wxT("Toggle plots on/off when key sample is clicked"),
+		wxDefaultPosition, wxDefaultSize, 0, wxGenericValidator(&toggle_setting));
 
 	wxString choices[3];
 	choices[0] = wxT("No antialiasing");
@@ -1359,6 +1513,7 @@ wxtConfigDialog::wxtConfigDialog(wxWindow* parent)
 	vsizer->Add(check1,wxSizerFlags().Align(0).Expand().Border(wxALL));
 	vsizer->Add(check2,wxSizerFlags().Align(0).Expand().Border(wxALL));
 	vsizer->Add(check3,wxSizerFlags().Align(0).Expand().Border(wxALL));
+	vsizer->Add(check4,wxSizerFlags().Align(0).Expand().Border(wxALL));
 	vsizer->Add(box_sizer2,wxSizerFlags().Align(0).Expand().Border(wxALL));
 	/*vsizer->Add(CreateButtonSizer(wxOK|wxCANCEL),wxSizerFlags().Align(0).Expand().Border(wxALL));*/
 	vsizer->Add(hsizer,wxSizerFlags().Align(0).Expand().Border(wxALL));
@@ -1442,6 +1597,8 @@ void wxt_init()
 
  		FPRINTF((stderr,"First Init2\n"));
 
+		term_interlock = (void *)wxt_init;
+
 		/* register call for "persist" effect and cleanup */
 		GP_ATEXIT(wxt_atexit);
 	}
@@ -1499,6 +1656,7 @@ void wxt_init()
 	bool raise_setting;
 	bool persist_setting;
 	bool ctrl_setting;
+	bool toggle_setting;
 	int rendering_setting;
 	int hinting_setting;
 
@@ -1522,6 +1680,13 @@ void wxt_init()
 	}
 	if (wxt_ctrl==UNSET)
 		wxt_ctrl = ctrl_setting?yes:no;
+
+	if (!pConfig->Read(wxT("toggle"), &toggle_setting)) {
+		pConfig->Write(wxT("toggle"), true);
+		toggle_setting = true;
+	}
+	if (wxt_toggle==UNSET)
+		wxt_toggle = toggle_setting?yes:no;
 
 	if (!pConfig->Read(wxT("rendering"), &rendering_setting)) {
 		pConfig->Write(wxT("rendering"), 2);
@@ -1594,6 +1759,10 @@ void wxt_graphics()
 	/* FIXME: should this be in wxt_settings_apply() ? */
 	wxt_current_plot->rounded = wxt_rounded;
 
+	/* background as given by set term */
+	wxt_current_plot->background = wxt_rgb_background;
+	gp_cairo_set_background(wxt_rgb_background);
+
 	/* apply the queued rendering settings */
 	wxt_current_panel->wxt_settings_apply();
 
@@ -1623,6 +1792,12 @@ void wxt_graphics()
 
 	/* clear the command list, and free the allocated memory */
 	wxt_current_panel->ClearCommandlist();
+
+	/* Don't reset the hide_plot flags if this refresh is a zoom/unzoom */
+	if (wxt_zoom_command)
+		wxt_zoom_command = FALSE;
+	else
+		wxt_initialize_hidden(0);
 
 	wxt_sigint_check();
 	wxt_sigint_restore();
@@ -1790,7 +1965,7 @@ void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 		wxt_command_push(temp_command);
 
 		/* set up the global variables needed by enhanced_recursion() */
-		enhanced_fontscale = 1.0;
+		enhanced_fontscale = wxt_set_fontscale;
 		strncpy(enhanced_escape_format, "%c", sizeof(enhanced_escape_format));
 
 		/* Set the recursion going. We say to keep going until a
@@ -1801,7 +1976,8 @@ void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 		* we get stuck in an infinite loop) and try again. */
 
 		while (*(string = enhanced_recursion((char*)string, TRUE, wxt_current_plot->fontname,
-				wxt_current_plot->fontsize, 0.0, TRUE, TRUE, 0))) {
+				wxt_current_plot->fontsize * wxt_set_fontscale, 
+				0.0, TRUE, TRUE, 0))) {
 			wxt_enhanced_flush();
 
 			/* we can only get here if *str == '}' */
@@ -1839,17 +2015,23 @@ void wxt_linetype(int lt)
 	gp_command temp_command;
 	gp_command temp_command2;
 
-	temp_command.command = command_color;
-	temp_command.color = gp_cairo_linetype2color( lt );
-
 	temp_command2.command = command_linestyle;
 	if (lt == -1)
 		temp_command2.integer_value = GP_CAIRO_DOTS;
-	else
+	else if (wxt_dashed && lt >= 0) {
+		temp_command2.integer_value = GP_CAIRO_DASH;
+		wxt_current_plot->dashlength = wxt_dashlength;
+	} else
 		temp_command2.integer_value = GP_CAIRO_SOLID;
-
-	wxt_command_push(temp_command);
 	wxt_command_push(temp_command2);
+
+	temp_command.command = command_linetype;
+	temp_command.integer_value = lt;
+	wxt_command_push(temp_command);
+
+	temp_command.command = command_color;
+	temp_command.color = gp_cairo_linetype2color( lt );
+	wxt_command_push(temp_command);
 }
 
 
@@ -1886,7 +2068,7 @@ int wxt_set_font (const char *font)
 
 	if ( strlen(fontname) == 0 ) {
 		if ( strlen(wxt_set_fontname) == 0 )
-			strncpy(fontname, "Sans", sizeof(fontname));
+			strncpy(fontname, gp_cairo_default_font(), sizeof(fontname));
 		else
 			strncpy(fontname, wxt_set_fontname, sizeof(fontname));
 	}
@@ -1898,12 +2080,13 @@ int wxt_set_font (const char *font)
 			fontsize = wxt_set_fontsize;
 	}
 
-
 	/* Reset the term variables (hchar, vchar, h_tic, v_tic).
 	 * They may be taken into account in next plot commands */
-	gp_cairo_set_font(wxt_current_plot, fontname, fontsize);
+	gp_cairo_set_font(wxt_current_plot, fontname, fontsize * wxt_set_fontscale);
 	gp_cairo_set_termvar(wxt_current_plot, &(term->v_char),
 	                                       &(term->h_char));
+	gp_cairo_set_font(wxt_current_plot, fontname, fontsize);
+
 	wxt_MutexGuiLeave();
 	wxt_sigint_check();
 	wxt_sigint_restore();
@@ -1911,7 +2094,7 @@ int wxt_set_font (const char *font)
 	/* Note : we must take '\0' (EndOfLine) into account */
 	temp_command.string = new char[strlen(fontname)+1];
 	strcpy(temp_command.string, fontname);
-	temp_command.integer_value = fontsize;
+	temp_command.integer_value = fontsize * wxt_set_fontscale;
 
 	wxt_command_push(temp_command);
 	/* the returned int is not used anywhere */
@@ -2117,6 +2300,31 @@ void wxt_image(unsigned int M, unsigned int N, coordval * image, gpiPoint * corn
 	wxt_command_push(temp_command);
 }
 
+/* This is meta-information about the plot state
+ */
+void wxt_layer(t_termlayer layer)
+{
+	/* There are two classes of meta-information.  The first class	*/
+	/* is tied to the current state of the user interface or the	*/
+	/* main gnuplot thread.  Any action on these must be done here,	*/
+	/* immediately.  The second class relates to the sequence of	*/
+	/* operations in the plot itself.  These are buffered for later	*/
+	/* execution in sequential order.				*/
+	if (layer == TERM_LAYER_BEFORE_ZOOM) {
+		wxt_zoom_command = TRUE;
+		return;
+	}
+	if (layer == TERM_LAYER_RESET || layer == TERM_LAYER_RESET_PLOTNO) {
+		if (multiplot)
+			return;
+	}
+
+	gp_command temp_command;
+	temp_command.command = command_layer;
+	temp_command.integer_value = layer;
+	wxt_command_push(temp_command);
+}
+
 #ifdef USE_MOUSE
 /* Display temporary text, after
  * erasing any temporary text displayed previously at this location.
@@ -2288,6 +2496,13 @@ void wxtPanel::wxt_cairo_refresh()
 	/* Clear background. */
 	gp_cairo_solid_background(&plot);
 
+	/* Initialize toggle in keybox mechanism */
+	wxt_cur_plotno = 0;
+	wxt_in_key_sample = FALSE;
+#ifdef USE_MOUSE
+	wxt_initialize_key_boxes(0);
+#endif
+
 	command_list_t::iterator wxt_iter; /*declare the iterator*/
 	for(wxt_iter = command_list.begin(); wxt_iter != command_list.end(); ++wxt_iter) {
 		if (wxt_status == STATUS_INTERRUPT_ON_NEXT_CHECK) {
@@ -2299,7 +2514,18 @@ void wxtPanel::wxt_cairo_refresh()
 			Draw();
 			return;
 		}
+
+		/* Skip the plot commands, but not the key sample commands,
+		 * if the plot was toggled off by a mouse click in the GUI
+		 */
+		if (wxt_in_plot && !wxt_in_key_sample
+		&&  wxt_iter->command != command_layer
+		&&  wxt_cur_plotno < wxt_max_key_boxes
+		&&  wxt_key_boxes[wxt_cur_plotno].hidden)
+			continue;
+
 		wxt_cairo_exec_command( *wxt_iter );
+
 	}
 
 	/* don't forget to stroke the last path if vector was the last command */
@@ -2390,23 +2616,48 @@ void wxtPanel::wxt_cairo_refresh()
 
 	/* draw the pixmap to the screen */
 	Draw();
+
+#if (0)	/* Just for DEBUG */
 	FPRINTF((stderr,"commands done, number of commands %d\n", command_list.size()));
+	int ibox;
+	for (ibox=1; ibox<=wxt_max_key_boxes; ibox++) {
+		if (ibox > wxt_cur_plotno) break;
+		fprintf(stderr, wxt_key_boxes[ibox].hidden ? "hidden " : "visible ");
+		fprintf(stderr,"box %d %8.8u %8.8u %8.8u %8.8u\n", ibox,
+		wxt_key_boxes[ibox].left,  wxt_key_boxes[ibox].ybot,
+		wxt_key_boxes[ibox].right, wxt_key_boxes[ibox].ytop);
+	}
+#endif
 }
 
 
 void wxtPanel::wxt_cairo_exec_command(gp_command command)
 {
+	static JUSTIFY text_justification_mode = LEFT;
+
 	switch ( command.command ) {
 	case command_color :
 		gp_cairo_set_color(&plot,command.color);
 		return;
 	case command_filled_polygon :
+		if (wxt_in_key_sample) {
+			int x1 = command.corners[0].x;
+			int y1 = command.corners[0].y;
+			wxt_update_key_box(command.x1 - term->h_tic, command.y1 - term->v_tic);
+			wxt_update_key_box(command.x1 + term->h_tic, command.y1 + term->v_tic);
+		}
 		gp_cairo_draw_polygon(&plot, command.integer_value, command.corners);
 		return;
 	case command_move :
+		if (wxt_in_key_sample)
+			wxt_update_key_box(command.x1, command.y1);
 		gp_cairo_move(&plot, command.x1, command.y1);
 		return;
 	case command_vector :
+		if (wxt_in_key_sample) {
+			wxt_update_key_box(command.x1, command.y1+term->v_tic);
+			wxt_update_key_box(command.x1, command.y1-term->v_tic);
+		}
 		gp_cairo_vector(&plot, command.x1, command.y1);
 		return;
 	case command_linestyle :
@@ -2419,12 +2670,23 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 		gp_cairo_set_pointsize(&plot, command.double_value);
 		return;
 	case command_point :
+		if (wxt_in_key_sample) {
+			wxt_update_key_box(command.x1 - term->h_tic, command.y1 - term->v_tic);
+			wxt_update_key_box(command.x1 + term->h_tic, command.y1 + term->v_tic);
+		}
 		gp_cairo_draw_point(&plot, command.x1, command.y1, command.integer_value);
 		return;
 	case command_justify :
 		gp_cairo_set_justify(&plot,command.mode);
+		text_justification_mode = command.mode;
 		return;
 	case command_put_text :
+		if (wxt_in_key_sample) {
+			int slen = strlen(command.string) * term->h_char * 0.75;
+			if (text_justification_mode == RIGHT) slen = -slen;
+			wxt_update_key_box(command.x1, command.y1);
+			wxt_update_key_box(command.x1 + slen, command.y1 - term->v_tic);
+		}
 		gp_cairo_draw_text(&plot, command.x1, command.y1, command.string);
 		return;
 	case command_enhanced_init :
@@ -2437,7 +2699,8 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 		gp_cairo_enhanced_flush(&plot);
 		return;
 	case command_enhanced_open :
-		gp_cairo_enhanced_open(&plot, command.string, command.double_value, command.double_value2, command.integer_value2 & 1, (command.integer_value2 & 2) >> 1, command.integer_value);
+		gp_cairo_enhanced_open(&plot, command.string, command.double_value,
+				command.double_value2, command.integer_value2 & 1, (command.integer_value2 & 2) >> 1, command.integer_value);
 		return;
 	case command_enhanced_writec :
 		gp_cairo_enhanced_writec(&plot, command.integer_value);
@@ -2452,6 +2715,10 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 		gp_cairo_set_textangle(&plot, command.double_value);
 		return;
 	case command_fillbox :
+		if (wxt_in_key_sample) {
+			wxt_update_key_box(command.x1, command.y1);
+			wxt_update_key_box(command.x1+command.x2, command.y1-command.y2);
+		}
 		gp_cairo_draw_fillbox(&plot, command.x1, command.y1,
 					command.x2, command.y2,
 					command.integer_value);
@@ -2463,6 +2730,30 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 				command.x3, command.y3,
 				command.x4, command.y4,
 				command.integer_value, command.integer_value2);
+		return;
+	case command_layer :
+		switch (command.integer_value)
+		{
+		case TERM_LAYER_RESET:
+		case TERM_LAYER_RESET_PLOTNO:
+				wxt_cur_plotno = 0;
+				break;
+		case TERM_LAYER_BEFORE_PLOT:
+				wxt_cur_plotno++;
+				wxt_in_plot = TRUE;
+				break;
+		case TERM_LAYER_AFTER_PLOT:
+				wxt_in_plot = FALSE;
+				break;
+		case TERM_LAYER_BEGIN_KEYSAMPLE:
+				wxt_in_key_sample = TRUE;
+				break;
+		case TERM_LAYER_END_KEYSAMPLE:
+				wxt_in_key_sample = FALSE;
+				break;
+		default:
+				break;
+		}
 		return;
 	}
 }
@@ -2744,6 +3035,7 @@ void wxt_update_size(int number)
 	wxt_sigint_restore();
 }
 
+
 /* --------------------------------------------------------
  * Cairo stuff
  * --------------------------------------------------------*/
@@ -3015,7 +3307,7 @@ bool wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id)
 	event.par2 = par2;
 	event.winid = id;
 
-#ifdef _Windows
+#if defined(WXT_MONOTHREADED) || defined(_Windows)
 	wxt_process_one_event(&event);
 	return true;
 #else
@@ -3124,8 +3416,27 @@ int wxt_waitforinput()
 		return '\0';
 	}
 	else
-#endif /* _Windows */
 		return getch();
+
+#else /* !_Windows */
+	/* Generic hybrid GUI & console message loop */
+	static int yield = 0;
+	if(yield) return '\0';
+	while(wxTheApp) {
+		yield = 1;
+		wxTheApp->Yield();
+		yield = 0;
+
+		struct timeval tv;
+		fd_set read_fd;
+		tv.tv_sec = 0;
+		tv.tv_usec = 10000;
+		FD_ZERO(&read_fd);
+		FD_SET(0, &read_fd);
+		if(select(1, &read_fd, NULL, NULL, &tv) != -1 && FD_ISSET(0, &read_fd)) break;
+	}
+	return getchar();
+#endif
 }
 #endif /* WXT_MONOTHREADED || WXT_MULTITHREADED */
 
@@ -3159,6 +3470,7 @@ bool wxt_window_opened()
 void wxt_atexit()
 {
 	int i;
+	int openwindows = 0;
 	int persist_setting;
 #ifdef _Windows
 	MSG msg;
@@ -3219,7 +3531,9 @@ void wxt_atexit()
 	if (!interactive) {
 		interactive = TRUE;
 		/* be sure to show the text window */
+#ifndef WGP_CONSOLE
 		ShowWindow(textwin.hWndParent, textwin.nCmdShow);
+#endif
 		while (!com_line());
 	}
 #else /*_Windows*/
@@ -3228,13 +3542,35 @@ void wxt_atexit()
 	wxt_handling_persist = true;
 
 	/* if fork() is available, use it so that the initial gnuplot process
-	 * exits (Maxima expects that since that's the way the x11 terminal
-	 * does it) and the child process continues in the background. */
-	/* FIXME: int_error() should be changed here, it causes crashes (for example,
-	 * zoom until an error occurs and then hit a key) */
+	 * exits and the child process continues in the background.
+	 */
+	/* NB: 
+	 * If there are no plot windows open, then once the parent process
+	 * exits the child can receive no input and will become a zombie.
+	 * So destroy any closed window first, and only fork if some remain open.
+	 */
+	/* declare the iterator */
+	std::vector<wxt_window_t>::iterator wxt_iter;
+
+	for(wxt_iter = wxt_window_list.begin(), i=0;
+			wxt_iter != wxt_window_list.end(); wxt_iter++, i++)
+	{
+		TBOOLEAN state = wxt_iter->frame->IsShown();
+		FPRINTF((stderr,"\tChecking window %d : %s shown\n", i, state?"":"not "));
+		if (state)
+			openwindows++;
+		else
+			wxt_iter->frame->Destroy();
+	}
+
 # ifdef HAVE_WORKING_FORK
 	/* fork */
-	pid_t pid = fork();
+	pid_t pid;
+	
+	if (openwindows > 0)
+		pid = fork();
+	else
+		pid = -1;
 
 	/* the parent just exits, the child keeps going */
 	if (!pid) {

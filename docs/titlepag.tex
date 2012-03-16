@@ -1,5 +1,5 @@
 %
-% $Id: titlepag.tex,v 1.24.2.4 2010/03/09 00:28:50 sfeam Exp $
+% $Id: titlepag.tex,v 1.32.2.3 2012/02/22 04:31:41 sfeam Exp $
 %
 
 \ifx\LaTeXe\undefined
@@ -16,6 +16,7 @@
 % see below if you add 11pt or 12pt
    \documentclass[twoside]{article}
    \usepackage{toc_entr}
+   \usepackage[utf8]{inputenc}
 
   \usepackage[
 % We've given up trying to understand pdftex vs. normal latex.
@@ -36,7 +37,9 @@
   \usepackage{makeidx}
   \makeindex
 
-  % These are only needed if you want to embed figures
+  \usepackage{longtable}
+
+  % This is only needed if you want to embed figures
   \include{pdffigures}
 
 \fi
@@ -51,11 +54,11 @@
 %\addtolength{\textheight}{48pt}
 %\addtolength{\topmargin}{-24pt}
 
-\setlength{\textwidth}{6.25in}
 % \setlength{\oddsidemargin}{0.5cm}
 \setlength{\oddsidemargin}{0.0cm}
 \setlength{\evensidemargin}{0.0cm}
 \setlength{\topmargin}{-0.5in}
+\setlength{\textwidth}{6.50in}
 \setlength{\textheight}{9.5in}
 
 \setlength{\parskip}{1ex}
@@ -114,38 +117,41 @@
 
   Version
     \gnuplotVersion
-  organized by: Hans-Bernhard Br\"oker, Ethan A Merritt, and others\\
+  organized by: Hans-Bernhard Bröker, Ethan A Merritt, and others\\
 
    \vspace{2ex}
 
   Major contributors (alphabetic order):\\
 
-  Hans-Bernhard Br\"oker \\
-  John Campbell\\
-  Robert Cunningham\\
-  David Denholm\\
-  Gershon Elber\\
-  Roger Fearick\\
-  Carsten Grammes\\
-  Lucas Hart \\
-  Lars Hecking \\
-  Thomas Koenig\\
-  David Kotz\\
-  Ed Kubaitis\\
-  Russell Lang\\
-  Timoth\'{e}e Lecomte\\
-  Alexander Lehmann\\
-  Alexander Mai \\
-  Ethan A Merritt \\
-  Petr Mikul\'{\i}k\\
-  Carsten Steger\\
-  Tom Tkacik\\
-  Jos Van der Woude\\
-  Alex Woo\\
-  James R. Van Zandt\\
+  Hans-Bernhard Bröker,
+  John Campbell,\\
+  Robert Cunningham,
+  David Denholm,\\
+  Gershon Elber,
+  Roger Fearick,\\
+  Carsten Grammes,
+  Lucas Hart, \\
+  Lars Hecking,
+  Péter Juhász, \\
+  Thomas Koenig,
+  David Kotz,\\
+  Ed Kubaitis,
+  Russell Lang,\\
+  Timothée Lecomte,
+  Alexander Lehmann,\\
+  Alexander Mai,
+  Bastian Märkisch, \\
+  Ethan A Merritt,
+  Petr Mikulík,\\
+  Carsten Steger,
+  Shigeharu Takeno,\\
+  Tom Tkacik,
+  Jos Van der Woude,\\
+  James R. Van Zandt,
+  Alex Woo,
   Johannes Zellner\\
   Copyright {\copyright} 1986 - 1993, 1998, 2004   Thomas Williams, Colin Kelley\\
-  Copyright {\copyright} 2004 - 2009  various authors\\
+  Copyright {\copyright} 2004 - 2012  various authors\\
 
   \vspace{2ex}
 
@@ -158,7 +164,8 @@
 
   \vspace{2ex}
 
- 05 Mar 2010
+% 14 February 2012  Version 4.6
+ 2012  Version 4.6
 
    \end{center}
 \newpage

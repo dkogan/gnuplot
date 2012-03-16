@@ -1,5 +1,5 @@
 /*
- * $Id: axis.h,v 1.56.2.1 2009/08/02 23:38:51 sfeam Exp $
+ * $Id: axis.h,v 1.67 2011/11/15 20:23:43 sfeam Exp $
  *
  */
 
@@ -59,19 +59,20 @@ typedef enum AXIS_INDEX {
     FIRST_Z_AXIS,
     FIRST_Y_AXIS,
     FIRST_X_AXIS,
-    T_AXIS,			/* fill gap */
+    COLOR_AXIS,			/* fill gap */
 #define SECOND_AXES 4
     SECOND_Z_AXIS,		/* not used, yet */
     SECOND_Y_AXIS,
     SECOND_X_AXIS,
-    R_AXIS,			/* never used ? */
-    U_AXIS,			/* ditto */
+    POLAR_AXIS,
+    T_AXIS,
+    U_AXIS,			/* never used? */
     V_AXIS			/* ditto */
-    ,COLOR_AXIS
 #define NO_AXIS 99
 } AXIS_INDEX;
 
 # define AXIS_ARRAY_SIZE 11
+# define LAST_REAL_AXIS  POLAR_AXIS
 
 /* What kind of ticmarking is wanted? */
 typedef enum en_ticseries_type {
@@ -81,6 +82,12 @@ typedef enum en_ticseries_type {
     TIC_MONTH,   		/* print out month names ((mo-1)%12)+1 */
     TIC_DAY      		/* print out day of week */
 } t_ticseries_type;
+
+typedef enum {
+    DT_NORMAL=0,		/* default; treat values as pure numeric */
+    DT_TIMEDATE,		/* old datatype */
+    DT_DMS			/* degrees minutes seconds */
+} td_type;
 
 /* Defines one ticmark for TIC_USER style.
  * If label==NULL, the value is printed with the usual format string.
@@ -175,6 +182,13 @@ typedef enum e_autoscale {
     AUTOSCALE_FIXMAX = 1<<3
 } t_autoscale;
 
+typedef enum e_constraint {
+    CONSTRAINT_NONE  = 0,
+    CONSTRAINT_LOWER = 1<<0,
+    CONSTRAINT_UPPER = 1<<1,
+    CONSTRAINT_BOTH  = (1<<0 | 1<<1)
+} t_constraint;
+    
 
 /* FIXME 20000725: collect some of those various TBOOLEAN fields into
  * a larger int (or -- shudder -- a bitfield?) */
@@ -197,6 +211,12 @@ typedef struct axis {
     double data_min;		/* Not necessarily the same as axis min */
     double data_max;
 
+/* range constraints */
+    t_constraint min_constraint;
+    t_constraint max_constraint;
+    double min_lb, min_ub;     /* min lower- and upper-bound */
+    double max_lb, max_ub;     /* min lower- and upper-bound */
+    
 /* output-related quantities */
     int term_lower;		/* low and high end of the axis on output, */
     int term_upper;		/* ... (in terminal coordinates)*/
@@ -209,7 +229,7 @@ typedef struct axis {
     double log_base;		/* ln(base), for easier computations */
 
 /* time/date axis control */
-    TBOOLEAN is_timedata;	/* is this a time/date axis? */
+    td_type datatype;		/* DT_NORMAL | DT_TIMEDATE | DT_DMS */
     TBOOLEAN format_is_numeric;	/* format string looks like numeric??? */
     char timefmt[MAX_ID_LEN+1];	/* format string for input */
     char formatstring[MAX_ID_LEN+1];
@@ -229,11 +249,12 @@ typedef struct axis {
 
 /* other miscellaneous fields */
     text_label label;		/* label string and position offsets */
+    TBOOLEAN manual_justify;	/* override automatic justification */
     lp_style_type zeroaxis;	/* drawing style for zeroaxis, if any */
 } AXIS;
 
-#define DEFAULT_AXIS_TICDEF {TIC_COMPUTED, NULL, {TC_DEFAULT, 0, 0}, {NULL, {0,0}, FALSE},  { character, character, character, 0., 0., 0. }, FALSE }
-# define DEFAULT_AXIS_ZEROAXIS {0, -3, 0, 1.0, 1.0, 0}
+#define DEFAULT_AXIS_TICDEF {TIC_COMPUTED, NULL, {TC_DEFAULT, 0, 0.0}, {NULL, {0.,0.,0.}, FALSE},  { character, character, character, 0., 0., 0. }, FALSE }
+#define DEFAULT_AXIS_ZEROAXIS {0, LT_NODRAW, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
 
 #define DEFAULT_AXIS_STRUCT {						    \
 	AUTOSCALE_BOTH, AUTOSCALE_BOTH, /* auto, set_auto */		    \
@@ -242,16 +263,21 @@ typedef struct axis {
 	-10.0, 10.0,							    \
 	-10.0, 10.0,							    \
 	  0.0,  0.0,		/* and another min/max for the data */	    \
-	0, 0, 0, 0,		/* terminal dependents */		    \
+	CONSTRAINT_NONE, CONSTRAINT_NONE,  /* min and max constraints */    \
+	0., 0., 0., 0.,         /* lower and upper bound for min and max */ \
+	0, 0,   		/* terminal lower and upper coords */	    \
+	0.,        		/* terminal scale */			    \
+	0,        		/* zero axis position */		    \
 	FALSE, 0.0, 0.0,	/* log, base, log(base) */		    \
-	0, 1,			/* is_timedata, format_numeric */	    \
+	DT_NORMAL, TRUE,	/* datatype, format_numeric */	            \
 	DEF_FORMAT, TIMEFMT,	/* output format, timefmt */		    \
 	NO_TICS,		/* tic output positions (border, mirror) */ \
 	DEFAULT_AXIS_TICDEF,	/* tic series definition */		    \
 	0, FALSE, FALSE, 	/* tic_rotate, grid{major,minor} */	    \
-	MINI_DEFAULT, 10,	/* minitics, mtic_freq */		    \
+	MINI_DEFAULT, 10.,	/* minitics, mtic_freq */		    \
         1.0, 0.5, TRUE,		/* ticscale, miniticscale, tic_in */	    \
 	EMPTY_LABELSTRUCT,	/* axis label */			    \
+	FALSE,			/* override automatic justification */	    \
 	DEFAULT_AXIS_ZEROAXIS	/* zeroaxis line style */		    \
 }
 
@@ -296,6 +322,9 @@ extern const struct lp_style_type default_grid_lp;
 /* grid layer: -1 default, 0 back, 1 front */
 extern int grid_layer;
 
+/* Whether or not to draw a separate polar axis in polar mode */
+extern TBOOLEAN raxis;
+
 /* global variables for communication with the tic callback functions */
 /* FIXME HBB 20010806: had better be collected into a struct that's
  * passed to the callback */
@@ -318,6 +347,7 @@ extern AXIS_INDEX x_axis, y_axis, z_axis;
 #define X_AXIS axis_array[x_axis]
 #define Y_AXIS axis_array[y_axis]
 #define Z_AXIS axis_array[z_axis]
+#define R_AXIS axis_array[POLAR_AXIS]
 #define CB_AXIS axis_array[COLOR_AXIS]
 
 /* -------- macros using these variables: */
@@ -405,7 +435,6 @@ do {									\
 	? VERYLARGE : this->set_min;					\
     this->max = (infinite && (this->set_autoscale & AUTOSCALE_MAX))	\
 	? -VERYLARGE : this->set_max;					\
-    this->log_base = this->log ? log(this->base) : 0;			\
     this->data_min = VERYLARGE;						\
     this->data_max = -VERYLARGE;					\
 } while(0)
@@ -436,20 +465,6 @@ do {									\
 } while (0)
 
 #endif
-/* handle reversed ranges */
-#define CHECK_REVERSE(axis) do {					\
-    AXIS *this = axis_array + axis;					\
-									\
-    if (((this->autoscale & AUTOSCALE_BOTH) == AUTOSCALE_NONE)		\
-	&& (this->max < this->min)) {					\
-	double temp = this->min;					\
-									\
-	this->min = this->max;						\
-	this->max = temp;						\
-	this->range_is_reverted = 1;					\
-    } else								\
-	this->range_is_reverted = (this->range_flags & RANGE_REVERSE);	\
-} while(0)
 
 /* HBB NEW 20050316: macros to always access the actual minimum, even
  * if 'set view map' or something else flipped things around behind
@@ -462,74 +477,24 @@ do {									\
     (axis_array[axis].range_flags & RANGE_REVERSE	\
      ? axis_array[axis].min : axis_array[axis].max)
 
-/* HBB 20000725: new macro, built upon ULIG's SAVE_WRITEBACK(axis),
- * but easier to use. Code like this occured twice, in plot2d and
- * plot3d: */
-#define SAVE_WRITEBACK_ALL_AXES					\
-do {								\
-    AXIS_INDEX axis;						\
-								\
-    for (axis = 0; axis < AXIS_ARRAY_SIZE; axis++)		\
-	if(axis_array[axis].range_flags & RANGE_WRITEBACK) {	\
-	    set_writeback_min(axis);				\
-	    set_writeback_max(axis);				\
-	}							\
-} while(0)
-
-/* get optional [min:max] */
-#define PARSE_RANGE(axis)						   \
-do {									   \
-    if (equals(c_token, "[")) {						   \
-	c_token++;							   \
-	axis_array[axis].autoscale =					   \
-	    load_range(axis, &axis_array[axis].min, &axis_array[axis].max, \
-		       axis_array[axis].autoscale);			   \
-	if (!equals(c_token, "]"))					   \
-	    int_error(c_token, "']' expected");				   \
-	c_token++;							   \
-    }									   \
-} while (0)
-
-/* HBB 20000430: new macro, like PARSE_RANGE, but for named ranges as
- * in 'plot [phi=3.5:7] sin(phi)' */
-#define PARSE_NAMED_RANGE(axis, dummy_token)				     \
-do {									     \
-    if (equals(c_token, "[")) {						     \
-	c_token++;							     \
-	if (isletter(c_token)) {					     \
-	    if (equals(c_token + 1, "=")) {				     \
-		dummy_token = c_token;					     \
-		c_token += 2;						     \
-	    }								     \
-		/* oops; probably an expression with a variable: act	     \
-		 * as if no variable name had been seen, by		     \
-		 * fallthrough */					     \
-	}								     \
-	axis_array[axis].autoscale = load_range(axis, &axis_array[axis].min, \
-				      &axis_array[axis].max,		     \
-				      axis_array[axis].autoscale);	     \
-	if (!equals(c_token, "]"))					     \
-	    int_error(c_token, "']' expected");				     \
-	c_token++;							     \
-    }				/* first '[' */				     \
-} while (0)
 
 /* parse a position of the form
  *    [coords] x, [coords] y {,[coords] z}
  * where coords is one of first,second.graph,screen,character
- * if first or second, we need to take axis_is_timedata into account
+ * if first or second, we need to take axis.datatype into account
  */
 #define GET_NUMBER_OR_TIME(store,axes,axis)				\
 do {									\
-    if (((axes) >= 0) && (axis_array[(axes)+(axis)].is_timedata)	\
+    if (((axes) >= 0) && (axis_array[(axes)+(axis)].datatype == DT_TIMEDATE)	\
 	&& isstringvalue(c_token)) {					\
 	struct tm tm;							\
+	double usec;							\
 	char *ss = try_to_get_string();					\
-	if (gstrptime(ss,axis_array[axis].timefmt,&tm))			\
-	    (store) = (double) gtimegm(&tm);				\
+	if (gstrptime(ss,axis_array[axis].timefmt,&tm,&usec))		\
+	    (store) = (double) gtimegm(&tm) + usec;			\
 	free(ss);							\
     } else {								\
-	(store) = real_expression();						\
+	(store) = real_expression();					\
     }									\
 } while(0)
 
@@ -586,9 +551,20 @@ do {									  \
     if ( VALUE<axis_array[AXIS].data_min )				  \
 	axis_array[AXIS].data_min = VALUE;				  \
     if ( VALUE<axis_array[AXIS].min ) {					  \
-	if (axis_array[AXIS].autoscale & AUTOSCALE_MIN)			  \
-	    axis_array[AXIS].min = VALUE;				  \
-	else {								  \
+	if (axis_array[AXIS].autoscale & AUTOSCALE_MIN)	{		  \
+            if (axis_array[AXIS].min_constraint & CONSTRAINT_LOWER) {     \
+                if (axis_array[AXIS].min_lb <= VALUE) {                   \
+                    axis_array[AXIS].min = VALUE;                         \
+                } else {                                                  \
+                    axis_array[AXIS].min = axis_array[AXIS].min_lb;       \
+                    TYPE = OUTRANGE;                                       \
+                    OUT_ACTION;                                           \
+                    break;                                                \
+                }                                                         \
+            } else {                                                      \
+	        axis_array[AXIS].min = VALUE;				  \
+	    }								  \
+	} else {							  \
 	    TYPE = OUTRANGE;						  \
 	    OUT_ACTION;							  \
 	    break;							  \
@@ -597,9 +573,20 @@ do {									  \
     if ( VALUE>axis_array[AXIS].data_max )				  \
 	axis_array[AXIS].data_max = VALUE;				  \
     if ( VALUE>axis_array[AXIS].max ) {					  \
-	if (axis_array[AXIS].autoscale & AUTOSCALE_MAX)			  \
-	    axis_array[AXIS].max = VALUE;				  \
-	else {								  \
+	if (axis_array[AXIS].autoscale & AUTOSCALE_MAX)	{		  \
+	    if (axis_array[AXIS].max_constraint & CONSTRAINT_UPPER) {     \
+                if (axis_array[AXIS].max_ub >= VALUE) {                   \
+                    axis_array[AXIS].max = VALUE;                         \
+                } else {                                                  \
+                    axis_array[AXIS].max = axis_array[AXIS].max_ub;       \
+                    TYPE =OUTRANGE;                                       \
+                    OUT_ACTION;                                           \
+                    break;                                                \
+                }                                                         \
+            } else {                                                      \
+	        axis_array[AXIS].max = VALUE;                             \
+            }                                                     	  \
+	} else {							  \
 	    TYPE = OUTRANGE;						  \
 	    OUT_ACTION;							  \
 	}								  \
@@ -622,15 +609,6 @@ do {									  \
 /* #define NOOP (0) caused many warnings from gcc 3.2 */
 /* Now trying ((void)0) */
 #define NOOP ((void)0)
-
-/* HBB 20000506: new macro, initializes one variable to the same
- * value, for all axes. */
-#define INIT_AXIS_ARRAY(field, value)		\
-do {						\
-    int tmp;					\
-    for (tmp=0; tmp<AXIS_ARRAY_SIZE; tmp++)	\
-	axis_array[tmp].field=(value);		\
-} while(0)
 
 /* HBB 20000506: new macro to automatically build intializer lists
  * for arrays of AXIS_ARRAY_SIZE equal elements */
@@ -673,6 +651,11 @@ double get_writeback_min __PROTO((AXIS_INDEX));
 double get_writeback_max __PROTO((AXIS_INDEX));
 void set_writeback_min __PROTO((AXIS_INDEX));
 void set_writeback_max __PROTO((AXIS_INDEX));
+
+void save_writeback_all_axes __PROTO((void));
+void parse_range __PROTO((AXIS_INDEX axis));
+int  parse_named_range __PROTO((AXIS_INDEX axis, int token));
+void check_axis_reversed __PROTO((AXIS_INDEX axis));
 
 /* set widest_tic_label: length of the longest tics label */
 void widest_tic_callback __PROTO((AXIS_INDEX, double place, char *text, 

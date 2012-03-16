@@ -1,5 +1,5 @@
 /*
- * $Id: command.h,v 1.48 2008/08/15 00:45:34 sfeam Exp $
+ * $Id: command.h,v 1.57 2011/10/03 00:17:22 sfeam Exp $
  */
 
 /* GNUPLOT - command.h */
@@ -45,6 +45,10 @@ extern size_t gp_input_line_len;
 
 extern int inline_num;
 
+extern int if_depth;			/* old if/else syntax only */
+extern TBOOLEAN if_open_for_else;	/* new if/else syntax only */
+extern TBOOLEAN if_condition;		/* used by both old and new syntax */
+
 typedef struct lexical_unit {	/* produced by scanner */
     TBOOLEAN is_token;		/* true if token, false if a value */
     struct value l_val;
@@ -88,15 +92,10 @@ extern struct udft_entry *dummy_func;
 # define STDOUT 1
 #endif
 
-#if defined(MSDOS) || defined(DOS386)
+#if defined(MSDOS)
 # ifdef DJGPP
 extern char HelpFile[];         /* patch for do_help  - AP */
 # endif                         /* DJGPP */
-# ifdef __TURBOC__
-#  ifndef _Windows
-extern char HelpFile[];         /* patch for do_help  - DJL */
-#  endif                        /* _Windows */
-# endif                         /* TURBOC */
 #endif /* MSDOS */
 
 #ifdef _Windows
@@ -113,11 +112,7 @@ void call_kill_pending_Pause_dialog(void);
 #endif
 
 /* input data, parsing variables */
-#ifdef AMIGA_SC_6_1
-extern __far int num_tokens, c_token;
-#else
 extern int num_tokens, c_token;
-#endif
 
 void raise_lower_command __PROTO((int));
 void raise_command __PROTO((void));
@@ -133,14 +128,19 @@ extern void x11_lower_terminal_window __PROTO((int));
 extern void x11_lower_terminal_group __PROTO((void));
 #endif
 #ifdef _Windows
-extern void win_raise_terminal_window();
-extern void win_lower_terminal_window();
+extern void win_raise_terminal_window __PROTO((int));
+extern void win_raise_terminal_group __PROTO((void));
+extern void win_lower_terminal_window __PROTO((int));
+extern void win_lower_terminal_group __PROTO((void));
 #endif
 #ifdef WXWIDGETS
 extern void wxt_raise_terminal_window __PROTO((int));
 extern void wxt_raise_terminal_group __PROTO((void));
 extern void wxt_lower_terminal_window __PROTO((int));
 extern void wxt_lower_terminal_group __PROTO((void));
+#endif
+#ifdef GP_MACROS
+extern int string_expand_macros __PROTO((void));
 #endif
 
 #ifdef USE_MOUSE
@@ -156,14 +156,17 @@ void call_command __PROTO((void));
 void changedir_command __PROTO((void));
 void clear_command __PROTO((void));
 void eval_command __PROTO((void));
-void reset_eval_depth __PROTO((void));
 void exit_command __PROTO((void));
 void help_command __PROTO((void));
 void history_command __PROTO((void));
+void do_command __PROTO((void));
 void if_command __PROTO((void));
 void else_command __PROTO((void));
 void invalid_command __PROTO((void));
 void load_command __PROTO((void));
+void begin_clause __PROTO((void));
+void clause_reset_after_error __PROTO((void));
+void end_clause __PROTO((void));
 void null_command __PROTO((void));
 void pause_command __PROTO((void));
 void plot_command __PROTO((void));
@@ -175,22 +178,25 @@ void reread_command __PROTO((void));
 void save_command __PROTO((void));
 void screendump_command __PROTO((void));
 void splot_command __PROTO((void));
+void stats_command __PROTO((void));
 void system_command __PROTO((void));
 void test_command __PROTO((void));
 void update_command __PROTO((void));
 void do_shell __PROTO((void));
 void undefine_command __PROTO((void));
+void while_command __PROTO((void));
 
 /* Prototypes for functions exported by command.c */
 void extend_input_line __PROTO((void));
 void extend_token_table __PROTO((void));
 int com_line __PROTO((void));
 int do_line __PROTO((void));
-void do_string __PROTO((char* s, TBOOLEAN throwaway_s));
+void do_string __PROTO((const char* s));
+void do_string_and_free __PROTO((char* s));
 #ifdef USE_MOUSE
 void toggle_display_of_ipc_commands __PROTO((void));
 int display_ipc_commands __PROTO((void));
-void do_string_replot __PROTO((char* s));
+void do_string_replot __PROTO((const char* s));
 #endif
 #ifdef VMS                     /* HBB 990829: used only on VMS */
 void done __PROTO((int status));

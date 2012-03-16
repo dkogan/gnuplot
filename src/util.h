@@ -1,5 +1,5 @@
 /*
- * $Id: util.h,v 1.31 2008/03/18 00:16:33 sfeam Exp $
+ * $Id: util.h,v 1.36 2011/11/10 05:15:58 sfeam Exp $
  */
 
 /* GNUPLOT - util.h */
@@ -59,14 +59,14 @@ extern char *decimalsign;
 extern char *numeric_locale;	/* LC_NUMERIC */
 extern char *current_locale;	/* LC_TIME */
 
+/* degree sign */
+extern char degree_sign[8];
+
 extern const char *current_prompt; /* needed by is_error() and friends */
 
 /* Functions exported by util.c: */
 
 /* Command parsing helpers: */
-#if 0 /* UNUSED */
-int chr_in_str __PROTO((int, int));
-#endif
 int equals __PROTO((int, const char *));
 int almost_equals __PROTO((int, const char *));
 int isstring __PROTO((int));
@@ -94,10 +94,16 @@ void gprintf __PROTO((char *, size_t, char *, double, double));
 
 /* Error message handling */
 #if defined(VA_START) && defined(STDC_HEADERS)
-void os_error __PROTO((int, const char *, ...));
-void int_error __PROTO((int, const char *, ...));
+#  if defined(__GNUC__)
+    void os_error __PROTO((int, const char *, ...)) __attribute__((noreturn));
+    void int_error __PROTO((int, const char *, ...)) __attribute__((noreturn));
+    void graph_error __PROTO((const char *, ...)) __attribute__((noreturn));
+#  else
+    void os_error __PROTO((int, const char *, ...));
+    void int_error __PROTO((int, const char *, ...));
+    void graph_error __PROTO((const char *, ...));
+#  endif
 void int_warn __PROTO((int, const char *, ...));
-void graph_error __PROTO((const char *, ...));
 #else
 void os_error __PROTO(());
 void int_error __PROTO(());
@@ -105,11 +111,10 @@ void int_warn __PROTO(());
 void graph_error __PROTO(());
 #endif
 
-/* Helper functions for help_command() */
 /* FIXME HBB 20010726: should be moved to where help_comamnd() is, and
  * made static. Currently, that's command.c, but it should probably
- * move to help.c, instead. */
-void lower_case __PROTO((char *));
+ * move to help.c, instead.
+ */
 void squash_spaces __PROTO((char *));
 
 TBOOLEAN existdir __PROTO((const char *));

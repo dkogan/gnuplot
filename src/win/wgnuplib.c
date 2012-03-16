@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: wgnuplib.c,v 1.6 2004/07/01 17:10:10 broeker Exp $"); }
+static char *RCSid() { return RCSid("$Id: wgnuplib.c,v 1.8 2011/03/20 18:47:47 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - win/wgnuplib.c */
@@ -55,42 +55,13 @@ LPSTR szGraphClass = "wgnuplot_graph";
 
 /* Window ID */
 struct WID {
-	BOOL       used;
-	HWND       hwnd;
-	void FAR * ptr;
+	BOOL    used;
+	HWND    hwnd;
+	void  * ptr;
 };
 struct WID *widptr = NULL;
 unsigned int nwid = 0;
 HLOCAL hwid = 0;
-
-#ifdef __DLL__
-int WDPROC
-LibMain(HINSTANCE hInstance, WORD wDataSeg, WORD wHeapSize, LPSTR lpszCmdLine)
-{
-	hdllInstance = hInstance;
-	return 1;
-}
-
-int WDPROC
-WEP(int nParam)
-{
-	return 1;
-}
-
-BOOL WDPROC
-CheckWGNUPLOTVersion(LPSTR str)
-{
-char mess[256];
-LPSTR version;
-	version = WGNUPLOTVERSION;
-	if (lstrcmp(str,version)) {
-		wsprintf(mess,"Incorrect DLL version\nExpected version   %s\nThis is version   %s",str,version);
-		MessageBox(NULL, mess , "WGNUPLOT.DLL", MB_OK | MB_ICONSTOP | MB_TASKMODAL);
-		return TRUE;
-	}
-	return FALSE;	/* Correct version */
-}
-#endif /* __DLL__ */
 
 void NEAR *
 LocalAllocPtr(UINT flags, UINT size)

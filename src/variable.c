@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: variable.c,v 1.34.2.1 2010/02/07 23:17:34 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: variable.c,v 1.42.2.1 2011/12/28 19:30:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - variable.c */
@@ -42,6 +42,7 @@ static char *RCSid() { return RCSid("$Id: variable.c,v 1.34.2.1 2010/02/07 23:17
 
 #include "alloc.h"
 #include "command.h"
+#include "plot.h"
 #include "util.h"
 #include "term_api.h"
 
@@ -78,7 +79,9 @@ loadpath_handler(int action, char *path)
     /* index pointer, end of loadpath,
      * env section of loadpath, current limit, in that order */
     static char *p, *last, *envptr, *limit;
+#ifdef X11
     char *appdir;
+#endif
 
     switch (action) {
     case ACTION_CLEAR:
@@ -144,11 +147,14 @@ loadpath_handler(int action, char *path)
 	    PRINT_PATHLIST(loadpath, envptr);
 	    if (envptr) {
 		/* env part */
-		fputs("\tsystem loadpath is ", stderr);
+		fputs("\tloadpath from GNUPLOT_LIB is ", stderr);
 		PRINT_PATHLIST(envptr, last);
 	    }
 	} else
 	    fputs("\tloadpath is empty\n", stderr);
+#ifdef GNUPLOT_SHARE_DIR
+	fprintf(stderr,"\tgnuplotrc is read from %s\n",GNUPLOT_SHARE_DIR);
+#endif
 #ifdef X11
 	if ((appdir = getenv("XAPPLRESDIR"))) {
 	    fprintf(stderr,"\tenvironmental path for X11 application defaults: \"%s\"\n",
@@ -207,7 +213,7 @@ struct path_table {
 };
 
 /* Yet, no special font paths for these operating systems:
- * MSDOS, AMIGA, NeXT, ultrix, VMS, _IBMR2, alliant
+ * MSDOS, NeXT, ultrix, VMS, _IBMR2, alliant
  *
  * Environmental variables are written as $(name).
  * Commands are written as $`command`.
@@ -387,6 +393,7 @@ fontpath_handler(int action, char *path)
 			    FILE *fcmd;
 			    envend = strchr(cmdbeg+2,'`');
 			    envend[0] = '\0';
+			    restrict_popen();
 			    fcmd = popen(cmdbeg+2,"r");
 			    if (fcmd) {
 				fgets(envval,255,fcmd);
@@ -563,6 +570,7 @@ locale_handler(int action, char *newlocale)
 	free(current_locale);
 #ifdef HAVE_LOCALE_H
 	setlocale(LC_TIME, "");
+	setlocale(LC_CTYPE, "");
 	current_locale = gp_strdup(setlocale(LC_TIME,NULL));
 #else
 	current_locale = gp_strdup(INITIAL_LOCALE);

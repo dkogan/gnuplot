@@ -1,5 +1,5 @@
 /*
- * $Id: stdfn.h,v 1.32.4.1 2010/01/06 17:35:10 sfeam Exp $
+ * $Id: stdfn.h,v 1.40 2011/09/21 11:43:50 markisch Exp $
  */
 
 /* GNUPLOT - stdfn.h */
@@ -44,10 +44,10 @@
 #ifndef STDFN_H
 #define STDFN_H
 
+#include "syscfg.h"
+
 #include <ctype.h>
 #include <stdio.h>
-
-#include "syscfg.h"
 
 #ifdef HAVE_STRING_H
 # include <string.h>
@@ -261,7 +261,11 @@ extern char *sys_errlist[];
 # define time_t long
 #endif
 
-#if defined(PIPES) && (defined(VMS) || (defined(OSK) && defined(_ANSI_EXT))) || defined(PIPES) && defined(AMIGA_SC_6_1)
+#ifdef HAVE_SYS_TIME_H
+# include <sys/time.h> /* for gettimeofday() */
+#endif
+
+#if defined(PIPES) && defined(VMS)
 FILE *popen __PROTO((char *, char *));
 int pclose __PROTO((FILE *));
 #endif
@@ -320,6 +324,14 @@ int gp_strnicmp __PROTO((const char *, const char *, size_t));
 # endif
 #endif
 
+#ifndef HAVE_STRNDUP
+char *strndup __PROTO((const char * str, size_t n));
+#endif
+
+#ifndef HAVE_STRNLEN
+size_t strnlen __PROTO((const char *str, size_t n));
+#endif
+
 #ifndef GP_GETCWD
 # if defined(HAVE_GETCWD)
 #   if defined(__EMX__)
@@ -355,11 +367,7 @@ int gp_strnicmp __PROTO((const char *, const char *, size_t));
 #endif
 
 #ifndef GP_SLEEP
-# ifdef __ZTC__
-#    define GP_SLEEP(delay) usleep ((unsigned long) (delay+0.5))
-# else
-#    define GP_SLEEP(delay) sleep ((unsigned int) (delay+0.5))
-# endif
+#  define GP_SLEEP(delay) sleep ((unsigned int) (delay+0.5))
 #endif
 
 #ifdef HAVE_ATEXIT
@@ -370,6 +378,47 @@ int gp_strnicmp __PROTO((const char *, const char *, size_t));
 # define GP_ATEXIT(x) /* you lose */
 #endif
 
+char * gp_basename __PROTO((char *path));
+
+#if !defined(HAVE_DIRENT_H) && defined(WIN32) && (!defined(__WATCOMC__))
+/*
+
+    Declaration of POSIX directory browsing functions and types for Win32.
+
+    Author:  Kevlin Henney (kevlin@acm.org, kevlin@curbralan.com)
+    History: Created March 1997. Updated June 2003.
+*/
+/*
+
+    Copyright Kevlin Henney, 1997, 2003. All rights reserved.
+
+    Permission to use, copy, modify, and distribute this software and its
+    documentation for any purpose is hereby granted without fee, provided
+    that this copyright and permissions notice appear in all copies and
+    derivatives.
+    
+    This software is supplied "as is" without express or implied warranty.
+
+    But that said, if there are any problems please get in touch.
+
+*/
+typedef struct DIR DIR;
+
+struct dirent
+{
+    char *d_name;
+};
+
+DIR           *opendir __PROTO((const char *));
+int           closedir __PROTO((DIR *));
+struct dirent *readdir __PROTO((DIR *));
+void          rewinddir __PROTO((DIR *));
+#elif defined(HAVE_DIRENT_H)
+# include <sys/types.h>
+# include <dirent.h>
+#endif /* !HAVE_DIRENT_H && WIN32 */
+
+
 /* Misc. defines */
 
 /* Null character */
@@ -377,7 +426,11 @@ int gp_strnicmp __PROTO((const char *, const char *, size_t));
 
 /* Definitions for debugging */
 /* #define NDEBUG */
-#include <assert.h>
+/* #include <assert.h> */
+#ifndef assert
+#define assert(X) if (!(X)) int_error(-1,"Assertion failed: %s", #X )
+#endif
+
 
 #ifdef DEBUG
 # define DEBUG_WHERE do { fprintf(stderr,"%s:%d ",__FILE__,__LINE__); } while (0)

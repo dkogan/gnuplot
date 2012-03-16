@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.h,v 1.15 2009/03/26 00:49:18 sfeam Exp $
+ * $Id: gp_cairo.h,v 1.17 2011/04/28 13:40:58 markisch Exp $
  */
 
 /* GNUPLOT - gp_cairo.h */
@@ -128,6 +128,7 @@ typedef struct plot_struct {
 	double dashlength;
 	double text_angle;
 	rgb_color color;
+	rgb_color background;
 
 	/* "polyline" */
 	TBOOLEAN opened_path;
@@ -178,6 +179,7 @@ GP_CAIRO_DOTS
 
 /* correspondance between gnuplot's linetypes and colors */
 rgb_color gp_cairo_linetype2color( int linetype );
+void gp_cairo_set_background(rgb_color background);
 
 /* functions to handle scaling between device and gnuplot coordinates */
 double device_x(plot_struct *plot, double x);
@@ -227,6 +229,9 @@ void gp_cairo_set_termvar(plot_struct *plot, unsigned int *v_char,
 
 /* translate plot->encoding int to char* suitable for glib */
 const char* gp_cairo_get_encoding(plot_struct *plot);
+
+/* determine default font to use */
+const char * gp_cairo_default_font(void);
 
 #ifdef __cplusplus
 }

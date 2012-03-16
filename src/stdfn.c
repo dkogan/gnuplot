@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: stdfn.c,v 1.17.4.1 2010/01/06 17:35:10 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: stdfn.c,v 1.25 2011/09/21 11:43:49 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - stdfn.c */
@@ -46,6 +46,9 @@ static char *RCSid() { return RCSid("$Id: stdfn.c,v 1.17.4.1 2010/01/06 17:35:10
 #ifdef WIN32
 /* the WIN32 API has a Sleep function that does not consume CPU cycles */
 #include <windows.h>
+#ifndef HAVE_DIRENT_H
+#include <io.h> /* _findfirst and _findnext set errno iff they return -1 */
+#endif
 #endif
 
 
@@ -157,137 +160,6 @@ strstr(const char *cs, const char *ct)
 #endif /* HAVE_STRSTR */
 
 
-#ifdef __PUREC__
-/*
- * a substitute for PureC's buggy sscanf.
- * this uses the normal sscanf and fixes the following bugs:
- * - whitespace in format matches whitespace in string, but doesn't
- *   require any. ( "%f , %f" scans "1,2" correctly )
- * - the ignore value feature works (*). this created an address error
- *   in PureC.
- */
-
-#include <stdarg.h>
-
-int
-purec_sscanf(const char *string, const char *format,...)
-{
-    va_list args;
-    int cnt = 0;
-    char onefmt[256];
-    char buffer[256];
-    const char *f = format;
-    const char *s = string;
-    char *f2;
-    char ch;
-    int ignore;
-    void *p;
-    int *ip;
-    int pos;
-
-    va_start(args, format);
-    while (*f && *s) {
-	ch = *f++;
-	if (ch != '%') {
-	    if (isspace((unsigned char) ch)) {
-		/* match any number of whitespace */
-		while (isspace((unsigned char) *s))
-		    s++;
-	    } else {
-		/* match exactly the character ch */
-		if (*s != ch)
-		    goto finish;
-		s++;
-	    }
-	} else {
-	    /* we have got a '%' */
-	    ch = *f++;
-	    if (ch == '%') {
-		/* match exactly % */
-		if (*s != ch)
-		    goto finish;
-		s++;
-	    } else {
-		f2 = onefmt;
-		*f2++ = '%';
-		*f2++ = ch;
-		ignore = 0;
-		if (ch == '*') {
-		    ignore = 1;
-		    ch = f2[-1] = *f++;
-		}
-		while (isdigit((unsigned char) ch)) {
-		    ch = *f2++ = *f++;
-		}
-		if (ch == 'l' || ch == 'L' || ch == 'h') {
-		    ch = *f2++ = *f++;
-		}
-		switch (ch) {
-		case '[':
-		    while (ch && ch != ']') {
-			ch = *f2++ = *f++;
-		    }
-		    if (!ch)
-			goto error;
-		    break;
-		case 'e':
-		case 'f':
-		case 'g':
-		case 'd':
-		case 'o':
-		case 'i':
-		case 'u':
-		case 'x':
-		case 'c':
-		case 's':
-		case 'p':
-		case 'n':	/* special case handled below */
-		    break;
-		default:
-		    goto error;
-		}
-		if (ch != 'n') {
-		    strcpy(f2, "%n");
-		    if (ignore) {
-			p = buffer;
-		    } else {
-			p = va_arg(args, void *);
-		    }
-		    switch (sscanf(s, onefmt, p, &pos)) {
-		    case EOF:
-			goto error;
-		    case 0:
-			goto finish;
-		    }
-		    if (!ignore)
-			cnt++;
-		    s += pos;
-		} else {
-		    if (!ignore) {
-			ip = va_arg(args, int *);
-			*ip = (int) (s - string);
-		    }
-		}
-	    }
-	}
-    }
-
-    if (!*f)
-	goto finish;
-
-  error:
-    cnt = EOF;
-  finish:
-    va_end(args);
-    return cnt;
-}
-
-/* use the substitute now. I know this is dirty trick, but it works. */
-#define sscanf purec_sscanf
-
-#endif /* __PUREC__ */
-
-
 /*
  * POSIX functions
  */
@@ -299,31 +171,21 @@ purec_sscanf(const char *string, const char *format,...)
  */
 
 
-#ifdef AMIGA_SC_6_1
-#include <proto/dos.h>
-#endif
-
 unsigned int
 sleep(unsigned int delay)
 {
-#if defined(MSDOS) || defined(_Windows) || defined(DOS386) || defined(AMIGA_AC_5)
-# if !(defined(__TURBOC__) || defined(__EMX__) || defined(DJGPP)) || defined(_Windows)	/* Turbo C already has sleep() */
+#if defined(MSDOS)
+# if !((defined(__EMX__) || defined(DJGPP))
     /* kludge to provide sleep() for msc 5.1 */
     unsigned long time_is_up;
 
     time_is_up = time(NULL) + (unsigned long) delay;
     while (time(NULL) < time_is_up)
 	/* wait */ ;
-# endif /* !__TURBOC__ ... */
-#endif /* MSDOS ... */
-
-#ifdef AMIGA_SC_6_1
-    Delay(50 * delay);
-#endif
-
-#ifdef WIN32
+# endif
+#elif defined(WIN32)
     Sleep((DWORD) delay * 1000);
-#endif
+#endif /* MSDOS ... */
 
     return 0;
 }
@@ -403,6 +265,30 @@ gp_strnicmp(const char *s1, const char *s2, size_t n)
 #endif /* !HAVE_STRNICMP */
 
 
+#ifndef HAVE_STRNLEN    
+size_t 
+strnlen(const char *str, size_t n)
+{
+    const char * stop = (char *)memchr(str, '\0', n);
+    return stop ? stop - str : n;
+}
+#endif
+
+
+#ifndef HAVE_STRNDUP
+char * 
+strndup(const char * str, size_t n)
+{
+    char * ret = NULL;
+    size_t len = strnlen(str, n);
+    ret = (char *) malloc(len + 1);
+    if (ret == NULL) return NULL;
+    ret[len] = '\0';
+    return (char *)memcpy(ret, str, len);
+}
+#endif
+
+
 /* Safe, '\0'-terminated version of strncpy()
  * safe_strncpy(dest, src, n), where n = sizeof(dest)
  * This is basically the old fit.c(copy_max) function
@@ -462,14 +348,154 @@ gp_strtod(const char *str, char **endptr)
 }
 
 /* Implement portable generation of a NaN value. */
+/* NB: Supposedly DJGPP V2.04 can use atof("NaN"), but... */
 
 double
 not_a_number(void)
 {
-#ifdef __MSC__
+#if defined (__MSC__) || defined (DJGPP) || defined(__DJGPP__) || defined(__MINGW32__)
 	unsigned long lnan[2]={0xffffffff, 0x7fffffff};
     return *( double* )lnan;
 #else
 	return atof("NaN");
 #endif
 }
+
+
+/* Version of basename, which does take two possible
+   separators into account and does not modify its
+   argument.
+*/
+char * gp_basename(char *path)
+{
+    char * basename = strrchr(path, DIRSEP1);
+    if (basename) {
+        basename++;
+        return basename;
+    }
+#if DIRSEP2 != NUL
+    basename = strrchr(path, DIRSEP2);
+    if (basename) {
+        basename++;
+        return basename;
+    }
+#endif
+    /* no path separator found */
+    return path;
+}
+
+
+#if !defined(HAVE_DIRENT_H) && defined(WIN32)  && (!defined(__WATCOMC__))
+/* BM: OpenWatcom has dirent functions in direct.h!*/
+/*
+
+    Implementation of POSIX directory browsing functions and types for Win32.
+
+    Author:  Kevlin Henney (kevlin@acm.org, kevlin@curbralan.com)
+    History: Created March 1997. Updated June 2003.
+    Rights:  See end of section.
+
+*/
+
+struct DIR
+{
+    long                handle; /* -1 for failed rewind */
+    struct _finddata_t  info;
+    struct dirent       result; /* d_name null iff first time */
+    char                *name;  /* null-terminated char string */
+};
+
+DIR *opendir(const char *name)
+{
+    DIR *dir = 0;
+
+    if (name && name[0]) {
+        size_t base_length = strlen(name);
+         /* search pattern must end with suitable wildcard */
+        const char *all = strchr("/\\", name[base_length - 1]) ? "*" : "/*";
+
+        if ((dir = (DIR *) malloc(sizeof *dir)) != 0 &&
+           (dir->name = (char *) malloc(base_length + strlen(all) + 1)) != 0) {
+            strcat(strcpy(dir->name, name), all);
+
+            if ((dir->handle = (long) _findfirst(dir->name, &dir->info)) != -1) {
+                dir->result.d_name = 0;
+            } else { /* rollback */
+                free(dir->name);
+                free(dir);
+                dir = 0;
+            }
+        } else { /* rollback */
+            free(dir);
+            dir   = 0;
+            errno = ENOMEM;
+        }
+    } else {
+        errno = EINVAL;
+    }
+
+    return dir;
+}
+
+int closedir(DIR *dir)
+{
+    int result = -1;
+
+    if (dir) {
+        if(dir->handle != -1) {
+            result = _findclose(dir->handle);
+        }
+        free(dir->name);
+        free(dir);
+    }
+
+    if (result == -1) { /* map all errors to EBADF */
+        errno = EBADF;
+    }
+
+    return result;
+}
+
+struct dirent *readdir(DIR *dir)
+{
+    struct dirent *result = 0;
+
+    if (dir && dir->handle != -1) {
+        if (!dir->result.d_name || _findnext(dir->handle, &dir->info) != -1) {
+            result         = &dir->result;
+            result->d_name = dir->info.name;
+        }
+    } else {
+        errno = EBADF;
+    }
+
+    return result;
+}
+
+void rewinddir(DIR *dir)
+{
+    if (dir && dir->handle != -1) {
+        _findclose(dir->handle);
+        dir->handle = (long) _findfirst(dir->name, &dir->info);
+        dir->result.d_name = 0;
+    }
+    else {
+        errno = EBADF;
+    }
+}
+
+/*
+
+    Copyright Kevlin Henney, 1997, 2003. All rights reserved.
+
+    Permission to use, copy, modify, and distribute this software and its
+    documentation for any purpose is hereby granted without fee, provided
+    that this copyright and permissions notice appear in all copies and
+    derivatives.
+    
+    This software is supplied "as is" without express or implied warranty.
+
+    But that said, if there are any problems please get in touch.
+
+*/
+#endif /* !HAVE_DIRENT_H && WIN32 */

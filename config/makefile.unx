@@ -1,5 +1,5 @@
 #
-# $Id: makefile.unx,v 1.10 2008/03/30 03:27:51 sfeam Exp $
+# $Id: makefile.unx,v 1.19.2.1 2011/12/09 07:05:35 sfeam Exp $
 #
 #
 ############################################################
@@ -58,20 +58,19 @@ INSTALL=install
 #   If READLINE is defined, then command-line editing is supported.
 #   Otherwise, your normal terminal editing is all you get.
 #   Some machines will not support this, and they will turn this
-#   option off (for example, apollos running SR10.2 or SR10.3 and
-#   loaded with BSD4.3 instead of SYS5). Note: problems with
-#   gnuplot prompts have been noted when this feature is selected
-#   on IBM RS/6000 AIX, and compile errors are encountered on
+#   option off.
+#   Note: problems with gnuplot prompts have been noted when this feature
+#   is selected on IBM RS/6000 AIX, and compile errors are encountered on
 #   Sequent Dynix 3 and Convex OS 9.0. If seems to work with ConvexOS 10.1.
 # HAVE_LIBREADLINE
 #   If you want to use the more complex gnu version of readline, you can
 #   define HAVE_LIBREADLINE instead of READLINE and add the appropriate library
 #   file(s) to LIBS below.
-# NOCWDRC:
-#   If NOCWDRC is defined, then any .gnuplot in the current directory
-#   is not read on startup. This is a security consideration
-#   especially for root users ( we recommend you define -DNOCWDRC ).
-OPTIONS = -DREADLINE -DNOCWDRC
+# USE_CWDRC:
+#   If USE_CWDRC is defined, then any .gnuplot in the current directory
+#   is read on startup. This is a security consideration
+#   especially for root users ( we recommend you do not define this ).
+OPTIONS = -DREADLINE
 
 #>>> Optionally install the lasergnu script.
 # Lasergnu is a handy shell script for creating a plot from the
@@ -126,8 +125,8 @@ MY_FLAGS  = CC="$(CC)" COPTS="$(COPTS)" DEST="$(DEST)" \
 #  -DHAVE_COPY if you have bcopy() and no memcpy()
 #  -DHAVE_STRNICMP if you have strnicmp()
 #  -DHAVE_STRNCASECMP if you have strncasecmp() (GNU Libc, bsd)
-#  -DGAMMA=foo if your gamma function is called foo(). Apollos and
-#    Linux have lgamma(3m). The default is -DGAMMA=gamma.
+#  -DGAMMA=foo if your gamma function is called foo().
+#    Linux has lgamma(3m). The default is -DGAMMA=gamma.
 #  -DHAVE_GETCWD if your unix uses getcwd() instead of getwd()
 #    this is needed by HP-UX and Cray Unicos systems.
 #  -DHAVE_GETWD if you have getwd()
@@ -160,15 +159,10 @@ CFLAGS = $(COPTS) $(OPTIONS)
 # See other terminal defines in term.h.
 # Define ULTRIX_KLUDGE if you have the every-other plot problem in Ultrix X11.
 #
-# -DAPOLLO      Apollo Graphics Primitive Resource (window resize after replot)
-# -DGPR         Apollo Graphics Primitive Resource (fixed-size window)
 # -DCGI         SCO CGI
 # -DSUN         Sun Microsystems Workstation
 # -DLINUXVGA	Linux PC with SuperVGA library
 # -DUNIXPC      unixpc (ATT 3b1 or ATT 7300)
-# -DUNIXPLOT    unixplot
-# -DGNUGRAPH    use GNU graphics version of UNIX plot library
-#               This can only be used in combination with -DUNIXPLOT
 # -DX11         X11 Window System (This is $(PLOTXFLAG))
 TERMFLAGS = -I. -Iterm $(PLOTXFLAG)
 
@@ -177,11 +171,9 @@ TERMFLAGS = -I. -Iterm $(PLOTXFLAG)
 #  You shouldn't need to adjust this; again, it is handled by the
 # machine-dependent definitions below.
 #
-#  -lplot if you have -DUNIXPLOT in TERMFLAGS
 #  -lsuntool -lsunwindow -lpixrect  if you have -DSUN in TERMFLAGS
 #  -lccgi if -DCGI in TERMFLAGS
 #  -lvga if -DLINUXVGA in TERMFLAGS
-#  -lmgr -lpixrect if -DMGR in TERMFLAGS. (conflicts with SunView)
 #  -lreadline (or -Lsomewhere libreadline.a) if you use the gnu version
 #  -ltermcap might be necessary after -lreadline
 LIBS = -lm # -lplot is no longer shipped on SUNs
@@ -192,7 +184,7 @@ OBJS = bitmap.o command.o contour.o eval.o graphics.o graph3d.o help.o \
        internal.o misc.o parse.o plot.o plot2d.o plot3d.o readline.o \
        scanner.o set.o show.o specfun.o standard.o stdfn.o term.o time.o \
        util.o binary.o interpol.o fit.o matrix.o datafile.o alloc.o \
-       util3d.o hidden3d.o variable.o
+       util3d.o hidden3d.o variable.o stats.o
 
 NEXTOBJS = epsviewe.o
 ############################################################
@@ -224,15 +216,6 @@ DEC_FLAGS = \
            PLOTXFLAG="$(PLOTXFLAG)" GNUPLOT_X11=$(GNUPLOT_X11) \
            X11INSTALL="$(X11INSTALL)" \
            TERMFLAGS="$(TERMFLAGS) -DULTRIX_KLUDGE"
-
-APOLLO_FLAGS = \
-           CFLAGS="$(COPTS) $(OPTIONS) -DGAMMA=lgamma" \
-           LIBS="$(LIBS)" X11FLAGS="$(X11FLAGS)" \
-           X11INCLUDES="$(X11INCLUDES)" \
-           X11LIBS="-L/usr/lib/X11 -lX11" \
-           PLOTXFLAG="$(PLOTXFLAG)" GNUPLOT_X11=$(GNUPLOT_X11) \
-           X11INSTALL="$(X11INSTALL)" \
-           TERMFLAGS="$(TERMFLAGS) -DAPOLLO -DGPR"
 
 HP8_FLAGS = \
            CFLAGS="$(COPTS) $(OPTIONS) -DHAVE_GETCWD" \
@@ -280,20 +263,11 @@ SUN_X11_FLAGS = \
            X11INSTALL="$(X11INSTALL)" \
            TERMFLAGS="$(TERMFLAGS)"
 
-SUN_X11_MGR_FLAGS = \
-           CFLAGS="$(COPTS) $(OPTIONS)" \
-           LIBS="-lmgr -lpixrect -L/usr/mgr/lib $(LIBS)" \
-           X11FLAGS="$(X11FLAGS)" X11INCLUDES="$(X11INCLUDES)" \
-           X11LIBS="$(X11LIBS)" \
-           PLOTXFLAG="$(PLOTXFLAG)" GNUPLOT_X11=$(GNUPLOT_X11) \
-           X11INSTALL="$(X11INSTALL)" \
-           TERMFLAGS="-I/usr/mgr/include -I. -Iterm -DMGR $(TERMFLAGS)"
-
 CGI_FLAGS = \
            CFLAGS="$(COPTS) $(OPTIONS) -Dunix" \
            LIBS="-lccgi $(LIBS)" X11FLAGS=" " X11INCLUDES=" " \
            X11LIBS=" " PLOTXFLAG=" " GNUPLOT_X11=" " X11INSTALL=x11_noinstall \
-           TERMFLAGS="-I. -Iterm -DUNIXPLOT -DCGI"
+           TERMFLAGS="-I. -Iterm -DCGI"
 
 3B1_FLAGS = \
            CFLAGS="$(COPTS) $(OPTIONS) -DHAVE_GETCWD" \
@@ -308,28 +282,28 @@ CGI_FLAGS = \
            X11FLAGS=" " X11INCLUDES=" " \
            X11LIBS=" " \
            PLOTXFLAG=" " GNUPLOT_X11=" " X11INSTALL=x11_noinstall \
-           TERMFLAGS="-I. -Iterm -DUNIXPLOT" LIBS="$(LIBS) -lplot"
+           TERMFLAGS="-I. -Iterm" LIBS="$(LIBS) -lplot"
 
 386IX_FLAGS = \
            CFLAGS="$(COPTS) $(OPTIONS) -DHAVE_GETCWD -DTCSETSW -DTCGETS" \
            LIBS="$(LIBS) -lcposix" X11FLAGS=" " X11INCLUDES=" " \
            X11LIBS=" " PLOTXFLAG=" " GNUPLOT_X11=" " \
            X11INSTALL=x11_noinstall \
-           TERMFLAGS="-I. -Iterm -DUNIXPLOT"
+           TERMFLAGS="-I. -Iterm"
 
 386IX_X11_FLAGS = \
            CFLAGS="$(COPTS) $(OPTIONS) -DHAVE_GETCWD -DTCSETSW -DTCGETS" \
            LIBS="$(LIBS) -lcposix" X11FLAGS="$(X11FLAGS)" X11INCLUDES="$(X11INCLUDES)" \
            X11LIBS="$(X11LIBS)" PLOTXFLAG="$(PLOTXFLAG)" GNUPLOT_X11="$(GNUPLOT_X11)" \
            X11INSTALL= "$(X11INSTALL)" \
-           TERMFLAGS="-I. -Iterm -DUNIXPLOT -DX11"
+           TERMFLAGS="-I. -Iterm -DX11"
 
 ISC22_X11_FLAGS = \
            CFLAGS="$(COPTS) $(OPTIONS) -DHAVE_GETCWD -DISC22" \
            LIBS="$(LIBS) -lplot -lcposix" X11FLAGS="$(X11FLAGS)" X11INCLUDES="$(X11INCLUDES)" \
            X11LIBS="$(X11LIBS) -linet -lpt -lcposix" PLOTXFLAG="$(PLOTXFLAG)" GNUPLOT_X11="$(GNUPLOT_X11)" \
            X11INSTALL= "$(X11INSTALL)" \
-           TERMFLAGS="-I. -Iterm -DUNIXPLOT -DX11"
+           TERMFLAGS="-I. -Iterm -DX11"
 
 AIX_FLAGS = \
            CFLAGS="$(COPTS) $(OPTIONS) -DERF -DGAMMA=gamma -DXPG3_LOCALE -Dunix" \
@@ -396,6 +370,7 @@ PTX_X11_FLAGS = \
 SEQUENT_X11_FLAGS = \
        CFLAGS="$(COPTS) $(OPTIONS) -DHAVE_SGTTY_H -DCRIPPLED_SELECT" \
        LIBS="$(LIBS) -lplot" X11FLAGS="$(X11FLAGS) -DX_WCHAR" \
+
        X11INCLUDES="$(X11INCLUDES)" \
        X11LIBS="-lX11 -lseq " \
        PLOTXFLAG="$(PLOTXFLAG)" GNUPLOT_X11="$(GNUPLOT_X11)" \
@@ -440,23 +415,23 @@ DIRS = term demo docs docs/latextut
 CSOURCE1 = bf_test.c binary.c command.c set.c show.c
 CSOURCE2 = help.c graphics.c graph3d.c internal.c
 CSOURCE3 = misc.c eval.c parse.c plot.c plot2d.o plot3d.o readline.c scanner.c standard.c stdfn.c
-CSOURCE4 = bitmap.c term.c time.c util.c version.c fit.c matrix.c variable.c tabulate.c
-CSOURCE5 = term/ai.trm term/amiga.trm term/aed.trm \
+CSOURCE4 = bitmap.c term.c time.c util.c version.c fit.c matrix.c variable.c tabulate.c stats.c
+CSOURCE5 = term/ai.trm term/aed.trm \
 	term/cgi.trm term/corel.trm \
 	term/djsvga.trm term/dumb.trm \
 	term/dxf.trm term/dxy.trm term/debug.trm \
 	term/emxvga.trm term/eepic.trm term/epson.trm term/excl.trm \
 	term/fig.trm term/grass.trm term/hp26.trm term/hp2648.trm term/hpgl.trm \
-	term/hp500c.trm term/hpljii.trm term/metafont.trm term/mgr.trm\
-	term/apollo.trm term/gpr.trm term/hppj.trm
+	term/hp500c.trm term/hpljii.trm term/metafont.trm\
+	term/hppj.trm
 CSOURCE6 = term/impcodes.h term/imagen.trm term/next.trm term/object.h \
 	term/kyo.trm term/latex.trm term/mif.trm \
-	term/pbm.trm term/pslatex.trm term/gpic.trm term/gnugraph.trm
+	term/pbm.trm term/pslatex.trm term/gpic.trm
 CSOURCE7 = term/post.trm term/pstricks.trm term/qms.trm term/regis.trm \
-	term/rgip.trm term/sun.trm\
+	term/sun.trm\
 	term/t410x.trm term/tek.trm term/texdraw.trm \
 	term/tgif.trm term/tpic.trm \
-	term/unixpc.trm term/unixplot.trm \
+	term/unixpc.trm \
 	term/v384.trm term/vws.trm term/x11.trm term/xlib.trm term/linux.trm
 CSOURCE8 = contour.c specfun.c gplt_x11.c interpol.c
 CONFIGURE = configure configure.in Makefile.in docs/Makefile.in\
@@ -477,8 +452,8 @@ DEMOS = demo/1.dat demo/2.dat demo/3.dat demo/contours.dem \
 	demo/multimsh.dem demo/whale.dat demo/hemisphr.dat \
 	demo/scatter.dem demo/scatter2.dat demo/singulr.dem demo/klein.dat
 
-ETC = Copyright 0README README.gnu README.ami makefile.unx makefile.vms \
-	linkopt.amg makefile.amg makefile.ami linkopt.vms buildvms.com \
+ETC = Copyright 0README README.gnu makefile.unx makefile.vms \
+	linkopt.amg makefile.amg linkopt.vms buildvms.com \
 	lasergnu makefile.r makefile.nt makefile.g 0FAQ 0BUGS\
 	term/README History gnuplot.el intergra.x11 0INSTALL README.3p1\
 	README.3p2 README.3p3 README.3p4 README.pro README.nex README.x11 \
@@ -489,12 +464,10 @@ ETC = Copyright 0README README.gnu README.ami makefile.unx makefile.vms \
 BETA = 
 # PC-specific files
 PC = corgraph.asm corplot.c header.mac hrcgraph.asm lineproc.mac \
-	linkopt.msc makefile.msc makefile.tc makefile.st makefile.djg \
-	pcgraph.asm gnuplot.def makefile.286 makefile.emx \
-	makefile.ztc linkopt.ztc term/fg.trm term/pc.trm 
+	makefile.djg pcgraph.asm makefile.emx term/pc.trm 
 WINDOWS = makefile.win makefile.msw README.win win/wcommon.h \
-	win/wgnuplib.c win/wgnuplib.def win/wgnuplib.h win/wgnuplib.rc \
-	win/wgnuplot.def win/wgnuplot.hpj win/wgnuplot.mnu win/wgnuplot.rc \
+	win/wgnuplib.c win/wgnuplib.h win/wgnuplib.rc \
+	win/wgnuplot.hpj win/wgnuplot.mnu win/wgnuplot.rc \
 	win/wgraph.c win/winmain.c win/wmenu.c win/wpause.c \
 	win/wprinter.c win/wresourc.h win/wtext.c win/wtext.h \
 	win/geticon.c docs/doc2rtf.c term/win.trm
@@ -507,7 +480,7 @@ OS2 = makefile.os2 os2/makefile os2/dialogs.c os2/dialogs.h os2/gclient.c \
 DOCS1 = docs/makefile docs/README docs/checkdoc.c docs/doc2gih.c \
 	docs/doc2hlp.c docs/doc2hlp.vms docs/doc2ms.c docs/doc2tex.c \
 	docs/gnuplot.1 docs/lasergnu.1 docs/toc_entr.sty docs/doc2info.pl \
-	docs/titlepag.ms docs/titlepag.tex docs/makefile.ami \
+	docs/titlepag.ms docs/titlepag.tex \
 	docs/doc2rtf.c
 DOCS2 = docs/gnuplot.doc docs/gpcard.tex
 DOCS3 = docs/latextut/makefile docs/latextut/eg1.plt \
@@ -521,7 +494,6 @@ DOCS3 = docs/latextut/makefile docs/latextut/eg1.plt \
 info:
 	@echo "Please do a 'make <MACHINE>' where <MACHINE> is one of the following:"
 	@echo
-	@echo "apollo       for Apollo running SR10.3 with Apollo's X11"
 	@echo "dec_osf      for Dec3100/5000 running DEC OSF/1 v1.0"
 	@echo "dec          for Dec3100/5000 running Ultrix 3.1d with MIT's X11"
 	@echo "hp8          for HP/9000 700 series running HP/UX 8.0 with MIT's X11R4"
@@ -550,9 +522,6 @@ info:
 	@echo "Examples:"
 	@echo
 	@echo "         make x11"
-	@echo "         make apollo"
-	@echo "         make apollo       OPTIONS='-DNOCWDRC' "
-	@echo "         make apollo       DEST='/usr/um/misc/bin' "
 	@echo "         make dec"
 	@echo "         make hp"
 	@echo "         make next"
@@ -604,9 +573,6 @@ dec_osf:
 dec:
 	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(DEC_FLAGS)      $(TARGET)
 
-apollo:
-	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(APOLLO_FLAGS)   $(TARGET)
-
 hp8:
 	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(HP8_FLAGS)       $(TARGET)
 
@@ -627,9 +593,6 @@ sun:
 
 sun_x11:
 	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(SUN_X11_FLAGS)  $(TARGET)
-
-sun_x11_mgr:
-	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(SUN_X11_MGR_FLAGS)  $(TARGET)
 
 sgi:
 	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(SGI_FLAGS)      $(TARGET)
@@ -713,14 +676,13 @@ install:
 	@echo
 	@echo "Please do a 'make <MACHINE> TARGET=Install' where <MACHINE> is one of the following:"
 	@echo
-	@echo "apollo, dec, hp, sun, sun_x11, sgi, sgix11, cgi,"
+	@echo "dec, hp, sun, sun_x11, sgi, sgix11, cgi,"
 	@echo "next, next_x11, 3b1, 386ix, 386ix_x11, aix32, aix32o,"
 	@echo "x11, cray, cray_x11, ptx_x11, sequent_x11, convex_x11"
 	@echo
 	@echo "Examples:"
 	@echo
 	@echo "         make x11          TARGET=Install "
-	@echo "         make apollo       TARGET=Install "
 	@echo "         make dec          TARGET=Install "
 	@echo "         make hp           TARGET=Install "
 	@echo "         make sun          TARGET=Install HELPDEST='/usr/um/misc/lib BINDIR='/usr/um/misc/bin' "

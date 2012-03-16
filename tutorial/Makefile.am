@@ -3,7 +3,7 @@ AUTOMAKE_OPTIONS = foreign 1.2h
 
 ##plt-files-begin
 PLT_FILES = eg1.plt eg2.plt eg3.plt eg4.plt eg5.plt eg6.plt eg7.plt \
-linepoin.plt test.plt 
+linepoin.plt test.plt test_tikz.plt 
 ##plt-files-end
 
 EXTRA_DIST = Makefile.am.in $(PLT_FILES) \
@@ -78,6 +78,6 @@ Makefile.am: Makefile.am.in
 	echo PLT_FILES = *.plt | fmt | (tr '\012' @; echo ) \
 	  |sed 's/@$$/%/;s/@/ \\@/g;' | tr @% '\012 ' >> $@t
 	sed -n '/^##plt-files-end/,$$p' $< >> $@t
-	chmod a-w $@t
+	chmod og-w $@t
 	mv $@t $@
 

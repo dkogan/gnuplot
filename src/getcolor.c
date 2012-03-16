@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: getcolor.c,v 1.24 2006/02/21 09:14:49 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: getcolor.c,v 1.32 2011/10/08 00:07:41 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - getcolor.c */
@@ -34,11 +34,7 @@ static char *RCSid() { return RCSid("$Id: getcolor.c,v 1.24 2006/02/21 09:14:49 
 static int calculate_color_from_formulae __PROTO((double, rgb_color *));
 #endif
 
-static char *dbl_to_str __PROTO((double val, char *dest));
-static double str_to_dbl __PROTO((char *s));
 static void color_components_from_gray __PROTO((double gray, rgb_color *color));
-static char *color_to_str __PROTO((rgb_color col, char *buf));
-static void str_to_color __PROTO((char *buf, rgb_color *col));
 static int interpolate_color_from_gray __PROTO((double, rgb_color *));
 static double get_max_dev __PROTO((rgb_color *colors, int j, double limit));
 static int is_extremum __PROTO((rgb_color left,rgb_color mid,rgb_color right));
@@ -105,79 +101,16 @@ palettes_differ(t_sm_palette *p1, t_sm_palette *p2)
 		return 1;
 	}
 	break;
+    case SMPAL_COLOR_MODE_CUBEHELIX:
+	return 1;
+	break;
     } /* case GRADIENT */
     } /* switch() */
 
     return 0;  /* no real difference found */
 }
 
-
-/* Store double value from [0,1] in 2 characters. Resolution is 6.1e-5.
- * No '\n' are generated. */
-static char *dbl_to_str(double val, char *dest)
-{
-    unsigned int ival = (unsigned int) (((1 << 14) - 1) * val);
-
-    dest[0] = (ival >> 7) + 33;
-    dest[1] = (ival & 127) + 33;
-    return dest;
-}
-
-/* Reverse of dbl_to_str(): map 2 characters to double in [0,1] */
-static double
-str_to_dbl(char *s)
-{
-    unsigned int ival =
-	(((unsigned int) (s[0] - 33) & 127) << 7)
-	| (unsigned int) ((s[1] - 33) & 127);
-    double val = ((double) ival) / ((1 << 14) - 1);
-
-    return val;
-}
-
-
-/* Save rgb_color to 6 characters which are no '\n'. */
-static char
-*color_to_str(rgb_color col, char *buf)
-{
-    dbl_to_str(col.r, buf + 0);
-    dbl_to_str(col.g, buf + 2);
-    dbl_to_str(col.b, buf + 4);
-    buf[6] = 0;
-    return buf;
-}
-
-/* Restore rgb_color from 6 characters  */
-static void
-str_to_color(char *buf, rgb_color *col)
-{
-    col->r = str_to_dbl(buf + 0);
-    col->g = str_to_dbl(buf + 2);
-    col->b = str_to_dbl(buf + 4);
-}
-
-
-/* Store a gradient entry in 8 characters which do not contain '\n' */
-char *
-gradient_entry_to_str(gradient_struct *gs)
-{
-    static char buf[20];
-    dbl_to_str(gs->pos, buf);
-    color_to_str(gs->col, buf + 2);
-    return buf;
-}
-
-/* Gestore gradient entry from string */
-void
-str_to_gradient_entry(char *s, gradient_struct *gs)
-{
-    gs->pos = str_to_dbl(s);
-    str_to_color(s + 2, & (gs->col));
-}
-
-
 #define CONSTRAIN(x) ((x) < 0 ? 0 : ((x) > 1 ? 1 : (x)))
-
 
 /*  This one takes the gradient defined in sm_palette.gradient and
  *  returns an interpolated color for the given gray value.  It
@@ -319,6 +252,21 @@ color_components_from_gray(double gray, rgb_color *color)
 	calculate_color_from_formulae(gray, color);
 	break;
 #endif /* !GPLT_X11_MODE */
+    case SMPAL_COLOR_MODE_CUBEHELIX: {
+	double phi, a;
+	phi = 2. * M_PI * (sm_palette.cubehelix_start/3.
+			+  gray * sm_palette.cubehelix_cycles);
+	if (sm_palette.gamma != 1.0)
+	    gray = pow(gray, 1./sm_palette.gamma);
+	a = sm_palette.cubehelix_saturation * gray * (1.-gray) / 2.;
+	color->r = gray + a * (-0.14861 * cos(phi) + 1.78277 * sin(phi));
+	color->g = gray + a * (-0.29227 * cos(phi) - 0.90649 * sin(phi));
+	color->b = gray + a * ( 1.97294 * cos(phi));
+	if (color->r > 1.0) color->r = 1.0; if (color->r < 0.0) color->r = 0.0;
+	if (color->g > 1.0) color->g = 1.0; if (color->g < 0.0) color->g = 0.0;
+	if (color->b > 1.0) color->b = 1.0; if (color->b < 0.0) color->b = 0.0;
+	}	
+	break;
     default:
 	fprintf(stderr, "%s:%d ooops: Unknown colorMode '%c'.\n",
 		__FILE__, __LINE__, (char)(sm_palette.colorMode));
@@ -378,15 +326,47 @@ rgb255_from_rgb1(rgb_color rgb1, rgb255_color *rgb255)
 
 /*
  *  Convenience function to map gray values to R, G and B values in [0,1],
- *  taking care of palette maxcolors (i.e., discrete nb of colors).
+ *  limiting the resolution of sampling a continuous palette to use_maxcolors.
+ *
+ *  EAM Sep 2010 - Guarantee that for palettes with multiple segments
+ *  (created by 'set palette defined ...') the mapped gray value is always
+ *  in the appropriate segment.  This has the effect of overriding 
+ *  use_maxcolors if the defined palette has more segments than the nominal
+ *  limit.
  */
 void
 rgb1maxcolors_from_gray(double gray, rgb_color *color)
 {
     if (sm_palette.use_maxcolors != 0)
-	gray = floor(gray * sm_palette.use_maxcolors)
-	    / (sm_palette.use_maxcolors-1);
+	gray = quantize_gray(gray);
+
     rgb1_from_gray(gray, color);
+}
+
+double 
+quantize_gray( double gray )
+{
+    double degray = floor(gray * sm_palette.use_maxcolors)
+			/ (sm_palette.use_maxcolors-1);
+
+    if (sm_palette.colorMode == SMPAL_COLOR_MODE_GRADIENT) {
+	int j;
+	if ((sm_palette.gradient_num <= 2) && (degray == 0))
+	    ; /* Backward compatibility with common case of 1 segment */
+	else for (j=0; j<sm_palette.gradient_num; j++) {
+	    if ((gray >= sm_palette.gradient[j].pos)
+	    &&  (gray <  sm_palette.gradient[j+1].pos)) {
+		if ((degray < sm_palette.gradient[j].pos)
+		||  (degray > sm_palette.gradient[j+1].pos))
+		    degray = (sm_palette.gradient[j].pos
+			    + sm_palette.gradient[j+1].pos) / 2.;
+	    }
+	    if (gray < sm_palette.gradient[j+1].pos)
+		break;
+	}
+    }
+
+    return degray;	
 }
 
 
@@ -511,7 +491,6 @@ approximate_palette(t_sm_palette *palette, int samples,
     gradient = (gradient_struct*)
 	malloc(gradient_size * sizeof(gradient_struct));
     colors = (rgb_color*) malloc(colors_size * sizeof(rgb_color));
-    assert(gradient && colors);
 
     /* start (gray=0.0) is needed */
     cnt = 0;
@@ -712,8 +691,8 @@ GetColorValueFromFormula(int formula, double x)
 	break;
 	/*
 	   IMPORTANT: if any new formula is added here, then:
-	   (1) its postscript counterpart must be added into term/post.trm,
-	   search for "ps_math_color_formulae[]"
+	   (1) its postscript counterpart must be added to the array
+	   ps_math_color_formulae[] below.
 	   (2) number of colours must be incremented in color.c: variable
 	   sm_palette, first item---search for "t_sm_palette sm_palette = "
 	 */

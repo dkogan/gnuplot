@@ -1,7 +1,10 @@
+<!DOCTYPE HTML>
 <html>
-<head><title>Gnuplot demo scripts run through the HTML canvas terminal</title>
-<link text="text/css" href="gnuplot_demo.css" rel="stylesheet">
-<link text="text/css" href="gnuplot_mouse.css" rel="stylesheet">
+<head>
+<meta charset="UTF-8"> 
+<title>Gnuplot demo scripts run through the HTML canvas terminal</title>
+<link type="text/css" href="gnuplot_demo.css" rel="stylesheet">
+<link type="text/css" href="gnuplot_mouse.css" rel="stylesheet">
 </head>
 
 <body oncontextmenu="return false;">
@@ -18,10 +21,10 @@
 <p>
 The canvas driver for gnuplot was contributed by Bruce Lueckenhoff, and extended by Ethan Merritt (sfeam).
 To view the results you need a browser that supports the HTML 5 'canvas' element.
-That currently means firefox, safari, opera, or konqueror (KDE 4.2).
+</p>
 
 
-<table border="0" width="100%">
+<table width="100%">
 <tbody><tr valign="top">
 
 <td rowspan=2>
@@ -40,6 +43,7 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
     <li><a href="param.html">parametric&nbsp;functions</a></li>
     <li><a href="vector.html">vector fields</a></li>
     <li><a href="circles.html">circles</a></li>
+    <li><a href="boxplot.html">boxplots</a></li>
     </ul>
 
     <h4>Math functions</h4>
@@ -51,6 +55,7 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
     <li><a href="prob.html">probability (more)</a></li>
     <li><a href="random.html">random numbers</a></li>
     <li><a href="bivariat.html">recursion, etc...</a></li>
+    <li><a href="stats.html">data statistics</a></li>
     </ul>
 
     <h4>Animation</h4>
@@ -61,7 +66,7 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
 </td>
 
 <td rowspan=2>
-    <h4>Surfaces and<br>3D plotting</h4>
+    <h4>3D plots and surfaces</h4>
     <ul>
     <li><a href="surface1.html">surfaces 1</a></li>
     <li><a href="surface2.html">surfaces 2</a></li>
@@ -84,9 +89,8 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
     <h4>Binary and Image data </h4>
     <ul>
     <li><a href="binary.html">binary data</a></li>
-    <li><font color=gray>image data - works OK</font></li>
-    <li><font color=gray>&nbsp;&nbsp;but output is huge</font></li>
     <li><a href="rgbalpha.html">RGB + alpha channel</a></li>
+    <li><a href="barchart_art.html">rescaled images</a></li>
     </ul>
 
     <h4>Colors</h4>
@@ -102,7 +106,6 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
     <ul>
     <li><a href="controls.html">control models</a></li>
     <li><a href="discrete.html">discrete&nbsp;contours</a></li>
-    <!--- <li><a href="electron.html">electron</a></li> --->
     <li><a href="finance.html">financial data</a></li>
     <li><a href="scatter.html">non-gridded data</a></li>
     <li><a href="running_avg.html">running averages</a></li>
@@ -112,7 +115,6 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
 
     <h4>Text options</h4>
     <ul>
-    <li><a href="textcolor.html">colored text</a></li>
     <li><a href="enhanced_utf8.html">enhanced text</a></li>
     <li><a href="datastrings.html">string data</a></li>
     <li><a href="cities.html">variable font size</a></li>
@@ -143,7 +145,6 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
 
 <tr valign=top><td align=center>
 
-<script src="gnuplot_mouse.js"></script>
 
 <h3>Example of mouse tracking, zoom/unzoom</h3>
 
@@ -153,27 +154,28 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
 	<td>
 	    <script src="canvastext.js"></script>
 	    <script src="gnuplot_common.js"></script>
+	    <script src="gnuplot_mouse.js"></script>
 	    <script src="mouseable.js"></script>
-	    <canvas id="gnuplot_canvas" width="500" height="350" onkeypress=do_hotkey() tabindex="0"></canvas>
+	    <canvas id="gnuplot_canvas" width="500" height="350" onkeypress=gnuplot.do_hotkey() tabindex="0"></canvas>
 	    <script>
-		var grid_lines = 1;
-		var zoomed = false;
-		if (window.attachEvent) {window.attachEvent('onload', gnuplot_init);}
-		else if (window.addEventListener) {window.addEventListener('load', gnuplot_init, false);}
-		else {document.addEventListener('load', gnuplot_init, false);}
-		if (window.attachEvent) {window.attachEvent('onload', gnuplot_canvas);}
-		else if (window.addEventListener) {window.addEventListener('load', gnuplot_canvas, false);}
-		else {document.addEventListener('load', gnuplot_canvas, false);}
+		gnuplot.grid_lines = true;
+		gnuplot.zoomed = false;
+		gnuplot.active_plot_name = "gnuplot_canvas";
+		gnuplot.active_plot = function(){gnuplot_canvas();};
+		if (window.attachEvent) {window.attachEvent('onload', gnuplot.active_plot);}
+		else if (window.addEventListener) {window.addEventListener('load', gnuplot.active_plot, false);}
+		else {document.addEventListener('load', gnuplot.active_plot, false);}
 	    </script>
 	</td></tr>
 	<tr><td>
 	    <table id="gnuplot_mousebox" class="mbunder">
 	    <tr>
-		<td class="icon" onclick=toggle_grid><img src="grid.png" id="gnuplot_grid_icon" align=right alt="#" title="toggle grid"></td>
-		<td class="icon" onclick=unzoom><img src="previouszoom.png" id="gnuplot_unzoom_icon" align=right alt="unzoom" title="unzoom"></td>
-		<td class="icon" onclick=rezoom><img src="nextzoom.png" id="gnuplot_rezoom_icon" align=right alt="rezoom" title="rezoom"></td>
+		<td class="icon" onclick="gnuplot.toggle_grid();"><img src="grid.png" id="gnuplot_grid_icon" alt="#" title="toggle grid"></td>
+		<td class="icon" onclick="gnuplot.unzoom();"><img src="previouszoom.png" id="gnuplot_unzoom_icon" alt="unzoom" title="unzoom"></td>
+		<td class="icon" onclick="gnuplot.rezoom();"><img src="nextzoom.png" id="gnuplot_rezoom_icon" alt="rezoom" title="rezoom"></td>
 		<td class="icon"><a href="canvas_help.html">
 		                 <img src="help.png" align=right alt="help" title="help"></a></td>
+		<td class="icon" onclick='gnuplot.toggle_plot("gnuplot_canvas_plot_1")'>&#10112;</td>
 	        <td class="mb0">x</td>
 	        <td class="mb1"><span id="gnuplot_canvas_x">&nbsp;</span></td>
 	        <td class="mb0">y</td>
@@ -182,6 +184,7 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
 	<br>Note:
 	<ul><li>Zoom using right (Firefox, Konqueror) or center (Opera, Safari) mouse button
 	    <li>Mark point using left mouse button
+	    <li>&#10112; toggles first plot on/off&nbsp;&nbsp;  # toggles grid on/off
 	</ul>
 	</td></tr>
 	</table>
@@ -190,15 +193,14 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
 </td></tr>
 
 </tbody></table>
-</p>
 <hr>
 
 
-<table border="0" width="100%">
+<table width="100%">
 <tbody><tr valign="top">
 
     <td>
-    <i>This page created by Ethan Merritt<br>May 2009</i>
+    <i>This page created by Ethan Merritt<br>April 2011</i>
     </td>
 
     <td>
@@ -206,9 +208,9 @@ That currently means firefox, safari, opera, or konqueror (KDE 4.2).
     <li><a href="http://sourceforge.net/projects/gnuplot/">
 	Gnuplot development pages on SourceForge</a></li>
     <li>On-line PDF documentation in
-	<a href="http://gnuplot.sourceforge.net/docs_cvs/gnuplot.pdf">English</a>
+	<a href="http://gnuplot.sourceforge.net/docs/gnuplot.pdf">English</a>
 	and
-	<a href="http://gnuplot.sourceforge.net/docs_cvs/gnuplot-ja.pdf">Japanese</a></li>
+	<a href="http://gnuplot.sourceforge.net/docs/gnuplot-ja.pdf">Japanese</a></li>
     </ul>
     </td>
     

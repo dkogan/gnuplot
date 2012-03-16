@@ -36,14 +36,8 @@
 /* Define if libgd supports animated gifs. */
 #undef GIF_ANIMATION
 
-/* Define if you want to use the GNU version of the Unix plot library. */
-#undef GNUGRAPH
-
 /* Define if you want to use a gnuplot history file. */
 #undef GNUPLOT_HISTORY
-
-/* Define to allow 'fit' to create parameter error variables. */
-#undef GP_FIT_ERRVARS
 
 /* Define to allow command line macros. */
 #undef GP_MACROS
@@ -62,6 +56,9 @@
 
 /* Define to 1 if you have the `bzero' function. */
 #undef HAVE_BZERO
+
+/* libcairo support for eps (cairo >= 1.6) */
+#undef HAVE_CAIROEPS
 
 /* Define if you want the cairo-based terminals. */
 #undef HAVE_CAIROPDF
@@ -127,17 +124,20 @@
 /* Define to use gtk+ functions to handle cairo */
 #undef HAVE_GTK28
 
+/* define if you have libiconv and iconv.h */
+#undef HAVE_ICONV
+
 /* Define to 1 if you have the `index' function. */
 #undef HAVE_INDEX
 
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
-/* Define to 1 if you have the `isnan' function. */
-#undef HAVE_ISNAN
-
-/* Define if you use have kpsexpand (TeX). */
+/* Define if you want to use kpsexpand (TeX). */
 #undef HAVE_KPSEXPAND
+
+/* Define to 1 if you have the <langinfo.h> header file. */
+#undef HAVE_LANGINFO_H
 
 /* Define to 1 if you have the `lgamma' function. */
 #undef HAVE_LGAMMA
@@ -229,8 +229,8 @@
 /* Define to 1 if you have the <readline/readline.h> header file. */
 #undef HAVE_READLINE_READLINE_H
 
-/* Define to 1 if you have the <readline/tilde.h> header file. */
-#undef HAVE_READLINE_TILDE_H
+/* Define if your libreadline has rl_reset_after_signal */
+#undef HAVE_READLINE_RESET
 
 /* Define to 1 if you have the `rindex' function. */
 #undef HAVE_RINDEX
@@ -295,8 +295,14 @@
 /* Define to 1 if you have the `strncasecmp' function. */
 #undef HAVE_STRNCASECMP
 
+/* Define to 1 if you have the `strndup' function. */
+#undef HAVE_STRNDUP
+
 /* Define to 1 if you have the `strnicmp' function. */
 #undef HAVE_STRNICMP
+
+/* Define to 1 if you have the `strnlen' function. */
+#undef HAVE_STRNLEN
 
 /* Define to 1 if you have the `strrchr' function. */
 #undef HAVE_STRRCHR
@@ -376,6 +382,12 @@
 /* Define to 1 if you have the <vgagl.h> header file. */
 #undef HAVE_VGAGL_H
 
+/* Define to 1 if you have the <wchar.h> header file. */
+#undef HAVE_WCHAR_H
+
+/* Define to 1 if you have the `wcwidth' function. */
+#undef HAVE_WCWIDTH
+
 /* Define to 1 if `fork' works. */
 #undef HAVE_WORKING_FORK
 
@@ -397,14 +409,23 @@
 /* Define if this is a Linux system with SuperVGA library. */
 #undef LINUXVGA
 
-/* Define if you want to use the MGR Window system. */
-#undef MGR
+/* Define to 1 if malloc(0)==0 */
+#undef MALLOC_ZERO_RETURNS_ZERO
+
+/* Define if your libreadline has no rl_ding */
+#undef MISSING_RL_DING
+
+/* Define if your libreadline has no rl_force_update_display */
+#undef MISSING_RL_FORCED_UPDATE_DISPLAY
+
+/* Define if your libreadline has no rl_complete_with_tilde_expansion */
+#undef MISSING_RL_TILDE_EXPANSION
 
 /* Define if this is an MSDOS system. */
 #undef MSDOS
 
-/* Define if you do not want to read .gnuplot in the current directory. */
-#undef NOCWDRC
+/* Define to disable terminals that depend on code in bitmap.c */
+#undef NO_BITMAP_SUPPORT
 
 /* Name of package */
 #undef PACKAGE
@@ -436,14 +457,14 @@
 /* Define to 1 if the C compiler supports function prototypes. */
 #undef PROTOTYPES
 
+/* Define if you want the Qt terminal. */
+#undef QTTERM
+
 /* Define if you want to use the included readline function. */
 #undef READLINE
 
 /* Define as the return type of signal handlers (`int' or `void'). */
 #undef RETSIGTYPE
-
-/* Define if you want to use the Redwood Graphics Interface Protocol. */
-#undef RGIP
 
 /* Define to the type of arg 1 for `select'. */
 #undef SELECT_TYPE_ARG1
@@ -469,14 +490,40 @@
 /* Define if the 3dkit libray is present. */
 #undef THREEDKIT
 
-/* Define if you want to use the standard Unix plot library. */
-#undef UNIXPLOT
+/* Define if you want to read .gnuplot from current directory (SECURITY
+   RISK!). */
+#undef USE_CWDRC
 
 /* Define if you want to use the experimental ggi driver. */
 #undef USE_GGI_DRIVER
 
 /* Define if you want to have mouse support in interactive terminals. */
 #undef USE_MOUSE
+
+/* Define to add support for generating a statistical summary of data */
+#undef USE_STATS
+
+/* Enable extensions on AIX 3, Interix.  */
+#ifndef _ALL_SOURCE
+# undef _ALL_SOURCE
+#endif
+/* Enable GNU extensions on systems that have them.  */
+#ifndef _GNU_SOURCE
+# undef _GNU_SOURCE
+#endif
+/* Enable threading extensions on Solaris.  */
+#ifndef _POSIX_PTHREAD_SEMANTICS
+# undef _POSIX_PTHREAD_SEMANTICS
+#endif
+/* Enable extensions on HP NonStop.  */
+#ifndef _TANDEM_SOURCE
+# undef _TANDEM_SOURCE
+#endif
+/* Enable general extensions on Solaris.  */
+#ifndef __EXTENSIONS__
+# undef __EXTENSIONS__
+#endif
+
 
 /* Define to enable multi-byte font support for x11 */
 #undef USE_X11_MULTIBYTE
@@ -487,7 +534,7 @@
 /* Define if the vgagl libray is present. */
 #undef VGAGL
 
-/* Define to allow zooming or refresh of volatile data. EXPERIMENTAL */
+/* Define to allow zooming or refresh of volatile data. */
 #undef VOLATILE_REFRESH
 
 /* Define if you want the wxwidgets terminal. */
@@ -498,6 +545,16 @@
 
 /* Define to 1 if the X Window System is missing or not being used. */
 #undef X_DISPLAY_MISSING
+
+/* Define to 1 if on MINIX. */
+#undef _MINIX
+
+/* Define to 2 if the system does not provide POSIX.1 features except with
+   this defined. */
+#undef _POSIX_1_SOURCE
+
+/* Define to 1 if you need to in order for `stat' and other things to work. */
+#undef _POSIX_SOURCE
 
 /* Define like PROTOTYPES; this can be used by system headers. */
 #undef __PROTOTYPES

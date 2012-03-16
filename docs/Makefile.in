@@ -1,19 +1,20 @@
 # Makefile.in for GNUPLOT documentation
 #
-# Note that the top-level file for documentation is gnuplot.doc.
+# Note that the master file for generating documentation is gnuplot.doc.
 # See README.
 #
 # To print manual:
 #
 #   For LaTeX
 #       make gnuplot.dvi
-#       (print or view gnuplot.dvi)
-#     or (requires pdflatex)
+#     or
 #       make pdf
-#       (print or view gnuplot.pdf)
+#	(requires pdflatex)
+#     or
+#	make pdffigures
+#	(requires also graphicx and picins packages) 
 #     or
 #       make ps
-#       (print or view gnuplot.ps)
 #
 #   For groff (GNU troff}
 #       make grotxt
@@ -70,7 +71,7 @@ POST_UNINSTALL = :
 
 INFO_DEPS = $(srcdir)/gnuplot.info
 
-CC     = @CC@
+CC     = @CC_FOR_BUILD@
 CPP    = @CPP@
 DEFS   = @DEFS@
 DEFAULT_INCLUDES = -I. -I$(srcdir) -I.. -I$(top_builddir)
@@ -110,27 +111,25 @@ PDFLATEX = @PDFLATEX@
 DVIPS = @DVIPS@
 
 T = $(top_srcdir)/term/
-CORETERM = $(T)aed.trm $(T)ai.trm $(T)amiga.trm $(T)apollo.trm \
-$(T)aquaterm.trm $(T)be.trm $(T)cairo.trm $(T)canvas.trm \
-$(T)cgi.trm $(T)cgm.trm $(T)corel.trm $(T)debug.trm $(T)djsvga.trm $(T)dumb.trm \
-$(T)dxf.trm $(T)dxy.trm $(T)eepic.trm $(T)emf.trm $(T)emxvga.trm \
-$(T)epson.trm $(T)excl.trm $(T)fg.trm $(T)fig.trm $(T)gd.trm \
-$(T)ggi.trm $(T)gnugraph.trm $(T)gpic.trm $(T)gpr.trm \
-$(T)grass.trm $(T)hp26.trm $(T)hp2648.trm $(T)hp500c.trm $(T)hpgl.trm \
-$(T)hpljii.trm $(T)hppj.trm $(T)imagen.trm $(T)kyo.trm $(T)lua.trm \
-$(T)latex.trm $(T)linux.trm $(T)mac.trm $(T)metafont.trm $(T)metapost.trm \
-$(T)mgr.trm $(T)mif.trm $(T)next.trm $(T)openstep.trm \
-$(T)pbm.trm $(T)pc.trm $(T)pdf.trm $(T)pm.trm $(T)post.trm \
-$(T)pslatex.trm $(T)pstricks.trm $(T)qms.trm $(T)regis.trm $(T)rgip.trm \
-$(T)sun.trm $(T)svg.trm $(T)t410x.trm $(T)tek.trm \
-$(T)texdraw.trm $(T)tgif.trm $(T)tkcanvas.trm $(T)tpic.trm $(T)unixpc.trm \
-$(T)unixplot.trm $(T)v384.trm $(T)vgagl.trm $(T)vws.trm $(T)win.trm \
-$(T)wxt.trm $(T)x11.trm $(T)xlib.trm
+CORETERM = $(T)aed.trm $(T)ai.trm $(T)aquaterm.trm $(T)be.trm \
+$(T)cairo.trm $(T)canvas.trm $(T)cgi.trm $(T)cgm.trm $(T)context.trm \
+$(T)corel.trm $(T)debug.trm $(T)djsvga.trm $(T)dumb.trm $(T)dxf.trm \
+$(T)dxy.trm $(T)eepic.trm $(T)emf.trm $(T)emxvga.trm $(T)epson.trm \
+$(T)estimate.trm $(T)excl.trm $(T)fig.trm $(T)gd.trm $(T)ggi.trm \
+$(T)gpic.trm $(T)grass.trm $(T)hp2648.trm $(T)hp26.trm $(T)hp500c.trm \
+$(T)hpgl.trm $(T)hpljii.trm $(T)hppj.trm $(T)imagen.trm $(T)kyo.trm \
+$(T)latex.trm $(T)linux.trm $(T)lua.trm $(T)mac.trm $(T)metafont.trm \
+$(T)metapost.trm $(T)mif.trm $(T)next.trm $(T)openstep.trm $(T)pbm.trm \
+$(T)pdf.trm $(T)pm.trm $(T)post.trm $(T)pslatex.trm \
+$(T)pstricks.trm $(T)qms.trm $(T)qt.trm $(T)regis.trm $(T)sun.trm \
+$(T)svg.trm $(T)t410x.trm $(T)tek.trm $(T)texdraw.trm $(T)tgif.trm \
+$(T)tkcanvas.trm $(T)tpic.trm $(T)v384.trm $(T)vgagl.trm \
+$(T)vws.trm $(T)win.trm $(T)wxt.trm $(T)x11.trm $(T)xlib.trm
 
 DIST_COMMON = README Makefile.in
 
-SOURCES = checkdoc.c doc2gih.c doc2hlp.c doc2ipf.c doc2ms.c doc2rnh.c \
-doc2rtf.c doc2tex.c termdoc.c xref.c
+SOURCES = checkdoc.c doc2gih.c doc2hlp.c doc2ipf.c doc2ms.c doc2rnh.c	\
+doc2rtf.c doc2tex.c windows/doc2html.c termdoc.c xref.c
 
 TERM_H = $(top_srcdir)/src/term.h
 
@@ -138,16 +137,20 @@ BUILT_SOURCES = allterm.h
 
 HEADERS = doc2x.h xref.h
 
-EXTRA_DIST = doc2texi.el gnuplot.doc gnuplot.texi gpcard.tex makefile.ami \
-makefile.dst titlepag.ipf titlepag.ms titlepag.tex toc_entr.sty old psdoc \
-faq-ja.tex gnuplot-ja.doc README.ja term-ja.diff plotstyles.gnu pdffigures.tex
+EXTRA_DIST = doc2texi.el gnuplot.doc gnuplot.texi gpcard.tex	\
+makefile.dst titlepag.ipf titlepag.ms titlepag.tex	\
+toc_entr.sty old psdoc faq-ja.tex gnuplot-ja.doc README.ja	\
+term-ja.diff plotstyles.gnu pdffigures.tex gnuplot.pdf windows
 
-CLEANFILES = doc2tex gnuplot.tex gnuplot.dvi gnuplot.aux gnuplot.log \
-gnuplot.toc gnuplot.pdf gnuplot.ps gpcard.dvi gpcard.log gpcard.ps alldoc2gih \
-doc2gih gnuplot.gih doc2hlp gnuplot.hlp gnuplot.idx gnuplot.ilg gnuplot.ind \
-gnuplot.info* gnuplot.out doc2ipf gnuplot.ipf doc2ms gnuplot.ms doc2rnh \
-gnuplot.rnh doc2rtf gnuplot.rtf gnuplot.nroff checkdoc gnuplot.txt \
-figure*.pdf pdffigures.*
+CLEANFILES = doc2tex gnuplot.tex gnuplot.dvi gnuplot.aux gnuplot.log	\
+gnuplot.toc gnuplot.ps gpcard.dvi gpcard.log gpcard.ps alldoc2gih	\
+doc2gih gnuplot.gih doc2hlp gnuplot.hlp gnuplot.idx gnuplot.ilg		\
+gnuplot.ind gnuplot.info* gnuplot.out doc2ipf gnuplot.ipf doc2ms	\
+gnuplot.ms doc2rnh gnuplot.rnh doc2rtf gnuplot.rtf gnuplot.nroff	\
+checkdoc gnuplot.txt gnuplot.tmp VERSION gnuplot.4tc gnuplot.4ct	\
+gnuplot.idv gnuplot.xref gnuplot.lg figure*.pdf pdffigures.*		\
+wxhelp/*.html wxhelp/wgnuplot.htc windows/wgnuplot.htk gnuplot.pdf	\
+gnuplot.htb
 
 DISTFILES = $(DIST_COMMON) $(SOURCES) $(HEADERS) $(EXTRA_DIST)
 
@@ -168,7 +171,7 @@ allterm.h: $(CORETERM)
 #	@rm -f term.c
 
 # for debugging
-alldoc: check dvi gih hlp html info ipf ms nroff pdf ps rnh rtf
+alldoc: check dvi gih hlp html info ipf ms nroff pdffigures ps rnh rtf htb
 
 ### [tn]roff documentation
 troff: gnuplot.ms titlepag.ms
@@ -236,24 +239,26 @@ html: htmldocs/gnuplot.html
 # htmldocs/gnuplot.html: $(srcdir)/gnuplot.texi 
 #	$(MAKEINFO) --html -I$(srcdir) $(srcdir)/gnuplot.texi --no-split --output=$@
 
-# TeX itself does a better job these days,
-# and doesn't depend on having emacs around to do lisp pre-processing.
-# However, it does require help finding a set of color names:
-#     setenv RGBDEF /usr/lib/latex2html/styles/rgb.txt
-# Also it messes up on adding html escape sequences to the characters < and >
-# particularly inside the verbatim text segments.  Manual cleanup is necessary.
-#
-htmldocs/gnuplot.html: $(srcdir)/gnuplot.tex
+# requires a working latex2html, which is hard to find these days
+# htmldocs/gnuplot.html: $(srcdir)/gnuplot.tex
+#	mkdir -p htmldocs
+#	latex2html -dir htmldocs -local_icons gnuplot
+
+htmldocs/gnuplot.html: $(srcdir)/gnuplot.dvi
+	rm -f VERSION; ln -s ../VERSION .
+	htlatex gnuplot
 	mkdir -p htmldocs
-	latex2html -dir htmldocs -local_icons gnuplot
+	mv gnuplot.html gnuplot.css gnuplot*.png gnuplot.log htmldocs/
 
 ### PDF documentation
-pdffigures: figures gnuplot.pdf
+pdffigures: pdffigures.tex
+
+pdffigures.tex:	figures gnuplot.pdf
 	rm -f gnuplot.tex
 	echo "" > pdffigures.tex
 
 figures: doc2tex
-	../src/gnuplot plotstyles.gnu
+	GNUPLOT_LIB=$(top_srcdir)/demo ../src/gnuplot $(srcdir)/plotstyles.gnu
 	./doc2tex -figures $(srcdir)/gnuplot.doc gnuplot.tex
 	echo "\usepackage{graphicx}" > pdffigures.tex
 	echo "\usepackage{picins}" >> pdffigures.tex
@@ -358,6 +363,23 @@ alldoc2gih.o: doc2gih.c $(BUILT_SOURCES)
 	$(COMPILE) -DALL_TERM_DOC -c $(srcdir)/doc2gih.c
 	@mv doc2gih.o alldoc2gih.o
 
+### wxhelp format
+htb: gnuplot.htb
+
+gnuplot.htb: wxhelp/wgnuplot.html
+	GNUPLOT_LIB=$(srcdir)/../demo ../src/gnuplot -e "winhelp=1;" $(srcdir)/plotstyles.gnu
+	zip -j9 gnuplot.htb windows/wgnuplot.hhp wxhelp/wgnuplot.hhc wxhelp/wgnuplot.hhk wxhelp/*.html windows/*.png
+
+wxhelp/wgnuplot.html: wxhelp/doc2html $(srcdir)/gnuplot.doc 
+	./wxhelp/doc2html $(srcdir)/gnuplot.doc wxhelp/
+
+wxhelp/doc2html.o: $(srcdir)/windows/doc2html.c $(BUILT_SOURCES)
+	[ -d wxhelp ] || mkdir wxhelp
+	$(COMPILE) -c -o $@ -I.. -DALL_TERM_DOC -DWXHELP $<
+
+wxhelp/doc2html: wxhelp/doc2html.o termdoc.o xref.o ../src/version.o
+	$(LINK) $^
+
 ### GNU info format
 info: gnuplot.info
 
@@ -401,15 +423,6 @@ gnuplot.rnh: doc2rnh $(srcdir)/gnuplot.doc
 doc2rnh: doc2rnh.o termdoc.o
 	$(LINK) doc2rnh.o termdoc.o $(LIBS)
 
-### AmigaGuide(R) format
-## requires the GG version of makeinfo
-#guide: gnuplot.guide
-#
-#gnuplot.guide: $(srcdir)/gnuplot.texi $(srcdir)/gnuplot.doc
-#	$(MAKEINFO) --amiga -I$(srcdir) $(srcdir)/gnuplot.texi --no-split --output=$@
-#
-# end doc2xxx section
-
 # this is how to check the gnuplot.doc file
 check: all checkdoc
 	@./checkdoc < $(srcdir)/gnuplot.doc; \
@@ -426,11 +439,17 @@ checkdoc.o: checkdoc.c $(BUILT_SOURCES)
 	$(COMPILE) -DALL_TERM_DOC -c $(srcdir)/checkdoc.c
 
 # install section
-install: install-gih install-info
+install: install-gih install-info install-pdf
 
 install-gih: gnuplot.gih
 	$(top_srcdir)/mkinstalldirs $(DESTDIR)$(GIHDIR)
 	$(INSTALL_DATA) gnuplot.gih $(DESTDIR)$(GIHDIR)/gnuplot.gih
+
+install-pdf:
+	$(top_srcdir)/mkinstalldirs $(DESTDIR)$(GIHDIR)
+	if test -f gnuplot.pdf ; then \
+	    $(INSTALL_DATA) gnuplot.pdf $(DESTDIR)$(GIHDIR)/gnuplot.pdf; \
+	fi
 
 install-info: gnuplot.info
 	$(top_srcdir)/mkinstalldirs $(DESTDIR)$(infodir)
@@ -446,10 +465,13 @@ installcheck:
 install-exec:
 
 # uninstall section
-uninstall: uninstall-gih uninstall-info
+uninstall: uninstall-gih uninstall-info uninstall-pdf
 
 uninstall-gih:
 	rm -f $(DESTDIR)$(GIHDIR)/gnuplot.gih
+
+uninstall-pdf:
+	rm -f $(DESTDIR)$(GIHDIR)/gnuplot.pdf
 
 uninstall-info:
 	$(PRE_UNINSTALL)

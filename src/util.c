@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util.c,v 1.84.2.2 2010/03/07 00:50:12 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util.c,v 1.99 2011/11/10 05:15:58 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util.c */
@@ -39,6 +39,7 @@ static char *RCSid() { return RCSid("$Id: util.c,v 1.84.2.2 2010/03/07 00:50:12 
 #include "alloc.h"
 #include "command.h"
 #include "datafile.h"		/* for df_showdata and df_reset_after_error */
+#include "internal.h"		/* for eval_reset_after_error */
 #include "misc.h"
 #include "plot.h"
 #include "term_api.h"		/* for term_end_plot() used by graph_error() */
@@ -56,6 +57,9 @@ static char *RCSid() { return RCSid("$Id: util.c,v 1.84.2.2 2010/03/07 00:50:12 
 /* decimal sign */
 char *decimalsign = NULL;
 
+/* degree sign.  Defaults to UTF-8 but will be changed to match encoding */
+char degree_sign[8] = "°";
+
 /* Holds the name of the current LC_NUMERIC as set by "set decimal locale" */
 char *numeric_locale = NULL;
 
@@ -69,26 +73,6 @@ const char *current_prompt = NULL; /* to be set by read_line() */
 static void mant_exp __PROTO((double, double, TBOOLEAN, double *, int *, const char *));
 static void parse_sq __PROTO((char *));
 
-#if 0 /* UNUSED */
-/*
- * chr_in_str() compares the characters in the string of token number t_num
- * with c, and returns TRUE if a match was found.
- */
-int
-chr_in_str(int t_num, int c)
-{
-    int i;
-
-    if (!token[t_num].is_token)
-	return (FALSE);		/* must be a value--can't be equal */
-    for (i = 0; i < token[t_num].length; i++) {
-	if (input_line[token[t_num].start_index + i] == c)
-	    return (TRUE);
-    }
-    return FALSE;
-}
-#endif
-
 /*
  * equals() compares string value of token number t_num with str[], and
  *   returns TRUE if they are identical.
@@ -98,6 +82,8 @@ equals(int t_num, const char *str)
 {
     int i;
 
+    if (t_num >= num_tokens)	/* safer to test here than to trust all callers */
+	return (FALSE);
     if (!token[t_num].is_token)
 	return (FALSE);		/* must be a value--can't be equal */
     for (i = 0; i < token[t_num].length; i++) {
@@ -277,7 +263,7 @@ quote_str(char *str, int t_num, int max)
     if (gp_input_line[token[t_num].start_index] == '"')
 	parse_esc(str);
     else
-        parse_sq(str);
+	parse_sq(str);
 }
 
 
@@ -340,7 +326,7 @@ m_quote_capture(char **str, int start, int end)
     if (gp_input_line[token[start].start_index] == '"')
 	parse_esc(*str);
     else
-        parse_sq(*str);
+	parse_sq(*str);
 
 }
 
@@ -543,10 +529,9 @@ gprintf(
 {
     char temp[MAX_LINE_LEN + 1];
     char *t;
-    TBOOLEAN seen_mantissa = FALSE; /* memorize if mantissa has been
-                                       output, already */
-    int stored_power = 0;	/* power that matches the mantissa
-                                   output earlier */
+    TBOOLEAN seen_mantissa = FALSE; /* remember if mantissa was already output */
+    double stored_power_base = 0;   /* base for the last mantissa output*/
+    int stored_power = 0;	/* power matching the mantissa output earlier */
     TBOOLEAN got_hash = FALSE;				   
 
     set_numeric_locale();
@@ -590,9 +575,17 @@ gprintf(
 	case 'X':
 	case 'o':
 	case 'O':
-	    t[0] = *format;
-	    t[1] = 0;
-	    sprintf(dest, temp, (int) x);
+	    if (fabs(x) >= (double)INT_MAX) {
+		t[0] = 'l';
+		t[1] = 'l';
+		t[2] = *format;
+		t[3] = '\0';
+		sprintf(dest, temp, (long long) x);
+	    } else {
+		t[0] = *format;
+		t[1] = '\0';
+		sprintf(dest, temp, (int) x);
+	    }
 	    break;
 	    /*}}} */
 	    /*{{{  e, f and g */
@@ -614,7 +607,9 @@ gprintf(
 
 		t[0] = 'f';
 		t[1] = 0;
-		mant_exp(log10_base, x, FALSE, &mantissa, &stored_power, temp);
+		stored_power_base = log10_base;
+		mant_exp(stored_power_base, x, FALSE, &mantissa,
+				&stored_power, temp);
 		seen_mantissa = TRUE;
 		sprintf(dest, temp, mantissa);
 		break;
@@ -627,7 +622,9 @@ gprintf(
 
 		t[0] = 'f';
 		t[1] = 0;
-		mant_exp(1.0, x, FALSE, &mantissa, &stored_power, temp);
+		stored_power_base = 1.0;
+		mant_exp(stored_power_base, x, FALSE, &mantissa,
+				&stored_power, temp);
 		seen_mantissa = TRUE;
 		sprintf(dest, temp, mantissa);
 		break;
@@ -640,7 +637,24 @@ gprintf(
 
 		t[0] = 'f';
 		t[1] = 0;
-		mant_exp(1.0, x, TRUE, &mantissa, &stored_power, temp);
+		stored_power_base = 1.0;
+		mant_exp(stored_power_base, x, TRUE, &mantissa,
+				&stored_power, temp);
+		seen_mantissa = TRUE;
+		sprintf(dest, temp, mantissa);
+		break;
+	    }
+	    /*}}} */
+	    /*{{{  b --- base-1024 mantissa */
+	case 'b':
+	    {
+		double mantissa;
+
+		t[0] = 'f';
+		t[1] = 0;
+		stored_power_base = log10(1024);
+		mant_exp(stored_power_base, x, FALSE, &mantissa,
+				&stored_power, temp);
 		seen_mantissa = TRUE;
 		sprintf(dest, temp, mantissa);
 		break;
@@ -654,8 +668,12 @@ gprintf(
 		t[0] = 'd';
 		t[1] = 0;
 		if (seen_mantissa)
-		    power = stored_power;
+		    if (stored_power_base == log10_base)
+			power = stored_power;
+		    else
+			int_error(NO_CARET, "Format character mismatch: %%L is only valid with %%l");
 		else
+		    stored_power_base = log10_base;
 		    mant_exp(log10_base, x, FALSE, NULL, &power, "%.0f");
 		sprintf(dest, temp, power);
 		break;
@@ -669,7 +687,10 @@ gprintf(
 		t[0] = 'd';
 		t[1] = 0;
 		if (seen_mantissa)
-		    power = stored_power;
+		    if (stored_power_base == 1.0)
+			power = stored_power;
+		    else
+			int_error(NO_CARET, "Format character mismatch: %%T is only valid with %%t");
 		else
 		    mant_exp(1.0, x, FALSE, NULL, &power, "%.0f");
 		sprintf(dest, temp, power);
@@ -684,7 +705,10 @@ gprintf(
 		t[0] = 'd';
 		t[1] = 0;
 		if (seen_mantissa)
-		    power = stored_power;
+		    if (stored_power_base == 1.0)
+			power = stored_power;
+		    else
+			int_error(NO_CARET, "Format character mismatch: %%S is only valid with %%s");
 		else
 		    mant_exp(1.0, x, TRUE, NULL, &power, "%.0f");
 		sprintf(dest, temp, power);
@@ -699,19 +723,24 @@ gprintf(
 		t[0] = 'c';
 		t[1] = 0;
 		if (seen_mantissa)
-		    power = stored_power;
+		    if (stored_power_base == 1.0)
+			power = stored_power;
+		    else
+			int_error(NO_CARET, "Format character mismatch: %%c is only valid with %%s");
 		else
 		    mant_exp(1.0, x, TRUE, NULL, &power, "%.0f");
 
-		if (power >= -18 && power <= 18) {
+		if (power >= -24 && power <= 24) {
 		    /* -18 -> 0, 0 -> 6, +18 -> 12, ... */
 		    /* HBB 20010121: avoid division of -ve ints! */
-		    power = (power + 18) / 3;
-		    sprintf(dest, temp, "afpnum kMGTPE"[power]);
+		    power = (power + 24) / 3;
+		    sprintf(dest, temp, "yzafpnum kMGTPEZY"[power]);
 		} else {
 		    /* please extend the range ! */
 		    /* name  power   name  power
 		       -------------------------
+		       yocto  -24    yotta  24
+		       zepto  -21    zetta  21
 		       atto   -18    Exa    18
 		       femto  -15    Peta   15
 		       pico   -12    Tera   12
@@ -719,8 +748,45 @@ gprintf(
 		       micro   -6    Mega    6
 		       milli   -3    kilo    3   */
 
-		    /* for the moment, print e+21 for example */
-		    sprintf(dest, "e%+02d", (power - 6) * 3);
+		    /* fall back to simple exponential */
+		    sprintf(dest, "e%+02d", power);
+		}
+		break;
+	    }
+	    /*}}} */
+	    /*{{{  B --- IEC 60027-2 A.2 / ISO/IEC 80000 binary unit prefix letters */
+	case 'B':
+	    {
+		int power;
+
+		t[0] = 'c';
+		t[1] = 'i';
+		t[2] = 0;
+		if (seen_mantissa)
+		    if (stored_power_base == log10(1024))
+			power = stored_power;
+		    else
+			int_error(NO_CARET, "Format character mismatch: %%B is only valid with %%b");
+		else
+			mant_exp(log10(1024), x, FALSE, NULL, &power, "%.0f");
+
+		if (power > 0 && power <= 8) {
+		    /* name  power
+		       -----------
+		       Yobi   8
+		       Zebi   7
+		       Exbi   9
+		       Pebi   5
+		       Tebi   4
+		       Gibi   3
+		       Mebi   2
+		       kibi   1   */
+		    sprintf(dest, temp, " kMGTPEZY"[power]);
+		} else if (power > 8) {
+		    /* for the larger values, print x2^{10}Gi for example */
+		    sprintf(dest, "x2^{%d}Yi", power-8);
+		} else if (power < 0) {
+		    sprintf(dest, "x2^{%d}", power*10);
 		}
 
 		break;
@@ -884,6 +950,8 @@ os_error(int t_num, const char *str, va_dcl)
     putc('\n', stderr);
 #endif /* VMS */
 
+    scanning_range_in_progress = FALSE;
+
     bail_to_command_line();
 }
 
@@ -905,7 +973,7 @@ int_error(int t_num, const char str[], va_dcl)
     /* reprint line if screen has been written to */
 
     if (t_num == DATAFILE) {
-        df_showdata();
+	df_showdata();
     } else if (t_num != NO_CARET) { /* put caret under error */
 	if (!screen_ok)
 	    PRINT_MESSAGE_TO_STDERR;
@@ -940,6 +1008,9 @@ int_error(int t_num, const char str[], va_dcl)
     /* We are bailing out of nested context without ever reaching */
     /* the normal cleanup code. Reset any flags before bailing.   */
     df_reset_after_error();
+    eval_reset_after_error();
+    clause_reset_after_error();
+    scanning_range_in_progress = FALSE;
 
     /* Load error state variables */
     update_gpval_variables(2);
@@ -964,7 +1035,7 @@ int_warn(int t_num, const char str[], va_dcl)
     /* reprint line if screen has been written to */
 
     if (t_num == DATAFILE) {
-        df_showdata();
+	df_showdata();
     } else if (t_num != NO_CARET) { /* put caret under error */
 	if (!screen_ok)
 	    PRINT_MESSAGE_TO_STDERR;
@@ -1011,12 +1082,6 @@ graph_error(const char *fmt, va_dcl)
 
 #ifdef VA_START
     VA_START(args, fmt);
-#if 0
-    /* HBB 20001120: this seems not to work at all. Probably because a
-     * va_list argument, is, after all, something else than a varargs
-     * list (i.e. a '...') */
-    int_error(NO_CARET, fmt, args);
-#else
     /* HBB 20001120: instead, copy the core code from int_error() to
      * here: */
     PRINT_SPACES_UNDER_PROMPT;
@@ -1031,7 +1096,6 @@ graph_error(const char *fmt, va_dcl)
     fputs("\n\n", stderr);
 
     bail_to_command_line();
-#endif /* 1/0 */
     va_end(args);
 #else
     int_error(NO_CARET, fmt, a1, a2, a3, a4, a5, a6, a7, a8);
@@ -1042,23 +1106,9 @@ graph_error(const char *fmt, va_dcl)
 /*}}} */
 
 
-/* Lower-case the given string (DFK) */
-/* Done in place. */
-void
-lower_case(char *s)
-{
-    char *p = s;
-
-    while (*p) {
-	if (isupper((unsigned char)*p))
-	    *p = tolower((unsigned char)*p);
-	p++;
-    }
-}
-
 /* Squash spaces in the given string (DFK) */
 /* That is, reduce all multiple white-space chars to single spaces */
-/* Done in place. */
+/* Done in place. Currently used only by help_command() */
 void
 squash_spaces(char *s)
 {
@@ -1095,9 +1145,9 @@ parse_sq(char *instr)
      */
 
     while (*s != NUL) {
-        if (*s == '\'' && *(s+1) == '\'')
-            s++;
-        *t++ = *s++;
+	if (*s == '\'' && *(s+1) == '\'')
+	    s++;
+	*t++ = *s++;
     }
     *t = NUL;
 }

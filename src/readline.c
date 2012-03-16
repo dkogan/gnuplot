@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: readline.c,v 1.46 2008/12/12 21:06:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: readline.c,v 1.58 2011/09/04 12:01:37 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - readline.c */
@@ -44,6 +44,8 @@ static char *RCSid() { return RCSid("$Id: readline.c,v 1.46 2008/12/12 21:06:13 
  *   Msdos port and some enhancements:
  *     Gershon Elber and many others.
  *
+ *   Adapted to work with UTF-8 enconding.
+ *     Ethan A Merritt  April 2011
  */
 
 #include <signal.h>
@@ -56,6 +58,9 @@ static char *RCSid() { return RCSid("$Id: readline.c,v 1.46 2008/12/12 21:06:13 
 #include "plot.h"
 #include "util.h"
 #include "term_api.h"
+#ifdef HAVE_WCHAR_H
+#include <wchar.h>
+#endif
 
 #if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
 #if defined(HAVE_LIBEDITLINE)
@@ -78,11 +83,10 @@ getc_wrapper(FILE* fp /* should be stdin, supplied by readline */)
 	}
 	else
 #endif
-#if defined(HAVE_LIBEDITLINE)
-	    c = getchar();
-#else
+	if (fp)
 	    c = getc(fp);
-#endif
+	else
+	    c = getchar(); /* HAVE_LIBEDITLINE */
 	if (c == EOF && errno == EINTR)
 	    continue;
 	return c;
@@ -99,16 +103,16 @@ readline_ipc(const char* prompt)
 #endif
     return readline((const char*) prompt);
 }
-#endif  /* defined(HAVE_LIBREADLINE) || define(READLINE) */
+#endif  /* HAVE_LIBREADLINE || HAVE_LIBEDITLINE || READLINE */
 
 
 #if defined(READLINE) && !(defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE))
 
-/* a small portable version of GNU's readline
- * this is not the BASH or GNU EMACS version of READLINE due to Copyleft
- * restrictions
- * do not need any terminal capabilities except backspace,
- * and space overwrites a character
+/* This is a small portable version of GNU's readline that does not require
+ * any terminal capabilities except backspace and space overwrites a character.
+ * It is not the BASH or GNU EMACS version of READLINE due to Copyleft
+ * restrictions.
+ * Configuration option:   ./configure --with-readline=builtin
  */
 
 /* NANO-EMACS line editing facility
@@ -120,12 +124,13 @@ readline_ipc(const char* prompt)
  * ^K kills from current position to the end of line
  * ^P moves back through history
  * ^N moves forward through history
- * ^H and DEL delete the previous character
+ * ^H deletes the previous character
  * ^D deletes the current character, or EOF if line is empty
  * ^L/^R redraw line in case it gets trashed
  * ^U kills the entire line
- * ^W kills last word
+ * ^W deletes previous full or partial word
  * LF and CR return the entire line regardless of the cursor postition
+ * DEL deletes previous or current character (configuration dependent)
  * EOF with an empty line returns (char *)NULL
  *
  * all other characters are ignored
@@ -145,7 +150,7 @@ readline_ipc(const char* prompt)
 # endif
 #endif /* not HAVE_TERMIOS_H && HAVE_TCGETATTR */
 
-#if !defined(MSDOS) && !defined(_Windows) && !defined(DOS386) && !defined(OSK)
+#if !defined(MSDOS) && !defined(_Windows)
 
 /*
  * Set up structures using the proper include file
@@ -231,8 +236,9 @@ static int term_set = 0;	/* =1 if rl_termio set */
 
 #define special_getc() ansi_getc()
 static int ansi_getc __PROTO((void));
+#define DEL_ERASES_CURRENT_CHAR
 
-#else /* MSDOS or _Windows or DOS386 or OSK */
+#else /* MSDOS or _Windows */
 
 # ifdef _Windows
 #  include <windows.h>
@@ -247,9 +253,10 @@ static char win_getch __PROTO((void));
 #  define special_getc() msdos_getch()
 #  endif /* WGP_CONSOLE */
 static char msdos_getch __PROTO((void));	/* HBB 980308: PROTO'ed it */
+#  define DEL_ERASES_CURRENT_CHAR
 # endif				/* _Windows */
 
-# if defined(MSDOS) || defined(DOS386)
+# if defined(MSDOS)
 /* MSDOS specific stuff */
 #  ifdef DJGPP
 #   include <pc.h>
@@ -259,40 +266,10 @@ static char msdos_getch __PROTO((void));	/* HBB 980308: PROTO'ed it */
 #  endif			/* __EMX__ */
 #  define special_getc() msdos_getch()
 static char msdos_getch();
-# endif				/* MSDOS || DOS386 */
+#  define DEL_ERASES_CURRENT_CHAR
+# endif				/* MSDOS */
 
-# ifdef OSK
-#  include <sgstat.h>
-#  include <modes.h>
-
-#  define STDIN	0
-static int term_set = 0;	/* =1 if new_settings is set */
-
-static struct _sgs old_settings;	/* old terminal settings        */
-static struct _sgs new_settings;	/* new terminal settings        */
-
-#  define special_getc() ansi_getc()
-static int ansi_getc __PROTO((void));
-
-/* On OS9 a '\n' is a character 13 and '\r' == '\n'. This gives troubles
-   here, so we need a new putc wich handles this correctly and print a
-   character 10 on each place we want a '\n'.
- */
-#  undef putc			/* Undefine the macro for putc */
-
-static int
-putc(char c, FILE *fp)
-{
-    write(fileno(fp), &c, 1);
-    if (c == '\012') {		/* A normal ASCII '\n' */
-	c = '\r';
-	write(fileno(fp), &c, 1);
-    }
-}
-
-# endif				/* OSK */
-
-#endif /* MSDOS or _Windows or DOS386 or OSK */
+#endif /* MSDOS or _Windows */
 
 #ifdef OS2
 # if defined( special_getc )
@@ -301,6 +278,7 @@ putc(char c, FILE *fp)
 # define special_getc() os2_getch()
 static char msdos_getch __PROTO((void));	/* HBB 980308: PROTO'ed it */
 static char os2_getch __PROTO((void));
+#  define DEL_ERASES_CURRENT_CHAR
 #endif /* OS2 */
 
 
@@ -308,12 +286,9 @@ static char os2_getch __PROTO((void));
 #define MAXBUF	1024
 #define BACKSPACE 0x08   /* ^H */
 #define SPACE	' '
+#define NEWLINE	'\n'
 
-#ifdef OSK
-# define NEWLINE	'\012'
-#else /* OSK */
-# define NEWLINE	'\n'
-#endif /* not OSK */
+#define MAX_COMPLETIONS 50
 
 static char *cur_line;		/* current contents of the line */
 static size_t line_len = 0;
@@ -323,15 +298,23 @@ static size_t max_pos = 0;	/* maximum character position */
 static void fix_line __PROTO((void));
 static void redraw_line __PROTO((const char *prompt));
 static void clear_line __PROTO((const char *prompt));
-static void clear_eoline __PROTO((void));
+static void clear_eoline __PROTO((const char *prompt));
+static void delete_previous_word __PROTO((void));
 static void copy_line __PROTO((char *line));
 static void set_termio __PROTO((void));
 static void reset_termio __PROTO((void));
 static int user_putc __PROTO((int ch));
 static int user_puts __PROTO((char *str));
-static void backspace __PROTO((void));
+static int backspace __PROTO((void));
 static void extend_cur_line __PROTO((void));
-
+static void step_forward __PROTO((void));
+static void delete_forward __PROTO((void));
+static void delete_backward __PROTO((void));
+static int char_seqlen __PROTO((void));
+#if defined(HAVE_DIRENT_H) || defined(WIN32)
+static char *fn_completion(size_t anchor_pos, int direction);
+static void tab_completion(TBOOLEAN forward);
+#endif
 
 /* user_putc and user_puts should be used in the place of
  * fputc(ch,stderr) and fputs(str,stderr) for all output
@@ -374,13 +357,154 @@ user_puts(char *str)
     return rv;
 }
 
-/* This function provides a centralized non-destructive backspace capability
- * M. Castro
+
+/* EAM FIXME
+ * This test is intended to determine if the current character, of which
+ * we have only seen the first byte so far, will require twice the width
+ * of an ascii character.  The test catches glyphs above unicode 0x3000, 
+ * which is roughly the set of CJK characters.
+ * It should be replaced with a more accurate test.
  */
-static void
+static int
+mbwidth(char *c) 
+{
+    switch (encoding) {
+
+    case S_ENC_UTF8: {
+#if defined(HAVE_WCHAR_H) && defined(HAVE_WCWIDTH)
+	wchar_t wc;
+	if (mbtowc(&wc, c, MB_CUR_MAX) < 0)
+	    return 1;
+	else 
+	    return wcwidth(wc);
+#else
+	return ((unsigned char)(*c) >= 0xe3 ? 2 : 1);
+#endif
+    }
+    default:
+        return 1;
+    }
+}
+
+
+static int
+isdoublewidth(size_t pos)
+{
+    return mbwidth(cur_line + pos) > 1;
+}
+
+
+/*
+ * Determine length of multi-byte sequence starting at current position
+ */
+static int
+char_seqlen()
+{
+    int i;
+
+    switch (encoding) {
+
+    case S_ENC_UTF8:
+	i = cur_pos;
+	do {i++;}
+	    while ((cur_line[i] & 0xc0) != 0xc0 
+	        && (cur_line[i] & 0x80) != 0
+		&& i < max_pos);
+	return (i - cur_pos);
+
+    default:
+	return 1;
+    }
+}
+
+/*
+ * Back up over one multi-byte UTF-8 character sequence immediately preceding
+ * the current position.  Non-destructive.  Affects both cur_pos and screen cursor.
+ */
+static int
 backspace()
 {
-    user_putc(BACKSPACE);
+    int seqlen;
+
+    switch (encoding) {
+
+    case S_ENC_UTF8:
+	seqlen = 0;
+	do {cur_pos--; seqlen++;}
+	    while ((cur_line[cur_pos] & 0xc0) != 0xc0 
+	        && (cur_line[cur_pos] & 0x80) != 0
+		&& cur_pos > 0);
+    
+	if ((cur_line[cur_pos] & 0xc0) == 0xc0
+	||  isprint(cur_line[cur_pos]))
+	    user_putc(BACKSPACE);
+	if (isdoublewidth(cur_pos))
+	    user_putc(BACKSPACE);
+	return seqlen;
+
+    default:
+	cur_pos--;
+	user_putc(BACKSPACE);
+	return 1;
+    }
+}
+
+/*
+ * Step forward over one multi-byte character sequence.
+ * We don't assume a non-destructive forward space, so we have
+ * to redraw the character as we go.
+ */
+static void
+step_forward()
+{
+    int i, seqlen;
+
+    switch (encoding) {
+
+    case S_ENC_UTF8:
+	seqlen = char_seqlen();
+	for (i=0; i<seqlen; i++)
+	    user_putc(cur_line[cur_pos++]);
+	break;
+
+    default:
+	user_putc(cur_line[cur_pos++]);
+	break;
+    }
+}
+
+/*
+ * Delete the character we are on and collapse all subsequent characters back one
+ */
+static void
+delete_forward()
+{
+    if (cur_pos < max_pos) {
+	size_t i;
+	int seqlen = char_seqlen();
+	max_pos -= seqlen;
+	for (i = cur_pos; i < max_pos; i++)
+	    cur_line[i] = cur_line[i + seqlen];
+	cur_line[max_pos] = '\0';
+	fix_line();
+    }
+}
+
+/*
+ * Delete the previous character and collapse all subsequent characters back one
+ */
+static void
+delete_backward()
+{
+    if (cur_pos > 0) {
+	size_t i;
+	int seqlen = backspace();
+	max_pos -= seqlen;
+	for (i = cur_pos; i < max_pos; i++)
+	    cur_line[i] = cur_line[i + seqlen];
+	cur_line[max_pos] = '\0';
+	fix_line();
+    }
 }
 
 static void
@@ -398,6 +522,190 @@ extend_cur_line()
     line_len += MAXBUF;
     FPRINTF((stderr, "\nextending readline length to %d chars\n", line_len));
 }
+
+
+#if defined(HAVE_DIRENT_H) || defined(WIN32)
+static char *
+fn_completion(size_t anchor_pos, int direction)
+{
+    static char * completions[MAX_COMPLETIONS];
+    static int n_completions = 0;
+    static int completion_idx = 0;
+
+    if (direction == 0) {
+	/* new completion */
+	DIR * dir;
+	char * start, * path;
+	char * t, * search;
+	char * name = NULL;
+	size_t nlen;
+
+	if (n_completions != 0) {
+	    /* new completion, cleanup first */
+	    int i;
+	    for (i = 0; i < n_completions; i++)
+		free(completions[i]);
+	    memset(completions, 0, sizeof(completions));
+	    n_completions = 0;
+	    completion_idx = 0;
+	}
+	
+	/* extract path to complete */
+	start = cur_line + anchor_pos;
+	if (anchor_pos > 0) {
+	    /* first, look for a quote to start the string */
+	    for ( ; start > cur_line; start--) {
+	        if ((*start == '"') || (*start == '\'')) {
+		    start++;
+		    break;
+		}
+	    }
+	    /* if not found, search for a space instead */
+	    if (start == cur_line) {
+		for (start = cur_line + anchor_pos ; start > cur_line; start--) {
+		    if ((*start == ' ') || (*start == '!')) {
+			start++;
+			break;
+		    }
+		}
+	    }
+
+	    path = strndup(start, cur_line - start + anchor_pos);
+	    gp_expand_tilde(&path);
+	} else {
+	    path = gp_strdup("");
+	}
+
+	/* seperate directory and (partial) file directory name */
+	t = strrchr(path, DIRSEP1);
+#if DIRSEP2 != NUL
+	if (t == NULL) t = strrchr(path, DIRSEP2);
+#endif
+	if (t == NULL) {
+	    /* name... */
+	    search = gp_strdup(".");
+	    name = strdup(path);
+	} else if (t == path) {
+	    /* root dir: /name... */
+	    search = strndup(path, 1);
+	    nlen = cur_pos - (t - path) - 1;
+	    name = strndup(t + 1, nlen);
+	} else {
+	    /* normal case: dir/dir/name... */
+	    search = strndup(path, t - path);
+	    nlen = cur_pos - (t - path) - 1;
+	    name = strndup(t + 1, nlen);
+	}
+	nlen = strlen(name);
+	free(path);
+
+	n_completions = 0;
+	if ((dir = opendir(search))) {
+	    struct dirent * entry;
+	    while ((entry = readdir(dir)) != NULL) {
+		/* ignore files and directories starting with a dot */
+		if (entry->d_name[0] == '.') continue; 
+
+		/* skip entries which don't match */
+		if (nlen > 0)
+		    if (strncmp(entry->d_name, name, nlen) != 0) continue;
+
+		completions[n_completions] = gp_strdup(entry->d_name + nlen);
+		n_completions++;
+
+		/* limit number of completions */
+		if (n_completions == MAX_COMPLETIONS) break;
+	    }
+	    closedir(dir);
+	    free(search);
+	    if (name) free(name);
+            if (n_completions > 0)
+	        return completions[0];
+            else 
+                return NULL;
+	}
+	free(search);
+	if (name) free(name);
+    } else {
+	/* cycle trough previous results */
+	if (n_completions > 0) {
+	    if (direction > 0)
+		completion_idx = (completion_idx + 1) % n_completions;
+	    else
+		completion_idx = (completion_idx + n_completions - 1) % n_completions;
+	    return completions[completion_idx];
+	} else
+	    return NULL;
+    }
+    return NULL;
+}
+
+
+static void
+tab_completion(TBOOLEAN forward)
+{
+    size_t i;
+    char * completion;
+    size_t completion_len;
+    static size_t last_tab_pos = -1;
+    static size_t last_completion_len = 0;
+    int direction;
+
+    /* detect tab cycling */
+    if ((last_tab_pos + last_completion_len) != cur_pos) {
+	last_completion_len = 0;
+	last_tab_pos = cur_pos;
+	direction = 0; /* new completion */
+    } else {
+	direction = (forward ? 1 : -1);
+    }
+
+    /* find completion */
+    completion = fn_completion(last_tab_pos, direction);
+    if (!completion) return;
+
+    /* make room for new completion */
+    completion_len = strlen(completion);
+    if (completion_len > last_completion_len)
+	while (max_pos + completion_len - last_completion_len + 1 > line_len)
+	    extend_cur_line();
+
+    /* erase from last_tab_pos to eol */
+    while (cur_pos > last_tab_pos)
+	backspace();
+    while (cur_pos < max_pos) {
+	user_putc(SPACE);
+	if (isdoublewidth(cur_pos))
+	    user_putc(SPACE);
+	cur_pos += char_seqlen();
+    }
+
+    /* rewind to last_tab_pos */
+    while (cur_pos > last_tab_pos)
+	backspace();
+
+    /* insert completion string */
+    if (max_pos > (last_tab_pos - last_completion_len))
+	memmove(cur_line + last_tab_pos + completion_len, 
+		cur_line + last_tab_pos + last_completion_len, 
+		max_pos  - last_tab_pos - last_completion_len);
+    memcpy(cur_line + last_tab_pos, completion, completion_len);
+    max_pos += completion_len - last_completion_len;
+    cur_line[max_pos] = NUL;
+
+    /* draw new completion */
+    for (i = 0; i < completion_len; i++)
+	user_putc(cur_line[last_tab_pos+i]);
+    cur_pos += completion_len;
+    fix_line();
+
+    /* remember this completion */
+    last_tab_pos  = cur_pos - completion_len;
+    last_completion_len = completion_len;
+}
+
+#endif /* HAVE_DIRENT_H || WIN32 */
+
 
 char *
 readline(const char *prompt)
@@ -429,23 +737,12 @@ readline(const char *prompt)
 
 	cur_char = special_getc();
 
-	/* The #define CHARSET7BIT should be used when one encounters
-	 * problems with 8bit characters that should not be entered on
-	 * the commandline. I cannot think on any reasonable example
-	 * where this could happen, but what do I know?  After all,
-	 * the unix world still ignores 8bit chars in most
-	 * applications.
-	 *
-	 * Note that latin1 defines the chars 0x80-0x9f as control
-	 * chars. For the benefit of MSDOS, Windows and NeXT I
-	 * have decided to ignore this, since it would require more
-	 * #ifs. */
-
-	if (isprint(cur_char)
-#ifndef CHARSET7BIT
-	    /* || ((unsigned char) cur_char == 011) */ /* EAM allowing <tab> breaks auto-completion! */
-	    || (((unsigned char) cur_char > 0x7f) && cur_char != EOF)
-#endif /* CHARSET7BIT */
+	/* Accumulate ascii (7bit) printable characters
+	 * and all leading 8bit characters.
+	 */
+	if ((isprint(cur_char)
+	      || (((cur_char & 0x80) != 0) && (cur_char != EOF)))
+	    && (cur_char != 0x09) /* TAB is a printable character in some locales */
 	    ) {
 	    size_t i;
 
@@ -456,25 +753,37 @@ readline(const char *prompt)
 		cur_line[i] = cur_line[i - 1];
 	    }
 	    user_putc(cur_char);
+
 	    cur_line[cur_pos] = cur_char;
 	    cur_pos += 1;
 	    max_pos += 1;
-	    if (cur_pos < max_pos)
-		fix_line();
 	    cur_line[max_pos] = '\0';
 
-	    /* else interpret unix terminal driver characters */
-#ifdef VERASE
-	} else if (cur_char == term_chars[VERASE]) {	/* DEL? */
-	    if (cur_pos > 0) {
-		size_t i;
-		cur_pos -= 1;
-		backspace();
-		for (i = cur_pos; i < max_pos; i++)
-		    cur_line[i] = cur_line[i + 1];
-		max_pos -= 1;
-		fix_line();
+	    if (cur_pos < max_pos) {
+		switch (encoding) {
+		case S_ENC_UTF8:
+		    if ((cur_char & 0xc0) == 0)
+			fix_line(); /* Normal ascii character */
+		    else if ((cur_char & 0xc0) == 0xc0)
+			; /* start of a multibyte sequence. */
+		    else if (((cur_char & 0xc0) == 0x80) && 
+			 ((unsigned char)(cur_line[cur_pos-2]) >= 0xe0))
+			; /* second byte of a >2 byte sequence */
+		    else {
+			/* Last char of multi-byte sequence */
+			fix_line();
+		    }
+		    break;
+		default:
+		    fix_line();
+		    break;
+		}
 	    }
+
+	/* else interpret unix terminal driver characters */
+#ifdef VERASE
+	} else if (cur_char == term_chars[VERASE]) {	/* ^H */
+	    delete_backward();
 #endif /* VERASE */
 #ifdef VEOF
 	} else if (cur_char == term_chars[VEOF]) {	/* ^D? */
@@ -482,13 +791,7 @@ readline(const char *prompt)
 		reset_termio();
 		return ((char *) NULL);
 	    }
-	    if ((cur_pos < max_pos) && (cur_char == 004)) {	/* ^D */
-		size_t i;
-		for (i = cur_pos; i < max_pos; i++)
-		    cur_line[i] = cur_line[i + 1];
-		max_pos -= 1;
-		fix_line();
-	    }
+	    delete_forward();
 #endif /* VEOF */
 #ifdef VKILL
 	} else if (cur_char == term_chars[VKILL]) {	/* ^U? */
@@ -496,18 +799,7 @@ readline(const char *prompt)
 #endif /* VKILL */
 #ifdef VWERASE
 	} else if (cur_char == term_chars[VWERASE]) {	/* ^W? */
-	    while ((cur_pos > 0) &&
-		   (cur_line[cur_pos - 1] == SPACE)) {
-		cur_pos -= 1;
-		backspace();
-	    }
-	    while ((cur_pos > 0) &&
-		   (cur_line[cur_pos - 1] != SPACE)) {
-		cur_pos -= 1;
-		backspace();
-	    }
-	    clear_eoline();
-	    max_pos = cur_pos;
+	    delete_previous_word();
 #endif /* VWERASE */
 #ifdef VREPRINT
 	} else if (cur_char == term_chars[VREPRINT]) {	/* ^R? */
@@ -528,22 +820,17 @@ readline(const char *prompt)
 	} else {
 	    /* do normal editing commands */
 	    /* some of these are also done above */
-	    size_t i;
 	    switch (cur_char) {
 	    case EOF:
 		reset_termio();
 		return ((char *) NULL);
 	    case 001:		/* ^A */
-		while (cur_pos > 0) {
-		    cur_pos -= 1;
+		while (cur_pos > 0)
 		    backspace();
-		}
 		break;
 	    case 002:		/* ^B */
-		if (cur_pos > 0) {
-		    cur_pos -= 1;
+		if (cur_pos > 0)
 		    backspace();
-		}
 		break;
 	    case 005:		/* ^E */
 		while (cur_pos < max_pos) {
@@ -553,12 +840,16 @@ readline(const char *prompt)
 		break;
 	    case 006:		/* ^F */
 		if (cur_pos < max_pos) {
-		    user_putc(cur_line[cur_pos]);
-		    cur_pos += 1;
+		    step_forward();
 		}
 		break;
+#if defined(HAVE_DIRENT_H) || defined(WIN32)
+	    case 011:		/* ^I / TAB */
+		tab_completion(TRUE); /* next tab completion */
+		break;
+#endif
 	    case 013:		/* ^K */
-		clear_eoline();
+		clear_eoline(prompt);
 		max_pos = cur_pos;
 		break;
 	    case 020:		/* ^P */
@@ -589,50 +880,33 @@ readline(const char *prompt)
 		putc(NEWLINE, stderr);	/* go to a fresh line */
 		redraw_line(prompt);
 		break;
+#ifndef DEL_ERASES_CURRENT_CHAR
 	    case 0177:		/* DEL */
+	    case 023:		/* Re-mapped from CSI~3 in ansi_getc() */
+#endif
 	    case 010:		/* ^H */
-		if (cur_pos > 0) {
-		    cur_pos -= 1;
-		    backspace();
-		    for (i = cur_pos; i < max_pos; i++)
-			cur_line[i] = cur_line[i + 1];
-		    max_pos -= 1;
-		    fix_line();
-		}
+		delete_backward();
 		break;
 	    case 004:		/* ^D */
 		if (max_pos == 0) {
 		    reset_termio();
 		    return ((char *) NULL);
 		}
-		if (cur_pos < max_pos) {
-		    for (i = cur_pos; i < max_pos; i++)
-			cur_line[i] = cur_line[i + 1];
-		    max_pos -= 1;
-		    fix_line();
-		}
+		/* intentionally omitting break */
+#ifdef DEL_ERASES_CURRENT_CHAR
+	    case 0177:		/* DEL */
+	    case 023:		/* Re-mapped from CSI~3 in ansi_getc() */
+#endif
+		delete_forward();
 		break;
 	    case 025:		/* ^U */
 		clear_line(prompt);
 		break;
 	    case 027:		/* ^W */
-		while ((cur_pos > 0) &&
-		       (cur_line[cur_pos - 1] == SPACE)) {
-		    cur_pos -= 1;
-		    backspace();
-		}
-		while ((cur_pos > 0) &&
-		       (cur_line[cur_pos - 1] != SPACE)) {
-		    cur_pos -= 1;
-		    backspace();
-		}
-		clear_eoline();
-		max_pos = cur_pos;
+		delete_previous_word();
 		break;
 	    case '\n':		/* ^J */
-#ifndef OSK
 	    case '\r':		/* ^M */
-#endif
 		cur_line[max_pos + 1] = '\0';
 #ifdef OS2
 		while (cur_pos < max_pos) {
@@ -663,8 +937,8 @@ readline(const char *prompt)
     }
 }
 
-/* fix up the line from cur_pos to max_pos
- * do not need any terminal capabilities except backspace,
+/* Fix up the line from cur_pos to max_pos.
+ * Does not need any terminal capabilities except backspace,
  * and space overwrites a character
  */
 static void
@@ -676,11 +950,18 @@ fix_line()
     for (i = cur_pos; i < max_pos; i++)
 	user_putc(cur_line[i]);
 
-    /* write a space at the end of the line in case we deleted one */
+    /* We may have just shortened the line by deleting a character.
+     * Write a space at the end to over-print the former last character.
+     * It needs 2 spaces in case the former character was double width.
+     */
     user_putc(SPACE);
+    user_putc(SPACE);
+    user_putc(BACKSPACE);
+    user_putc(BACKSPACE);
 
-    /* backup to original position */
-    for (i = max_pos + 1; i > cur_pos; i--)
+    /* Back up to original position */
+    i = cur_pos;
+    for (cur_pos = max_pos; cur_pos > i; )
 	backspace();
 
 }
@@ -695,7 +976,8 @@ redraw_line(const char *prompt)
     user_puts(cur_line);
 
     /* put the cursor where it belongs */
-    for (i = max_pos; i > cur_pos; i--)
+    i = cur_pos;
+    for (cur_pos = max_pos; cur_pos > i; )
 	backspace();
 }
 
@@ -703,35 +985,83 @@ redraw_line(const char *prompt)
 static void
 clear_line(const char *prompt)
 {
-    size_t i;
-    for (i = 0; i < max_pos; i++)
-	cur_line[i] = '\0';
+    putc('\r', stderr);
+    fputs(prompt, stderr);
+    cur_pos = 0;
 
-    for (i = cur_pos; i > 0; i--)
-	backspace();
-
-    for (i = 0; i < max_pos; i++)
-	putc(SPACE, stderr);
+    while (cur_pos < max_pos) {
+	user_putc(SPACE);
+	if (isdoublewidth(cur_pos))
+	    user_putc(SPACE);
+	cur_pos += char_seqlen();
+    }
+    while (max_pos > 0)
+	cur_line[--max_pos] = '\0';
 
     putc('\r', stderr);
     fputs(prompt, stderr);
-
     cur_pos = 0;
-    max_pos = 0;
 }
 
 /* clear to end of line and the screen end of line */
 static void
-clear_eoline()
+clear_eoline(const char *prompt)
 {
-    size_t i;
-    for (i = cur_pos; i < max_pos; i++)
-	cur_line[i] = '\0';
+    size_t save_pos = cur_pos;
 
-    for (i = cur_pos; i < max_pos; i++)
-	putc(SPACE, stderr);
-    for (i = cur_pos; i < max_pos; i++)
+    while (cur_pos < max_pos) {
+	user_putc(SPACE);
+	if (isdoublewidth(cur_line[cur_pos]))
+	    user_putc(SPACE);
+	cur_pos += char_seqlen();
+    }
+    cur_pos = save_pos;
+    while (max_pos > cur_pos)
+	cur_line[--max_pos] = '\0';
+
+    putc('\r', stderr);
+    fputs(prompt, stderr);
+    user_puts(cur_line);
+}
+
+/* delete the full or partial word immediately before cursor position */
+static void
+delete_previous_word()
+{
+    size_t save_pos = cur_pos;
+    /* skip whitespace */
+    while ((cur_pos > 0) &&
+	   (cur_line[cur_pos - 1] == SPACE)) {
 	backspace();
+    }
+    /* find start of previous word */
+    while ((cur_pos > 0) &&
+	   (cur_line[cur_pos - 1] != SPACE)) {
+	backspace();
+    }
+    if (cur_pos != save_pos) {
+	size_t new_cur_pos = cur_pos;
+	size_t m = max_pos - save_pos;
+
+	/* erase to eol */
+	while (cur_pos < max_pos) {
+	    user_putc(SPACE);
+	    if (isdoublewidth(cur_pos))
+		user_putc(SPACE);
+	    cur_pos += char_seqlen();
+	}
+	while (cur_pos > new_cur_pos)
+	    backspace();
+
+	/* overwrite previous word with trailing characters */
+	memmove(cur_line + cur_pos, cur_line + save_pos, m);
+	/* overwrite characters at end of string with NULs */
+	memset(cur_line + cur_pos + m, NUL, save_pos - cur_pos);
+
+	/* update display and line length */
+	max_pos = cur_pos + m;
+	fix_line();
+    }
 }
 
 /* copy line to cur_line, draw it and set cur_pos and max_pos */
@@ -746,7 +1076,7 @@ copy_line(char *line)
     cur_pos = max_pos = strlen(cur_line);
 }
 
-#if !defined(MSDOS) && !defined(_Windows) && !defined(DOS386) && !defined(OSK)
+#if !defined(MSDOS) && !defined(_Windows)
 /* Convert ANSI arrow keys to control characters */
 static int
 ansi_getc()
@@ -783,6 +1113,9 @@ ansi_getc()
 	    case 'H':		/* home key */
 		c = 001;
 		break;
+	    case '3':		/* DEL can be <esc>[3~ */
+		getc(stdin);	/* eat the ~ */
+		c = 023;	/* DC3 ^S NB: non-standard!! */
 	    }
 	}
     }
@@ -790,7 +1123,7 @@ ansi_getc()
 }
 #endif
 
-#if defined(MSDOS) || defined(_Windows) || defined(DOS386) || defined(OS2)
+#if defined(MSDOS) || defined(_Windows) || defined(OS2)
 
 #ifdef WGP_CONSOLE
 static char
@@ -856,7 +1189,7 @@ msdos_getch()
 	    c = 005;
 	    break;
 	case 83:		/* Delete */
-	    c = 004;
+	    c = 0177;
 	    break;
 	default:
 	    c = 0;
@@ -868,7 +1201,7 @@ msdos_getch()
     return c;
 }
 
-#endif /* MSDOS || _Windows || DOS386 || OS2 */
+#endif /* MSDOS || _Windows || OS2 */
 
 #ifdef OS2
 /* We need to call different procedures, dependent on the
@@ -897,14 +1230,13 @@ os2_getch() {
 static void
 set_termio()
 {
-#if !defined(MSDOS) && !defined(_Windows) && !defined(DOS386)
+#if !defined(MSDOS) && !defined(_Windows)
 /* set termio so we can do our own input processing */
 /* and save the old terminal modes so we can reset them later */
     if (term_set == 0) {
 	/*
 	 * Get terminal modes.
 	 */
-# ifndef OSK
 #  ifdef SGTTY
 	ioctl(0, TIOCGETP, &orig_termio);
 #  else				/* not SGTTY */
@@ -918,26 +1250,16 @@ set_termio()
 	ioctl(0, TCGETA, &orig_termio);
 #   endif			/* TERMIOS */
 #  endif			/* not SGTTY */
-# else				/* OSK */
-	setbuf(stdin, (char *) 0);	/* Make stdin and stdout unbuffered */
-	setbuf(stderr, (char *) 0);
-	_gs_opt(STDIN, &new_settings);
-# endif				/* OSK */
 
 	/*
 	 * Save terminal modes
 	 */
-# ifndef OSK
 	rl_termio = orig_termio;
-# else				/* OSK */
-	_gs_opt(STDIN, &old_settings);
-# endif				/* OSK */
 
 	/*
 	 * Set the modes to the way we want them
 	 *  and save our input special characters
 	 */
-# ifndef OSK
 #  ifdef SGTTY
 	rl_termio.sg_flags |= CBREAK;
 	rl_termio.sg_flags &= ~(ECHO | XTABS);
@@ -993,18 +1315,10 @@ set_termio()
 	rl_termio.c_cc[VSUSP] = 0;
 #   endif			/* TERMIOS */
 #  endif			/* not SGTTY */
-# else				/* OSK */
-	new_settings._sgs_echo = 0;	/* switch off terminal echo */
-	new_settings._sgs_pause = 0;	/* inhibit page pause */
-	new_settings._sgs_eofch = 0;	/* inhibit eof  */
-	new_settings._sgs_kbich = 0;	/* inhibit ^C   */
-	new_settings._sgs_kbach = 0;	/* inhibit ^E   */
-# endif				/* OSK */
 
 	/*
 	 * Set the new terminal modes.
 	 */
-# ifndef OSK
 #  ifdef SGTTY
 	ioctl(0, TIOCSLTC, &s_ltchars);
 #  else				/* not SGTTY */
@@ -1018,21 +1332,17 @@ set_termio()
 	ioctl(0, TCSETAW, &rl_termio);
 #   endif			/* not TERMIOS */
 #  endif			/* not SGTTY */
-# else				/* OSK */
-	_ss_opt(STDIN, &new_settings);
-# endif				/* OSK */
 	term_set = 1;
     }
-#endif /* not MSDOS && not _Windows && not DOS386 */
+#endif /* not MSDOS && not _Windows */
 }
 
 static void
 reset_termio()
 {
-#if !defined(MSDOS) && !defined(_Windows) && !defined(DOS386)
+#if !defined(MSDOS) && !defined(_Windows)
 /* reset saved terminal modes */
     if (term_set == 1) {
-# ifndef OSK
 #  ifdef SGTTY
 	ioctl(0, TIOCSETN, &orig_termio);
 #   ifdef TIOCGLTC
@@ -1051,12 +1361,9 @@ reset_termio()
 	ioctl(0, TCSETAW, &orig_termio);
 #   endif			/* TERMIOS */
 #  endif			/* not SGTTY */
-# else				/* OSK */
-	_ss_opt(STDIN, &old_settings);
-# endif				/* OSK */
 	term_set = 0;
     }
-#endif /* not MSDOS && not _Windows && not DOS386 */
+#endif /* not MSDOS && not _Windows */
 }
 
-#endif /* READLINE && !HAVE_LIBREADLINE */
+#endif /* READLINE && !(HAVE_LIBREADLINE || HAVE_LIBEDITLINE) */

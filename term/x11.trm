@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: x11.trm,v 1.184.2.1 2009/09/13 17:54:09 sfeam Exp $
+ * $Id: x11.trm,v 1.193 2011/10/08 00:07:41 sfeam Exp $
  *
  */
 
@@ -185,9 +185,9 @@ static FILE *X11_ipc = (FILE *) 0;
 #define X11_ipc_back_fd ipc_back_fd
 #endif
 
-static char **xargv = (char **) NULL;
 /* reserve a minimum 10 driver opts */
 static char *optvec[2 * X11_nopts + 1 + 10];
+static char x11_userbkg[] = "#RRGGBB";
 
 /* gnuplot_x11 has extension .exe on OS/2 and Windows (and on RSX/VMS, but
    these construct their own full path GNUPLOT_X11 in their build script).
@@ -302,13 +302,9 @@ int
 X11_args(int argc, char *argv[])
 {
     int nx11 = 0, i, n;
+    char **xargv, **xargv_orig; 
 
-    xargv = (char **) gp_alloc(argc * sizeof(char *), "<xargv>");
-
-    if (!xargv) {
-	fputs("not enough memory to copy argv - quitting\n", stderr);
-	exit(EXIT_FAILURE);
-    }
+    xargv = xargv_orig = (char **) gp_alloc(argc * sizeof(char *), "<xargv>");
 
     /* We make a copy of the argument vector because
      * argv is modified later. */
@@ -334,13 +330,16 @@ X11_args(int argc, char *argv[])
 		if (strcmp(*argv, "-display") == 0)
 		    X11_Display++;
 		if (X11_cmdopts[n].arg == hasArg) {
-		    if (--argc <= 0)
+		    if (--argc <= 0) {
+			free(xargv_orig);
 			return nx11;
+		    }
 		    optvec[i++] = *++xargv, ++argv;
 		    nx11++;
 		}
 		if (i >= (sizeof(optvec) / sizeof(char))) {
 		    fprintf(stderr, "warning: X11 options will be truncated\n");
+		    free(xargv_orig);
 		    return nx11;	/* optvec is full */
 		}
 		nx11++;
@@ -350,7 +349,7 @@ X11_args(int argc, char *argv[])
 	if (n == X11_nopts)
 	    break;
     }
-
+    free(xargv_orig);
     return (nx11);
 }
 
@@ -373,6 +372,7 @@ enum X11_id {
     X11_NOCTRLQ,
     X11_SIZE,
     X11_POSITION,
+    X11_BACKGROUND,
 #ifdef EXTERNAL_X11_WINDOW
     X11_WINDOW,
 #endif
@@ -399,6 +399,7 @@ static struct gen_table X11_opts[] = {
     {"noctrl$q", X11_NOCTRLQ},
     {"si$ze", X11_SIZE},
     {"pos$ition", X11_POSITION},
+    {"backg$round", X11_BACKGROUND},
 #ifdef EXTERNAL_X11_WINDOW
     {"w$indow", X11_WINDOW},
 #endif
@@ -414,6 +415,7 @@ X11_options()
 
     int c_title_token = 0;
     int new_term_number = 0;
+    int background;
     TBOOLEAN duplication = FALSE;
     TBOOLEAN set_reset = FALSE, set_persist = FALSE, set_raise = FALSE, set_font = FALSE;
     TBOOLEAN set_ctrlq = FALSE;
@@ -426,6 +428,7 @@ X11_options()
     do_raise = dashedlines = ctrlq = UNSET;
     set_size = set_position = UNSET;
     persist = persist_cl;	/* previously set from command line */
+    strcpy(x11_userbkg,"#RRGGBB");
 
     while (!END_OF_COMMAND) {
 	switch (lookup_table(&X11_opts[0], c_token)) {
@@ -564,6 +567,11 @@ X11_options()
 		}
 		set_position = yes;
 	    }
+	    break;
+	case X11_BACKGROUND:
+	    c_token++;
+	    background = parse_color_name();
+	    sprintf(x11_userbkg,"#%06x",background);
 	    break;
 
 #ifdef EXTERNAL_X11_WINDOW
@@ -936,16 +944,6 @@ X11_init()
 
     if (!X11_ipc) {
 	/* first time through or after a reset */
-#if defined(OSK)
-	/* OS-9 popen() does not block on close for child to end, so
-	 * we can safely use it here
-	 */
-	/* FIXME HBB 20020214: This doesn't understand X11_DRIVER_DIR
-	 * or $GNUPLOT_DRIVER_DIR yet. This may break execution of
-	 * freshly built gnuplot until 'make install' */
-
-	   X11_ipc = popen(X11_command, "w");
-#else
 #if defined(OS2)
       /* FIXME amai 20020219: nice try...
        * But popen() does return a non-NULL handle to almost command,
@@ -956,7 +954,7 @@ X11_init()
       {
 	   X11_ipc = popen(X11_command, "w");
       }
-#else /* !(OSK || OS/2) */
+#else /* !(OS/2) */
 	int fdes[2];
 # ifdef PIPE_IPC
 	int fdes_back[2];
@@ -987,9 +985,19 @@ X11_init()
 		*++ptr = (char *) 0;	/* terminate */
 	    }
 # endif	/* PIPE_IPC */
+
+	    /* Add user-specified background to list of command options */
+	    if (strcmp(x11_userbkg,"#RRGGBB")) {
+		char **ptr;
+		for (ptr = optvec; ptr && *ptr; ptr++)
+		    ;		/* do nothing: skip over set arguments */
+		*ptr++ = "-bg";
+		*ptr++ = x11_userbkg;
+		*ptr = (char *) 0;	/* terminate */
+	    }
+
 	    /* close the write side of the child's forward fd */
 	    close(fdes[1]);
-
 	    dup2(fdes[0], 0);	/* stdin from pipe */
 	    execvp(X11_full_command_path, optvec);
 	    /* if we get here, something went wrong */
@@ -1025,7 +1033,6 @@ X11_init()
 	/* close the read side of the parent's forward fd */
 	close(fdes[0]);
 	X11_ipc = fdopen(fdes[1], "w");
-#endif /* !OSK  */
 #endif /* !OS/2 */
     }
 
@@ -1549,7 +1556,11 @@ transmit_gradient(gradient_struct *gradient, int cnt)
 	    fputs("\n", X11_ipc);
 	    fflush(X11_ipc);
 	}
-	fprintf(X11_ipc, "%s", gradient_entry_to_str(&(gradient[i])));
+	/* Send gradient entry as 0.1234RRGGBB */
+	fprintf(X11_ipc, "%6.4f", gradient[i].pos);
+	fprintf(X11_ipc, "%02x", (unsigned int)(255.*gradient[i].col.r + 0.5));
+	fprintf(X11_ipc, "%02x", (unsigned int)(255.*gradient[i].col.g + 0.5));
+	fprintf(X11_ipc, "%02x", (unsigned int)(255.*gradient[i].col.b + 0.5));
     }
     fputs("\n", X11_ipc);
 }
@@ -1583,6 +1594,7 @@ X11_make_palette(t_sm_palette *palette)
     case SMPAL_COLOR_MODE_GRADIENT:
         transmit_gradient(palette->gradient, palette->gradient_num);
 	break;
+    case SMPAL_COLOR_MODE_CUBEHELIX:
     case SMPAL_COLOR_MODE_FUNCTIONS: {
         int cnt=0;
 	gradient_struct *gradient;
@@ -1628,7 +1640,7 @@ X11_set_color(t_colorspec *colorspec)
 {
     if (colorspec->type == TC_RGB) {
 	fputc(X11_GR_SET_RGBCOLOR, X11_ipc);
-	PRINT1("%6.6x\n", colorspec->lt);
+	PRINT1("%6.6x\n", colorspec->lt & 0xffffff);
 	FFLUSH();
 	return;
     }
@@ -1906,6 +1918,7 @@ PASS2:
 
 	/* else carry on and process the rest of the string */
     }
+    X11_set_font("");
 
     /* Restore text justification flag after 2nd pass */
     if (pass > 1) {
@@ -2110,10 +2123,6 @@ START_HELP(x11)
 "?term x11",
 "?x11",
 "?X11",
-" `gnuplot` provides the `x11` terminal type for use with X servers.  This",
-" terminal type is set automatically at startup if the `DISPLAY` environment",
-" variable is set, if the `TERM` environment variable is set to `xterm`, or",
-" if the `-display` command line option is used.",
 "",
 " Syntax:",
 "    set terminal x11 {<n> | window \"<string>\"}",

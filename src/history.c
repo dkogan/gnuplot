@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: history.c,v 1.25 2009/03/26 22:00:53 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: history.c,v 1.28.2.1 2011/12/28 19:30:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - history.c */
@@ -39,6 +39,7 @@ static char *RCSid() { return RCSid("$Id: history.c,v 1.25 2009/03/26 22:00:53 m
 #include "gp_hist.h"
 
 #include "alloc.h"
+#include "plot.h"
 #include "util.h"
 
 
@@ -183,6 +184,7 @@ write_history_n(const int n, const char *filename, const char *mode)
     if (filename != NULL && filename[0]) {
 #ifdef PIPES
 	if (filename[0]=='|') {
+	    restrict_popen();
 	    out = popen(filename+1, "w");
 	    is_pipe = 1;
 	} else
@@ -346,14 +348,8 @@ history_find_all(char *cmd)
  */
 
 void
-write_history_list(num, filename, mode)
-const int num;
-const char *const filename;
-const char *mode;
+write_history_list(const int num, const char *const filename, const char *mode)
 {
-#ifdef HAVE_LIBREADLINE
-    HIST_ENTRY **the_list = history_list();
-#endif
     const HIST_ENTRY *list_entry;
     FILE *out = stdout;
     int is_pipe = 0;
@@ -365,6 +361,7 @@ const char *mode;
         /* good filename given and not quiet */
 #ifdef PIPES
         if (filename[0]=='|') {
+	    restrict_popen();
             out = popen(filename+1, "w");
             is_pipe = 1;
         } else {
@@ -389,9 +386,7 @@ const char *mode;
         if (istart <= 0 || istart > history_length)
             istart = 1;
     } else istart = 1;
-#ifdef HAVE_LIBREADLINE
-    if (the_list)
-#endif
+
         for (i = istart; (list_entry = history_get(i)); i++) {
             /* don't add line numbers when writing to file to make file loadable */
             if (is_file)
@@ -410,10 +405,7 @@ const char *mode;
 
 /* This is the function getting called in command.c */
 void
-write_history_n(n, filename, mode)
-const int n;
-const char *filename;
-const char *mode;
+write_history_n(const int n, const char *filename, const char *mode)
 {
     write_history_list(n, filename, mode);
 }
@@ -424,8 +416,7 @@ const char *mode;
  * Peter Weilbacher, 28Jun2004
  */
 const char *
-history_find(cmd)
-char *cmd;
+history_find(char *cmd)
 {
     int len;
 
@@ -451,8 +442,7 @@ char *cmd;
  * Peter Weilbacher 28Jun2004
  */
 int
-history_find_all(cmd)
-char *cmd;
+history_find_all(char *cmd)
 {
     int len;
     int found;
@@ -469,15 +459,33 @@ char *cmd;
     /* Output matching history entries in chronological order (not backwards
      * so we have to start at the beginning of the history list.
      */
-    history_set_pos(0);
+#if defined(HAVE_LIBREADLINE)
+    found = history_set_pos(0);
+    if (found == -1) {
+        fprintf(stderr, "ERROR (history_find_all): could not rewind history\n");
+        return 0;
+    }
+#else /* HAVE_LIBEDITLINE */
+    /* libedit's history_set_pos() does not work properly,
+       so we manually go to oldest entry */
+    while (next_history());
+#endif
     do {
         found = history_search_prefix(cmd, 1); /* Anchored backward search for prefix */
         if (found == 0) {
             number++;
+#if defined(HAVE_LIBREADLINE)
             printf("%5i  %s\n", where_history() + history_base, current_history()->line);
             /* go one step back or you find always the same entry. */
             if (!history_set_pos(where_history() + 1))
                 break; /* finished if stepping didn't work */
+#else /* HAVE_LIBEDITLINE */
+            /* libedit's history indices are reversed wrt GNU readline */
+            printf("%5i  %s\n", history_length - where_history() + history_base, current_history()->line);
+            /* go one step back or you find always the same entry. */
+            if (!previous_history())
+                break; /* finished if stepping didn't work */
+#endif
         } /* (found == 0) */
     } while (found > -1);
 

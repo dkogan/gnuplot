@@ -172,17 +172,17 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
 
             An Interactive Plotting Program
              Thomas Williams & Colin Kelley
-                Version 4.4 organized by:
+                Version 4.6 organized by:
     Hans-Bernhard Broeker, Ethan A Merritt, and others
 
    Copyright (C) 1986 - 1993, 1998, 2004   Thomas Williams, Colin Kelley
-           Copyright (C) 2004 - 2009  various authors
+           Copyright (C) 2004 - 2011  various authors
 
        Mailing list for comments: gnuplot-info@@lists.sourceforge.net
      Mailing list for bug reports: gnuplot-bugs@@lists.sourceforge.net
 
          This manual was originally prepared by Dick Crawford
-                   Version 4.4 - 31 May 2009
+                   Version 4.6 - December 2011
 
 
 Major contributors (alphabetic order):
@@ -248,14 +248,13 @@ Major contributors (alphabetic order):
 (setq d2t-terminal-list
       '("aed"
 	"ai"
-	"amiga"
-	"apollo"
 	"aquaterm"
 	"be"
 	"cairo"
 	"canvas"
 	"cgi"
 	"cgm"
+	"context"
 	"corel"
 	"debug"
 	"djsvga"
@@ -273,7 +272,6 @@ Major contributors (alphabetic order):
 	"gd"
 	"ggi"
 	"gif"
-	"gnugraph"
 	"gpic"
 	"gpr"
 	"grass"
@@ -305,7 +303,6 @@ Major contributors (alphabetic order):
 	"pstricks"
 	"qms"
 	"regis"
-	"rgip"
 	"sun"
 	"svg"
 	"t410x"
@@ -317,7 +314,6 @@ Major contributors (alphabetic order):
 	"tkcanvas"
 	"tpic"
 	"unixpc"
-	"unixplot"
 	"v384"
 	"vgagl"
 	"vws"
@@ -412,9 +408,6 @@ particular conversion chore."
     (if (string-match "linux" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("linux"))))
-    (if (string-match "amiga" system-configuration)
-	(setq d2t-terminal-list (append d2t-terminal-list
-					'("amiga"))))
     (if (string-match "canvas" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("canvas"))))
@@ -448,7 +441,7 @@ particular conversion chore."
     (if (string-match "vms" system-configuration)
 	(setq d2t-terminal-list (append d2t-terminal-list
 					'("vws"))))
-    (unless (member* system-configuration '("pc" "windows" "amiga")
+    (unless (member* system-configuration '("pc" "windows")
 		     :test 'string-match)
       (setq d2t-terminal-list
 	    (append d2t-terminal-list
@@ -614,6 +607,9 @@ appropriate sectioning and @node commands."
 	       (eol  (save-excursion (end-of-line) (point-marker))))
 	  ;; some node names appear twice.  make the second one unique.
 	  ;; this will fail to work if a third pops up in the future!
+	  (if (member* node d2t-node-list :test 'string=)
+	      (setq node (concat node "_")))
+	  ;; this is a fast hack to account for a third equal node name
 	  (if (member* node d2t-node-list :test 'string=)
 	      (setq node (concat node "_")))
 	  (setq d2t-node-list (append d2t-node-list (list node)))

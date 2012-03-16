@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: wmenu.c,v 1.8.4.1 2010/02/16 07:04:19 mikulik Exp $"); }
+static char *RCSid() { return RCSid("$Id: wmenu.c,v 1.22 2011/11/01 10:23:47 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - win/wmenu.c */
@@ -41,15 +41,22 @@ static char *RCSid() { return RCSid("$Id: wmenu.c,v 1.8.4.1 2010/02/16 07:04:19 
  *
  */
 
+#ifdef HAVE_CONFIG_H
+# include "config.h"
+#endif
+
 #define STRICT
 #define COBJMACROS
+/* required for COMCTRL32 5.81 or later */
 #define _WIN32_IE 0x0501
 #include <windows.h>
 #include <windowsx.h>
-#if WINVER >= 0x030a
-# include <commdlg.h>
-#endif
-#include <string.h>	/* only use far items */
+#include <commdlg.h>
+#include <commctrl.h>
+#include <shlobj.h>
+#include <winuser.h>
+#include <shlwapi.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "wgnuplib.h"
@@ -57,15 +64,11 @@ static char *RCSid() { return RCSid("$Id: wmenu.c,v 1.8.4.1 2010/02/16 07:04:19 
 #include "stdfn.h"
 #include "wcommon.h"
 
-/* WITH_ADV_DIR_DIALOG is defined in wcommon.h */
-#ifdef WITH_ADV_DIR_DIALOG
-# include <shlobj.h>
-# include <winuser.h>
-# include <shlwapi.h>
-#endif
+/* Choose between the directory dialog of the windows shell and
+   a modified version of the "file open" dialog */
+#define SHELL_DIR_DIALOG
 
-BOOL CALLBACK WINEXPORT InputBoxDlgProc(HWND, UINT, WPARAM, LPARAM);
-LRESULT CALLBACK WINEXPORT MenuButtonProc(HWND, UINT, WPARAM, LPARAM);
+BOOL CALLBACK InputBoxDlgProc(HWND, UINT, WPARAM, LPARAM);
 
 /* limits */
 #define MAXSTR 255
@@ -80,9 +83,12 @@ LRESULT CALLBACK WINEXPORT MenuButtonProc(HWND, UINT, WPARAM, LPARAM);
 #define OPEN 131
 #define SAVE 132
 #define DIRECTORY 133
-#define CMDMAX 133
+#define OPTIONS 134
+#define ABOUT 135
+#define CMDMAX 135
 char * keyword[] = {
 	"[INPUT]", "[EOS]", "[OPEN]", "[SAVE]", "[DIRECTORY]",
+	"[OPTIONS]", "[ABOUT]",
         "{ENTER}", "{ESC}", "{TAB}",
         "{^A}", "{^B}", "{^C}", "{^D}", "{^E}", "{^F}", "{^G}", "{^H}",
 	"{^I}", "{^J}", "{^K}", "{^L}", "{^M}", "{^N}", "{^O}", "{^P}",
@@ -91,6 +97,7 @@ char * keyword[] = {
 	NULL};
 BYTE keyeq[] = {
 	INPUT, EOS, OPEN, SAVE, DIRECTORY,
+	OPTIONS, ABOUT,
         13, 27, 9,
         1, 2, 3, 4, 5, 6, 7, 8,
 	9, 10, 11, 12, 13, 14, 15, 16,
@@ -99,12 +106,28 @@ BYTE keyeq[] = {
 	0};
 
 
-#ifdef WITH_ADV_DIR_DIALOG
+#define GBUFSIZE 512
+typedef struct tagGFILE {
+	HFILE	hfile;
+	char 	getbuf[GBUFSIZE];
+	int	getnext;
+	int	getleft;
+} GFILE;
+
+
+static GFILE * Gfopen(LPSTR lpszFileName, int fnOpenMode);
+static void Gfclose(GFILE * gfile);
+static int Gfgets(LPSTR lp, int size, GFILE *gfile);
+static int GetLine(char * buffer, int len, GFILE *gfile);
+static void LeftJustify(char *d, char *s);
+static BYTE MacroCommand(LPTW lptw, UINT m);
+static void TranslateMacro(char *string);
+
 
 #ifdef SHELL_DIR_DIALOG
 
 /* This is missing in MingW 2.95 */
-#ifndef BIF_EDITBOX	
+#ifndef BIF_EDITBOX
 # define BIF_EDITBOX 0x0010
 #endif
 
@@ -139,38 +162,42 @@ INT CALLBACK BrowseCallbackProc(HWND hwnd, UINT uMsg, LPARAM lp, LPARAM pData)
 /* Yes, you can use Windows shell functions even without C++ !
    These functions are not defined in shlobj.h, so we do it ourselves:
 */
+#ifndef IShellFolder_BindToObject
 #define IShellFolder_BindToObject(This,pidl,pbcReserved,riid,ppvOut) \
 		(This)->lpVtbl -> BindToObject(This,pidl,pbcReserved,riid,ppvOut)
+#endif
+#ifndef IShellFolder_GetDisplayNameOf
 #define IShellFolder_GetDisplayNameOf(This,pidl,uFlags,lpName) \
 		(This)->lpVtbl -> GetDisplayNameOf(This,pidl,uFlags,lpName)
+#endif
 
 /* My windows header files do not define these: */
-#ifndef WC_NO_BEST_FIT_CHARS      
+#ifndef WC_NO_BEST_FIT_CHARS
 #define WC_NO_BEST_FIT_CHARS      0x00000400  /* do not use best fit chars */
 #endif
 
 /* We really need this struct which is used by newer Windows versions */
-typedef struct tagOFN { 
-  DWORD         lStructSize; 
-  HWND          hwndOwner; 
-  HINSTANCE     hInstance; 
-  LPCTSTR       lpstrFilter; 
-  LPTSTR        lpstrCustomFilter; 
-  DWORD         nMaxCustFilter; 
-  DWORD         nFilterIndex; 
-  LPTSTR        lpstrFile; 
-  DWORD         nMaxFile; 
-  LPTSTR        lpstrFileTitle; 
-  DWORD         nMaxFileTitle; 
-  LPCTSTR       lpstrInitialDir; 
-  LPCTSTR       lpstrTitle; 
-  DWORD         Flags; 
-  WORD          nFileOffset; 
-  WORD          nFileExtension; 
-  LPCTSTR       lpstrDefExt; 
-  LPARAM        lCustData; 
-  LPOFNHOOKPROC lpfnHook; 
-  LPCTSTR       lpTemplateName; 
+typedef struct tagOFN {
+  DWORD         lStructSize;
+  HWND          hwndOwner;
+  HINSTANCE     hInstance;
+  LPCTSTR       lpstrFilter;
+  LPTSTR        lpstrCustomFilter;
+  DWORD         nMaxCustFilter;
+  DWORD         nFilterIndex;
+  LPTSTR        lpstrFile;
+  DWORD         nMaxFile;
+  LPTSTR        lpstrFileTitle;
+  DWORD         nMaxFileTitle;
+  LPCTSTR       lpstrInitialDir;
+  LPCTSTR       lpstrTitle;
+  DWORD         Flags;
+  WORD          nFileOffset;
+  WORD          nFileExtension;
+  LPCTSTR       lpstrDefExt;
+  LPARAM        lCustData;
+  LPOFNHOOKPROC lpfnHook;
+  LPCTSTR       lpTemplateName;
 /* #if (_WIN32_WINNT >= 0x0500) */
   void *        pvReserved;
   DWORD         dwReserved;
@@ -183,7 +210,7 @@ UINT_PTR CALLBACK OFNHookProc(HWND hdlg, UINT uiMsg, WPARAM wParam, LPARAM lPara
 {
 	switch(uiMsg) {
 	case WM_INITDIALOG: {
-		HWND parent;	
+		HWND parent;
 		parent = GetParent(hdlg);
 		/* Hint: The control codes for this can be found on MSDN */
 		/* Hide "file type" display */
@@ -249,15 +276,15 @@ UINT_PTR CALLBACK OFNHookProc(HWND hdlg, UINT uiMsg, WPARAM wParam, LPARAM lPara
 				{
 					const ULONG flags = SHGDN_NORMAL | SHGDN_FORPARSING;
 					LVITEM lvitem;
-					LPCITEMIDLIST pidl;				
+					LPCITEMIDLIST pidl;
 #if 0
-					/* The normal code to retrieve the item's text is 
-					   not very useful since user may select "hide common 
+					/* The normal code to retrieve the item's text is
+					   not very useful since user may select "hide common
 					   extensions" */
 					path = (char *)malloc(MAX_PATH+1);
 					ListView_GetItemText(list, i, 0, path, MAX_PATH );
 #endif
-					/* The following code retrieves the real path of every 
+					/* The following code retrieves the real path of every
 					   item in any case */
 					/* Retrieve PIDL of current item */
 					ZeroMemory(&lvitem,sizeof(lvitem));
@@ -277,10 +304,10 @@ UINT_PTR CALLBACK OFNHookProc(HWND hdlg, UINT uiMsg, WPARAM wParam, LPARAM lPara
 						   hr = StrRetToBuf( str, pidl, path, MAX_PATH); */
 						if (str.uType == STRRET_WSTR) {
 							unsigned wlen = wcslen(str.pOleStr);
-							wlen = WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, 
-														str.pOleStr, wlen+1, path, MAX_PATH, 
+							wlen = WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS,
+														str.pOleStr, wlen+1, path, MAX_PATH,
 														NULL, NULL);
-							_wstat(str.pOleStr, &itemStat);						
+							_wstat(str.pOleStr, &itemStat);
 							/* Must free memory allocated by shell using shell's IMalloc  */
 							IMalloc_Free(pMalloc, (LPVOID)str.pOleStr);
 						} else if (str.uType == STRRET_CSTR) {
@@ -294,41 +321,51 @@ UINT_PTR CALLBACK OFNHookProc(HWND hdlg, UINT uiMsg, WPARAM wParam, LPARAM lPara
 						/* discard all non-directories from list */
 						if ((itemStat.st_mode & _S_IFDIR) == 0) {
 							ListView_DeleteItem(list, i);
-						}						
+						}
 					}
-				}  /* Enumerate listview items */							
+				}  /* Enumerate listview items */
 				IMalloc_Free(pMalloc, (void*)pidlFolder);
-			}			
+			}
 			IMalloc_Release(pMalloc);
 			break;
 			} /* CDN_FOLDERCHANGE */
 		} /* switch(hdr.code) */
 		break;
-		} /* WM_NOTIFY */			
+		} /* WM_NOTIFY */
 	}; /* switch(uiMsg) */
 	return 0;
 }
 
 #endif /* !SHELL_DIR_DIALOG */
-#endif /* WITH_ADV_DIR_DIALOG */
+
+
+BYTE
+MacroCommand(LPTW lptw, UINT m)
+{
+	BYTE *s = lptw->lpmw->macro[m];
+	while (s && *s) {
+		if ((*s >= CMDMIN) && (*s <= CMDMAX))
+			return *s;
+		s++;
+	}
+	return 0;
+}
 
 
 /* Send a macro to the text window */
 void
 SendMacro(LPTW lptw, UINT m)
 {
-BYTE FAR *s;
+BYTE *s;
 char *d;
 char *buf;
 BOOL flag=TRUE;
 int i;
 LPMW lpmw = lptw->lpmw;
-#if WINVER >= 0x030a
 OPENFILENAME ofn;
 char *szTitle;
 char *szFile;
 char *szFilter;
-#endif
 
 	if ( (buf = LocalAllocPtr(LHND, MAXSTR+1)) == (char *)NULL )
 		return;
@@ -343,9 +380,6 @@ char *szFilter;
 		switch (*s) {
 			case SAVE: /* [SAVE] - get a save filename from a file list box */
 			case OPEN: /* [OPEN] - get a filename from a file list box */
-#if WINVER >= 0x030a
-				/* This uses COMMDLG.DLL from Windows 3.1
-				   COMMDLG.DLL is redistributable */
 				{
 				BOOL save;
 				char cwd[MAX_PATH];
@@ -383,7 +417,6 @@ char *szFilter;
 				szFilter[i++]='\0';	/* add a second NULL */
 				flag = 0;
 
-				/* the Windows 3.1 implentation - MC */
 				szFile[0] = '\0';
 				/* clear the structrure */
 				_fmemset(&ofn, 0, sizeof(OPENFILENAME));
@@ -409,49 +442,25 @@ char *szFilter;
 						*d++=ofn.lpstrFile[i];
 				}
 
-				LocalFreePtr((void NEAR *)OFFSETOF(szTitle));
-				LocalFreePtr((void NEAR *)OFFSETOF(szFilter));
-				LocalFreePtr((void NEAR *)OFFSETOF(szFile));
+				LocalFreePtr((void NEAR *)szTitle);
+				LocalFreePtr((void NEAR *)szFilter);
+				LocalFreePtr((void NEAR *)szFile);
 
 				}
 				break;
-#else
-				/* Use InputBox if you don't have COMMDLG.DLL */
-				s++;	/* skip list box title */
-				for(i=0; (*s >= 32 && *s <= 126); i++)
-					s++;
-#endif
 
-#ifndef WITH_ADV_DIR_DIALOG
-			case DIRECTORY: /* [DIRECTORY] fall back to INPUT dialog */
-#endif
 			case INPUT: /* [INPUT] - input a string of characters */
 				s++;
 				for(i=0; (*s >= 32 && *s <= 126); i++)
 					lpmw->szPrompt[i] = *s++;
 				lpmw->szPrompt[i]='\0';
-#ifdef WIN32
 				flag = DialogBox( hdllInstance, "InputDlgBox", lptw->hWndParent, InputBoxDlgProc);
-#else
-#ifdef __DLL__
-				lpmw->lpProcInput = (DLGPROC)GetProcAddress(hdllInstance, "InputBoxDlgProc");
-#else
-				lpmw->lpProcInput = (DLGPROC)MakeProcInstance((FARPROC)InputBoxDlgProc, hdllInstance);
-#endif
-				flag = DialogBox( hdllInstance, "InputDlgBox", lptw->hWndParent, lpmw->lpProcInput);
-#endif
 				if( flag ) {
 					for (i=0; i<lpmw->nChar; i++)
 						*d++ = lpmw->szAnswer[i];
 				}
-#ifndef WIN32
-#ifndef __DLL__
-				FreeProcInstance((FARPROC)lpmw->lpProcInput);
-#endif
-#endif
 				break;
 
-#ifdef WITH_ADV_DIR_DIALOG
 			case DIRECTORY: /* [DIRECTORY] - show standard directory dialog */
 				{
 #ifdef SHELL_DIR_DIALOG
@@ -467,7 +476,7 @@ char *szFilter;
 					/* get dialog box title */
 					s++;
 					for(i=0; (*s >= 32 && *s <= 126); i++)
-						szTitle[i] = *s++;	
+						szTitle[i] = *s++;
 					szTitle[i] = '\0';
 
 					flag = 0;
@@ -487,7 +496,8 @@ char *szFilter;
 						bi.pidlRoot = NULL;
 						bi.pszDisplayName = NULL;
 						bi.lpszTitle = szTitle;
-						bi.ulFlags = BIF_EDITBOX | 
+						/* BIF_NEWDIALOGSTYLE is supported by Win 2000 or later (Version 5.0)*/
+						bi.ulFlags = BIF_NEWDIALOGSTYLE | BIF_EDITBOX |
 									 BIF_STATUSTEXT |
 									 BIF_RETURNONLYFSDIRS | BIF_RETURNFSANCESTORS;
 						bi.lpfn = BrowseCallbackProc;
@@ -507,7 +517,7 @@ char *szFilter;
 
 							len = strlen( szPath );
 							flag = len > 0;
-							if (flag) 
+							if (flag)
 								for (i=0; i<len; i++)
 									*d++ = szPath[i];
 
@@ -550,22 +560,22 @@ char *szFilter;
 						ofn.nMaxFileTitle = MAXSTR;
 						ofn.lpstrTitle = szTitle;
 						ofn.lpstrInitialDir = (LPSTR)NULL;
-						ofn.Flags = OFN_PATHMUSTEXIST | OFN_NOVALIDATE | 
-									OFN_HIDEREADONLY | OFN_ENABLESIZING | 
+						ofn.Flags = OFN_PATHMUSTEXIST | OFN_NOVALIDATE |
+									OFN_HIDEREADONLY | OFN_ENABLESIZING |
 									OFN_EXPLORER | OFN_ENABLEHOOK;
 						ofn.lpfnHook = OFNHookProc;
 						flag = GetOpenFileName((LPOPENFILENAME)&ofn);
-				
+
 						if ((flag) && (ofn.nFileOffset >0)) {
 							unsigned int len;
-						
+
 							/* strip filename from result */
 							len = ofn.nFileOffset - 1;
-							ofn.lpstrFile[len] = '\0';			
+							ofn.lpstrFile[len] = '\0';
 							for (i=0; i<len; i++)
 								*d++ = ofn.lpstrFile[i];
-						}			
-						LocalFreePtr((void NEAR *)OFFSETOF(szFile));
+						}
+						LocalFreePtr((void NEAR *)szFile);
 					}
 #endif /* !SHELL_DIR_DIALOG */
 					else {
@@ -575,11 +585,34 @@ char *szFilter;
 							for (i=0; i<lpmw->nChar; i++)
 								*d++ = lpmw->szAnswer[i];
 						}
-					}	
-					LocalFreePtr((void NEAR *)OFFSETOF(szTitle));
+					}
+					LocalFreePtr((void NEAR *)szTitle);
 				}
 				break;
-#endif /* WITH_ADV_DIR_DIALOG */
+
+		    case OPTIONS: { /* [OPTIONS] - open popup menu */
+				POINT pt;
+				RECT rect;
+				int index;
+				s++;
+				/* align popup with toolbar button */
+				index = lpmw->nButton - (lpmw->nCountMenu - m);
+				if (SendMessage(lpmw->hToolbar, TB_GETITEMRECT, (WPARAM)index, (LPARAM)&rect)) {
+					pt.x = rect.left;
+					pt.y = rect.bottom + 1;
+					ClientToScreen(lptw->hWndParent, &pt);
+				} else {
+					GetCursorPos(&pt);
+				}
+				TrackPopupMenu(lptw->hPopMenu, TPM_LEFTALIGN | TPM_TOPALIGN,
+				    pt.x, pt.y, 0, lptw->hWndParent, NULL);
+				break;
+			}
+
+		    case ABOUT: /* [ABOUT] - display About box */
+				s++;
+				SendMessage(lptw->hWndText, WM_COMMAND, M_ABOUT, (LPARAM)0);
+				break;
 
 		    case EOS: /* [EOS] - End Of String - do nothing */
 				default:
@@ -588,7 +621,7 @@ char *szFilter;
 		}
 		if (!flag) { /* abort */
 			d = buf;
-			s = (BYTE FAR *)"";
+			s = (BYTE *)"";
 		}
 	    }
 	    else {
@@ -606,15 +639,8 @@ char *szFilter;
 }
 
 
-#define GBUFSIZE 512
-typedef struct tagGFILE {
-	HFILE	hfile;
-	char 	getbuf[GBUFSIZE];
-	int	getnext;
-	int	getleft;
-} GFILE;
-
-GFILE * Gfopen(LPSTR lpszFileName, int fnOpenMode)
+static GFILE *
+Gfopen(LPSTR lpszFileName, int fnOpenMode)
 {
 GFILE *gfile;
 
@@ -624,7 +650,7 @@ GFILE *gfile;
 
 	gfile->hfile = _lopen(lpszFileName, fnOpenMode);
 	if (gfile->hfile == HFILE_ERROR) {
-		LocalFreePtr((void NEAR *)OFFSETOF(gfile));
+		LocalFreePtr((void NEAR *)gfile);
 		return NULL;
 	}
 	gfile->getleft = 0;
@@ -632,16 +658,19 @@ GFILE *gfile;
 	return gfile;
 }
 
-void Gfclose(GFILE * gfile)
+
+static void
+Gfclose(GFILE * gfile)
 {
 
 	_lclose(gfile->hfile);
-	LocalFreePtr((void NEAR *)OFFSETOF(gfile));
+	LocalFreePtr((void NEAR *)gfile);
 	return;
 }
 
+
 /* returns number of characters read */
-int
+static int
 Gfgets(LPSTR lp, int size, GFILE *gfile)
 {
 int i;
@@ -670,7 +699,8 @@ int ch;
 
 /* Get a line from the menu file */
 /* Return number of lines read from file including comment lines */
-int GetLine(char * buffer, int len, GFILE *gfile)
+static int
+GetLine(char * buffer, int len, GFILE *gfile)
 {
 BOOL  status;
 int nLine = 0;
@@ -692,7 +722,8 @@ int nLine = 0;
 }
 
 /* Left justify string */
-void LeftJustify(char *d, char *s)
+static void
+LeftJustify(char *d, char *s)
 {
 	while ( *s && (*s==' ' || *s=='\t') )
 		s++;	/* skip over space */
@@ -702,7 +733,8 @@ void LeftJustify(char *d, char *s)
 }
 
 /* Translate string to tokenized macro */
-void TranslateMacro(char *string)
+static void
+TranslateMacro(char *string)
 {
 int i, len;
 LPSTR ptr;
@@ -722,7 +754,7 @@ void
 LoadMacros(LPTW lptw)
 {
 GFILE *menufile;
-BYTE FAR *macroptr;
+BYTE *macroptr;
 char *buf;
 int nMenuLevel;
 HMENU hMenu[MENUDEPTH+1];
@@ -732,11 +764,9 @@ int nInc;
 HGLOBAL hmacro, hmacrobuf;
 
 int i;
-HDC hdc;
-TEXTMETRIC tm;
 RECT rect;
-int ButtonX, ButtonY;
-char FAR *ButtonText[BUTTONMAX];
+char *ButtonText[BUTTONMAX];
+int ButtonIcon[BUTTONMAX];
 
 	lpmw = lptw->lpmw;
 
@@ -744,8 +774,8 @@ char FAR *ButtonText[BUTTONMAX];
 	buf = (char *)NULL;
 	hmacro = 0;
 	hmacrobuf = 0;
-	lpmw->macro = (BYTE FAR * FAR *)NULL;
-	lpmw->macrobuf = (BYTE FAR *)NULL;
+	lpmw->macro = (BYTE **)NULL;
+	lpmw->macrobuf = (BYTE *)NULL;
 	lpmw->szPrompt = (char *)NULL;
 	lpmw->szAnswer = (char *)NULL;
 	menufile = (GFILE *)NULL;
@@ -757,11 +787,11 @@ char FAR *ButtonText[BUTTONMAX];
 	/* allocate buffers */
 	if ((buf = LocalAllocPtr(LHND, MAXSTR)) == (char *)NULL)
 		goto nomemory;
-	hmacro = GlobalAlloc(GHND,(NUMMENU) * sizeof(BYTE FAR *));
-	if ((lpmw->macro = (BYTE FAR * FAR *)GlobalLock(hmacro))  == (BYTE FAR * FAR *)NULL)
+	hmacro = GlobalAlloc(GHND,(NUMMENU) * sizeof(BYTE *));
+	if ((lpmw->macro = (BYTE **)GlobalLock(hmacro))  == (BYTE **)NULL)
 		goto nomemory;
 	hmacrobuf = GlobalAlloc(GHND, MACROLEN);
-	if ((lpmw->macrobuf = (BYTE FAR*)GlobalLock(hmacrobuf)) == (BYTE FAR *)NULL)
+	if ((lpmw->macrobuf = (BYTE *)GlobalLock(hmacrobuf)) == (BYTE *)NULL)
 		goto nomemory;
 	if ((lpmw->szPrompt = LocalAllocPtr(LHND, MAXSTR)) == (char *)NULL)
 		goto nomemory;
@@ -806,6 +836,7 @@ char FAR *ButtonText[BUTTONMAX];
 	  }
 	  else if (!lstrcmpi(buf,"[Button]")) {
 		/* button macro */
+		char *icon;
 		if (lpmw->nButton >= BUTTONMAX) {
 			wsprintf(buf,"Too many buttons at line %d of %s\n",nLine,lpmw->szMenuName);
            			MessageBox(lptw->hWndParent,(LPSTR) buf,lptw->Title, MB_ICONEXCLAMATION);
@@ -819,14 +850,19 @@ char FAR *ButtonText[BUTTONMAX];
 		}
 		LeftJustify(buf,buf);
 		if (lstrlen(buf)+1 < MACROLEN - (macroptr-lpmw->macrobuf))
-			lstrcpy((char FAR *)macroptr,buf);
+			lstrcpy((char *)macroptr,buf);
 		else {
 			wsprintf(buf,"Out of space for storing menu macros\n at line %d of \n",nLine,lpmw->szMenuName);
            			MessageBox(lptw->hWndParent,(LPSTR) buf,lptw->Title, MB_ICONEXCLAMATION);
 			goto errorcleanup;
 		}
-		ButtonText[lpmw->nButton] = (char FAR *)macroptr;
-		macroptr += lstrlen((char FAR *)macroptr)+1;
+		ButtonText[lpmw->nButton] = (char *)macroptr;
+		ButtonIcon[lpmw->nButton] = I_IMAGENONE; /* comctl 5.81, Win 2000 */
+		if ((icon = strchr((char *)macroptr, ';'))) {
+			*icon = NUL;
+			ButtonIcon[lpmw->nButton] = atoi(++icon);
+		}
+		macroptr += lstrlen((char *)macroptr)+1;
 		*macroptr = '\0';
 		if (!(nInc = GetLine(buf,MAXSTR,menufile))) {
 			nLine += nInc;
@@ -837,7 +873,7 @@ char FAR *ButtonText[BUTTONMAX];
 		LeftJustify(buf,buf);
 		TranslateMacro(buf);
 		if (lstrlen(buf)+1 < MACROLEN - (macroptr - lpmw->macrobuf))
-			lstrcpy((char FAR *)macroptr,buf);
+			lstrcpy((char *)macroptr,buf);
 		else {
 			wsprintf(buf,"Out of space for storing menu macros\n at line %d of \n",nLine,lpmw->szMenuName);
            			MessageBox(lptw->hWndParent,(LPSTR) buf,lptw->Title, MB_ICONEXCLAMATION);
@@ -845,7 +881,7 @@ char FAR *ButtonText[BUTTONMAX];
 		}
 		lpmw->hButtonID[lpmw->nButton] = lpmw->nCountMenu;
 		lpmw->macro[lpmw->nCountMenu] = macroptr;
-		macroptr += lstrlen((char FAR *)macroptr)+1;
+		macroptr += lstrlen((char *)macroptr)+1;
 		*macroptr = '\0';
 		lpmw->nCountMenu++;
 		lpmw->nButton++;
@@ -882,14 +918,14 @@ char FAR *ButtonText[BUTTONMAX];
 			LeftJustify(buf,buf);
 			TranslateMacro(buf);
 			if (lstrlen(buf)+1 < MACROLEN - (macroptr - lpmw->macrobuf))
-				lstrcpy((char FAR *)macroptr,buf);
+				lstrcpy((char *)macroptr,buf);
 			else {
 				wsprintf(buf,"Out of space for storing menu macros\n at line %d of %s\n",nLine,lpmw->szMenuName);
             			MessageBox(lptw->hWndParent,(LPSTR) buf,lptw->Title, MB_ICONEXCLAMATION);
 				goto errorcleanup;
 			}
 			lpmw->macro[lpmw->nCountMenu] = macroptr;
-			macroptr += lstrlen((char FAR *)macroptr)+1;
+			macroptr += lstrlen((char *)macroptr)+1;
 			*macroptr = '\0';
 			lpmw->nCountMenu++;
 		}
@@ -905,37 +941,50 @@ char FAR *ButtonText[BUTTONMAX];
 	if (!lpmw->nButton)
 		goto cleanup;		/* no buttons */
 
-	/* calculate size of buttons */
-	hdc = GetDC(lptw->hWndParent);
-	SelectObject(hdc, GetStockObject(SYSTEM_FIXED_FONT));
-	GetTextMetrics(hdc, &tm);
-	ButtonX = 8 * tm.tmAveCharWidth;
-	ButtonY = 6 * (tm.tmHeight + tm.tmExternalLeading) / 4;
-	ReleaseDC(lptw->hWndParent,hdc);
+	/* create a toolbar */
+	lpmw->hToolbar = CreateWindowEx(0, TOOLBARCLASSNAME, NULL,
+		WS_CHILD | TBSTYLE_LIST, // TBSTYLE_WRAPABLE
+		0, 0, 0, 0,
+		lptw->hWndParent, (HMENU)ID_TOOLBAR, lptw->hInstance, NULL);
+	if (lpmw->hToolbar == NULL)
+	    goto cleanup;
 
-	/* move top of client text window down to allow space for buttons */
-	lptw->ButtonHeight = ButtonY+1;
+	/* set size of toolbar icons */
+	/* lparam is (height<<16 + width) / default 16,15 */
+	SendMessage(lpmw->hToolbar, TB_SETBITMAPSIZE, (WPARAM)0, (LPARAM)((16<<16) + 16));
+	/* load standard toolbar icons: standard, history & view */
+	SendMessage(lpmw->hToolbar, TB_LOADIMAGES, (WPARAM)IDB_STD_SMALL_COLOR, (LPARAM)HINST_COMMCTRL);
+	SendMessage(lpmw->hToolbar, TB_LOADIMAGES, (WPARAM)IDB_HIST_SMALL_COLOR, (LPARAM)HINST_COMMCTRL);
+	SendMessage(lpmw->hToolbar, TB_LOADIMAGES, (WPARAM)IDB_VIEW_SMALL_COLOR, (LPARAM)HINST_COMMCTRL);
+
+	/* create buttons */
+	SendMessage(lpmw->hToolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
+	for (i = 0; i < lpmw->nButton; i++) {
+		TBBUTTON button;
+		BOOL ret;
+		ZeroMemory(&button, sizeof(button));
+		button.iBitmap = ButtonIcon[i];
+		button.idCommand = lpmw->hButtonID[i];
+		button.fsState = TBSTATE_ENABLED;
+		button.fsStyle = BTNS_AUTOSIZE | BTNS_SHOWTEXT | BTNS_NOPREFIX;
+		if (MacroCommand(lptw, lpmw->hButtonID[i]) == OPTIONS)
+			button.fsStyle |= BTNS_WHOLEDROPDOWN;
+		button.iString = (UINT_PTR)ButtonText[i];
+		ret = SendMessage(lpmw->hToolbar, TB_INSERTBUTTON, (WPARAM)i+1, (LPARAM)&button);
+	}
+
+	/* auto-resize and show */
+	SendMessage(lpmw->hToolbar, TB_AUTOSIZE, (WPARAM)0, (LPARAM)0);
+	ShowWindow(lpmw->hToolbar, TRUE);
+
+	/* move top of client text window down to allow space for toolbar */
+	GetClientRect(lpmw->hToolbar, &rect);
+	lptw->ButtonHeight = rect.bottom + 1;
+	lptw->ButtonHeight++;
 	GetClientRect(lptw->hWndParent, &rect);
 	SetWindowPos(lptw->hWndText, (HWND)NULL, 0, lptw->ButtonHeight,
-			rect.right, rect.bottom-lptw->ButtonHeight,
+			rect.right, rect.bottom - lptw->ButtonHeight - lptw->StatusHeight,
 			SWP_NOZORDER | SWP_NOACTIVATE);
-
-	/* create the buttons */
-#ifdef __DLL__
-	lpmw->lpfnMenuButtonProc = (WNDPROC)GetProcAddress(hdllInstance, "MenuButtonProc");
-#else
-	lpmw->lpfnMenuButtonProc = (WNDPROC)MakeProcInstance((FARPROC)MenuButtonProc, hdllInstance);
-#endif
-	for (i=0; i<lpmw->nButton; i++) {
-		lpmw->hButton[i] = CreateWindow("button", ButtonText[i],
-			WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-				i * ButtonX, 0,
-				ButtonX, ButtonY,
-				lptw->hWndParent, (HMENU)i,
-				lptw->hInstance, lptw);
-		lpmw->lpfnButtonProc[i] = (WNDPROC) GetWindowLong(lpmw->hButton[i], GWL_WNDPROC);
-		SetWindowLong(lpmw->hButton[i], GWL_WNDPROC, (LONG)lpmw->lpfnMenuButtonProc);
-	}
 
 	goto cleanup;
 
@@ -952,13 +1001,13 @@ errorcleanup:
 		GlobalFree(hmacrobuf);
 	}
 	if (lpmw->szPrompt != (char *)NULL)
-		LocalFreePtr((void NEAR *)OFFSETOF(lpmw->szPrompt));
+		LocalFreePtr((void NEAR *)lpmw->szPrompt);
 	if (lpmw->szAnswer != (char *)NULL)
-		LocalFreePtr((void NEAR *)OFFSETOF(lpmw->szAnswer));
+		LocalFreePtr((void NEAR *)lpmw->szAnswer);
 
 cleanup:
 	if (buf != (char *)NULL)
-		LocalFreePtr((void NEAR *)OFFSETOF(buf));
+		LocalFreePtr((void NEAR *)buf);
 	if (menufile != (GFILE *)NULL)
 		Gfclose(menufile);
 	return;
@@ -972,26 +1021,20 @@ HGLOBAL hglobal;
 LPMW lpmw;
 	lpmw = lptw->lpmw;
 
-#ifndef WIN32
-#ifndef __DLL__
-	if (lpmw->lpfnMenuButtonProc)
-		FreeProcInstance((FARPROC)lpmw->lpfnMenuButtonProc);
-#endif
-#endif
-	hglobal = (HGLOBAL)GlobalHandle( SELECTOROF(lpmw->macro) );
+	hglobal = (HGLOBAL)GlobalHandle(lpmw->macro);
 	if (hglobal) {
 		GlobalUnlock(hglobal);
 		GlobalFree(hglobal);
 	}
-	hglobal = (HGLOBAL)GlobalHandle( SELECTOROF(lpmw->macrobuf) );
+	hglobal = (HGLOBAL)GlobalHandle(lpmw->macrobuf);
 	if (hglobal) {
 		GlobalUnlock(hglobal);
 		GlobalFree(hglobal);
 	}
 	if (lpmw->szPrompt != (char *)NULL)
-		LocalFreePtr((void NEAR *)OFFSETOF(lpmw->szPrompt));
+		LocalFreePtr(lpmw->szPrompt);
 	if (lpmw->szAnswer != (char *)NULL)
-		LocalFreePtr((void NEAR *)OFFSETOF(lpmw->szAnswer));
+		LocalFreePtr(lpmw->szAnswer);
 }
 
 
@@ -999,7 +1042,7 @@ LPMW lpmw;
 /* InputBoxDlgProc() -  Message handling routine for Input dialog box         */
 /***********************************************************************/
 
-BOOL CALLBACK WINEXPORT
+BOOL CALLBACK
 InputBoxDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
 LPTW lptw;
@@ -1034,33 +1077,3 @@ LPMW lpmw;
             return( FALSE);
         }
     }
-
-
-LRESULT CALLBACK WINEXPORT
-MenuButtonProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-LPTW lptw;
-LPMW lpmw;
-#ifdef WIN32
-LONG n = GetWindowLong(hwnd, GWL_ID);
-#else
-WORD n = GetWindowWord(hwnd, GWW_ID);
-#endif
-	lptw = (LPTW)GetWindowLong(GetParent(hwnd), 0);
-	lpmw = lptw->lpmw;
-
-	switch(message) {
-		case WM_LBUTTONUP:
-			{
-			RECT rect;
-			POINT pt;
-			GetWindowRect(hwnd, &rect);
-			GetCursorPos(&pt);
-			if (PtInRect(&rect, pt))
-				SendMessage(lptw->hWndText, WM_COMMAND, lpmw->hButtonID[n], 0L);
-			SetFocus(lptw->hWndText);
-			}
-			break;
-	}
-	return CallWindowProc((lpmw->lpfnButtonProc[n]), hwnd, message, wParam, lParam);
-}
