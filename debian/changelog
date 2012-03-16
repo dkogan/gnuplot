@@ -1,3 +1,11 @@
+gnuplot (4.4.0-1.1) unstable; urgency=low
+
+  * Non-maintainer upload.
+  * Build depend on recent libedit-dev with fixed shlibs
+    dependencies (Closes: #597514).
+
+ -- Agustin Martin Domingo <agmartin@debian.org>  Tue, 21 Sep 2010 12:19:09 +0200
+
 gnuplot (4.4.0-1) unstable; urgency=low
 
   * New usptream release. Closes: #575460, #574099, #519090, #523856.
