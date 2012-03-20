@@ -9,6 +9,9 @@ export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 export CFLAGS := -Wall $(shell dpkg-buildflags --get CFLAGS)
 export LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS)
 
+# Tell compiler where should find lua headers
+CFLAGS += -I/usr/include/lua5.1
+
 BUILDDIR_NOX = $(CURDIR)/debian/build-nox
 BUILDDIR_X11 = $(CURDIR)/debian/build-x11
 
@@ -22,8 +25,8 @@ configure-nox: configure-nox-stamp
 configure-nox-stamp: autoreconf-stamp
 	dh_testdir
 	mkdir -p $(BUILDDIR_NOX)
-	cd $(BUILDDIR_NOX); CFLAGS="$(CFLAGS)" \
-		LDFLAGS="$(LDFLAGS)" ../../configure \
+	cd $(BUILDDIR_NOX);  ../../configure \
+		CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
 		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
 		--prefix=/usr --mandir=\$${prefix}/share/man \
 	  	--infodir=\$${prefix}/share/info \
@@ -39,8 +42,8 @@ configure-x11: configure-x11-stamp
 configure-x11-stamp: autoreconf-stamp
 	dh_testdir
 	mkdir -p $(BUILDDIR_X11)
-	cd $(BUILDDIR_X11); CFLAGS="$(CFLAGS)" \
-		LDFLAGS="$(LDFLAGS)" ../../configure \
+	cd $(BUILDDIR_X11); ../../configure \
+		CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
 		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
 	  	--prefix=/usr --mandir=\$${prefix}/share/man \
 	  	--infodir=\$${prefix}/share/info \
