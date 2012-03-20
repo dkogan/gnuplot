@@ -9,6 +9,10 @@ export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 export CFLAGS := -Wall $(shell dpkg-buildflags --get CFLAGS)
 export LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS)
 
+# Build structure may link against unneeded libs.
+# Make sure this does not happen.
+LDFLAGS            += -Wl,--as-needed
+
 # Tell compiler where should find lua headers
 CFLAGS += -I/usr/include/lua5.1
 
