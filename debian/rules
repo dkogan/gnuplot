@@ -6,17 +6,8 @@ include /usr/share/quilt/quilt.make
 export DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
-CFLAGS = -Wall -g
-
-ifneq (,$(findstring noopt,$(DEB_BUILD_OPTIONS)))
-	CFLAGS += -O0
-else
-	CFLAGS += -O2
-endif
-
-ifeq (,$(findstring nostrip,$(DEB_BUILD_OPTIONS)))
-	INSTALL_PROGRAM += -s
-endif
+export CFLAGS := -Wall $(shell dpkg-buildflags --get CFLAGS)
+export LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS)
 
 BUILDDIR_NOX = $(CURDIR)/debian/build-nox
 BUILDDIR_X11 = $(CURDIR)/debian/build-x11
@@ -32,7 +23,7 @@ configure-nox-stamp: autoreconf-stamp
 	dh_testdir
 	mkdir -p $(BUILDDIR_NOX)
 	cd $(BUILDDIR_NOX); CFLAGS="$(CFLAGS)" \
-		LDFLAGS="-Wl,-z,defs,-as-needed" ../../configure \
+		LDFLAGS="$(LDFLAGS)" ../../configure \
 		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
 		--prefix=/usr --mandir=\$${prefix}/share/man \
 	  	--infodir=\$${prefix}/share/info \
@@ -49,7 +40,7 @@ configure-x11-stamp: autoreconf-stamp
 	dh_testdir
 	mkdir -p $(BUILDDIR_X11)
 	cd $(BUILDDIR_X11); CFLAGS="$(CFLAGS)" \
-		LDFLAGS="-Wl,-z,defs,-as-needed" ../../configure \
+		LDFLAGS="$(LDFLAGS)" ../../configure \
 		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
 	  	--prefix=/usr --mandir=\$${prefix}/share/man \
 	  	--infodir=\$${prefix}/share/info \
