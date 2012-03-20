@@ -5,6 +5,8 @@ gnuplot (4.6.0-1) unstable; urgency=low
   * [a1beb9c] Add texlive-latex-extra to BD. Needed for tutorial-build.
   * [8fc95b4] Move under debian-science roof. (Closes: #596969)
   * [2f23686] Change libpng12-dev BD on libpng-dev. (Closes: #662356)
+  * [a4741ac] Use dpkg-buildflags for flags.
+  * [17e3fff] Fix FTBFS "format not a string literal and no format arg".
 
  -- Anton Gladky <gladky.anton@gmail.com>  Mon, 19 Mar 2012 21:54:02 +0100
 
