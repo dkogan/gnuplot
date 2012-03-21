@@ -6,8 +6,8 @@ include /usr/share/quilt/quilt.make
 export DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
 
-export CFLAGS := -Wall $(shell dpkg-buildflags --get CFLAGS)
-export LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS)
+CFLAGS := -Wall $(shell dpkg-buildflags --get CFLAGS)
+LDFLAGS := $(shell dpkg-buildflags --get LDFLAGS)
 
 # Build structure may link against unneeded libs.
 # Make sure this does not happen.
