@@ -8,6 +8,11 @@ gnuplot (4.6.0-1) unstable; urgency=low
   * [a4741ac] Use dpkg-buildflags for flags.
   * [17e3fff] Fix FTBFS "format not a string literal and no format arg".
 
+  [ Agustin Martin ]
+  * [663e404] Add liblua5.1-dev dependency and set include path to 
+              enable lua. (Closes: #503269)
+  * [0dc855f] Pass --as-needed to linker. Avoids linking unneeded libs.
+              
  -- Anton Gladky <gladky.anton@gmail.com>  Mon, 19 Mar 2012 21:54:02 +0100
 
 gnuplot (4.4.0-1.1) unstable; urgency=low
