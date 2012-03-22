@@ -3,7 +3,7 @@ Section: math
 Priority: optional
 Maintainer: Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>
 Uploaders: Bradley Smith <bradsmith@debian.org>, Anton Gladky <gladky.anton@gmail.com>
-Standards-Version: 3.8.4
+Standards-Version: 3.9.3
 DM-Upload-Allowed: yes
 Build-Depends: debhelper (>= 7), libpng-dev, libx11-dev, libxt-dev, 
  pkg-config, texinfo (>= 4.8), texlive-latex-base, texlive-latex-recommended, 
