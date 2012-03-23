@@ -80,6 +80,7 @@ build-indep-stamp: build-arch
 	cp -f term/PostScript/prologue.ps docs/psdoc/
 	$(MAKE) -C $(BUILDDIR_X11)/docs ps info gpcard.ps
 	$(MAKE) -C $(BUILDDIR_X11)/tutorial tutorial.dvi tutorial.ps
+	$(MAKE) -C $(BUILDDIR_X11)/demo
 	$(MAKE) -C docs/psdoc ps_fontfile_doc.ps
 	mkdir -p docs/htmldocs
 	$(MAKEINFO) --html --output=docs/htmldocs/ docs/gnuplot.texi
