@@ -21,31 +21,33 @@ CFLAGS += -I/usr/include/lua5.1
 BUILDDIR_NOX = $(CURDIR)/debian/build-nox
 BUILDDIR_X11 = $(CURDIR)/debian/build-x11
 
+conf_opts += \
+	CFLAGS="$(CFLAGS)" \
+	CXXFLAGS="$(CXXFLAGS)" \
+	CPPFLAGS="$(CPPFLAGS)" \
+	LDFLAGS="$(LDFLAGS)" \
+	--host=$(DEB_HOST_GNU_TYPE) \
+	--build=$(DEB_BUILD_GNU_TYPE) \
+	--prefix=/usr \
+	--mandir=\$${prefix}/share/man \
+	--infodir=\$${prefix}/share/info \
+	--libexecdir=\$${prefix}/lib/gnuplot \
+	--datadir=\$${prefix}/share/gnuplot \
+	--with-gihdir=\$${prefix}/share/gnuplot \
+	--without-lasergnu \
+	--with-png \
+	--with-gd \
+	--without-lisp-files \
+	--without-linux-vga \
+	--with-readline=bsd
+
 override_dh_auto_configure:
+	echo $(conf_opts)
 	autoreconf
 	mkdir -p $(BUILDDIR_NOX)
-	cd $(BUILDDIR_NOX);  ./../../configure \
-		CFLAGS="$(CFLAGS)" CXXFLAGS="$(CXXFLAGS)" CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
-		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
-		--prefix=/usr --mandir=\$${prefix}/share/man \
-	  	--infodir=\$${prefix}/share/info \
-		--libexecdir=\$${prefix}/lib/gnuplot \
-	  	--datadir=\$${prefix}/share/gnuplot \
-		--with-gihdir=\$${prefix}/share/gnuplot \
-	  	--without-lasergnu --with-png --with-gd --without-lisp-files \
-	  	--without-linux-vga --with-readline=bsd --without-x \
-		--disable-wxwidgets
+	cd $(BUILDDIR_NOX);  ./../../configure $(conf_opts) --without-x --disable-wxwidgets
 	mkdir -p $(BUILDDIR_X11)
-	cd $(BUILDDIR_X11); ../../configure \
-		CFLAGS="$(CFLAGS)" CXXFLAGS="$(CXXFLAGS)" CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
-		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
-	  	--prefix=/usr --mandir=\$${prefix}/share/man \
-	  	--infodir=\$${prefix}/share/info \
-	  	--libexecdir=\$${prefix}/lib/gnuplot \
-	  	--datadir=\$${prefix}/share/gnuplot \
-		--with-gihdir=\$${prefix}/share/gnuplot \
-	  	--without-lasergnu --with-png --with-gd --without-lisp-files \
-	  	--without-linux-vga --with-readline=bsd
+	cd $(BUILDDIR_X11); ../../configure $(conf_opts)
 
 override_dh_auto_build-arch:
 	$(MAKE) -C $(BUILDDIR_NOX)/src
