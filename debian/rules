@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
-include /usr/share/quilt/quilt.make
-
+%:
+	dh $@
 
 export DEB_HOST_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 export DEB_BUILD_GNU_TYPE ?= $(shell dpkg-architecture -qDEB_BUILD_GNU_TYPE)
@@ -21,17 +21,10 @@ CFLAGS += -I/usr/include/lua5.1
 BUILDDIR_NOX = $(CURDIR)/debian/build-nox
 BUILDDIR_X11 = $(CURDIR)/debian/build-x11
 
-autoreconf: autoreconf-stamp
-autoreconf-stamp: $(QUILT_STAMPFN)
-	dh_testdir
+override_dh_auto_configure:
 	autoreconf
-	touch $@
-
-configure-nox: configure-nox-stamp
-configure-nox-stamp: autoreconf-stamp
-	dh_testdir
 	mkdir -p $(BUILDDIR_NOX)
-	cd $(BUILDDIR_NOX);  ../../configure \
+	cd $(BUILDDIR_NOX);  ./../../configure \
 		CFLAGS="$(CFLAGS)" CXXFLAGS="$(CXXFLAGS)" CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
 		--host=$(DEB_HOST_GNU_TYPE) --build=$(DEB_BUILD_GNU_TYPE) \
 		--prefix=/usr --mandir=\$${prefix}/share/man \
@@ -42,11 +35,6 @@ configure-nox-stamp: autoreconf-stamp
 	  	--without-lasergnu --with-png --with-gd --without-lisp-files \
 	  	--without-linux-vga --with-readline=bsd --without-x \
 		--disable-wxwidgets
-	touch $@
-
-configure-x11: configure-x11-stamp
-configure-x11-stamp: autoreconf-stamp
-	dh_testdir
 	mkdir -p $(BUILDDIR_X11)
 	cd $(BUILDDIR_X11); ../../configure \
 		CFLAGS="$(CFLAGS)" CXXFLAGS="$(CXXFLAGS)" CPPFLAGS="$(CPPFLAGS)" LDFLAGS="$(LDFLAGS)" \
@@ -58,25 +46,12 @@ configure-x11-stamp: autoreconf-stamp
 		--with-gihdir=\$${prefix}/share/gnuplot \
 	  	--without-lasergnu --with-png --with-gd --without-lisp-files \
 	  	--without-linux-vga --with-readline=bsd
-	touch $@
 
-build-nox: build-nox-stamp
-build-nox-stamp: configure-nox
-	dh_testdir
+override_dh_auto_build-arch:
 	$(MAKE) -C $(BUILDDIR_NOX)/src
-	touch $@
-
-build-x11: build-x11-stamp
-build-x11-stamp: configure-x11
-	dh_testdir
 	$(MAKE) -C $(BUILDDIR_X11) pkglibexecdir='$$(libexecdir)'
-	touch $@
 
-build-arch: build-nox build-x11
-
-build-indep: build-indep-stamp
-build-indep-stamp: build-arch
-	dh_testdir
+override_dh_auto_build-indep:
 	cp -f term/PostScript/prologue.ps docs/psdoc/
 	$(MAKE) -C $(BUILDDIR_X11)/docs ps info gpcard.ps
 	$(MAKE) -C $(BUILDDIR_X11)/tutorial tutorial.dvi tutorial.ps
@@ -84,16 +59,10 @@ build-indep-stamp: build-arch
 	$(MAKE) -C docs/psdoc ps_fontfile_doc.ps
 	mkdir -p docs/htmldocs
 	$(MAKEINFO) --html --output=docs/htmldocs/ docs/gnuplot.texi
-	touch $@
 
-build: build-arch build-indep
 
-clean: unpatch
-	dh_testdir
-	dh_testroot
-	rm -f build-arch-stamp build-indep-stamp build-nox-stamp \
-		build-x11-stamp configure-nox-stamp	configure-x11-stamp
-	dh_clean
+override_dh_auto_clean:
+	dh_auto_clean
 	rm -rf debian/build-nox debian/build-x11 \
 		config.log \
 		config.hin \
@@ -116,11 +85,7 @@ clean: unpatch
 		docs/psdoc/missfont.log \
 		docs/htmldocs
 
-install: build
-	dh_testdir
-	dh_testroot
-	dh_prep
-	dh_installdirs
+override_dh_auto_install:
 	$(MAKE) -C $(BUILDDIR_X11) install DESTDIR=$(CURDIR)/debian/tmp/ \
 		pkglibexecdir='$$(libexecdir)'
 	chmod u-s $(CURDIR)/debian/tmp/usr/bin/gnuplot
@@ -129,38 +94,11 @@ install: build
 	dh_install
 	mkdir -p debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html
 	cp -f docs/htmldocs/* debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html/
+	rm -rf debian/gnuplot/usr/share/doc/gnuplot
 
-binary-indep: build install
-	dh_testdir -i
-	dh_testroot -i
-	dh_installdocs -pgnuplot-doc
-	dh_installexamples -i -X CVS
+
+override_dh_installinfo:
 	dh_installinfo -pgnuplot-doc $(BUILDDIR_X11)/docs/gnuplot.info*
+
+override_installchangelogs:
 	dh_installchangelogs -pgnuplot-doc ChangeLog
-	dh_link -i
-	dh_compress -i
-	dh_fixperms -i
-	dh_installdeb -i
-	dh_gencontrol -i
-	dh_md5sums -i
-	dh_builddeb -i
-
-binary-arch: build install
-	dh_testdir -a
-	dh_testroot -a
-	dh_installdocs -a
-	dh_installmenu -a
-	dh_installman -a
-	dh_installchangelogs ChangeLog -a
-	dh_strip -a
-	dh_link -a
-	dh_compress -a
-	dh_fixperms -a
-	dh_installdeb -a
-	dh_shlibdeps -a
-	dh_gencontrol -a
-	dh_md5sums -a
-	dh_builddeb -a
-
-binary: binary-indep binary-arch
-.PHONY: build clean binary-indep binary-arch binary install configure-nox configure-x11 build-nox build-rest build-x11
