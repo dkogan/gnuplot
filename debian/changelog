@@ -1,3 +1,18 @@
+gnuplot (4.6.0-2) unstable; urgency=low
+
+  * [033f52f] Bumped Standards-Version: 3.9.3. No changes.
+  * [ec5a5cc] Enable CPPFLAGS/CXXFLAGS flags hardening. 
+              Thanks to Simon Ruderich. (Closes: #665311)
+  * [803ad73] Compile demo-folder to get some binary-data. (Closes: #665349)
+  * [4abcc8c] Simplify debian/rules. Use dh rules.
+  * [2a96f2e] Do not use symbolic links between binaries.
+  * [e5b0eb2] Use compat 8.
+  * [1bec2ae] Remove dublicating code from debian/rules.
+  * [817a4ec] Fix "Segmentation fault" after entering any command. (Closes: #665832)
+  * [c51581b] Enable auto-tests.
+
+ -- Anton Gladky <gladky.anton@gmail.com>  Sat, 31 Mar 2012 00:37:36 +0200
+
 gnuplot (4.6.0-1) unstable; urgency=low
 
   * [ab4b922] Imported Upstream version 4.6.0
