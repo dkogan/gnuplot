@@ -98,6 +98,9 @@ override_dh_auto_install:
 	cp -f docs/htmldocs/* debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html/
 	rm -rf debian/gnuplot/usr/share/doc/gnuplot
 
+override_dh_auto_test:
+	cp -f $(BUILDDIR_X11)/demo/binary* ./demo/
+	cd demo; $(BUILDDIR_NOX)/src/gnuplot all.dem </dev/null
 
 override_dh_installinfo:
 	dh_installinfo -pgnuplot-doc $(BUILDDIR_X11)/docs/gnuplot.info*
