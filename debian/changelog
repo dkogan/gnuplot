@@ -8,7 +8,8 @@ gnuplot (4.6.0-2) unstable; urgency=low
   * [2a96f2e] Do not use symbolic links between binaries.
   * [e5b0eb2] Use compat 8.
   * [1bec2ae] Remove dublicating code from debian/rules.
-  * [817a4ec] Fix "Segmentation fault" after entering any command. (Closes: #665832)
+  * [817a4ec] Fix "Segmentation fault" after entering any command. 
+              (Closes: #665832)
   * [c51581b] Enable auto-tests.
 
  -- Anton Gladky <gladky.anton@gmail.com>  Sat, 31 Mar 2012 00:37:36 +0200
