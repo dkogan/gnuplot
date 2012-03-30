@@ -6,7 +6,7 @@ Last-Update: 2012-03-30
 
 --- a/src/command.c
 +++ b/src/command.c
-@@ -2688,9 +2688,10 @@
+@@ -2688,9 +2688,14 @@
  #  elif defined(HAVE_LIBEDITLINE)
  	    /* deleting history entries does not work, so suppress adjacent 
  	    duplicates only */
@@ -14,9 +14,13 @@ Last-Update: 2012-03-30
 -	    if (strcmp(current_history()->line, line) != 0)
 -		add_history(line);
 +      
-+	    if (previous_history() && strcmp(current_history()->line, line) != 0) {
-+        add_history(line);
-+      }
++	    int found;
++	    using_history();
++
++	    found = history_search(line, -1);
++	    if (found <= 0) {
++               add_history(line);
++            }
  #  else /* builtin readline */
  	    add_history(line);
  #  endif
