@@ -1,3 +1,4 @@
 04_fix_libexecdir.diff
 05_default_gd_font.diff
 06_fix_format_not_a_string.diff
+07_fix_segm_fault.diff
