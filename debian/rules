@@ -91,12 +91,6 @@ override_dh_auto_install:
 	$(MAKE) -C $(BUILDDIR_X11) install DESTDIR=$(CURDIR)/debian/tmp/ \
 		pkglibexecdir='$$(libexecdir)'
 	chmod u-s $(CURDIR)/debian/tmp/usr/bin/gnuplot
-	mkdir -p debian/gnuplot-nox/usr/share/gnuplot/pm3d
-	cp -p pm3d/contrib/* debian/gnuplot-nox/usr/share/gnuplot/pm3d
-	dh_install
-	mkdir -p debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html
-	cp -f docs/htmldocs/* debian/gnuplot-doc/usr/share/doc/gnuplot-doc/html/
-	rm -rf debian/gnuplot/usr/share/doc/gnuplot
 
 override_dh_auto_test:
 	cp -f $(BUILDDIR_X11)/demo/binary* ./demo/

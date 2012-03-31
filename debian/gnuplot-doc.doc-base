@@ -5,5 +5,5 @@ Abstract: This documentation describes the gnuplot plotting system
 Section: Science/Mathematics
 
 Format: HTML
-Index: /usr/share/doc/gnuplot-doc/html/index.html
-Files: /usr/share/doc/gnuplot-doc/html/*.html
+Index: /usr/share/doc/gnuplot-doc/htmldocs/index.html
+Files: /usr/share/doc/gnuplot-doc/htmldocs/*.html

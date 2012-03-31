@@ -2,3 +2,4 @@ debian/tmp/usr/share/gnuplot/gnuplot.gih
 debian/tmp/usr/share/man/man1/gnuplot.1
 debian/tmp/usr/share/gnuplot/gnuplot/
 debian/build-nox/src/gnuplot usr/bin
+pm3d/contrib/* usr/share/gnuplot/pm3d
