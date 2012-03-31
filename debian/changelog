@@ -1,3 +1,9 @@
+gnuplot (4.6.0-3) unstable; urgency=low
+
+  * [d4661a3] Fix FTBFS during arch-only build. Cleans in debian/rules.
+
+ -- Anton Gladky <gladky.anton@gmail.com>  Sat, 31 Mar 2012 08:59:26 +0200
+
 gnuplot (4.6.0-2) unstable; urgency=low
 
   * [033f52f] Bumped Standards-Version: 3.9.3. No changes.
