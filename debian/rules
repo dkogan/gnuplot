@@ -47,7 +47,7 @@ override_dh_auto_configure:
 	mkdir -p $(BUILDDIR_NOX)
 	cd $(BUILDDIR_NOX);  ./../../configure $(conf_opts) --without-x --disable-wxwidgets
 	mkdir -p $(BUILDDIR_X11)
-	cd $(BUILDDIR_X11); ../../configure $(conf_opts)
+	cd $(BUILDDIR_X11); ../../configure $(conf_opts) --enable-qt
 
 override_dh_auto_build-arch:
 	$(MAKE) -C $(BUILDDIR_NOX)/src

@@ -9,7 +9,8 @@ Build-Depends: debhelper (>= 8.9.10), libpng-dev, libx11-dev, libxt-dev,
  pkg-config, texinfo (>= 4.8), texlive-latex-base, texlive-latex-recommended, 
  texlive-latex-extra, liblua5.1-dev,
  zlib1g-dev, libgd2-noxpm-dev, quilt, libwxgtk2.8-dev, libcairo2-dev, 
- libpango1.0-dev, libedit-dev (>= 2.11-20080614-2), autoconf, automake
+ libpango1.0-dev, libedit-dev (>= 2.11-20080614-2), autoconf, automake,
+ libqt4-dev (>=4:4.5)
 Homepage: http://gnuplot.sourceforge.net/
 Vcs-Git: git://git.debian.org/git/debian-science/packages/gnuplot.git
 Vcs-Browser: http://git.debian.org/?p=debian-science/packages/gnuplot.git
