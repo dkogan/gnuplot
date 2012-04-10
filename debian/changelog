@@ -1,3 +1,13 @@
+gnuplot (4.6.0-4) unstable; urgency=low
+
+  * [bf2b985] Bumped debhelper version >= 8.9.10. Thanks to Agustin Martin. 
+              (Closes: #667004)
+  * [0598904] Enable qt-terminal. (Closes: #667760)
+  * [031fca2] Consider gz-ipped data-files in examples-directory. 
+              (Closes: #283966)
+
+ -- Anton Gladky <gladky.anton@gmail.com>  Tue, 10 Apr 2012 21:25:17 +0200
+
 gnuplot (4.6.0-3) unstable; urgency=low
 
   * [d4661a3] Fix FTBFS during arch-only build. Cleans in debian/rules.
