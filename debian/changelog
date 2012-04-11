@@ -1,3 +1,9 @@
+gnuplot (4.6.0-5) unstable; urgency=low
+
+  * [347c6e4] Fix FTBFS on arch-builds.
+
+ -- Anton Gladky <gladky.anton@gmail.com>  Wed, 11 Apr 2012 19:23:14 +0200
+
 gnuplot (4.6.0-4) unstable; urgency=low
 
   * [bf2b985] Bumped debhelper version >= 8.9.10. Thanks to Agustin Martin. 
