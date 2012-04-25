@@ -3,3 +3,4 @@
 06_fix_format_not_a_string.diff
 07_fix_segm_fault.diff
 08_do_not_set_qt_default_term.patch
+09_fix_typo_qt_terminal.patch
