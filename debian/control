@@ -35,7 +35,7 @@ Description: Command-line driven interactive plotting program
 Package: gnuplot-nox
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Recommends: groff, ttf-liberation
+Recommends: groff, fonts-liberation
 Suggests: gnuplot-x11, gnuplot-doc
 Description: Command-line driven interactive plotting program
  Gnuplot is a portable command-line driven interactive data and function
