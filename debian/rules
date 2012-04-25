@@ -20,6 +20,7 @@ CFLAGS += -I/usr/include/lua5.1
 
 BUILDDIR_NOX = $(CURDIR)/debian/build-nox
 BUILDDIR_X11 = $(CURDIR)/debian/build-x11
+BUILDDIR_QT = $(CURDIR)/debian/build-qt
 
 conf_opts += \
 	CFLAGS="$(CFLAGS)" \
@@ -47,11 +48,14 @@ override_dh_auto_configure:
 	mkdir -p $(BUILDDIR_NOX)
 	cd $(BUILDDIR_NOX);  ./../../configure $(conf_opts) --without-x --disable-wxwidgets
 	mkdir -p $(BUILDDIR_X11)
-	cd $(BUILDDIR_X11); ../../configure $(conf_opts) --enable-qt
+	cd $(BUILDDIR_X11); ../../configure $(conf_opts) --without-qt
+	mkdir -p $(BUILDDIR_QT)
+	cd $(BUILDDIR_QT); ../../configure $(conf_opts)  --enable-qt
 
 override_dh_auto_build-arch:
 	$(MAKE) -C $(BUILDDIR_NOX)/src
 	$(MAKE) -C $(BUILDDIR_X11) pkglibexecdir='$$(libexecdir)'
+	$(MAKE) -C $(BUILDDIR_QT) pkglibexecdir='$$(libexecdir)'
 
 override_dh_auto_build-indep:
 	cp -f term/PostScript/prologue.ps docs/psdoc/
@@ -65,15 +69,11 @@ override_dh_auto_build-indep:
 
 override_dh_auto_clean:
 	dh_auto_clean
-	rm -rf debian/build-nox debian/build-x11 \
+	rm -rf $(BUILDDIR_NOX) $(BUILDDIR_X11) $(BUILDDIR_QT) \
 		config.log \
 		config.hin \
 		configure \
 		src/Makefile.in \
-		debian/gnuplot \
-		debian/gnuplot-doc \
-		debian/gnuplot-nox \
-		debian/gnuplot-x11 \
 		docs/psdoc/ps_symbols.ps \
 		docs/psdoc/ps_fontfile_doc.aux \
 		docs/psdoc/ps_fontfile_doc.dvi \
@@ -88,9 +88,12 @@ override_dh_auto_clean:
 		docs/htmldocs
 
 override_dh_auto_install:
-	$(MAKE) -C $(BUILDDIR_X11) install DESTDIR=$(CURDIR)/debian/tmp/ \
+	$(MAKE) -C $(BUILDDIR_NOX) install DESTDIR=$(CURDIR)/debian/tmp/NOX/ \
 		pkglibexecdir='$$(libexecdir)'
-	chmod u-s $(CURDIR)/debian/tmp/usr/bin/gnuplot
+	$(MAKE) -C $(BUILDDIR_X11) install DESTDIR=$(CURDIR)/debian/tmp/X11/ \
+		pkglibexecdir='$$(libexecdir)'
+	$(MAKE) -C $(BUILDDIR_QT) install DESTDIR=$(CURDIR)/debian/tmp/QT/ \
+		pkglibexecdir='$$(libexecdir)'
 
 override_dh_auto_test:
 	cp -f $(BUILDDIR_X11)/demo/binary* ./demo/

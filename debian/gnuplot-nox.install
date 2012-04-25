@@ -1,5 +1,5 @@
-debian/tmp/usr/share/gnuplot/gnuplot.gih
-debian/tmp/usr/share/man/man1/gnuplot.1
-debian/tmp/usr/share/gnuplot/gnuplot/
-debian/build-nox/src/gnuplot usr/bin
+debian/tmp/NOX/usr/share/gnuplot/gnuplot.gih usr/share/gnuplot
+debian/tmp/NOX/usr/share/man/man1/gnuplot.1 usr/share/man/man1
+debian/tmp/NOX/usr/share/gnuplot/gnuplot/ usr/share/gnuplot/gnuplot
+debian/tmp/NOX/usr/bin/ usr/bin
 pm3d/contrib/* usr/share/gnuplot/pm3d

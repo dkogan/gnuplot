@@ -1,0 +1,3 @@
+debian/tmp/QT/usr/lib/gnuplot/ usr/lib/gnuplot
+debian/tmp/QT/usr/share/man/man1/gnuplot.1 usr/share/man/man1
+debian/tmp/QT/usr/bin/gnuplot usr/bin
