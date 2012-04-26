@@ -1,0 +1,3 @@
+debian/tmp/NOX/usr/share/gnuplot/gnuplot.gih usr/share/gnuplot
+debian/tmp/NOX/usr/share/gnuplot/gnuplot/ usr/share/gnuplot/gnuplot
+pm3d/contrib/* usr/share/gnuplot/pm3d

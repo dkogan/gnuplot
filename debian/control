@@ -6,10 +6,10 @@ Uploaders: Bradley Smith <bradsmith@debian.org>, Anton Gladky <gladky.anton@gmai
 Standards-Version: 3.9.3
 DM-Upload-Allowed: yes
 Build-Depends: debhelper (>= 8.9.10), libpng-dev, libx11-dev, libxt-dev, 
- pkg-config, texinfo (>= 4.8), texlive-latex-base, texlive-latex-recommended, 
+ pkg-config, texinfo, texlive-latex-base, texlive-latex-recommended, 
  texlive-latex-extra, liblua5.1-dev,
- zlib1g-dev, libgd2-noxpm-dev, quilt, libwxgtk2.8-dev, libcairo2-dev, 
- libpango1.0-dev, libedit-dev (>= 2.11-20080614-2), autoconf, automake,
+ zlib1g-dev, libgd2-noxpm-dev, libwxgtk2.8-dev, libcairo2-dev, 
+ libpango1.0-dev, libedit-dev, autoconf, automake,
  libqt4-dev (>=4:4.5)
 Homepage: http://gnuplot.sourceforge.net/
 Vcs-Git: git://git.debian.org/git/debian-science/packages/gnuplot.git
@@ -17,7 +17,8 @@ Vcs-Browser: http://git.debian.org/?p=debian-science/packages/gnuplot.git
 
 Package: gnuplot
 Architecture: all
-Depends: gnuplot-nox, gnuplot-x11, ${misc:Depends}
+Depends: ${misc:Depends}
+Recommends: gnuplot-nox | gnuplot-x11 | gnuplot-qt
 Suggests: gnuplot-doc
 Description: Command-line driven interactive plotting program
  Gnuplot is a portable command-line driven interactive data and function
@@ -34,10 +35,10 @@ Description: Command-line driven interactive plotting program
 
 Package: gnuplot-nox
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot
 Recommends: groff, fonts-liberation
-Suggests: gnuplot-x11, gnuplot-doc
-Description: Command-line driven interactive plotting program
+Suggests: gnuplot-qt, gnuplot-doc
+Description: Command-line driven interactive plotting program. No-X package
  Gnuplot is a portable command-line driven interactive data and function
  plotting utility that supports lots of output formats, including drivers
  for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output
@@ -51,10 +52,10 @@ Description: Command-line driven interactive plotting program
 
 Package: gnuplot-x11
 Architecture: any
-Depends: gnuplot-nox, ${shlibs:Depends}, ${misc:Depends}
-Suggests: gnuplot-qt
-Replaces: gnuplot-qt
-Description: Command-line driven interactive plotting program
+Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot
+Replaces: gnuplot-qt, gnuplot-nox
+Suggests: gnuplot-qt, gnuplot-doc
+Description: Command-line driven interactive plotting program. X-package
  Gnuplot is a portable command-line driven interactive data and function
  plotting utility that supports lots of output formats, including drivers
  for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output
@@ -71,9 +72,10 @@ Description: Command-line driven interactive plotting program
 
 Package: gnuplot-qt
 Architecture: any
-Depends: gnuplot-nox, ${shlibs:Depends}, ${misc:Depends}
-Replaces: gnuplot-X11
-Description: Command-line driven interactive plotting program
+Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot
+Replaces: gnuplot-x11, gnuplot-nox
+Suggests: gnuplot-doc
+Description: Command-line driven interactive plotting program. QT-package
  Gnuplot is a portable command-line driven interactive data and function
  plotting utility that supports lots of output formats, including drivers
  for many printers, (La)TeX, (x)fig, Postscript, and so on.
@@ -93,7 +95,7 @@ Package: gnuplot-doc
 Architecture: all
 Section: doc
 Depends: ${misc:Depends}
-Description: Command-line driven interactive plotting program
+Description: Command-line driven interactive plotting program. Doc-package
  Gnuplot is a portable command-line driven interactive data and function
  plotting utility that supports lots of output formats, including drivers
  for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output

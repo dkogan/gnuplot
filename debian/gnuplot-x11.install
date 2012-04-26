@@ -1,3 +1,2 @@
-debian/tmp/X11/usr/lib/gnuplot/ usr/lib/gnuplot
-debian/tmp/X11/usr/share/man/man1/gnuplot.1 usr/share/man/man1
-debian/tmp/X11/usr/bin/gnuplot usr/bin
+debian/tmp/X11/usr/lib usr
+debian/tmp/X11/usr/bin usr
