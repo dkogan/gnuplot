@@ -1,3 +1,15 @@
+gnuplot (4.6.0-6) unstable; urgency=low
+
+  * [3deb1bf] Decrease the priority of qt-terminal to be set as "default". 
+              (Closes: #668955)
+  * [71fd7e3] Add gnuplot-qt binary. (Closes: #670229)
+  * [1ef10f2] Fix typo in qt-terminal debug output. (Closes: #670173)
+  * [d572c4e] Replace ttf-liberation by fonts-liberation. 
+              Thanks to Fabian Greffrath. (Closes: #670423)
+  * [3a12b41] Remove *.postrm and *.preinst files.
+
+ -- Anton Gladky <gladky.anton@gmail.com>  Thu, 26 Apr 2012 19:29:08 +0200
+
 gnuplot (4.6.0-5) unstable; urgency=low
 
   * [347c6e4] Fix FTBFS on arch-builds.
