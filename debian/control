@@ -53,7 +53,7 @@ Description: Command-line driven interactive plotting program. No-X package
 Package: gnuplot-x11
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot
-Replaces: gnuplot-qt, gnuplot-nox
+Conflicts: gnuplot-qt, gnuplot-nox
 Suggests: gnuplot-qt, gnuplot-doc
 Description: Command-line driven interactive plotting program. X-package
  Gnuplot is a portable command-line driven interactive data and function
@@ -73,7 +73,7 @@ Description: Command-line driven interactive plotting program. X-package
 Package: gnuplot-qt
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot
-Replaces: gnuplot-x11, gnuplot-nox
+Conflicts: gnuplot-x11, gnuplot-nox
 Suggests: gnuplot-doc
 Description: Command-line driven interactive plotting program. QT-package
  Gnuplot is a portable command-line driven interactive data and function
