@@ -35,7 +35,7 @@ Description: Command-line driven interactive plotting program
 
 Package: gnuplot-nox
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot
+Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot (>= 4.6.0-6)
 Recommends: groff, fonts-liberation
 Suggests: gnuplot-qt, gnuplot-doc
 Description: Command-line driven interactive plotting program. No-X package
@@ -52,7 +52,7 @@ Description: Command-line driven interactive plotting program. No-X package
 
 Package: gnuplot-x11
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot
+Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot (>= 4.6.0-6)
 Conflicts: gnuplot-qt, gnuplot-nox
 Suggests: gnuplot-qt, gnuplot-doc
 Description: Command-line driven interactive plotting program. X-package
@@ -72,7 +72,7 @@ Description: Command-line driven interactive plotting program. X-package
 
 Package: gnuplot-qt
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot
+Depends: ${shlibs:Depends}, ${misc:Depends}, gnuplot (>= 4.6.0-6)
 Conflicts: gnuplot-x11, gnuplot-nox
 Suggests: gnuplot-doc
 Description: Command-line driven interactive plotting program. QT-package
