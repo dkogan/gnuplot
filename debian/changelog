@@ -1,5 +1,5 @@
 gnuplot (4.6.0-6) unstable; urgency=low
-
+  [ Anton Gladky ]
   * [3deb1bf] Decrease the priority of qt-terminal to be set as "default". 
               (Closes: #668955)
   * [71fd7e3] Add gnuplot-qt binary. (Closes: #670229)
@@ -7,6 +7,13 @@ gnuplot (4.6.0-6) unstable; urgency=low
   * [d572c4e] Replace ttf-liberation by fonts-liberation. 
               Thanks to Fabian Greffrath. (Closes: #670423)
   * [3a12b41] Remove *.postrm and *.preinst files.
+
+  [ Agustin Martin Domingo ]
+  * [2c1a288] Change Replaces by Conflicts between different gnuplot-* flavors.
+  * [c9e3fac] gnuplot-x11.{prerm,postinst}: try to remove old diversions.
+  * [2745ff0] make gnuplot-{nox,x11,qt} depend on at least gnuplot 4.6.0-6.
+  * [f1a4f5a] gnuplot-qt, gnuplot-x11, gnuplot-nox: Make them standalone 
+              packages.
 
  -- Anton Gladky <gladky.anton@gmail.com>  Thu, 26 Apr 2012 19:29:08 +0200
 
