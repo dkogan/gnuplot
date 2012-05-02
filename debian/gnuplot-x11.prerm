@@ -1,4 +1,6 @@
-#!/bin/sh -e
+#!/bin/sh
+
+set -e
 
 if dpkg-divert --package gnuplot-x11 --list | grep -F /usr/bin/gnuplot-nox
 then
