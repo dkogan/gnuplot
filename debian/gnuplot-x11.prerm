@@ -4,14 +4,12 @@ set -e
 
 if dpkg-divert --package gnuplot-x11 --list | grep -F /usr/bin/gnuplot-nox
 then
-    echo "gnuplot-x11: Removing obsolete /usr/bin/gnuplot diversion" >&2
     dpkg-divert --remove --package gnuplot-x11 --rename \
         --divert /usr/bin/gnuplot-nox /usr/bin/gnuplot
 fi
 
 if dpkg-divert --package gnuplot-x11 --list | grep -F /usr/share/man/man1/gnuplot-nox.1.gz
 then
-    echo "gnuplot-x11: Removing obsolete /usr/share/man/man1/gnuplot.1.gz diversion" >&2
     dpkg-divert --remove --package gnuplot-x11 --rename \
         --divert /usr/share/man/man1/gnuplot-nox.1.gz \
         /usr/share/man/man1/gnuplot.1.gz
