@@ -2,8 +2,8 @@
 
 set -e
 
-case $1 in
-    configure|abort-upgrade|abort-remove|abort-deconfigure)
+case "$1" in
+    remove|disappear)
 	# Do not use dh_installtex to help squeeze backports and avoid (light)
 	# tex-common dependency. See #600013: tex-common:
 	# dpkg-reconfigure doesn't work on packages calling update-texmf-config
