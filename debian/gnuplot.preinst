@@ -2,7 +2,10 @@
 
 set -e
 
-rm -rf /usr/share/doc/gnuplot
+if [ -L "/usr/share/doc/gnuplot" ]; then
+    echo "Removing obsolete \"/usr/share/doc/gnuplot\" symlink" >&2
+    rm -f /usr/share/doc/gnuplot
+fi
 
 #DEBHELPER#
 
