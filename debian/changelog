@@ -1,3 +1,17 @@
+gnuplot (4.6.0-7) unstable; urgency=low
+
+  [ Agustin Martin Domingo ]
+  * [e0d4447] gnuplot-{nox,x11,qt}.info: Remove. 
+              gnuplot.info is installed only in gnuplot-doc.
+  * [b8957fa] gnuplot-x11.{postinst,prerm}. Remove redundant verbosity 
+              when removing diversions.
+  * [f400978] Fine tune installation of some docs.
+  * [3eb80f0] Install TeX files for lua terminal.
+  * [738917f] gnuplot.preinst: Remove /usr/share/doc/gnuplot only if is 
+              an obsolete symlink. (Closes: #671459)
+
+ -- Anton Gladky <gladky.anton@gmail.com>  Sat, 05 May 2012 21:29:13 +0200
+
 gnuplot (4.6.0-6) unstable; urgency=low
   [ Anton Gladky ]
   * [3deb1bf] Decrease the priority of qt-terminal to be set as "default". 
