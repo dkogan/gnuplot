@@ -1,0 +1,21 @@
+Description: Fix stop in batch mode
+Author: sfeam
+Reviewed-By: Anton Gladky <gladky.anton@gmail.com>
+Bug-Debian: http://bugs.debian.org/598547
+Applied-Upstream: http://gnuplot.cvs.sourceforge.net/viewvc/gnuplot/gnuplot/src/plot.c?r1=1.138&r2=1.139
+Last-Update: 2012-05-07
+
+--- a/src/plot.c
++++ b/src/plot.c
+@@ -333,7 +333,11 @@
+      * instead of readline) */
+     rl_readline_name = "Gnuplot";
+     rl_terminal_name = getenv("TERM");
++#if defined(HAVE_LIBREADLINE)
+     using_history();
++#else
++    history_init();
++#endif
+ #endif
+ #if defined(HAVE_LIBREADLINE) && !defined(MISSING_RL_TILDE_EXPANSION)
+     rl_complete_with_tilde_expansion = 1;
