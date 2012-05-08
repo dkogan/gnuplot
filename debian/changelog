@@ -1,3 +1,12 @@
+gnuplot (4.6.0-8) unstable; urgency=low
+
+  * [cfaa0f9] Fix stop in batch mode. (Closes: #598547)
+  * [514f243] Add "Provides: gnuplot-nox" to gnuplot-x11 and gnuplot-qt. (Closes: #671876)
+  * [86f5340] Add "Provides: gnuplot-x11" to gnuplot-qt.
+  * [dd6645e] Fix cairolatex driver with monochrome keyword. (Closes: #668339)
+
+ -- Anton Gladky <gladky.anton@gmail.com>  Tue, 08 May 2012 19:22:44 +0200
+
 gnuplot (4.6.0-7) unstable; urgency=low
 
   [ Agustin Martin Domingo ]
