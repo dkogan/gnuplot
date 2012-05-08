@@ -76,7 +76,7 @@ Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Conflicts: gnuplot-x11, gnuplot-nox
 Suggests: gnuplot-doc
-Provides: gnuplot-nox
+Provides: gnuplot-nox, gnuplot-x11
 Description: Command-line driven interactive plotting program. QT-package
  Gnuplot is a portable command-line driven interactive data and function
  plotting utility that supports lots of output formats, including drivers
