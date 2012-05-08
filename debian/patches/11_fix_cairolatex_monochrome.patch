@@ -1,0 +1,41 @@
+Description: Fix cairolatex driver with monochrome keyword
+Author: sfeam
+Reviewed-By: Anton Gladky <gladky.anton@gmail.com>
+Bug-Debian: http://bugs.debian.org/668339
+Applied-Upstream: http://gnuplot.cvs.sourceforge.net/viewvc/gnuplot/gnuplot/term/pslatex.trm?r1=1.80.2.1&r2=1.80.2.2&sortby=file
+Applied-Upstream: http://gnuplot.cvs.sourceforge.net/viewvc/gnuplot/gnuplot/term/cairo.trm?r1=1.51.2.2&r2=1.51.2.3&sortby=file
+Last-Update: 2012-05-08
+
+--- a/term/cairo.trm
++++ b/term/cairo.trm
+@@ -1259,7 +1259,7 @@
+     1 /* vtic */ , 1 /* htic */ ,
+     cairotrm_options, cairotrm_init, cairotrm_reset, cairotrm_text, null_scale, cairotrm_graphics,
+     cairotrm_move, cairotrm_vector,
+-    EPSLATEX_linetype, EPSLATEX_put_text, 
++    cairotrm_linetype, EPSLATEX_put_text, 
+     PS_text_angle, PS_justify_text,
+     cairotrm_point, do_arrow, cairotrm_set_font,
+     cairotrm_pointsize,
+--- a/term/pslatex.trm
++++ b/term/pslatex.trm
+@@ -129,7 +129,6 @@
+ /* support for cairolatex */
+ #ifdef HAVE_CAIROPDF
+ #define ISCAIROTERMINAL ((strcmp(term->name, "cairolatex") == 0))
+-TERM_PUBLIC void cairotrm_linetype __PROTO ((int linetype));
+ TERM_PUBLIC void cairotrm_set_color __PROTO ((t_colorspec *colorspec));
+ #else
+ #define ISCAIROTERMINAL (FALSE)
+@@ -886,11 +885,6 @@
+ {
+     t_colorspec tempcol = {TC_LT, 0, 0.0};
+     tempcol.lt = linetype;
+-#ifdef HAVE_CAIROPDF
+-    if (ISCAIROTERMINAL)
+-        cairotrm_linetype(linetype);
+-    else
+-#endif
+         PS_linetype(linetype);
+ 
+     /* This leads to redundant *.eps output */

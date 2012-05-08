@@ -5,3 +5,4 @@
 08_do_not_set_qt_default_term.patch
 09_fix_typo_qt_terminal.patch
 10_fix_batch_mode_stop.patch
+11_fix_cairolatex_monochrome.patch
