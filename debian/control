@@ -91,7 +91,8 @@ Description: Command-line driven interactive plotting program. QT-package
  packaged separately so that low-end systems don't need X installed to use
  gnuplot.
  .
- The package provides  QT-terminal for output (not default one).
+ The package provides gnuplot-x11 and gnuplot-nox terminals plus an
+ additional QT-terminal for output (not default one).
 
 Package: gnuplot-doc
 Architecture: all
