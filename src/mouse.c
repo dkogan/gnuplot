@@ -2076,10 +2076,13 @@ do_event(struct gp_event_t *ge)
     case GE_fontprops:
 	term->h_char = ge->par1;
 	term->v_char = ge->par2;
-	/* Update aspect ratio based on current window size */
-	term->v_tic = term->h_tic * (double)ge->mx / (double)ge->my;
-	/* EAM FIXME - We could also update term->xmax and term->ymax here, */
-	/*             but the existing code doesn't expect it to change.   */
+
+	/* Keep square aspect so that the terminal can't skew anything. Aspect
+	   ratio controller by inboard terminal driver. Applies ONLY to x11
+	   terminal */
+	term->h_tic = (unsigned int) (term->v_char/2.5);
+	term->v_tic = (unsigned int) (term->v_char/2.5);
+	term->ymax  = (double)term->xmax * (double)ge->my / (double)ge->mx;
 	FPRINTF((stderr, "mouse do_event: window size %d X %d, font hchar %d vchar %d\n",
 		ge->mx, ge->my, ge->par1,ge->par2));
 	break;

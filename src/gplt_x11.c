@@ -577,6 +577,13 @@ static int button_pressed = 0;
 static int windows_open = 0;
 
 static int gX = 100, gY = 100;
+
+/* gW and gH are the sizes of the plot, when it was first made. If the window is
+   resized after the plot is made (and we're not replotting on resize), the
+   plot->width and plot->height track the window size, but gW and gH do NOT.
+   This allows the plot to be maximally scaled while preserving the aspect
+   ratio.
+*/
 static unsigned int gW = 640, gH = 450;
 static unsigned int gFlags = PSize;
 
@@ -596,15 +603,17 @@ static int vchar, hchar;
 /* Speficy negative values as indicator of uninitialized state */
 static double xscale = -1.;
 static double yscale = -1.;
+static int    ymax   = 4096;
+
 double pointsize = -1.;
 /* Avoid a crash upon using uninitialized variables from
    above and avoid unnecessary calls to display().
    Probably this is not the best fix ... */
 #define Call_display(plot) if (xscale<0.) display(plot);
 #define X(x) (int) ((x) * xscale)
-#define Y(y) (int) ((4095-(y)) * yscale)
+#define Y(y) (int) (( (  ymax -1)-(y)) * yscale)
 #define RevX(x) (((x)+0.5)/xscale)
-#define RevY(y) (4095-((y)+0.5)/yscale)
+#define RevY(y) (ymax-1 -((y)+0.5)/yscale)
 /* note: the 0.5 term in RevX(x) and RevY(y) compensates for the round-off in X(x) and Y(y) */
 
 static char buf[X11_COMMAND_BUFFER_LENGTH];
@@ -1764,6 +1773,7 @@ record()
 			     default_font, scaled_hchar, scaled_vchar));
 		    gp_exec_event(GE_fontprops, plot->width, plot->height,
 				  scaled_hchar, scaled_vchar, 0);
+		    ymax = 4096.0 * (double)plot->height / (double)plot->width;
 		}
 		return 1;
 	    }
@@ -3198,8 +3208,21 @@ display(plot_struct *plot)
 	return;
 
     /* set scaling factor between internal driver & window geometry */
-    xscale = plot->width / 4096.0;
-    yscale = GRAPH_HEIGHT(plot) / 4096.0;
+    unsigned int winW = plot->width;
+    unsigned int winH = GRAPH_HEIGHT(plot);
+
+    /* make the plot as large as possible, while preserving the aspect ratio and
+       fitting into the window */
+    if( winW * gH > gW * winH )
+    {
+      /* window is too wide; height dominates */
+      yscale = xscale = (double)(winH * gW) / (double)(gH * 4096.0);
+    }
+    else
+    {
+      /* window is too tall; width dominates */
+      yscale = xscale = (double)winW / 4096.0;
+    }
 
     /* initial point sizes, until overridden with P7xxxxyyyy */
     plot->px = (int) (xscale * pointsize);
