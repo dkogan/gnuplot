@@ -170,6 +170,7 @@ static struct x11opt {
     { "-selectionTimeout", hasArg}, { "-title", hasArg},
     { "-xnllanguage", hasArg}, { "-xrm", hasArg},
     { "-raise", hasNoArg}, { "-noraise", hasNoArg},
+    { "-replotonresize", hasNoArg}, { "-noreplotonresize", hasNoArg},
     { "-solid", hasNoArg}, { "-dashed", hasNoArg}
 #ifdef USE_MOUSE
     , { "-nofeedback", hasNoArg}
@@ -213,6 +214,7 @@ static char *X11_full_command_path = NULL;
 /* must match the definition in src/gplt_x11.c: */
 static int persist = UNSET;
 static int do_raise = UNSET;
+static int replot_on_resize = UNSET;
 static int dashedlines = UNSET;
 static int ctrlq = UNSET;
 static int set_size = UNSET;
@@ -361,6 +363,8 @@ enum X11_id {
     X11_NOPERSIST,
     X11_RAISE,
     X11_NORAISE,
+    X11_REPLOTONRESIZE,
+    X11_NOREPLOTONRESIZE,
     X11_FONT,
     X11_TITLE,
     X11_ENHANCED,
@@ -386,6 +390,8 @@ static struct gen_table X11_opts[] = {
     {"noper$sist", X11_NOPERSIST},
     {"rai$se", X11_RAISE},
     {"norai$se", X11_NORAISE},
+    {"rep$lotonresize", X11_REPLOTONRESIZE},
+    {"norep$lotonresize", X11_NOREPLOTONRESIZE},
     {"font",   X11_FONT},
     {"fn$ame", X11_FONT},
     {"ti$tle", X11_TITLE},
@@ -418,6 +424,7 @@ X11_options()
     int background;
     TBOOLEAN duplication = FALSE;
     TBOOLEAN set_reset = FALSE, set_persist = FALSE, set_raise = FALSE, set_font = FALSE;
+    TBOOLEAN set_replotonresize = FALSE;
     TBOOLEAN set_ctrlq = FALSE;
     TBOOLEAN set_title = FALSE, set_number = FALSE, set_close = FALSE, set_solid = FALSE;
 #ifdef EXTERNAL_X11_WINDOW
@@ -426,6 +433,7 @@ X11_options()
 #endif
 
     do_raise = dashedlines = ctrlq = UNSET;
+    replot_on_resize = UNSET;
     set_size = set_position = UNSET;
     persist = persist_cl;	/* previously set from command line */
     strcpy(x11_userbkg,"#RRGGBB");
@@ -495,6 +503,18 @@ X11_options()
 	    c_token++;
 	    if (set_raise) duplication=TRUE;
 	    set_raise = TRUE;
+	    break;
+	case X11_REPLOTONRESIZE:
+	    replot_on_resize = yes;
+	    c_token++;
+	    if (set_replotonresize) duplication=TRUE;
+	    set_replotonresize = TRUE;
+	    break;
+	case X11_NOREPLOTONRESIZE:
+	    replot_on_resize = no;
+	    c_token++;
+	    if (set_replotonresize) duplication=TRUE;
+	    set_replotonresize = TRUE;
 	    break;
 	case X11_FONT:
 	    c_token++;
@@ -649,6 +669,9 @@ X11_options()
     if (UNSET != do_raise) {
 	strcat(term_options, (yes == do_raise ? " raise" : " noraise"));
     }
+    if (UNSET != replot_on_resize) {
+	strcat(term_options, (yes == replot_on_resize ? " replotonresize" : " noreplotonresize"));
+    }
     if (UNSET != persist) {
 	strcat(term_options, (yes == persist ? " persist" : " nopersist"));
     }
@@ -756,9 +779,11 @@ X11_update_opts()
     if (!X11_ipc)
 	return;
 
-    if (UNSET != do_raise || UNSET != persist || UNSET != dashedlines || UNSET != ctrlq) {
-	fprintf(X11_ipc, "X %d %d %d %d\n", 
-		do_raise, persist, dashedlines, ctrlq);
+    if (UNSET != do_raise || UNSET != persist || UNSET != dashedlines ||
+        UNSET != ctrlq || UNSET != replot_on_resize)
+    {
+	fprintf(X11_ipc, "X %d %d %d %d %d\n", 
+		do_raise, persist, dashedlines, ctrlq, replot_on_resize);
 	fflush(X11_ipc);
     }
 
@@ -2168,6 +2193,7 @@ START_HELP(x11)
 "                     {{no}enhanced} {font <fontspec>}",
 "                     {linewidth LW} {solid|dashed}",
 "                     {{no}persist} {{no}raise} {{no}ctrlq}",
+"                     {{no}replotonresize}",
 "                     {close}",
 "                     {size XX,YY} {position XX,YY}",
 "    set terminal x11 {reset}",
@@ -2224,6 +2250,14 @@ START_HELP(x11)
 " the behaviour of an already running driver can be modified.  If the window",
 " does not get raised, see discussion in `raise`.",
 "",
+" The option `replotonresize` (not active by default) re-plots the data when the",
+" X window is resized. Without this option, an even-aspect-ratio scaling is done",
+" to fill the window as much as possible. With this option, gnuplot does a full",
+" replot, which results in a better space utilization of the window. This option",
+" is generally desirable, unless potentially CPU-intensive replotting during",
+" resizing is unwanted. Replots can be manually initiated with 'e' or the",
+" 'replot' command.",
+  "",
 " The option `title \"<title name>\"` will supply the title name of the window",
 " for the current plot window or plot window <n> if a number is given.",
 " Where (or if) this title is shown depends on your X window manager.",

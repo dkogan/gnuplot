@@ -462,6 +462,7 @@ static void pr_pointsize __PROTO((void));
 static void pr_width __PROTO((void));
 static void pr_window __PROTO((plot_struct *));
 static void pr_raise __PROTO((void));
+static void pr_replotonresize __PROTO((void));
 static void pr_persist __PROTO((void));
 static void pr_feedback __PROTO((void));
 static void pr_ctrlq __PROTO((void));
@@ -557,6 +558,7 @@ static int do_raise = yes, persist = no;
 static TBOOLEAN fast_rotate = TRUE;
 static int feedback = yes;
 static int ctrlq = no;
+static int replot_on_resize = no;
 static int dashedlines = no;
 #ifdef EXPORT_SELECTION
 static TBOOLEAN exportselection = TRUE;
@@ -1575,7 +1577,9 @@ record()
 	    {
 		int tmp_do_raise = UNSET, tmp_persist = UNSET;
 		int tmp_dashed = UNSET, tmp_ctrlq = UNSET;
-		sscanf(buf, "X%d%d%d%d", &tmp_do_raise, &tmp_persist, &tmp_dashed, &tmp_ctrlq);
+		int tmp_replot_on_resize = UNSET;
+		sscanf(buf, "X%d%d%d%d%d",
+		       &tmp_do_raise, &tmp_persist, &tmp_dashed, &tmp_ctrlq, &tmp_replot_on_resize);
 		if (UNSET != tmp_do_raise)
 		    do_raise = tmp_do_raise;
 		if (UNSET != tmp_persist)
@@ -1584,6 +1588,8 @@ record()
 		    dashedlines = tmp_dashed;
 		if (UNSET != tmp_ctrlq)
 		    ctrlq = tmp_ctrlq;
+		if (UNSET != tmp_replot_on_resize)
+		    replot_on_resize = tmp_replot_on_resize;
 	    }
 	    return 1;
 
@@ -4326,6 +4332,9 @@ process_configure_notify_event(XEvent *event)
 
 	      gp_exec_event(GE_fontprops, -plot->width, plot->height,
 			    scaled_hchar, scaled_vchar, 0);
+
+	      if( replot_on_resize )
+		gp_exec_event(GE_keypress, 0, 0, 'e', 0, 0); // ask for replot
 	}
     }
 }
@@ -4858,6 +4867,8 @@ static XrmOptionDescRec options[] = {
     {"-xrm", NULL, XrmoptionResArg, (XPointer) NULL},
     {"-raise", "*raise", XrmoptionNoArg, (XPointer) "on"},
     {"-noraise", "*raise", XrmoptionNoArg, (XPointer) "off"},
+    {"-replotonresize", "*replotonresize", XrmoptionNoArg, (XPointer) "on"},
+    {"-noreplotonresize", "*replotonresize", XrmoptionNoArg, (XPointer) "off"},
     {"-feedback", "*feedback", XrmoptionNoArg, (XPointer) "on"},
     {"-nofeedback", "*feedback", XrmoptionNoArg, (XPointer) "off"},
     {"-ctrlq", "*ctrlq", XrmoptionNoArg, (XPointer) "on"},
@@ -5141,6 +5152,7 @@ gnuplot: X11 aborted.\n", ldisplay);
     pr_dashes();
     pr_pointsize();
     pr_raise();
+    pr_replotonresize();
     pr_persist();
     pr_feedback();
     pr_ctrlq();
@@ -6036,6 +6048,12 @@ pr_raise()
 	do_raise = (On(value.addr));
 }
 
+static void
+pr_replotonresize()
+{
+    if (pr_GetR(db, ".replotonresize"))
+	replot_on_resize = (On(value.addr));
+}
 
 static void
 pr_persist()
