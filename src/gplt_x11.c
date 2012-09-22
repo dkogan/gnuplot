@@ -1757,23 +1757,36 @@ record()
 	case 'Q':
 	    /* Set default font immediately and return size info through pipe */
 	    if (buf[1] == 'G') {
+
+	      /* received QG. We're thus setting up the graphics for the first
+		 time. We grab the window sizes and send the back to inboard
+		 gnuplot via GE_fontprops. For subsequent replots, we receive Qg
+		 instead: see below */
 		int scaled_hchar, scaled_vchar;
 		char *c = &(buf[strlen(buf)-1]);
 		while (*c <= ' ') *c-- = '\0';
 		strncpy(default_font, &buf[2], strlen(&buf[2])+1);
 		pr_font(NULL);
 		if (plot) {
-		    /* EAM FIXME - this is all out of order; initialization doesnt */
-		    /*             happen until term->graphics() is called.        */
-		    xscale = (plot->width > 0) ? plot->width / 4096. : gW / 4096.;
-		    yscale = (plot->height > 0) ? plot->height / 4096. : gH / 4096.;
-		    scaled_hchar = (1.0/xscale) * hchar;
-		    scaled_vchar = (1.0/yscale) * vchar;
+		    double scale = (double)plot->width / 4096.0;
+		    scaled_hchar = (1.0/scale) * hchar;
+		    scaled_vchar = (1.0/scale) * vchar;
 		    FPRINTF((stderr, "gplt_x11: preset default font to %s hchar = %d vchar = %d \n",
 			     default_font, scaled_hchar, scaled_vchar));
 		    gp_exec_event(GE_fontprops, plot->width, plot->height,
 				  scaled_hchar, scaled_vchar, 0);
 		    ymax = 4096.0 * (double)plot->height / (double)plot->width;
+		}
+		return 1;
+	    }
+	    else if (buf[1] == 'g') {
+	      /* received Qg. Unlike QG, this is sent during replots, not plots.
+		 We simply take the current window size as the plot size */
+
+		if (plot) {
+		  ymax = 4096.0 * (double)plot->height / (double)plot->width;
+		  gW   = plot->width;
+		  gH   = plot->height;
 		}
 		return 1;
 	    }
@@ -4302,6 +4315,17 @@ process_configure_notify_event(XEvent *event)
 #endif
 
 	    display(plot);
+
+	    /* the window was resized. Send the sizing information back to
+	       inboard gnuplot. I send -plot->width to indicate that this sizing
+	       information shouldn't be used yet, just saved for a future
+	       replot */
+	      double scale = (double)plot->width / 4096.0;
+	      int scaled_hchar = (1.0/scale) * hchar;
+	      int scaled_vchar = (1.0/scale) * vchar;
+
+	      gp_exec_event(GE_fontprops, -plot->width, plot->height,
+			    scaled_hchar, scaled_vchar, 0);
 	}
     }
 }

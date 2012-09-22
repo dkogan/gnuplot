@@ -2015,6 +2015,18 @@ event_reset(struct gp_event_t *ge)
     }
 }
 
+/* Cached sizing values for the x11 terminal. Each time an X11 window is
+   resized, these are updated with the new sizes. When a replot happens some
+   time later, these saved values are used. The normal mechanism for doing this
+   is sending a QG from inboard to outboard driver, then the outboard driver
+   repsonds with the sizing info in a GE_fontprops event. The problem is that if
+   we're in a "pause" command, this communication would use the channel in a
+   re-entrant way, resulting in everything breaking.
+*/
+int          h_char_saved, v_char_saved;
+unsigned int h_tic_saved,  v_tic_saved;
+double       ymax_saved = -1.0; /* -1 indicates that we're not yet initialized */
+
 void
 do_event(struct gp_event_t *ge)
 {
@@ -2074,6 +2086,19 @@ do_event(struct gp_event_t *ge)
 	event_reset(ge);
 	break;
     case GE_fontprops:
+
+	/* If mx < 0, we simply save the values for future use, and move on */
+	if( ge->mx < 0 ) {
+	  ge->mx       *= -1;
+	  h_char_saved	= ge->par1;
+	  v_char_saved	= ge->par2;
+	  h_tic_saved	= (unsigned int) (v_char_saved/2.5);
+	  v_tic_saved	= (unsigned int) (v_char_saved/2.5);
+	  ymax_saved	= (double)term->xmax * (double)ge->my / (double)ge->mx;
+
+	  break;
+	}
+
 	term->h_char = ge->par1;
 	term->v_char = ge->par2;
 
