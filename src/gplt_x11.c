@@ -1669,18 +1669,32 @@ record()
 	    if (!pipe_died)
 #endif
 	    {
-		int where;
+		int where = -1;
 		char *second;
-		if (sscanf(buf, "t%d", &where) != 1)
+		char* str;
+		int char_byte_offset;
+
+		/* sscanf manpage says %n may or may not count in the return
+		   value of sscanf. I thus don't do a strong check on the number
+		   of parsed elements, but also check for a valid number being
+		   parsed */
+		if (sscanf(buf, "t%d%n", &where, &char_byte_offset) < 1 ||
+		    where < 0 )
+		{
 		    return 1;
+		}
 		buf[strlen(buf) - 1] = 0;	/* remove trailing \n */
 		if (plot) {
+
+		    /* extra 1 for the space before the string start */
+		    str = &buf[ char_byte_offset + 1 ];
+
 		    switch (where) {
 		    case 0:
-			DisplayCoords(plot, buf + 5);
+			DisplayCoords(plot, str);
 			break;
 		    case 1:
-			second = strchr(buf + 5, '\r');
+			second = strchr(str, '\r');
 			if (second == NULL) {
 			    *(plot->zoombox_str1a) = '\0';
 			    *(plot->zoombox_str1b) = '\0';
@@ -1690,13 +1704,13 @@ record()
 			second++;
 			if (plot->zoombox_on)
 			    DrawBox(plot);
-			strcpy(plot->zoombox_str1a, buf + 5);
+			strcpy(plot->zoombox_str1a, str);
 			strcpy(plot->zoombox_str1b, second);
 			if (plot->zoombox_on)
 			    DrawBox(plot);
 			break;
 		    case 2:
-			second = strchr(buf + 5, '\r');
+			second = strchr(str, '\r');
 			if (second == NULL) {
 			    *(plot->zoombox_str2a) = '\0';
 			    *(plot->zoombox_str2b) = '\0';
@@ -1706,7 +1720,7 @@ record()
 			second++;
 			if (plot->zoombox_on)
 			    DrawBox(plot);
-			strcpy(plot->zoombox_str2a, buf + 5);
+			strcpy(plot->zoombox_str2a, str);
 			strcpy(plot->zoombox_str2b, second);
 			if (plot->zoombox_on)
 			    DrawBox(plot);
@@ -2152,6 +2166,7 @@ exec_cmd(plot_struct *plot, char *command)
     else if (*buffer == 'T') {
 	/* Enhanced text mode added November 2003 - Ethan A Merritt */
 	int x_offset=0, y_offset=0, v_offset=0;
+	int char_byte_offset;
 
 	switch (buffer[1]) {
 
@@ -2174,7 +2189,7 @@ exec_cmd(plot_struct *plot, char *command)
 	case 'c':	/* Enhanced mode print with update to center */
 	case 'u':	/* Enhanced mode print with update */
 	case 's':	/* Enhanced mode update with no print */
-		    sscanf(buffer+2, "%d %d", &x_offset, &y_offset);
+          sscanf(buffer+2, "%d %d%n", &x_offset, &y_offset, &char_byte_offset);
 		    /* EAM FIXME - This code has only been tested for x_offset == 0 */
 		    if (plot->angle != 0) {
 			int xtmp=0, ytmp=0;
@@ -2187,7 +2202,9 @@ exec_cmd(plot_struct *plot, char *command)
 		    }
 		    x = plot->xLast + x_offset;
 		    y = plot->yLast + y_offset;
-		    str = buffer + 10;
+
+		    /* extra 1 for the space before the string start */
+		    str = buffer + char_byte_offset + 1;
 		    break;
 	case 'p':	/* Push (Save) position for later use */
 		    plot->xSave = plot->xLast;
@@ -2198,9 +2215,11 @@ exec_cmd(plot_struct *plot, char *command)
 		    plot->yLast = plot->ySave;
 		    return;
 	default:
-		    sscanf(buffer, "T%d %d", &x, &y);
+		    sscanf(buffer, "T%d %d%n", &x, &y, &char_byte_offset);
 		    v_offset = vchar/3;		/* Why is this??? */
-		    str = buffer + 9;
+
+		    /* extra 1 for the space before the string start */
+		    str = buffer + char_byte_offset + 1;
 		    break;
 	}
 
@@ -2542,11 +2561,12 @@ exec_cmd(plot_struct *plot, char *command)
 	    static int saved_npoints = -1, saved_i = -1;	/* HBB 20010919 */
 	    int i, npoints, style;
 	    char *ptr = buffer + 1;
+	    int char_byte_offset;
 
-	    sscanf(ptr, "%d", &npoints);
+	    sscanf(ptr, "%d%n", &npoints, &char_byte_offset);
 
 	    if (npoints > 0) {
-		ptr += 4;
+		ptr += char_byte_offset;
 		sscanf(ptr, "%d", &style);
 	    }
 
