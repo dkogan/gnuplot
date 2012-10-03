@@ -1484,10 +1484,15 @@ X11_move(unsigned int x, unsigned int y)
     PRINT2("M%d %d\n", x, y);
 }
 
+#include <stdint.h>
+
 TERM_PUBLIC void
 X11_vector(unsigned int x, unsigned int y)
 {
-    PRINT2("V%d %d\n", x, y);
+  int32_t xy[2] = {x,y};
+
+  fwrite( "V", 1, 1, X11_ipc );
+  fwrite( xy,  sizeof(xy[0]), sizeof(xy)/sizeof(xy[0]), X11_ipc );
 }
 
 TERM_PUBLIC void

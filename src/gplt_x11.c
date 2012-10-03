@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #ifndef lint
 static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.218 2012/09/28 22:24:43 sfeam Exp $"); }
 #endif
@@ -1143,6 +1145,21 @@ prepare_plot(plot_struct *plot)
     XDefineCursor(dpy, plot->window, cursor);
 }
 
+static int cmd_len( const char* buffer )
+{
+  if( buf[0] == 'V' )
+    return 9;
+  else
+    return strlen(buffer);
+}
+static void* cmd_cpy( char* dst, char* src )
+{
+  if( src[0] == 'V' )
+    return memcpy( dst, src, 9 );
+  else
+    return strcpy( dst, src );
+}
+
 /* store a command in a plot structure */
 static void
 store_command(char *buffer, plot_struct *plot)
@@ -1155,12 +1172,12 @@ store_command(char *buffer, plot_struct *plot)
 	    ? (char **) realloc(plot->commands, plot->max_commands * sizeof(char *))
 	    : (char **) malloc(sizeof(char *));
     }
-    p = (char *) malloc(strlen(buffer) + 1);
+    p = (char *) malloc(cmd_len(buffer) + 1);
     if (!plot->commands || !p) {
 	fputs("gnuplot: can't get memory. X11 aborted.\n", stderr);
 	EXIT(1);
     }
-    plot->commands[plot->ncommands++] = strcpy(p, buffer);
+    plot->commands[plot->ncommands++] = cmd_cpy(p, buffer);
 }
 
 #ifndef VMS
@@ -1200,7 +1217,8 @@ read_input()
 	while (rdbuf_offset < total_chars && buf_offset < X11_COMMAND_BUFFER_LENGTH) {
 	    char c = rdbuf[rdbuf_offset++];
 	    buf[buf_offset++] = c;
-	    if (c == '\n')
+	    if ( (buf[0] == 'V' && buf_offset >= 9) ||
+                 (buf[0] != 'V' && c == '\n') )
 		break;
 	}
 
@@ -1214,8 +1232,11 @@ read_input()
 
     if (rdbuf_offset == total_chars) {
 	buffered_input_available = 0;
-	if (buf[buf_offset - 1] != '\n')
+	if ( (buf[0] == 'V' && buf_offset < 9) ||
+	    (buf[0] != 'V' && buf[buf_offset - 1] != '\n') )
+        {
 	    partial_read = 1;
+        }
     }
 
     return partial_read;
@@ -2090,7 +2111,8 @@ exec_cmd(plot_struct *plot, char *command)
 #ifdef X11_POLYLINE
     /*   X11_vector(x, y) - draw vector  */
     if (*buffer == 'V') {
-	sscanf(buffer, "V%d %d", &x, &y);
+	x = *(int32_t*)&buffer[1];
+	y = *(int32_t*)&buffer[5];
 	if (polyline_size == 0) {
 	    polyline[polyline_size].x = X(cx);
 	    polyline[polyline_size].y = Y(cy);
@@ -2121,7 +2143,8 @@ exec_cmd(plot_struct *plot, char *command)
 #else
     /*   X11_vector(x, y) - draw vector  */
     if (*buffer == 'V') {
-	sscanf(buffer, "V%d %d", &x, &y);
+	x = *(int32_t*)&buffer[1];
+	y = *(int32_t*)&buffer[5];
 	XDrawLine(dpy, plot->pixmap, *current_gc, X(cx), Y(cy), X(x), Y(y));
 	cx = x;
 	cy = y;
