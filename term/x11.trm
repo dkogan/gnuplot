@@ -234,6 +234,22 @@ static TBOOLEAN X11_MOUSE_FEEDBACK = TRUE;
 static TBOOLEAN IPC_LOCK = FALSE;
 #endif
 
+/* Are we currently in a stream of data, and if so, what kind? This is used to
+   suppress consecutive, identical V, M and P commands. This is just a
+   performance optimization, but a very significant one for particular data
+   sets. Note that for this to work, X11_ipc_lastdatarun MUST be set whenever a
+   terminal callback writes to the X11_ipc pipe. If this isn't done, it is
+   possible for a point to be mis-classified as a duplicate and thus ignored.
+*/
+static enum
+{
+	X11_IPC_LASTDATARUN_NONE,
+	X11_IPC_LASTDATARUN_MOVE,
+	X11_IPC_LASTDATARUN_POINT,
+	X11_IPC_LASTDATARUN_VECTOR
+} X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
+
+
 static int parse_driver __PROTO((const char *));
 
 static int
@@ -739,6 +755,7 @@ x11_raise_terminal_window(int number)
     if (X11_ipc) {
 	fprintf(X11_ipc, "^%d\n", number);
 	fflush(X11_ipc);
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -749,6 +766,7 @@ x11_raise_terminal_group(void)
     if (X11_ipc) {
 	fprintf(X11_ipc, "^\n");
 	fflush(X11_ipc);
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -759,6 +777,7 @@ x11_lower_terminal_window(int number)
     if (X11_ipc) {
 	fprintf(X11_ipc, "v%d\n", number);
 	fflush(X11_ipc);
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -769,6 +788,7 @@ x11_lower_terminal_group(void)
     if (X11_ipc) {
 	fprintf(X11_ipc, "v\n");
 	fflush(X11_ipc);
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -778,6 +798,8 @@ X11_update_opts()
 {
     if (!X11_ipc)
 	return;
+
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 
     if (UNSET != do_raise || UNSET != persist || UNSET != dashedlines ||
         UNSET != ctrlq || UNSET != replot_on_resize)
@@ -842,6 +864,8 @@ X11_atexit()
 	close(ipc_back_fd);
 	ipc_back_fd = -1;
 #endif
+
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -977,6 +1001,9 @@ X11_init()
     static int been_here = 0;
 
     if (!X11_ipc) {
+
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
+
 	/* first time through or after a reset */
 #if defined(OS2)
       /* FIXME amai 20020219: nice try...
@@ -1304,6 +1331,7 @@ static void
 X11_atexit()
 {
     if (X11_channel) {
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 	PRINT0("R\n");
 	sleep(2);		/* Wait for subprocess to finish */
 	sys$dassgn(X11_channel);
@@ -1334,6 +1362,8 @@ double       ymax_saved = -1.0;
 TERM_PUBLIC void
 X11_graphics()
 {
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
+
 #ifdef USE_MOUSE
     static unsigned long windowid = 0;
 #endif
@@ -1426,6 +1456,8 @@ X11_text()
      if (!X11_ipc)
  	return;
 
+     X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
+
 #ifdef USE_MOUSE
     /* EAM July 2003:  send over a snapshot of the final axis scaling
      * so that subsequent mouse events can be transformed into plot
@@ -1478,15 +1510,41 @@ X11_text()
     AFTER_TEXT;			/* kludge for crippled select */
 }
 
+
+/* I detect identical consecutive V, M or P commands, and do not send
+   duplicates. This can net a huge efficiency gain if we have redundant data,
+   such as lines spaced finer than the window resolution */
+#define HANDLE_IPC_DATARUN(type, point, x, y)                   \
+do                                                              \
+{                                                               \
+    static unsigned int xy_last[2];                             \
+    static int point_last;                                      \
+                                                                \
+    if( X11_ipc_lastdatarun == X11_IPC_LASTDATARUN_ ## type &&  \
+        x == xy_last[0] && y == xy_last[1] &&                   \
+        point == point_last )                                   \
+    {                                                           \
+        return;                                                 \
+    }                                                           \
+                                                                \
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_ ## type;         \
+                                                                \
+    xy_last[0] = x;                                             \
+    xy_last[1] = y;                                             \
+    point_last = point;											\
+} while(0)
+
 TERM_PUBLIC void
 X11_move(unsigned int x, unsigned int y)
 {
+	HANDLE_IPC_DATARUN( MOVE, 0, x, y );
     PRINT2("M%d %d\n", x, y);
 }
 
 TERM_PUBLIC void
 X11_vector(unsigned int x, unsigned int y)
 {
+	HANDLE_IPC_DATARUN( VECTOR, 0, x, y );
     PRINT2("V%d %d\n", x, y);
 }
 
@@ -1497,18 +1555,21 @@ X11_pointsize(double ps)
 	ps = 1;
     PRINT2("P-2 %d %d\n",	/* size of point symbols */
 	   (int) (4096.0 * ps), (int) (4096.0 * ps));
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 }
 
 TERM_PUBLIC void
 X11_linewidth(double lw)
 {
     PRINT1("W%d\n", (int) (lw * X11_linewidth_multiplier + 0.5));
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 }
 
 TERM_PUBLIC void
 X11_linetype(int lt)
 {
     PRINT1("L%d\n", lt);
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 }
 
 TERM_PUBLIC void
@@ -1520,12 +1581,14 @@ X11_put_text(unsigned int x, unsigned int y, const char str[])
 	PRINT1("QF%s\n", X11_next_font_used);
     }
     PRINT3("T%d %d %s\n", x, y, str);
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 }
 
 TERM_PUBLIC int
 X11_text_angle(int ang)
 {
     PRINT1("A%d\n", ang);
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     return TRUE;
 }
 
@@ -1534,12 +1597,14 @@ X11_justify_text(enum JUSTIFY mode)
 {
     PRINT1("J%d\n", mode);
     X11_last_justification = mode;
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     return (TRUE);
 }
 
 TERM_PUBLIC void
 X11_point(unsigned int x, unsigned int y, int number)
 {
+	HANDLE_IPC_DATARUN( POINT, number, x, y );
     PRINT3("P%d %d %d\n", number, x, y);
 }
 
@@ -1548,6 +1613,7 @@ X11_set_font(const char *fontname)
 {
     PRINT1("QF%s\n", fontname?fontname:"");
     strncpy(X11_next_font_used,fontname?fontname:"",sizeof(X11_next_font_used)-1);
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     return(TRUE);
 }
 
@@ -1555,6 +1621,7 @@ static void
 X11_set_default_font()
 {
     PRINT1("QD%s\n",X11_default_font);
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 }
 
 TERM_PUBLIC void
@@ -1562,6 +1629,7 @@ X11_fillbox(int style, unsigned int x, unsigned int y, unsigned int w, unsigned 
 {
     if (X11_ipc) {
 	PRINT5("F%d %u %u %u %u\n", style, x, y, w, h);
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -1572,6 +1640,7 @@ X11_put_tmptext(int i, const char str[])
     if (X11_ipc) {
 	PRINT2("t%d %s\n", i, str);
 	FFLUSH();
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -1581,6 +1650,7 @@ X11_set_ruler(int x, int y)
     if (X11_ipc) {
 	PRINT2("r%d %d\n", x, y);
 	FFLUSH();
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -1590,6 +1660,7 @@ X11_set_cursor(int c, int x, int y)
     if (X11_ipc) {
 	PRINT3("u%d %d %d\n", c, x, y);
 	FFLUSH();
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -1599,6 +1670,7 @@ X11_set_clipboard(const char s[])
     if (X11_ipc) {
 	PRINT1("z%s\n", s);
 	FFLUSH();
+	X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
     }
 }
 
@@ -1609,6 +1681,8 @@ static void
 transmit_gradient(gradient_struct *gradient, int cnt)
 {
     int i = 0;
+
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 
     fprintf(X11_ipc, "%d", cnt);
     for(i=0; i<cnt; i++) {
@@ -1638,6 +1712,8 @@ X11_make_palette(t_sm_palette *palette)
 	    fprintf(stderr, "(X11_make_palette) 0 == X11_ipc\n");
 	    return -1;
 	}
+
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 
     fprintf(X11_ipc, "%c %c %c %c %d\n",
 	     X11_GR_MAKE_PALETTE, (char)(palette->colorMode),
@@ -1699,6 +1775,8 @@ void dump_histogram(void) {
 TERM_PUBLIC void
 X11_set_color(t_colorspec *colorspec)
 {
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
+
     if (colorspec->type == TC_RGB) {
 	fputc(X11_GR_SET_RGBCOLOR, X11_ipc);
 	PRINT1("%6.6x\n", colorspec->lt & 0xffffff);
@@ -1757,6 +1835,8 @@ X11_filled_polygon(int points, gpiPoint *corners)
     /* Encode and transfer data to the pipe, one character at a time. */
 
     if (!points) return;
+
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 
     fputc(X11_GR_BINARY_POLYGON, X11_ipc);
     i_buffer = BINARY_MAX_CHAR_PER_TRANSFER;
@@ -1856,6 +1936,8 @@ ENHX11_OPEN(
     TBOOLEAN widthflag, TBOOLEAN showflag,
     int overprint)
 {
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
+
     /* If the overprint code requests a save or request, that's all we do */
     if (overprint == 3) {
 	PRINT2("Tp%d %d\n", 0, 0);
@@ -1884,6 +1966,8 @@ ENHX11_OPEN(
 TERM_PUBLIC void
 ENHX11_FLUSH()
 {
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
+
     /* Send a command to print this string at current position */
     if (ENHx11_opened_string) {
 
@@ -1912,6 +1996,8 @@ ENHX11_put_text(unsigned int x, unsigned int y, const char *str)
     char *original_string = (char *)str;
     static char *initial_font = NULL;
     int pass = 1;
+
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 
     if (ignore_enhanced_text) {
 	X11_put_text(x,y,str);
@@ -2009,6 +2095,8 @@ PASS2:
 TERM_PUBLIC void
 X11_send_endianess(void)
 {
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
+
     /* Place an integer 1 in the pipe and see if the byte order agrees
      * with program on the other side.  Information used for routines
      * having encoded binary data.
@@ -2025,6 +2113,8 @@ X11_send_endianess(void)
 TERM_PUBLIC void
 X11_image(unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_imagecolor color_mode)
 {
+
+    X11_ipc_lastdatarun = X11_IPC_LASTDATARUN_NONE;
 
     /* Avoid using floats or formatted I/O.  That's too slow for image data.
      *
