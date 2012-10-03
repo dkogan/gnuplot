@@ -1487,7 +1487,20 @@ X11_move(unsigned int x, unsigned int y)
 TERM_PUBLIC void
 X11_vector(unsigned int x, unsigned int y)
 {
+    /* I detect identical consecutive V commands, and do not send duplicates.
+       This can net a huge efficiency gain if we're plotting lines finer than
+       the window resolution */
+    static unsigned int xy_last[2];
+    static long ftell_last = -1;
+
+    if( ftell_last == ftell(X11_ipc) && x == xy_last[0] && y == xy_last[1] )
+        return;
+
     PRINT2("V%d %d\n", x, y);
+
+    ftell_last = ftell(X11_ipc);
+    xy_last[0] = x;
+    xy_last[1] = y;
 }
 
 TERM_PUBLIC void
