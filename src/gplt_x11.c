@@ -4261,7 +4261,11 @@ process_configure_notify_event(XEvent *event)
 	    }
 #endif
 
-	    display(plot);
+		/* Don't replot if we're replotting-on-window-resizes, since replotting
+		   happens elsewhere in those cases. If the inboard driver is dead, and
+		   the window is still around with -persist, replot also. */
+		if( !replot_on_resize || pipe_died )
+			display(plot);
 
 #ifdef USE_MOUSE
 	    {
