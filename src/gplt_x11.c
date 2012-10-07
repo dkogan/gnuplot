@@ -585,7 +585,7 @@ static int gX = 100, gY = 100;
    This allows the plot to be maximally scaled while preserving the aspect
    ratio.
 */
-static unsigned int gW = 640, gH = 450;
+static unsigned int gW = 640, gH = 450; /* defaults must match those in x11.trm */
 static unsigned int gFlags = PSize;
 
 static unsigned int BorderWidth = 2;
