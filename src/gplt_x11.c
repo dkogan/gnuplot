@@ -6171,8 +6171,8 @@ static void
 mouse_to_coords(plot_struct *plot, XEvent *event,
 		double *x, double *y, double *x2, double *y2)
 {
-    int xx =         4096. * (event->xbutton.x + 0.5)/ plot->width;
-    int yy = 4095. - 4096. * (event->xbutton.y + 0.5)/ plot->gheight;
+    int xx = RevX( event->xbutton.x );
+    int yy = RevY( event->xbutton.y );
 
     FPRINTF((stderr, "gnuplot_x11 %d: mouse at %d %d\t", __LINE__, xx, yy));
 
