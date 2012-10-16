@@ -1094,6 +1094,26 @@ X11_reset()
 #endif
 }
 
+static int X11_ipc_counter;
+static int _fprintf_return, _fputs_return, _fputc_return;
+#define fprintf(stream, format, ...)							\
+( _fprintf_return = fprintf(stream, format, ## __VA_ARGS__ ),	\
+  (( stream == X11_ipc ) && X11_ipc_counter++),					\
+  _fprintf_return )
+
+#define fputs(s, stream)						\
+( _fputs_return = fputs(s, stream),				\
+  (( stream == X11_ipc ) && X11_ipc_counter++),	\
+  _fputs_return )
+
+#define fputc(c, stream)						\
+( _fputc_return = fputc(c, stream),				\
+  (( stream == X11_ipc ) && X11_ipc_counter++),	\
+  _fputc_return )
+
+/* int fputc(int c, FILE *stream); */
+/* int fputs(const char *s, FILE *stream); */
+
 #define PRINT0(fmt)          fprintf(X11_ipc, fmt)
 #define PRINT1(fmt,p1)       fprintf(X11_ipc, fmt,p1)
 #define PRINT2(fmt,p1,p2)    fprintf(X11_ipc, fmt,p1,p2)
@@ -1491,14 +1511,14 @@ X11_vector(unsigned int x, unsigned int y)
        This can net a huge efficiency gain if we're plotting lines finer than
        the window resolution */
     static unsigned int xy_last[2];
-    static long ftell_last = -1;
+    static int X11_ipc_counter_last = -1;
 
-    if( ftell_last == ftell(X11_ipc) && x == xy_last[0] && y == xy_last[1] )
+    if( x == xy_last[0] && y == xy_last[1] && X11_ipc_counter_last == X11_ipc_counter )
         return;
 
-    PRINT2("V%d %d\n", x, y);
+	PRINT2("V%d %d\n", x, y);
+	X11_ipc_counter_last = X11_ipc_counter;
 
-    ftell_last = ftell(X11_ipc);
     xy_last[0] = x;
     xy_last[1] = y;
 }
