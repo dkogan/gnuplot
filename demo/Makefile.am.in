@@ -10,7 +10,7 @@ BINARY_FILES = binary1 binary2 binary3
 
 DEMO = all.dem
 
-GNUPLOT = gnuplot
+GNUPLOT = gnuplot -q
 
 all: $(BINARY_FILES)
 

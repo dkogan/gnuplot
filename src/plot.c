@@ -138,6 +138,9 @@ TBOOLEAN interactive = TRUE;	/* FALSE if stdin not a terminal */
 TBOOLEAN noinputfiles = TRUE; /* FALSE if there are script files */
 TBOOLEAN persist_cl = FALSE; /* TRUE if -persist is parsed in the command line */
 
+static TBOOLEAN read_init_file = TRUE; /* FALSE to suppress reading of .gnuplot files */
+
+
 /* user home directory */
 static const char *user_homedir = NULL;
 
@@ -359,7 +362,8 @@ main(int argc, char **argv)
 #endif
 		    "  -V, --version\n"
 		    "  -h, --help\n"
-		    "  -p  --persist\n"
+		    "  -p, --persist\n"
+                    "  -q, --no-init-file\n"
 		    "  -e  \"command1; command2; ...\"\n"
 		    "gnuplot %s patchlevel %s\n",
 		    gnuplot_version, gnuplot_patchlevel);
@@ -375,6 +379,13 @@ main(int argc, char **argv)
 #endif
 	    return 0;
 
+	} else if (!strcmp(argv[i], "-q") || !strcmp(argv[i], "--no-init-file")) {
+	    read_init_file = FALSE;
+
+            /* done with option; purge it from the list */
+	    memmove( &argv[i], &argv[i+1], (argc-i-1)*sizeof(argv[0])),
+	    i--;
+	    argc--;
 	} else if (!strncmp(argv[i], "-persist", 2) || !strcmp(argv[i], "--persist")) {
 	    persist_cl = TRUE;
 	}
@@ -714,6 +725,9 @@ load_rcfile(int where)
 {
     FILE *plotrc = NULL;
     char *rcfile = NULL;
+
+    if( !read_init_file )
+	return;
 
     if (where == 0) {
 #ifdef GNUPLOT_SHARE_DIR

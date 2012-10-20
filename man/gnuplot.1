@@ -49,6 +49,8 @@ Support for a huge variety of output devices and file formats.
 .PP
 \fB\-p, \-\-persist\fP lets plot windows survive after main gnuplot program exits.
 .PP
+\fB\-q, \-\-no-init-file\fP suppresses reading of .gnuplot and gnuplotrc files.
+.PP
 \fB\-e "command list"\fP executes the requested commands before loading the next input file.
 .PP
 \fB\-h, \-\-help\fP print summary of usage
@@ -125,14 +127,17 @@ files. See "help postscript prologue".
 .I gnuplotrc
 When gnuplot is run, it first looks for a system-wide initialization
 file named gnuplotrc.  The standard location of this file expected by
-the program is reported by the "show loadpath" command.
+the program is reported by the "show loadpath" command. This file is
+\fInot\fP sourced if \fB\-q\fP is given on the commandline.
 .TP
 .I .gnuplot
 After loading the system-wide initialization file, if any,
 Gnuplot looks for a private initialization file in the HOME directory.
 It may contain any legal gnuplot commands, but typically they are
 limited to setting the preferred terminal and line types
-and defining frequently-used functions or variables.
+and defining frequently-used functions or variables. This file is
+\fInot\fP sourced if \fB\-q\fP is given on the commandline.
+
 .TP 
 .I fit.log
 The default name of the logfile output by the "fit" command.
