@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.210.2.1 2011/12/28 21:30:11 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.210.2.3 2012/05/07 16:53:08 sfeam Exp $"); }
 #endif
 
 #define X11_POLYLINE 1
@@ -2897,22 +2897,22 @@ exec_cmd(plot_struct *plot, char *command)
 
 		    case PseudoColor:
 			fprintf(stderr, ERROR_NOTICE("PseudoColor"));
-			fprintf(stderr, display_error_text_after);
+			fputs(display_error_text_after,stderr);
 			break;
 
 		    case GrayScale:
 			fprintf(stderr, ERROR_NOTICE("GrayScale"));
-			fprintf(stderr, display_error_text_after);
+			fputs(display_error_text_after,stderr);
 			break;
 
 		    case StaticColor:
 			fprintf(stderr, ERROR_NOTICE("StaticColor"));
-			fprintf(stderr, display_error_text_after);
+			fputs(display_error_text_after,stderr);
 			break;
 
 		    case StaticGray:
 			fprintf(stderr, ERROR_NOTICE("StaticGray"));
-			fprintf(stderr, display_error_text_after);
+			fputs(display_error_text_after,stderr);
 			break;
 
 		    case DirectColor:
@@ -5822,6 +5822,7 @@ pr_window(plot_struct *plot)
 {
     char *title = pr_GetR(db, ".title");
     static XSizeHints hints;
+    static XClassHint class_hint;
     int Tvtwm = 0;
     long event_mask = KeyPressMask | KeyReleaseMask | StructureNotifyMask
 	| PointerMotionMask | PointerMotionHintMask | ButtonPressMask
@@ -5895,6 +5896,11 @@ pr_window(plot_struct *plot)
     hints.height = plot->height;
 
     XSetNormalHints(dpy, plot->window, &hints);
+
+    /* set WM_CLASS for interaction with gnome-shell */
+    class_hint.res_name = "gnuplot";
+    class_hint.res_class = "Gnuplot";
+    XSetClassHint(dpy, plot->window, &class_hint);
 
     if (pr_GetR(db, ".iconic") && On(value.addr)) {
 	XWMHints wmh;

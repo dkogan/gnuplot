@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.91.2.3 2012/03/04 19:14:37 sfeam Exp $
+ * $Id: wxt_gui.cpp,v 1.91.2.7 2012/09/08 04:50:55 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -1003,11 +1003,20 @@ void wxtPanel::OnRightUp( wxMouseEvent& event )
 /* mouse wheel event */
 void wxtPanel::OnMouseWheel( wxMouseEvent& event )
 {
-	UpdateModifiers(event);
+    int mouse_button;
+    int x,y;
 
-	wxt_exec_event(GE_buttonpress, 0, 0, 
-			event.GetWheelRotation() > 0 ? 4 : 5, 
-			0, this->GetId());
+	x = (int) gnuplot_x( &plot, event.GetX() );
+	y = (int) gnuplot_y( &plot, event.GetY() );
+
+	UpdateModifiers(event);
+	mouse_button = (event.GetWheelRotation() > 0 ? 4 : 5);
+#if wxCHECK_VERSION(2, 9, 0)
+	/* GetWheelAxis: 0 is the Y axis, 1 is the X axis. */
+	if (event.GetWheelAxis() > 0)
+	    mouse_button += 2;
+#endif
+	wxt_exec_event(GE_buttonpress, x, y, mouse_button, 0, this->GetId());
 }
 
 /* the state of the modifiers is checked each time a key is pressed instead of
@@ -2503,6 +2512,7 @@ void wxtPanel::wxt_cairo_refresh()
 	wxt_initialize_key_boxes(0);
 #endif
 
+	command_list_mutex.Lock();
 	command_list_t::iterator wxt_iter; /*declare the iterator*/
 	for(wxt_iter = command_list.begin(); wxt_iter != command_list.end(); ++wxt_iter) {
 		if (wxt_status == STATUS_INTERRUPT_ON_NEXT_CHECK) {
@@ -2527,6 +2537,7 @@ void wxtPanel::wxt_cairo_refresh()
 		wxt_cairo_exec_command( *wxt_iter );
 
 	}
+	command_list_mutex.Unlock();
 
 	/* don't forget to stroke the last path if vector was the last command */
 	gp_cairo_stroke(&plot);
@@ -3578,6 +3589,11 @@ void wxt_atexit()
 # endif /* HAVE_WORKING_FORK */
 
 		FPRINTF((stderr,"child process: restarting its event loop\n"));
+		/* Some programs executing gnuplot -persist may wait for all default
+		 * handles to be closed before they consider the sub-process finished.
+		 * Using freopen() ensures that debug fprintf()s won't crash. */
+		freopen("/dev/null","w",stdout);
+		freopen("/dev/null","w",stderr);
 
 		/* (re)start gui loop */
 		wxTheApp->OnRun();

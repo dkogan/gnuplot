@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tabulate.c,v 1.13 2011/10/25 05:10:58 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tabulate.c,v 1.13.2.2 2012/09/05 23:35:46 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tabulate.c */
@@ -45,6 +45,7 @@ static char *RCSid() { return RCSid("$Id: tabulate.c,v 1.13 2011/10/25 05:10:58 
 
 #include "alloc.h"
 #include "axis.h"
+#include "datafile.h"
 #include "gp_time.h"
 #include "graphics.h"
 #include "graph3d.h"
@@ -145,15 +146,24 @@ print_table(struct curve_points *current_plot, int plot_num)
 	case FSTEPS:
 	case HISTEPS:
 	    break;
+	case IMAGE:
+	    fputs("  pixel", outfile);
+	    break;
+	case RGBIMAGE:
+	case RGBA_IMAGE:
+	    fputs("  red green blue alpha", outfile);
+	    break;
+
 	default:
 	    if (interactive)
 		fprintf(stderr, "Tabular output of %s plot style not fully implemented\n",
 		    current_plot->plot_style == HISTOGRAMS ? "histograms" :
-		    current_plot->plot_style == IMAGE ? "image" :
-		    current_plot->plot_style == RGBIMAGE ? "rgbimage" :
 		    "this");
 	    break;
 	}
+
+	if (current_plot->varcolor)
+	    fputs("  color", outfile);
 
 	fputs(" type\n", outfile);
 
@@ -176,6 +186,12 @@ print_table(struct curve_points *current_plot, int plot_num)
 	    for (i = 0, point = current_plot->points; i < current_plot->p_count;
 		i++, point++) {
 
+		/* Reproduce blank lines read from original input file, if any */
+		if (!memcmp(point, &blank_data_line, sizeof(struct coordinate))) {
+		    fprintf(outfile, "\n");
+		    continue;
+		}
+
 		/* FIXME HBB 20020405: had better use the real x/x2 axes of this plot */
 		OUTPUT_NUMBER(point->x, current_plot->x_axis);
 		OUTPUT_NUMBER(point->y, current_plot->y_axis);
@@ -197,6 +213,16 @@ print_table(struct curve_points *current_plot, int plot_num)
 		    case YERRORBARS:
 			OUTPUT_NUMBER(point->ylow, current_plot->y_axis);
 			OUTPUT_NUMBER(point->yhigh, current_plot->y_axis);
+			break;
+		    case IMAGE:
+			fprintf(outfile,"%g ",point->z);
+			break;
+		    case RGBIMAGE:
+		    case RGBA_IMAGE:
+			fprintf(outfile,"%4d ",(int)point->CRD_R);
+			fprintf(outfile,"%4d ",(int)point->CRD_G);
+			fprintf(outfile,"%4d ",(int)point->CRD_B);
+			fprintf(outfile,"%4d ",(int)point->CRD_A);
 			break;
 		    case FILLEDCURVES:
 			OUTPUT_NUMBER(point->yhigh, current_plot->y_axis);
@@ -229,6 +255,19 @@ print_table(struct curve_points *current_plot, int plot_num)
 			/* ? */
 			break;
 		} /* switch(plot type) */
+
+		if (current_plot->varcolor) {
+		    double colorval = current_plot->varcolor[i];
+		    if ((current_plot->lp_properties.pm3d_color.value < 0.0)
+		    &&  (current_plot->lp_properties.pm3d_color.type == TC_RGB)) {
+			fprintf(outfile, "0x%6x", (unsigned int)(colorval));
+		    } else if (current_plot->lp_properties.pm3d_color.type == TC_Z) {
+			OUTPUT_NUMBER(colorval, COLOR_AXIS);
+		    } else if (current_plot->lp_properties.l_type == LT_COLORFROMCOLUMN) {
+			OUTPUT_NUMBER(colorval, COLOR_AXIS);
+		    }
+		}
+
 		fprintf(outfile, " %c\n",
 		    current_plot->points[i].type == INRANGE
 		    ? 'i' : current_plot->points[i].type == OUTRANGE
@@ -265,7 +304,9 @@ print_3dtable(int pcount)
 	    free(title);
 	}
 
-	if (this_plot->plot_style == LABELPOINTS) {
+	switch (this_plot->plot_style) {
+	case LABELPOINTS:
+	    {
 	    struct text_label *this_label;
 	    for (this_label = this_plot->labels->next; this_label != NULL;
 		 this_label = this_label->next) {
@@ -276,6 +317,17 @@ print_3dtable(int pcount)
 		fprintf(outfile, " \"%s\"\n", label);
 		free(label);
 	    }
+	    }
+	    continue;
+	case LINES:
+	case POINTSTYLE:
+	case IMPULSES:
+	case DOTS:
+	case VECTOR:
+	case IMAGE:
+	    break;
+	default:
+	    fprintf(stderr, "Tabular output of this 3D plot style not implemented\n");
 	    continue;
 	}
 
@@ -308,6 +360,8 @@ print_3dtable(int pcount)
 			OUTPUT_NUMBER((tail->y - point->y), FIRST_Y_AXIS);
 			OUTPUT_NUMBER((tail->z - point->z), FIRST_Z_AXIS);
 			tail++;
+		    } else if (this_plot->plot_style == IMAGE) {
+			fprintf(outfile,"%g ",point->CRD_COLOR);
 		    }
 		    fprintf(outfile, "%c\n",
 			    point->type == INRANGE

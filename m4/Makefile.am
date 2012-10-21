@@ -1,5 +1,5 @@
 ## Process this file with automake to produce Makefile.in -*-Makefile-*-
-AUTOMAKE_OPTIONS = foreign 1.2h
+AUTOMAKE_OPTIONS = foreign
 
 ##m4-files-begin
 EXTRA_DIST = README Makefile.am.in alpha.m4 apple.m4 beos.m4 msdos.m4 \

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.354.2.2 2012/01/07 04:48:21 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.354.2.4 2012/05/05 04:24:18 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -250,6 +250,12 @@ set_command()
 
 	int save_token;
 	set_iterator = check_for_iteration();
+	if (empty_iteration(set_iterator)) {
+	    /* Skip iteration [i=start:end] where start > end */
+	    while (!END_OF_COMMAND) c_token++;
+	    cleanup_iteration(set_iterator);
+	    return;
+	}
 	save_token = c_token;
 	ITERATE:
 
@@ -1449,7 +1455,7 @@ set_degreesign(char *locale)
 	    else if ((cd = iconv_open(cencoding, "UTF-8")) == (iconv_t)(-1))
 		int_warn(NO_CARET, "iconv_open failed for %s",cencoding);
 	    else {
-		if (iconv(cd, &in, &lengthin, &out, &lengthout) < 0)
+		if (iconv(cd, &in, &lengthin, &out, &lengthout) == (size_t)(-1))
 		    int_warn(NO_CARET, "iconv failed to convert degree sign");
 		iconv_close(cd);
 	    }

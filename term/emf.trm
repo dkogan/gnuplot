@@ -1,5 +1,5 @@
 /* Hey Emacs this is -*- C -*-
- * $Id: emf.trm,v 1.78 2011/10/15 00:03:33 sfeam Exp $
+ * $Id: emf.trm,v 1.78.2.5 2012/09/04 19:15:43 sfeam Exp $
  */
 
 /* GNUPLOT - emf.trm */
@@ -43,6 +43,15 @@
  * TODO
  *
  * HISTORY
+ *
+ * 4.6.1 04-Sep-2012 Shige Takeno
+ * - Revised order of object handling   Deselect/Delete/Create/Select
+ * - Defer application of new dash+color style until needed for a new line segment
+ *
+ * 4.6.1 04-Sep-2012 Ethan A Merritt
+ * - Fix dashed line option, but make solid lines the default
+ * - Seek to start of output file after plotting so that successive plots will
+ *   overwrite each other cleanly rather than producing a corrupt file.
  *
  * 4.5   28-Nov-2010 Ethan A Merritt
  * - Use the EMR_ELLIPSE primitive to draw point types 6 and 7
@@ -143,6 +152,7 @@ TERM_PUBLIC void EMF_previous_palette __PROTO((void));
 TERM_PUBLIC void EMF_set_color __PROTO((t_colorspec *colorspec));
 TERM_PUBLIC void EMF_filled_polygon __PROTO((int, gpiPoint *));
 TERM_PUBLIC void EMF_fillbox __PROTO((int, unsigned int, unsigned int, unsigned int, unsigned int));
+TERM_PUBLIC void EMF_flush_dashtype __PROTO((void));
 
 /* Enhanced text support */
 TERM_PUBLIC void ENHemf_put_text __PROTO((unsigned int x, unsigned int y, const char *str));
@@ -334,18 +344,17 @@ typedef  enum {
 #include <iconv.h>
 #endif
 
-static unsigned int emf_posx;
-static unsigned int emf_posy;
-static unsigned int emf_record_count = 0;
-static unsigned int emf_linetype = 1;
-static unsigned int emf_dashtype = 0;
-static unsigned long emf_color = 0L;
+static int emf_posx;
+static int emf_posy;
+static int emf_record_count = 0;
+static int emf_linetype = 1;
+static int emf_dashtype = 0;
+static long emf_color = 0L;
+static long emf_textcolor = LT_UNDEFINED;
 static unsigned long emf_pentype = 0x2200;		/* cap=flat join=miter */
-static unsigned long emf_textcolor = LT_UNDEFINED;
-static unsigned int emf_colors = EMF_COLORS;
 static unsigned int emf_polyline[EMF_MAX_SEGMENTS];	/* stored polyline coordinates */
 static unsigned int emf_graphics = FALSE;
-static unsigned int emf_dashed = TRUE;
+static unsigned int emf_dashed = FALSE;
 static unsigned int emf_monochrome = FALSE;
 static unsigned int emf_background = 0xffffff; /* defaults to white */
 static double emf_linewidth;	/* line width in plot units */
@@ -365,6 +374,7 @@ static int emf_tic, emf_tic707, emf_tic866, emf_tic500, emf_tic1241, emf_tic1077
 
 static TBOOLEAN emf_tweak = TRUE;	/* Empirical hack to adjust character widths */
 static double emf_fontscale = 1.0;
+static int emf_dashtype_count = 0;	/* count > 0 if EMF_dashtype needed before drawing */
 
 static void EMF_flush_polyline __PROTO((void));
 static void EMF_flush_polygon __PROTO((void));
@@ -516,6 +526,8 @@ EMF_flush_polygon()
     if (emf_coords == 0)
 	return;
 
+    EMF_flush_dashtype();
+
     EMF_MoveToEx(emf_polyline[i++], term->ymax - emf_polyline[i++]);
     while (i < emf_coords * 2)
 	EMF_LineTo(emf_polyline[i++], term->ymax - emf_polyline[i++]);
@@ -530,6 +542,8 @@ EMF_flush_polyline()
     if (emf_coords == 0)
 	return;
     
+    EMF_flush_dashtype();
+
     if (emf_coords <= 2) {
 	EMF_MoveToEx(emf_polyline[0], term->ymax - emf_polyline[1]);
 	EMF_LineTo(emf_polyline[2], term->ymax - emf_polyline[3]);
@@ -608,7 +622,7 @@ EMF_options()
     if (c_token != 2) {
 	term->xmax = EMF_XMAX;
 	term->ymax = EMF_YMAX;
-	emf_dashed = TRUE;
+	emf_dashed = FALSE;
 	emf_monochrome = FALSE;
 	emf_background = 0xffffff;
 	emf_tweak = TRUE;
@@ -619,7 +633,7 @@ EMF_options()
 	    strcpy(emf_defaultfontname, EMF_FONTNAME);
 	    emf_defaultfontsize = EMF_FONTSIZE;
 	    emf_monochrome = FALSE;
-	    emf_dashed = TRUE;
+	    emf_dashed = FALSE;
 	    term->flags &= ~TERM_MONOCHROME;
 	    c_token++;
 	    continue;
@@ -746,8 +760,6 @@ EMF_options()
     }
     EMF_set_font(NULL);		/* set default font */
     
-    emf_colors = emf_monochrome ? 1 : EMF_COLORS;
-
     sprintf(term_options, "%s %s %s font \"%s,%g\"",
 	    emf_monochrome ? "monochrome" : "color",
 	    emf_dashed ? "dashed" : "solid",
@@ -844,7 +856,11 @@ EMF_set_font(const char *font)
     static float last_fontsize = -1;
     static char last_fontname[256] = {'\0'};
 
-    if (font && *font) {
+    /* FIXME: This condition is somehow triggered by enhanced_recursion */
+    if (font == emf_fontname)
+	;
+
+    else if (font && *font) {
 	float tempsize;
 	int sep = strcspn(font,",");
 	if (sep > 0)
@@ -856,9 +872,12 @@ EMF_set_font(const char *font)
 	emf_fontsize = emf_defaultfontsize;
     }
 
-    /* Optimization only */
-    if (!strcmp(last_fontname,emf_fontname) && last_fontsize == emf_fontsize) {
+    /* Skip redundant requests for the same font */
+    if (!strcmp(last_fontname, emf_fontname) && last_fontsize == emf_fontsize) {
 	return TRUE;
+    } else {
+	safe_strncpy(last_fontname, emf_fontname, sizeof(last_fontname));
+	last_fontsize = emf_fontsize;
     }
 
     term->h_char = 0.6 * (emf_fontsize * EMF_PT2HM * emf_fontscale);
@@ -872,6 +891,14 @@ EMF_text()
 {
     long pos;
     EMF_flush_polyline();
+    emf_graphics = FALSE;
+
+    /* shige: 08/30 2012
+     * FIXME:
+     * The following command prevents export of a spurious rectangle
+     * (not the bounding box) on some Windows systems.  Why? How?
+     */
+    EMF_MoveToEx(emf_polyline[0], term->ymax - emf_polyline[1]);
 
     /* writing end of metafile */
     EMF_SelectObject(EMF_STOCK_OBJECT_DEFAULT_FONT);
@@ -882,19 +909,24 @@ EMF_text()
     EMF_DeleteObject(EMF_HANDLE_BRUSH);
     EMF_EOF();
 
-    /* updating header */
+    /* update the header */
     pos = ftell(gpoutfile);
-    fseek(gpoutfile, 48, SEEK_SET);
+    fseek(gpoutfile, 48L, SEEK_SET);
     EMF_write_long(pos);
     EMF_write_long(emf_record_count);
-    /* HBB 20010228: have to make known that we're no longer in graphics
-     * status. */
-    emf_graphics = FALSE;
+
+    /* Reset to start of output file.  If the user mistakenly tries to	*/
+    /* plot again into the same file, it will overwrite the original	*/
+    /* rather than corrupting it.					*/
+    /* FIXME:  An alternative would be to open a new output file. 	*/
+    fseek(gpoutfile, 0L, SEEK_SET);
 }
 
 TERM_PUBLIC void 
 EMF_linetype(int linetype)
 {
+    EMF_flush_polyline();
+
     /* Note : separating linetype and color would have not been futile, but anyway... */
 
 #if (0)  /* Not safe because linetype/color/pen are intermixed */
@@ -958,6 +990,8 @@ EMF_set_color(t_colorspec *colorspec)
 {
     rgb255_color rgb255;
 
+    EMF_flush_polyline();
+
     if (colorspec->type == TC_LT) {
 	EMF_linecolor(colorspec->lt);
     } else if (colorspec->type == TC_FRAC) {
@@ -976,8 +1010,8 @@ EMF_set_color(t_colorspec *colorspec)
     */
 
     /* Force reevaluation of dash type */
-    emf_dashtype = LT_UNDEFINED;
-    EMF_dashtype(emf_linetype);
+    emf_dashtype = emf_linetype;
+    emf_dashtype_count++;
 }
 
 TERM_PUBLIC void
@@ -1009,20 +1043,23 @@ EMF_filled_polygon(int points, gpiPoint *corners)
 		break;
     }
 
-    /* Sequence of operations cribbed from Windows example */
+    EMF_flush_dashtype();
+
+    /* MS documentation says not to delete an object while it is selected */
+	EMF_SelectObject(EMF_STOCK_OBJECT_BLACK_PEN);
+	EMF_SelectObject(EMF_STOCK_OBJECT_WHITE_BRUSH);
+
+	EMF_DeleteObject(EMF_HANDLE_BRUSH);
 	EMF_CreateBrush(EMF_HANDLE_BRUSH, 0, color, 0);
 	EMF_SelectObject(EMF_HANDLE_BRUSH);
 
-	/* EAM DEBUG - does this get rid of the border? */
+	EMF_DeleteObject(EMF_HANDLE_PEN);
 	EMF_CreatePen(EMF_HANDLE_PEN, emf_pentype, 0, color);
 	EMF_SelectObject(EMF_HANDLE_PEN);
 
 	EMF_CreatePolygon(points);
 	for (i=0; i<points; i++)
 	    EMF_write_pointl(corners[i].x, term->ymax - corners[i].y);
-
-	EMF_DeleteObject(EMF_HANDLE_PEN);
-	EMF_DeleteObject(EMF_HANDLE_BRUSH);
 
     /* Force re-evaluation of linetype next time we draw a line */
     emf_linetype = LT_UNDEFINED;
@@ -1046,15 +1083,24 @@ EMF_fillbox(int style, unsigned int x1, unsigned int y1, unsigned int width, uns
 TERM_PUBLIC void 
 EMF_linewidth(double width)
 {
-	int current_dashtype = emf_dashtype;
-    
+    EMF_flush_polyline();
+
     width *= emf_linewidth_factor;
     if (width == emf_linewidth)
 	return;
     emf_linewidth = width;
 
-	emf_dashtype = LT_UNDEFINED;      /* Invalidate current dash type     */
-	EMF_dashtype(current_dashtype);    /* Force re-evaluation of dash type */
+    /* The linewidth is applied at the same time as the dash pattern */
+    emf_dashtype_count++;
+}
+
+TERM_PUBLIC void
+EMF_flush_dashtype(void)
+{
+    if (emf_dashtype_count > 0) {
+       EMF_dashtype(emf_dashtype);
+       emf_dashtype_count = 0;	/* EMF_dashtype clears this also (shrug) */
+    }
 }
 
 /*
@@ -1078,10 +1124,8 @@ EMF_dashtype(int dashtype)
 
     emf_dashtype = dashtype;
 
-    EMF_flush_polyline();
-
     if (dashtype >= 0)
-	dashtype = (dashtype / emf_colors) % EMF_LINE_TYPES;
+	dashtype = dashtype % EMF_LINE_TYPES;
 
     if (dashtype == LT_AXIS)
 	dashtype = 2;
@@ -1093,7 +1137,8 @@ EMF_dashtype(int dashtype)
 	EMF_SelectObject(EMF_HANDLE_PEN);
 
 	term->vector = EMF_solid_vector;
-    } else {			/* Since win32 dashed lines works only with 1 pixel linewith we must emulate */
+    } else {
+	/* Since win32 dashed lines works only with 1 pixel linewith we must emulate */
 	EMF_SelectObject(EMF_STOCK_OBJECT_BLACK_PEN);
 	EMF_DeleteObject(EMF_HANDLE_PEN);
 	EMF_CreatePen(EMF_HANDLE_PEN, emf_pentype, emf_linewidth * EMF_PX2HM, emf_color);
@@ -1110,6 +1155,8 @@ EMF_dashtype(int dashtype)
 	emf_step = emf_step_sizes[1];
 	emf_step_index = 1;
     }
+
+    emf_dashtype_count = 0;
 }
 
 TERM_PUBLIC void 
@@ -1229,6 +1276,8 @@ EMF_put_text(unsigned int x, unsigned int y, const char str[])
 	}
     }
 #endif
+    if (slen <=0) return;	/* shige: 08/30 2012 */
+
     alen = slen;
 
     EMF_flush_polyline();
@@ -1347,9 +1396,10 @@ EMF_point(unsigned int x, unsigned int y, int number)
     gpiPoint corners[12];
     corners->style = FS_OPAQUE;
 
-    EMF_flush_polyline();
+    EMF_flush_polyline();	/* Calls EMF_flush_dashtype */
     old_dashtype = emf_dashtype;
-    EMF_dashtype(0);
+    emf_dashtype = 0;
+    emf_dashtype_count++;
 
     /* A few special point types */
     if (69 <= number && number <= 73) {
@@ -1370,7 +1420,10 @@ EMF_point(unsigned int x, unsigned int y, int number)
 	case 72:  EMF_point(x,y,9); break;
 	case 73:  EMF_point(x,y,11); break;
 	}
-	EMF_dashtype(old_dashtype);
+
+	emf_dashtype = old_dashtype;
+	emf_dashtype_count++;
+
 	return;
     }
 
@@ -1416,20 +1469,23 @@ EMF_point(unsigned int x, unsigned int y, int number)
 	break;
     case 5:
 	y = term->ymax-y; /* EAM - WTF? */ 
+	EMF_SelectObject(EMF_STOCK_OBJECT_BLACK_PEN);
+	EMF_SelectObject(EMF_STOCK_OBJECT_WHITE_BRUSH);
+	EMF_DeleteObject(EMF_HANDLE_BRUSH);
 	EMF_CreateBrush(EMF_HANDLE_BRUSH, 1, 0, 0);	/* transparent brush */
 	EMF_SelectObject(EMF_HANDLE_BRUSH);
+	EMF_DeleteObject(EMF_HANDLE_PEN);
 	EMF_CreatePen(EMF_HANDLE_PEN, emf_pentype, 1, emf_color);
 	EMF_SelectObject(EMF_HANDLE_PEN);
 	EMF_Ellipse((long)(x-emf_tic),(long)(y-emf_tic),(long)(x+emf_tic),(long)(y+emf_tic));
-	EMF_DeleteObject(EMF_HANDLE_PEN);
-	EMF_DeleteObject(EMF_HANDLE_BRUSH);
 	break;
     case 6: /* filled circle */
 	y = term->ymax-y; /* EAM - WTF? */ 
+	EMF_SelectObject(EMF_STOCK_OBJECT_WHITE_BRUSH);
+	EMF_DeleteObject(EMF_HANDLE_BRUSH);
 	EMF_CreateBrush(EMF_HANDLE_BRUSH, 0, emf_color, 0);
 	EMF_SelectObject(EMF_HANDLE_BRUSH);
 	EMF_Ellipse((long)(x-emf_tic),(long)(y-emf_tic),(long)(x+emf_tic),(long)(y+emf_tic));
-	EMF_DeleteObject(EMF_HANDLE_BRUSH);
 	break;
     case 7:			/* draw triangle (point up) */
 	EMF_move(x, y + emf_tic1241);
@@ -1471,7 +1527,9 @@ EMF_point(unsigned int x, unsigned int y, int number)
 	break;
     }
 /* end_points: */
-    EMF_dashtype(old_dashtype);
+
+    emf_dashtype = old_dashtype; 
+    emf_dashtype_count++;
 }
 
 
@@ -1806,11 +1864,11 @@ START_HELP(emf)
 " If you are using a monospaced font, or don't like the approximation, you",
 " can turn off this correction using the `noproportional` option.",
 "",
-" The default settings are `color dashed font \"Arial,12\" size 1024,768`",
+" The default settings are `color solid font \"Arial,12\" size 1024,768`",
 " Selecting `default` sets all options to their default values.",
 "",
 " Examples:",
 "       set terminal emf 'Times Roman Italic, 12'",
-"       set terminal emf color solid    # no pesky dashes!"
+"       set terminal emf dashed    # otherwise all lines are solid"
 END_HELP(emf)
 #endif /* TERM_HELP */

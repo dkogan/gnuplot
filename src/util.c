@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util.c,v 1.99 2011/11/10 05:15:58 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util.c,v 1.99.2.3 2012/09/26 23:05:56 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util.c */
@@ -1011,6 +1011,7 @@ int_error(int t_num, const char str[], va_dcl)
     eval_reset_after_error();
     clause_reset_after_error();
     scanning_range_in_progress = FALSE;
+    inside_zoom = FALSE;
 
     /* Load error state variables */
     update_gpval_variables(2);
@@ -1327,4 +1328,78 @@ utf8toulong (unsigned long * wch, const char ** str)
 
   *wch = INVALID_UTF8;
   return FALSE;
+}
+
+/*
+ * Returns number of (possibly multi-byte) characters in a UTF-8 string
+ */
+size_t
+strlen_utf8(const char *s)
+{
+    int i = 0, j = 0;
+    while (s[i]) {
+	if ((s[i] & 0xc0) != 0x80) j++;
+	i++;
+    }
+    return j;
+}
+
+size_t
+gp_strlen(const char *s)
+{
+    if (encoding == S_ENC_UTF8)
+	return strlen_utf8(s);
+    else
+	return strlen(s);
+}
+
+/*
+ * Returns a pointer to the Nth character of s
+ * or a pointer to the trailing \0 if N is too large
+ */
+char *
+utf8_strchrn(const char *s, int N)
+{
+    int i = 0, j = 0;
+
+    if (N <= 0)
+	return (char *)s;
+    while (s[i]) {
+	if ((s[i] & 0xc0) != 0x80) {
+	    if (j++ == N) return (char *)&s[i];
+	}
+	i++;
+    }
+    return (char *)&s[i];
+}
+
+char *
+gp_strchrn(const char *s, int N)
+{
+    if (encoding == S_ENC_UTF8)
+	return utf8_strchrn(s,N);
+    else
+	return (char *)&s[N];
+}
+
+/* TRUE if strings a and b are identical save for leading or trailing whitespace */
+TBOOLEAN
+streq(const char *a, const char *b)
+{
+    int enda, endb;
+
+    while (isspace(*a))
+	a++;
+    while (isspace(*b))
+	b++;
+
+    enda = strlen(a) - 1;
+    endb = strlen(b) - 1;
+
+    while (isspace(a[enda]))
+	enda--;
+    while (isspace(b[endb]))
+	endb--;
+
+    return (enda == endb) ? !strncmp(a,b,++enda) : FALSE;
 }

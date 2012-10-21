@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graphics.c,v 1.379.2.4 2012/02/22 06:17:25 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graphics.c,v 1.379.2.12 2012/09/25 18:17:09 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graphics.c */
@@ -387,12 +387,7 @@ boundary(struct curve_points *plots, int count)
     /* tic labels */
     if (axis_array[SECOND_X_AXIS].ticmode & TICS_ON_BORDER) {
 	/* ought to consider tics on axes if axis near border */
-	if (vertical_x2tics) {
-	    /* guess at tic length, since we don't know it yet
-	       --- we'll fix it after the tic labels have been created */
-	    x2tic_textheight = (int) (5 * t->h_char);
-	} else
-	    x2tic_textheight = (int) (x2ticlin * t->v_char);
+	x2tic_textheight = (int) (x2ticlin * t->v_char);
     } else
 	x2tic_textheight = 0;
 
@@ -502,12 +497,7 @@ boundary(struct curve_points *plots, int count)
     }
     if ((axis_array[FIRST_X_AXIS].ticmode & TICS_ON_BORDER)
     ||  shift_labels_to_border) {
-	/* ought to consider tics on axes if axis near border */
-	if (vertical_xtics) {
-	    /* guess at tic length, since we don't know it yet */
-	    xtic_textheight = (int) (t->h_char * 5);
-	} else
-	    xtic_textheight = (int) (t->v_char * (xticlin + 1));
+	xtic_textheight = (int) (t->v_char * (xticlin + 1));
     } else
 	xtic_textheight =  0;
 
@@ -1019,26 +1009,22 @@ boundary(struct curve_points *plots, int count)
 	gen_tics(SECOND_X_AXIS, /* 0, */ widest_tic_callback);
 	if (tmargin.x < 0) /* Undo original estimate */
 	    plot_bounds.ytop += x2tic_textheight;
-	/* Now compute a new one and use that instead: */
+	/* Adjust spacing for rotation */
 	if (projection > 0.0)
-	    x2tic_textheight = (int) (t->h_char * (widest_tic_strlen)) * projection;
-	else
-	    x2tic_textheight = t->v_char;
+	    x2tic_textheight += (int) (t->h_char * (widest_tic_strlen)) * projection;
 	if (tmargin.x < 0)
 	    plot_bounds.ytop -= x2tic_textheight;
     }
     if (axis_array[FIRST_X_AXIS].ticmode & TICS_ON_BORDER && vertical_xtics) {
 	double projection;
 	if (axis_array[FIRST_X_AXIS].tic_rotate == 90)
-	    projection = 1.0;
+	    projection = -1.0;
 	else if (axis_array[FIRST_X_AXIS].tic_rotate == TEXT_VERTICAL)
 	    projection = -1.0;
 	else
 	    projection = -sin((double)axis_array[FIRST_X_AXIS].tic_rotate*DEG2RAD);
 	if (axis_array[FIRST_X_AXIS].label.pos == RIGHT)
 	    projection *= -1;
-	else if (axis_array[FIRST_X_AXIS].label.pos == CENTRE)
-	    projection = 0.5*fabs(projection);	
 	widest_tic_strlen = 0;		/* reset the global variable ... */
 	gen_tics(FIRST_X_AXIS, /* 0, */ widest_tic_callback);
 
@@ -2859,8 +2845,12 @@ plot_steps(struct curve_points *plot)
     /* EAM April 2011:  Default to lines only, but allow filled boxes */
     if ((plot->plot_style & PLOT_STYLE_HAS_FILL) && t->fillbox) {
 	style = style_from_fill(&plot->fill_properties);
-	ey = 0;
-	cliptorange(ey, Y_AXIS.min, Y_AXIS.max);
+	if (Y_AXIS.log) {
+	    ey = Y_AXIS.min;
+	} else {
+	    ey = 0;
+	    cliptorange(ey, Y_AXIS.min, Y_AXIS.max);
+	}
 	y0 = map_y(ey);
     }
 
@@ -3538,6 +3528,7 @@ plot_boxes(struct curve_points *plot, int xaxis_y)
 		if (plot->plot_style == HISTOGRAMS) {
 		    int ix = plot->points[i].x;
 		    int histogram_linetype = i;
+		    int stack = i;
 		    if (plot->histogram->startcolor > 0)
 			histogram_linetype += plot->histogram->startcolor;
 
@@ -3567,8 +3558,8 @@ plot_boxes(struct curve_points *plot, int xaxis_y)
 		    }
 
 		    switch (histogram_opts.type) {
-		    case HT_STACKED_IN_TOWERS:
-			ix = 0;
+		    case HT_STACKED_IN_TOWERS: /* columnstacked */
+			stack = 0;
 			/* Line type (color) must match row number */
 			if (prefer_line_styles) {
 			    struct lp_style_type ls;
@@ -3576,21 +3567,20 @@ plot_boxes(struct curve_points *plot, int xaxis_y)
 			    apply_pm3dcolor(&ls.pm3d_color, term);
 			} else {
 			    struct lp_style_type ls;
-			    load_linetype(&ls, i+1);
+			    load_linetype(&ls, histogram_linetype);
 			    apply_pm3dcolor(&ls.pm3d_color, term);
 			}
 			plot->fill_properties.fillpattern = histogram_linetype;
 			/* Fall through */
-		    case HT_STACKED_IN_LAYERS:
-
+		    case HT_STACKED_IN_LAYERS: /* rowstacked */
 			if( plot->points[i].y >= 0 ){
-			    dyb = stackheight[ix].yhigh;
-			    dyt += stackheight[ix].yhigh;
-			    stackheight[ix].yhigh += plot->points[i].y;
+			    dyb = stackheight[stack].yhigh;
+			    dyt += stackheight[stack].yhigh;
+			    stackheight[stack].yhigh += plot->points[i].y;
 			} else {
-			    dyb = stackheight[ix].ylow;
-			    dyt += stackheight[ix].ylow;
-			    stackheight[ix].ylow += plot->points[i].y;
+			    dyb = stackheight[stack].ylow;
+			    dyt += stackheight[stack].ylow;
+			    stackheight[stack].ylow += plot->points[i].y;
 			}
 
 			if ((Y_AXIS.min < Y_AXIS.max && dyb < Y_AXIS.min)
@@ -5846,7 +5836,7 @@ do_rectangle( int dimensions, t_object *this_object, int style )
     struct fill_style_type *fillstyle;
     t_rectangle *this_rect = &this_object->o.rectangle;
 
-	if (this_rect->type == 1) {
+	if (this_rect->type == 1) {	/* specified as center + size */
 	    double width, height;
 
 	    if (dimensions == 2 || this_rect->center.scalex == screen) {
@@ -5887,11 +5877,9 @@ do_rectangle( int dimensions, t_object *this_object, int style )
 
 	    if (x1 > x2) {double t=x1; x1=x2; x2=t;}
 	    if (y1 > y2) {double t=y1; y1=y2; y2=t;}
-	    if (this_rect->bl.scalex == first_axes
-	    ||  this_rect->bl.scalex == second_axes)
+	    if (this_rect->bl.scalex != screen && this_rect->tr.scalex != screen)
 		clip_x = TRUE;
-	    if (this_rect->bl.scaley == first_axes
-	    ||  this_rect->bl.scaley == second_axes)
+	    if (this_rect->bl.scaley != screen && this_rect->tr.scaley != screen)
 		clip_y = TRUE;
 	}
 
@@ -6039,6 +6027,8 @@ do_ellipse( int dimensions, t_ellipse *e, int style, TBOOLEAN do_own_mapping )
 	        vertex[i].y = cy + yoff * aspect;
 	    else
 	        vertex[i].y = cy + yoff;
+	
+	    clip_line((int *)&cx, (int *)&cy, &vertex[i].x, &vertex[i].y);
     }
 
     if (style) {
@@ -6803,10 +6793,19 @@ do_key_layout(legend_key *key, TBOOLEAN key_pass, int *xinkey, int *yinkey)
     /* In two-pass mode, we blank out the key area after the graph	*/
     /* is drawn and then redo the key in the blank area.		*/
     if (key_pass && t->fillbox) {
+	double extra_height = 0.0;
+	int adjusted_key_bot = key->bounds.ybot;
+	if (*key->title) {
+	    if ((t->flags & TERM_ENHANCED_TEXT) && strchr(key->title,'^'))
+		extra_height += 0.51;
+	    if ((t->flags & TERM_ENHANCED_TEXT) && strchr(key->title,'_'))
+		extra_height += 0.3;
+	    adjusted_key_bot -= extra_height * t->v_char;
+	}
 	(*t->set_color)(&background_fill);
-	(*t->fillbox)(FS_OPAQUE, key->bounds.xleft, key->bounds.ybot,
-				key->bounds.xright - key->bounds.xleft,
-				key->bounds.ytop - key->bounds.ybot);
+	(*t->fillbox)(FS_OPAQUE, key->bounds.xleft, adjusted_key_bot,
+		key->bounds.xright - key->bounds.xleft,
+		key->bounds.ytop - adjusted_key_bot);
     }
 
     if (*key->title) {

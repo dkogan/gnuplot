@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.255.2.3 2012/02/14 23:50:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.255.2.8 2012/09/26 23:05:56 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -216,6 +216,13 @@ plotrequest()
     AXIS_INIT2D(T_AXIS, 0);
     AXIS_INIT2D(POLAR_AXIS, 1);
     AXIS_INIT2D(COLOR_AXIS, 1);
+
+    /* If we are called from a mouse zoom operation we should ignore	*/
+    /* any range limitations because otherwise the zoom won't zoom.	*/
+    if (inside_zoom) {
+	while (equals(c_token,"["))
+	    parse_skip_range();
+    }
 
     t_axis = (parametric || polar) ? T_AXIS : FIRST_X_AXIS;
 
@@ -643,10 +650,8 @@ get_data(struct curve_points *current_plot)
 	    ||  current_plot->plot_style == RGBA_IMAGE)
 		continue;
 
-	    /* break in data, make next point undefined */
-	    /* FIXME: We really should distinguish between a blank	*/
-	    /*        line and an undefined value on a non-blank line.	*/
-	    current_plot->points[i].type = UNDEFINED;
+	    /* make type of next point undefined, but recognizable */
+	    current_plot->points[i] = blank_data_line;
 	    i++;
 	    continue;
 
@@ -669,8 +674,8 @@ get_data(struct curve_points *current_plot)
 	case 0:         /* not blank line, but df_readline couldn't parse it */
 	    {
 		df_close();
-		int_error(current_plot->token,
-			  "Bad data on line %d", df_line_number);
+		int_error(current_plot->token, "Bad data on line %d of file %s",
+			  df_line_number, df_filename ? df_filename : ""); 
 	    }
 
 	case 1:
@@ -1437,6 +1442,7 @@ box_range_fiddling(struct curve_points *plot)
     if (axis_array[plot->x_axis].autoscale & AUTOSCALE_MIN) {
 	if (plot->points[0].type != UNDEFINED && plot->points[1].type != UNDEFINED) {
 	    xlow = plot->points[0].x - (plot->points[1].x - plot->points[0].x) / 2.;
+	    xlow = AXIS_DE_LOG_VALUE(plot->x_axis, xlow);
 	    if (axis_array[plot->x_axis].min > xlow)
 		axis_array[plot->x_axis].min = xlow;
 	}
@@ -1444,6 +1450,7 @@ box_range_fiddling(struct curve_points *plot)
     if (axis_array[plot->x_axis].autoscale & AUTOSCALE_MAX) {
 	if (plot->points[i].type != UNDEFINED && plot->points[i-1].type != UNDEFINED) {
 	    xhigh = plot->points[i].x + (plot->points[i].x - plot->points[i-1].x) / 2.;
+	    xhigh = AXIS_DE_LOG_VALUE(plot->x_axis, xhigh);
 	    if (axis_array[plot->x_axis].max < xhigh)
 		axis_array[plot->x_axis].max = xhigh;
 	}
@@ -2681,11 +2688,17 @@ eval_plots()
 			t_step = (t_max - t_min) / (samples_1 - 1);
 		    }
 		    for (i = 0; i < samples_1; i++) {
-			double temp;
+			double x, temp;
 			struct value a;
 			double t = t_min + i * t_step;
+
+			/* Zero is often a special point in a function domain.	*/
+			/* Make sure we don't miss it due to round-off error.	*/
+			if ((fabs(t) < 1.e-9) && (fabs(t_step) > 1.e-6))
+			    t = 0.0;
+
 			/* parametric/polar => NOT a log quantity */
-			double x = (!parametric && !polar)
+			x = (!parametric && !polar)
 			    ? AXIS_DE_LOG_VALUE(x_axis, t) : t;
 
 			(void) Gcomplex(&plot_func.dummy_values[0], x, 0.0);

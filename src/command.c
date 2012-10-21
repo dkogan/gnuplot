@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.230.2.2 2012/02/25 12:02:06 juhaszp Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.230.2.4 2012/05/06 22:21:49 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -1150,9 +1150,12 @@ do_command()
     clause_depth++;
     c_token--;	 /* Let the parser see the closing curly brace */
 
-    clause = gp_alloc(do_end - do_start, "clause");
+    clause = gp_alloc(do_end - do_start + 2, "clause");
     memcpy(clause, &gp_input_line[do_start+1], do_end - do_start);
     clause[do_end - do_start - 1] = '\0';
+
+    if (empty_iteration(do_iterator))
+	strcpy(clause, ";");
 
     do {
 	do_string(clause);
@@ -2688,9 +2691,14 @@ rlgets(char *s, size_t n, const char *prompt)
 #  elif defined(HAVE_LIBEDITLINE)
 	    /* deleting history entries does not work, so suppress adjacent 
 	    duplicates only */
-	    while (previous_history());
-	    if (strcmp(current_history()->line, line) != 0)
-		add_history(line);
+      
+	    int found;
+	    using_history();
+
+	    found = history_search(line, -1);
+	    if (found <= 0) {
+               add_history(line);
+            }
 #  else /* builtin readline */
 	    add_history(line);
 #  endif

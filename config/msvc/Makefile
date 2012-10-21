@@ -1,5 +1,5 @@
 #
-# $Id: Makefile,v 1.2.2.2 2012/01/14 08:01:15 markisch Exp $
+# $Id: Makefile,v 1.2.2.4 2012/09/16 18:38:14 markisch Exp $
 #
 # GNUPLOT Makefile Microsoft Visual C++ 2005 or newer
 
@@ -41,7 +41,7 @@
 
 # Compilation options, disable by setting to zero
 # Is libgd available? (required by terminal png/jpeg/gif)?
-GDLIB = 0
+GDLIB = 1
 # Is pdflib available? (required by terminal pdf)
 PDFLIB = 0
 # Build wxt terminal? (required GTK, wxWidgets, cairo and pango libraries)
@@ -49,7 +49,7 @@ PDFLIB = 0
 #     http://wiki.wxwidgets.org/Visual_Studio_2008_%289.0%29
 WXT = 0
 # Build the lua/tikz terminal?
-LUA = 0
+LUA = 1
 # Choose help format:
 # for HTML help (.chm) this should be 1, for (.hlp) it should be 0
 HTML_HELP = 1
@@ -121,6 +121,7 @@ TERMFLAGS = $(TERMFLAGS) /I$(PDFDIR)\pdflib
 WXTLIBS = glib-2.0.lib gobject-2.0.lib gmodule-2.0.lib \
 	cairo.lib pango-1.0.lib pangocairo-1.0.lib \
 	wxmsw28.lib wxtiff.lib
+CFLAGS = $(CFLAGS) -DWXWIDGETS
 !ENDIF
 
 !IF "$(LUA)" == "1"
@@ -338,6 +339,7 @@ clean:
 	if exist doc2html.exe del doc2html.exe
 	if exist doc2rtf.exe del doc2rtf.exe
 	if exist geticon.exe del geticon.exe
+	if exist gnuplot rmdir /s /q gnuplot
 
 veryclean: clean
 	if exist wgnuplot.exe del wgnuplot.exe
@@ -372,6 +374,9 @@ install:
 	xcopy /Y $(T)js\*.* $(DESTDIR)\$(GNUPLOT_JS_DIR)
 	if not exist $(DESTDIR)\$(GNUPLOT_LUA_DIR) mkdir $(DESTDIR)\$(GNUPLOT_LUA_DIR)
 	xcopy /Y $(T)lua\*.* $(DESTDIR)\$(GNUPLOT_LUA_DIR)
+	if not exist $(DESTDIR)\$(GNUPLOT_SHARE_DIR) mkdir $(DESTDIR)\$(GNUPLOT_SHARE_DIR)
+	copy /Y $(TOP)\share\gnuplotrc $(DESTDIR)\$(GNUPLOT_SHARE_DIR)
+	copy /Y $(TOP)\share\*.gp $(DESTDIR)\$(GNUPLOT_SHARE_DIR)
 	if not exist $(DESTDIR)\share\LaTeX mkdir $(DESTDIR)\share\LaTeX
 	copy /Y $(TOP)\share\LaTeX\README $(DESTDIR)\share\LaTeX
 	copy /Y $(TOP)\share\LaTeX\gnuplot.cfg $(DESTDIR)\share\LaTeX
@@ -382,3 +387,7 @@ install:
 	xcopy /Y $(TOP)\demo $(DESTDIR)\demo
 	if not exist $(DESTDIR)\contrib\pm3d mkdir $(DESTDIR)\contrib\pm3d
 	xcopy /Y $(TOP)\pm3d\contrib\*.* $(DESTDIR)\contrib\pm3d
+
+zip:
+	$(MAKE) DESTDIR=.\gnuplot install
+	zip -mro9 gp461-msvc-win32.zip gnuplot
