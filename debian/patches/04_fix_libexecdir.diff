@@ -1,7 +1,7 @@
 --- a/src/Makefile.am
 +++ b/src/Makefile.am
 @@ -2,7 +2,7 @@
- AUTOMAKE_OPTIONS = ansi2knr foreign 1.2h
+ AUTOMAKE_OPTIONS = foreign
  
  # in the spirit of automake ...
 -pkglibexecdir = $(libexecdir)/@PACKAGE@/@VERSION_MAJOR@

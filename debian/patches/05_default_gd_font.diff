@@ -1,6 +1,6 @@
 --- a/term/gd.trm
 +++ b/term/gd.trm
-@@ -979,7 +979,7 @@
+@@ -981,7 +981,7 @@
  	if (external_default)
  		png_state.ttffont = gp_strdup(external_default);
  	else	/* Might as well try some plausible font; it's no worse than failing immediately */

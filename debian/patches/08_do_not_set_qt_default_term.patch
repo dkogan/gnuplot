@@ -5,7 +5,7 @@ Last-Update: 2012-04-16
 
 --- a/src/term.c
 +++ b/src/term.c
-@@ -1732,14 +1732,14 @@
+@@ -1743,14 +1743,14 @@
  	    term_name = "sun";
  #endif /* SUN */
  
