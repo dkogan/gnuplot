@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.138.2.7 2012/03/08 04:07:40 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.138.2.11 2012/08/03 05:24:21 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -87,6 +87,7 @@ iso_alloc(int num)
     if (num > 0) {
 	ip->points = (struct coordinate GPHUGE *)
 	    gp_alloc(num * sizeof(struct coordinate), "iso curve points");
+	memset(ip->points, 0, num * sizeof(struct coordinate));
     } else
 	ip->points = (struct coordinate GPHUGE *) NULL;
     ip->next = NULL;
@@ -111,6 +112,8 @@ iso_extend(struct iso_curve *ip, int num)
 	    ip->points = (struct coordinate GPHUGE *)
 		gp_realloc(ip->points, num * sizeof(struct coordinate), "expanding curve points");
 	}
+	if (num > ip->p_max)
+	    memset( &(ip->points[ip->p_max]), 0, (num - ip->p_max) * sizeof(struct coordinate));
 	ip->p_max = num;
     } else {
 	if (ip->points != (struct coordinate GPHUGE *) NULL)
@@ -246,11 +249,6 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
 		    stop = TRUE;	/* EOF in file */
 		    gp_input_line[start] = '\0';
 		    more = FALSE;
-		    if (curly_brace_count > 0)
-			/* reaching this point means that the entire file was gobbled up 
-			 * by this routine without finding the closing } for at least one block.
-			 * Likely user error, so we die with an error message. */
-			int_error(NO_CARET, "Syntax error: missing block terminator }");
 		} else {
 		    inline_num++;
 		    len = strlen(gp_input_line) - 1;
@@ -299,6 +297,8 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
 			if (curly_brace_count < 0)
 			    int_error(NO_CARET, "Unexpected }");
 			if (curly_brace_count > 0) {
+			    if (len + 4 > gp_input_line_len)
+				extend_input_line();
 			    strcat(gp_input_line,";\n");
 			    start = strlen(gp_input_line);
 			    left = gp_input_line_len - start;
@@ -356,6 +356,7 @@ lf_pop()
 	    free(call_args[argindex]);
 	call_args[argindex] = lf->call_args[argindex];
     }
+    call_argc = lf->call_argc;
     do_load_arg_substitution = lf->do_load_arg_substitution;
     interactive = lf->interactive;
     inline_num = lf->inline_num;
@@ -406,6 +407,7 @@ lf_push(FILE *fp, char *name, char *cmdline)
     lf->interactive = interactive;	/* save current state */
     lf->inline_num = inline_num;	/* save current line number */
     lf->do_load_arg_substitution = do_load_arg_substitution;
+    lf->call_argc = call_argc;
     for (argindex = 0; argindex < 10; argindex++) {
 	lf->call_args[argindex] = call_args[argindex];
 	call_args[argindex] = NULL;	/* initially no args */

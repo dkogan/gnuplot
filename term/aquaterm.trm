@@ -1,5 +1,5 @@
 /* -*- objc -*-
- * $Id: aquaterm.trm,v 1.43 2011/08/02 20:40:31 sfeam Exp $
+ * $Id: aquaterm.trm,v 1.43.2.3 2012/08/08 03:55:32 sfeam Exp $
  *
  */
 
@@ -126,7 +126,7 @@ static char AQUA_title[MAX_LINE_LEN + 1] = "Figure 0"; /* Plot title (in windowb
 static unsigned int AQUA_xSize = AQUA_XMAX; /* plot horizontal size */
 static unsigned int AQUA_ySize = AQUA_YMAX; /* plot vertical size*/
 
-static int AQUA_LineType = -3; /* current line type*/
+static int AQUA_LineType = LT_UNDEFINED; /* current line type*/
 static float AQUA_LineWidth = 1.0; /* current line width*/
 static float AQUA_TextAngle = 0.0; /* current text orientation*/
 static enum JUSTIFY AQUA_TextJust = LEFT; /* current text justification*/
@@ -356,7 +356,7 @@ AQUA_init()
   [adapter openPlotWithIndex:AQUA_plotRef];
 
   /* Check for support of version-dependent features */
-   AQUA_hasAlphaSupport = [AQTAdapter respondsToSelector:@selector(setColorRed:green:blue:alpha:)];
+   AQUA_hasAlphaSupport = [AQTAdapter instancesRespondToSelector:@selector(setColorRed:green:blue:alpha:)];
 
   /* set xmax, ymax*/
   term->xmax = AQUA_xSize;
@@ -425,6 +425,8 @@ AQUA_graphics()
       [NSAutoreleasePool topAutoreleasePoolCount]);
 #endif
   [adapter eraseRect:NSMakeRect(0.0, 0.0, AQUA_xSize/AQUA_RESOLUTION, AQUA_ySize/AQUA_RESOLUTION)];
+
+  AQUA_LineType = LT_UNDEFINED;
 }
 
 TERM_PUBLIC void
@@ -717,15 +719,15 @@ AQUA_previous_palette()
 TERM_PUBLIC void
 AQUA_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_imagecolor color_mode)
 {
-  float width = (corner[1].x - corner[0].x)/AQUA_RESOLUTION;   
-  float height = (corner[0].y - corner[1].y)/AQUA_RESOLUTION;
-  float xPos = corner[0].x/AQUA_RESOLUTION;
-  float yPos = corner[1].y/AQUA_RESOLUTION;  
+  NSRect rect_image, rect_clip;
   int bitmapSize = M*N;
   int targetSize = 3 * bitmapSize;
   int srcSize;
   unsigned char *bitmap;
   int i;
+
+  rect_image = NSMakeRect(corner[0].x/AQUA_RESOLUTION, corner[1].y/AQUA_RESOLUTION, (corner[1].x - corner[0].x)/AQUA_RESOLUTION, (corner[0].y - corner[1].y)/AQUA_RESOLUTION);
+  rect_clip  = NSMakeRect(corner[2].x/AQUA_RESOLUTION, corner[3].y/AQUA_RESOLUTION, (corner[3].x - corner[2].x)/AQUA_RESOLUTION, (corner[2].y - corner[3].y)/AQUA_RESOLUTION);
 
   bitmap = malloc(targetSize*sizeof(unsigned char));
   if (bitmap != nil) {
@@ -750,10 +752,13 @@ AQUA_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t
     } else {
       NSLog(@"Unknown bitmap format");
     }
+
+    [adapter setClipRect:rect_clip];
     [adapter addImageWithBitmap:bitmap 
 	     size:NSMakeSize(M, N)
-	     bounds:NSMakeRect(xPos, yPos, width, height)];
+	     bounds:rect_image];
     free(bitmap);
+    [adapter setDefaultClipRect];
   }
   return;
 }

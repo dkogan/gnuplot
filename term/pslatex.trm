@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: pslatex.trm,v 1.80 2011/11/07 18:40:48 markisch Exp $
+ * $Id: pslatex.trm,v 1.80.2.4 2012/08/04 03:32:04 sfeam Exp $
  */
 
 /* GNUPLOT - pslatex.trm */
@@ -129,7 +129,6 @@ static TBOOLEAN tex_color_synced = FALSE;
 /* support for cairolatex */
 #ifdef HAVE_CAIROPDF
 #define ISCAIROTERMINAL ((strcmp(term->name, "cairolatex") == 0))
-TERM_PUBLIC void cairotrm_linetype __PROTO ((int linetype));
 TERM_PUBLIC void cairotrm_set_color __PROTO ((t_colorspec *colorspec));
 #else
 #define ISCAIROTERMINAL (FALSE)
@@ -764,8 +763,7 @@ EPSLATEX_reopen_output(char * ext)
         unsigned int outstrlen = strlen(outstr);
         if (strrchr(outstr, '.') != &outstr[outstrlen-4] ) {
             int_error(NO_CARET,
-                      "epslatex outputfile may not have dots inside %s",
-                      "their filenames before the extension .tex or .eps");
+                      "epslatex output file name must be of the form filename.xxx");
         }
 
         /* copy filename to postsript output */
@@ -817,12 +815,6 @@ EPSLATEX_set_color(t_colorspec *colorspec)
 {
     double gray;
 
-    /* EAM Jul 2006 - Filter out duplicate requests */
-    if (!memcmp(&tex_previous_colorspec, colorspec, sizeof(t_colorspec)))
-	return;
-    else
-	memcpy(&tex_previous_colorspec, colorspec, sizeof(t_colorspec));
-
     /* Fancy footwork to deal with mono/grayscale plots */
 #ifdef HAVE_CAIROPDF
     if (ISCAIROTERMINAL) {
@@ -830,6 +822,12 @@ EPSLATEX_set_color(t_colorspec *colorspec)
     } else 
 #endif
     {
+	/* Filter out duplicate requests */
+	if (!memcmp(&tex_previous_colorspec, colorspec, sizeof(t_colorspec)))
+	    return;
+	else
+	    memcpy(&tex_previous_colorspec, colorspec, sizeof(t_colorspec));
+
         if (colorspec->type == TC_LT && !ps_params->color)
             PS_linetype(colorspec->lt);
         else
@@ -886,12 +884,7 @@ EPSLATEX_linetype(int linetype)
 {
     t_colorspec tempcol = {TC_LT, 0, 0.0};
     tempcol.lt = linetype;
-#ifdef HAVE_CAIROPDF
-    if (ISCAIROTERMINAL)
-        cairotrm_linetype(linetype);
-    else
-#endif
-        PS_linetype(linetype);
+    PS_linetype(linetype);
 
     /* This leads to redundant *.eps output */
     EPSLATEX_set_color(&tempcol);
@@ -932,6 +925,16 @@ EPSLATEX_layer(t_termlayer syncpoint)
 	if (epslatex_text_layer == 1 || epslatex_text_layer == 2)
 	    fputs("    }%\n", gpoutfile);
 	epslatex_text_layer = 0;
+	break;
+
+    case TERM_LAYER_BEGIN_PM3D_MAP:
+	if (gppsfile && (gppsfile != gpoutfile))
+	    fprintf(gppsfile, "%%pm3d_map_begin\n");
+	break;
+    
+    case TERM_LAYER_END_PM3D_MAP:
+	if (gppsfile && (gppsfile != gpoutfile))
+	    fprintf(gppsfile, "%%pm3d_map_end\n");
 	break;
 
     default:

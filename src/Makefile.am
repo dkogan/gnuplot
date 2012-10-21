@@ -1,5 +1,5 @@
 ## Process this file with automake to produce Makefile.in -*-Makefile-*-
-AUTOMAKE_OPTIONS = ansi2knr foreign 1.2h
+AUTOMAKE_OPTIONS = foreign
 
 # in the spirit of automake ...
 pkglibexecdir = $(libexecdir)/@PACKAGE@/@VERSION_MAJOR@
@@ -142,6 +142,9 @@ clean-local: clean-qt-extra clean-demo
 # Qt terminal sources
 
 gnuplot_SOURCES += qtterminal/qt_term.cpp
+if BUILD_ON_APPLE 
+gnuplot_SOURCES += qtterminal/qt_term_mac.m 
+endif 
 
 pkglibexec_PROGRAMS += gnuplot_qt
 

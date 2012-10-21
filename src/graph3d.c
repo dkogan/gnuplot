@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.253.2.3 2012/01/12 00:12:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.253.2.6 2012/09/20 19:56:45 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graph3d.c */
@@ -848,9 +848,9 @@ do_3dplot(
 	key_size_right = t->h_char + key_sample_width;
     }
     key_point_offset = (key_sample_left + key_sample_right) / 2;
+    xl = key_size_left; /* FIXME: not correct, but otherwise some code paths fail to initialize it! */
 
-    if (key->visible)
-    if (key->region != GPKEY_USER_PLACEMENT) {
+    if (key->visible && (key->region != GPKEY_USER_PLACEMENT)) {
 	if (key->region != GPKEY_AUTO_INTERIOR_LRTBC && key->margin == GPKEY_BMARGIN) {
 	    /* HBB 19990608: why calculate these again? boundary3d has already
 	     * done it... */
@@ -911,6 +911,9 @@ do_3dplot(
 	key->bounds.xleft = xl - key_size_left;
 	key->bounds.ytop = yl + t->v_char * ktitle_lines;
 	key->bounds.ybot = yl - key_entry_height * key_rows;
+
+	if (key->bounds.xleft < 0)
+	    key->bounds.xleft = 0;
 
     /* Key title */
     if (key->visible && (*key->title)) {
@@ -2563,9 +2566,7 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	vertex v1;
 	int h_just = CENTRE;
 	int v_just = JUST_TOP;
-	double other_end = X_AXIS.min + X_AXIS.max - zaxis_x;
 	double mid_z = (Z_AXIS.max + Z_AXIS.min) / 2.;
-	double step = (other_end - zaxis_x) / 4.;
 
 	if (Z_AXIS.ticmode & TICS_ON_AXIS) {
 	    map3d_xyz(0, 0, mid_z, &v1);
@@ -2573,8 +2574,15 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	    x -= 5 * t->h_char;
 	    h_just = RIGHT;
 	} else {
-	    map3d_xyz(zaxis_x - step, zaxis_y, mid_z, &v1);
+	    /* December 2011 - This caused the separation between the axis and the
+	     * label to vary as the view angle changes (Bug #2879916).   Why???
+	     * It seems better to use a constant default separation.
+	     * double other_end = X_AXIS.min + X_AXIS.max - zaxis_x;
+	     * map3d_xyz(zaxis_x - (other_end - zaxis_x) / 4., zaxis_y, mid_z, &v1);
+	     */
+	    map3d_xyz(zaxis_x, zaxis_y, mid_z, &v1);
 	    TERMCOORD(&v1, x, y);
+	    x -= 7 * t->h_char;
 	    h_just = CENTRE;
 	}
 

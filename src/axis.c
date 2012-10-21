@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.97 2011/11/15 20:23:43 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.97.2.2 2012/09/26 23:05:56 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -147,6 +147,9 @@ TBOOLEAN raxis = TRUE;
 
 /* Length of the longest tics label, set by widest_tic_callback(): */
 int widest_tic_strlen;
+
+/* flag to indicate that in-line axis ranges should be ignored */
+TBOOLEAN inside_zoom;
 
 /* axes being used by the current plot */
 /* These are mainly convenience variables, replacing separate copies of
@@ -462,7 +465,7 @@ copy_or_invent_formatstring(AXIS_INDEX axis)
 	    double axmin = AXIS_DE_LOG_VALUE(axis,axis_array[axis].min);
 	    double axmax = AXIS_DE_LOG_VALUE(axis,axis_array[axis].max);
 	    int precision = (ceil(-log10(fabs(axmax-axmin))));
-	    if (precision > 4)
+	    if ((axmin*axmax > 0) && precision > 4)
 		sprintf(ticfmt[axis],"%%.%df", (precision>14) ? 14 : precision);
 	}
 
@@ -1919,3 +1922,14 @@ parse_named_range(AXIS_INDEX axis, int dummy)
 
     return dummy_token;
 }
+
+/* Called if an in-line range is encountered while inside a zoom command */
+void
+parse_skip_range()
+{
+    while (!equals(c_token++,"]"))
+	if (END_OF_COMMAND)
+	    break;
+    return;
+}
+

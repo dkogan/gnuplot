@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: term.c,v 1.225.2.4 2012/02/21 23:50:14 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: term.c,v 1.225.2.9 2012/05/14 17:25:48 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - term.c */
@@ -277,6 +277,7 @@ static const struct gen_table set_multiplot_tbl[] =
 
 # define MP_LAYOUT_DEFAULT {          \
     FALSE,	/* auto_layout */         \
+    0,		/* current_panel */       \
     0, 0,	/* num_rows, num_cols */  \
     FALSE,	/* row_major */           \
     TRUE,	/* downwards */           \
@@ -289,6 +290,7 @@ static const struct gen_table set_multiplot_tbl[] =
 
 static struct {
     TBOOLEAN auto_layout;  /* automatic layout if true */
+    int current_panel;     /* initialized to 0, incremented after each plot */
     int num_rows;          /* number of rows in layout */
     int num_cols;          /* number of columns in layout */
     TBOOLEAN row_major;    /* row major mode if true, column major else */
@@ -595,6 +597,7 @@ term_end_plot()
 	(*term->text) ();
 	term_graphics = FALSE;
     } else {
+	mp_layout.current_panel++;
 	if (mp_layout.auto_layout) {
 	    if (mp_layout.row_major) {
 		mp_layout.act_row++;
@@ -646,6 +649,7 @@ term_start_multiplot()
     term_start_plot();
 
     mp_layout.auto_layout = FALSE;
+    mp_layout.current_panel = 0;
 
     /* Parse options (new in version 4.1 */
     while (!END_OF_COMMAND) {
@@ -1336,6 +1340,7 @@ do_arc(
     gpiPoint vertex[250];  /* changed this - JP */
     int i, segments;
     double aspect;
+    int in, xcen, ycen;
 
     /* Protect against out-of-range values */
     while (arc_start < 0)
@@ -1357,28 +1362,34 @@ do_arc(
     /* Calculate the vertices */
     aspect = (double)term->v_tic / (double)term->h_tic;
     vertex[0].style = style;
-    for (i=0; i<segments; i++) {
-	vertex[i].x = cx + cos(DEG2RAD * (arc_start + i*INC)) * radius;
-	vertex[i].y = cy + sin(DEG2RAD * (arc_start + i*INC)) * radius * aspect;
+    for (i=0, in=0; i<segments; i++) {
+	vertex[in].x = cx + cos(DEG2RAD * (arc_start + i*INC)) * radius;
+	vertex[in].y = cy + sin(DEG2RAD * (arc_start + i*INC)) * radius * aspect;
+	xcen = cx; ycen = cy;
+	if (clip_line(&xcen, &ycen, &vertex[in].x, &vertex[in].y))
+	    in++;
     }
 #   undef INC
-    vertex[segments].x = cx + cos(DEG2RAD * arc_end) * radius;
-    vertex[segments].y = cy + sin(DEG2RAD * arc_end) * radius * aspect;
+    vertex[in].x = cx + cos(DEG2RAD * arc_end) * radius;
+    vertex[in].y = cy + sin(DEG2RAD * arc_end) * radius * aspect;
+    if (!clip_line(&xcen, &ycen, &vertex[in].x, &vertex[in].y))
+	in--;
+
     if (fabs(arc_end - arc_start) > .1 
     &&  fabs(arc_end - arc_start) < 359.9) {
-	vertex[++segments].x = cx;
-	vertex[segments].y = cy;
-	vertex[++segments].x = vertex[0].x;
-	vertex[segments].y = vertex[0].y;
+	vertex[++in].x = cx;
+	vertex[in].y = cy;
+	vertex[++in].x = vertex[0].x;
+	vertex[in].y = vertex[0].y;
     }
 
     if (style) {
 	/* Fill in the center */
 	if (term->filled_polygon)
-	    term->filled_polygon(segments+1, vertex);
+	    term->filled_polygon(in+1, vertex);
     } else {
 	/* Draw the arc */
-	for (i=0; i<segments; i++)
+	for (i=0; i<in; i++)
 	    draw_clip_line( vertex[i].x, vertex[i].y,
 		vertex[i+1].x, vertex[i+1].y );
     }
@@ -2570,15 +2581,11 @@ enhanced_recursion(
 	    /*}}}*/
 
 	case '\\'  :
-	    if (p[1]=='\\' || p[1]=='(' || p[1]==')') {
-		(term->enhanced_open)(fontname, fontsize, base, widthflag, showflag, overprint);
-		(term->enhanced_writec)('\\');
-
-	    /*{{{  The enhanced mode always uses \xyz as an octal character representation
+	    /*{{{  Enhanced mode always uses \xyz as an octal character representation
 		   but each terminal type must give us the actual output format wanted.
 		   pdf.trm wants the raw character code, which is why we use strtol();
 		   most other terminal types want some variant of "\\%o". */
-	    } else if (p[1] >= '0' && p[1] <= '7') {
+	    if (p[1] >= '0' && p[1] <= '7') {
 		char *e, escape[16], octal[4] = {'\0','\0','\0','\0'};
 
 		(term->enhanced_open)(fontname, fontsize, base, widthflag, showflag, overprint);
@@ -2593,8 +2600,14 @@ enhanced_recursion(
 		    (term->enhanced_writec)(*e);
 		}
 		break;
+	    /* This was the original (prior to version 4) enhanced text code specific */
+	    /* to the reserved characters of PostScript.  Some of it was mis-applied  */
+	    /* to other terminal types until fixed in Mar 2012.                       */
 	    } else if (term->flags & TERM_IS_POSTSCRIPT) {
-		if (strchr("^_@&~{}",p[1]) == NULL) {
+		if (p[1]=='\\' || p[1]=='(' || p[1]==')') {
+		    (term->enhanced_open)(fontname, fontsize, base, widthflag, showflag, overprint);
+		    (term->enhanced_writec)('\\');
+		} else if (strchr("^_@&~{}",p[1]) == NULL) {
 		    (term->enhanced_open)(fontname, fontsize, base, widthflag, showflag, overprint);
 		    (term->enhanced_writec)('\\');
 		    (term->enhanced_writec)('\\');
@@ -2717,7 +2730,7 @@ int len;
 		len, (double)(term->ymax)/10., text));
 	term = tsave;
     } else if (encoding == S_ENC_UTF8)
-	len = strlen_utf8(text);
+	len = strwidth_utf8(text);
     else
 #endif
 	len = strlen(text);

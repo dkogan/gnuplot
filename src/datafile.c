@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.212.2.2 2011/12/28 21:30:11 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.212.2.11 2012/09/26 23:03:15 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -200,7 +200,7 @@ int df_datum;                   /* suggested x value if none given */
 AXIS_INDEX df_axis[MAXDATACOLS];
 TBOOLEAN df_matrix = FALSE;     /* indicates if data originated from a 2D or 3D format */
 
-void *df_datablock;		/* pixel data from an external library (e.g. libgd) */
+void *df_pixeldata;		/* pixel data from an external library (e.g. libgd) */
 
 /* jev -- the 'thru' function --- NULL means no dummy vars active */
 /* HBB 990829: moved this here, from command.c */
@@ -240,7 +240,7 @@ static FILE *data_fp = NULL;
 static TBOOLEAN df_pipe_open = FALSE;
 #endif
 static TBOOLEAN mixed_data_fp = FALSE; /* inline data */
-char *df_filename;      /* name of data file */
+char *df_filename = NULL;      /* name of data file */
 static int df_eof = 0;
 
 static int df_no_tic_specs;     /* ticlabel columns not counted in df_no_use_specs */
@@ -437,6 +437,9 @@ df_binary_file_record_struct df_bin_record_reset = {
 
 int df_max_num_bin_records = 0, df_num_bin_records, df_bin_record_count;
 int df_max_num_bin_records_default = 0, df_num_bin_records_default;
+
+/* Used to mark the location of a blank line in the original data input file */
+struct coordinate blank_data_line = {UNDEFINED, -999, -999, -999, -999, -999, -999, -999};
 
 static void gpbin_filetype_function __PROTO((void));
 static void raw_filetype_function __PROTO((void));
@@ -971,7 +974,7 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     lastpoint = lastline = MAXINT;
 
     df_binary_file = df_matrix_file = FALSE;
-    df_datablock = NULL;
+    df_pixeldata = NULL;
     df_num_bin_records = 0;
     df_matrix = FALSE;
     df_nonuniform_matrix = FALSE;
@@ -1436,7 +1439,13 @@ plot_option_using(int max_using)
 		/* ...using "A"... Dummy up a call to column(column_label) */
 		use_spec[df_no_use_specs].at = create_call_column_at(column_label);
 		use_spec[df_no_use_specs++].column = NO_COLUMN_HEADER;
+		parse_1st_row_as_headers = TRUE;
 		fast_columns = 0;
+		/* FIXME - is it safe to always take the title from the 2nd use spec? */
+		if (df_no_use_specs == 2) {
+		    free(df_key_title);
+		    df_key_title = gp_strdup(column_label);
+		}
 
 	    } else {
 		int col = int_expression();
@@ -1641,19 +1650,20 @@ df_readascii(double v[], int max)
 	    continue;
 	/*}}} */
 
-	/*{{{  reject points by every */
-	/* accept only lines with (line_count%everyline) == 0 */
-
-	if (line_count < firstline || line_count > lastline ||
-	    (line_count - firstline) % everyline != 0)
-	    continue;
-
-	/* update point_count. ignore point if point_count%everypoint != 0 */
-
-	if (++point_count < firstpoint || point_count > lastpoint ||
-	    (point_count - firstpoint) % everypoint != 0)
-	    continue;
-	/*}}} */
+	/* Bookkeeping for the plot ... every N:M:etc option */
+	if ((parse_1st_row_as_headers || column_for_key_title > 0)
+	&&  !df_already_got_headers) {
+		FPRINTF((stderr,"skipping 'every' test in order to read column headers\n"));
+	} else {
+		/* Accept only lines with (line_count%everyline) == 0 */
+		if (line_count < firstline || line_count > lastline ||
+		    (line_count - firstline) % everyline != 0)
+		    continue;
+		/* update point_count. ignore point if point_count%everypoint != 0 */
+		if (++point_count < firstpoint || point_count > lastpoint ||
+		    (point_count - firstpoint) % everypoint != 0)
+		    continue;
+	}
 	/*}}} */
 
 	++df_datum;
@@ -1924,6 +1934,7 @@ df_readascii(double v[], int max)
 		}
 		/* Special case to make 'using 0' et al. to work with labels */
 		if (use_spec[output].expected_type == CT_STRING
+		    && (!(use_spec[output].at) || !df_tokens[output])
 		    && (column == -2 || column == -1 || column == 0)) {
 		    char *s = gp_alloc(32*sizeof(char), 
 			"temp string for label hack");
@@ -2127,8 +2138,7 @@ f_column(union argument *arg)
 	for (j=0; j<df_no_cols; j++) {
 	    if (df_column[j].header) {
 		int offset = (*df_column[j].header == '"') ? 1 : 0;
-		if (0 == strncmp(name, df_column[j].header + offset, 
-				strlen(name))) {
+		if (streq(name, df_column[j].header + offset)) {
 		    column = j+1;
 		    if (!df_key_title) /* EAM DEBUG - on the off chance we want it */
 			df_key_title = gp_strdup(df_column[j].header);
@@ -2186,8 +2196,7 @@ f_stringcolumn(union argument *arg)
 	for (j=0; j<df_no_cols; j++) {
 	    if (df_column[j].header) {
 		int offset = (*df_column[j].header == '"') ? 1 : 0;
-		if (0 == strncmp(name, df_column[j].header + offset, 
-				strlen(name))) {
+		if (streq(name, df_column[j].header + offset)) {
 		    column = j+1;
 		    if (!df_key_title) /* EAM DEBUG - on the off chance we want it */
 			df_key_title = gp_strdup(df_column[j].header);
@@ -4416,7 +4425,7 @@ df_readbinary(double v[], int max)
 		break;
 
 	    /* Read in a "column", i.e., a binary value of various types. */
-	    if (df_datablock) {
+	    if (df_pixeldata) {
 		io_val.uc = df_libgd_get_pixel(df_M_count, df_N_count, i);
 	    } else
 
@@ -4692,6 +4701,10 @@ df_readbinary(double v[], int max)
 		    if (df_no_use_specs)
 			line_okay = 0;
 		    break;  /* return or ignore depending on line_okay */
+		}
+		if (isnan(v[output])) {
+		    if (!df_matrix)
+			return DF_UNDEFINED;
 		}
 	    }
 

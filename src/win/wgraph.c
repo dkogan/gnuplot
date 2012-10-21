@@ -1,5 +1,5 @@
 /*
- * $Id: wgraph.c,v 1.144 2011/11/18 07:48:28 markisch Exp $
+ * $Id: wgraph.c,v 1.144.2.3 2012/07/25 05:23:49 markisch Exp $
  */
 
 /* GNUPLOT - win/wgraph.c */
@@ -50,7 +50,7 @@
 #define _WIN32_WINNT 0x0400
 #endif
 /* BM: for AlphaBlend/TransparentBlt */
-#define WINVER 0x0410
+#define WINVER 0x0501
 /* BM: for Toolbars */
 #define _WIN32_IE 0x0501
 #include <windows.h>
@@ -203,6 +203,7 @@ static struct {
 	char fontname[MAXFONTNAME]; /* current font name */
 	double fontsize;     /* current font size */
 	int totalwidth;      /* total width of printed text */
+	double res_scale;    /* scaling due to different resolution (printers) */
 } enhstate;
 
 
@@ -394,6 +395,8 @@ GraphInitStruct(LPGW lpgw)
 		lpgw->fontsize = WINFONTSIZE;
 		lpgw->maxkeyboxes = 0;
 		lpgw->keyboxes = 0;
+		lpgw->maxhideplots = MAXPLOTSHIDE;
+		lpgw->hideplot = (BOOL *) calloc(MAXPLOTSHIDE, sizeof(BOOL));
 		ReadGraphIni(lpgw);
 	}
 }
@@ -725,7 +728,7 @@ MakePens(LPGW lpgw, HDC hdc)
 	int i;
 	LOGPEN pen;
 
-	if ((GetDeviceCaps(hdc,NUMCOLORS) == 2) || !lpgw->color) {
+	if ((GetDeviceCaps(hdc, NUMCOLORS) == 2) || !lpgw->color) {
 		pen = lpgw->monopen[1];
 		pen.lopnWidth.x *= lpgw->linewidth * lpgw->sampling;
 		lpgw->hapen = CreatePenIndirect(&pen); 	/* axis */
@@ -1129,7 +1132,9 @@ GraphEnhancedOpen(char *fontname, double fontsize, double base,
 			non-optimal results for most font and size selections.
 			OUTLINEFONTMETRICS could be used for better results here.
 		*/
-		enhstate.base = win_scale * base * enhstate.lpgw->sampling * enhstate.lpgw->fontscale;
+		enhstate.base = win_scale * base *
+						enhstate.lpgw->sampling * enhstate.lpgw->fontscale *
+						enhstate.res_scale;
 	}
 }
 
@@ -1428,7 +1433,8 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 
 	/* lines */
 	double line_width = lpgw->sampling * lpgw->linewidth;	/* current line width */
-	LOGPEN cur_penstruct;				/* current pen settings */
+	double lw_scale = 1.;
+	LOGPEN cur_penstruct;		/* current pen settings */
 
 	/* polylines and polygons */
 	int polymax = 200;			/* size of ppt */
@@ -1444,6 +1450,8 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 	int pattern = 0;			/* patter number */
 	COLORREF fill_color = 0;	/* color to use for fills */
 	HBRUSH solid_brush = 0;		/* current solid fill brush */
+	int shadedblendcaps = SB_CONST_ALPHA;	/* displays can always do AlphaBlend */
+	bool warn_no_transparent = FALSE;
 
 	/* images */
 	int seq = 0;				/* sequence counter for W_image ops */
@@ -1461,12 +1469,17 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 
     if (lpgw->locked) return;
 
-    /* HBB 20010218: the GDI status query functions don't work on Metafile
-     * handles, so can't know whether the screen is actually showing
-     * color or not, if drawgraph() is being called from CopyClip().
-     * Solve by defaulting isColor to 1 if hdc is a metafile. */
-    isColor = (((GetDeviceCaps(hdc, PLANES) * GetDeviceCaps(hdc,BITSPIXEL))	> 2)
-	       || (GetDeviceCaps(hdc, TECHNOLOGY) == DT_METAFILE));
+	/* The GDI status query functions don't work on metafile, printer or
+	 * plotter handles, so can't know whether the screen is actually showing
+	 * color or not, if drawgraph() is being called from CopyClip().
+	 * Solve by defaulting isColor to TRUE in those cases.
+	 * Note that info on color capabilities of printers would be available
+	 * via DeviceCapabilities().
+	 */
+	isColor = (((GetDeviceCaps(hdc, PLANES) * GetDeviceCaps(hdc, BITSPIXEL)) > 2)
+	       || (GetDeviceCaps(hdc, TECHNOLOGY) == DT_METAFILE)
+	       || (GetDeviceCaps(hdc, TECHNOLOGY) == DT_PLOTTER)
+	       || (GetDeviceCaps(hdc, TECHNOLOGY) == DT_RASPRINTER));
 
     if (lpgw->color && isColor) {
 		SetBkColor(hdc, lpgw->background);
@@ -1474,6 +1487,21 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
     } else {
 		FillRect(hdc, rect, (HBRUSH)GetStockObject(WHITE_BRUSH));
     }
+
+	/* Need to scale line widths for raster printers so they are the same
+	   as on screen */
+	if ((GetDeviceCaps(hdc, TECHNOLOGY) == DT_RASPRINTER)) {
+		HDC hdc_screen = GetDC(NULL);
+		lw_scale = (double) GetDeviceCaps(hdc, VERTRES) /
+		           (double) GetDeviceCaps(hdc_screen, VERTRES);
+		line_width *= lw_scale;
+		ReleaseDC(NULL, hdc_screen);
+		/* Does the printer support AlphaBlend with transparency (const alpha)? */
+		shadedblendcaps = GetDeviceCaps(hdc, SHADEBLENDCAPS);
+		warn_no_transparent = ((shadedblendcaps & SB_CONST_ALPHA) == 0);
+	}
+	/* Also needed for enhanced text */
+	enhstate.res_scale = lw_scale;
 
     ppt = (POINT *)LocalAllocPtr(LHND, (polymax+1) * sizeof(POINT));
 
@@ -1555,7 +1583,14 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 				case TERM_LAYER_BEFORE_PLOT:
 					plotno++;
 					lpgw->numplots = plotno;
-					if (plotno <= MAXPLOTSHIDE)
+					if (plotno >= lpgw->maxhideplots) {
+						int idx;
+						lpgw->maxhideplots += 10;
+						lpgw->hideplot = (BOOL *) realloc(lpgw->hideplot, lpgw->maxhideplots * sizeof(BOOL));
+						for (idx = plotno; idx < lpgw->maxhideplots; idx++)
+							lpgw->hideplot[idx] = FALSE;
+					}
+					if (plotno <= lpgw->maxhideplots)
 						skipplot = lpgw->hideplot[plotno - 1];
 					break;
 				case TERM_LAYER_AFTER_PLOT:
@@ -1717,8 +1752,24 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 			switch (fillstyle & 0x0f) {
 			case FS_TRANSPARENT_SOLID:
 				alpha = (fillstyle >> 4) / 100.;
-				transparent = TRUE;
-				/* we already have a brush with that color */
+				if ((shadedblendcaps & SB_CONST_ALPHA) != 0) {
+					transparent = TRUE;
+					/* we already have a brush with that color */
+				} else {
+					/* Printer does not support AlphaBlend() */
+					COLORREF color =
+						RGB(255 - alpha * (255 - GetRValue(last_color)),
+							255 - alpha * (255 - GetGValue(last_color)),
+							255 - alpha * (255 - GetBValue(last_color)));
+					solid_brush = lpgw->hcolorbrush;
+					fill_color = color;
+					draw_new_brush(lpgw, hdc, fill_color);
+					fillstyle = (fillstyle & 0xfffffff0) | FS_SOLID;
+					if (warn_no_transparent) {
+						fprintf(stderr, "Warning: Transparency not supported on this device.\n");
+						warn_no_transparent = FALSE; /* Warn only once */
+					}
+				}
 				break;
 			case FS_SOLID: {
 				double density = MINMAX(0, (int)(fillstyle >> 4), 100) * 0.01;
@@ -1732,8 +1783,17 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 				break;
 			}
 			case FS_TRANSPARENT_PATTERN:
-				transparent = TRUE;
-				alpha = 1.;
+				if ((shadedblendcaps & SB_CONST_ALPHA) != 0) {
+					transparent = TRUE;
+					alpha = 1.;
+				} else {
+					/* Printer does not support AlphaBlend() */
+					fillstyle = (fillstyle & 0xfffffff0) | FS_PATTERN;
+					if (warn_no_transparent) {
+						fprintf(stderr, "Warning: Transparency not supported on this device.\n");
+						warn_no_transparent = FALSE; /* Warn only once */
+					}
+				}
 				/* intentionally fall through */
 			case FS_PATTERN:
 				/* style == 2 --> use fill pattern according to
@@ -1755,8 +1815,8 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 			break;
 
 		case W_boxfill: {  /* ULIG */
-			/* NOTE: the x and y passed with this call are the width and
-			 * height of the box, actually. The left corner was stored into
+			/* NOTE: the x and y passed with this call are the coordinates of the
+			 * lower right corner of the box. The upper left corner was stored into
 			 * ppt[0] by a preceding W_move, and the style was set
 			 * by a W_fillstyle call. */
 			POINT p;
@@ -1885,7 +1945,7 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 			 * that linewidth is exactly 1 iff it's in default
 			 * state */
 			line_width = curptr->x == 100 ? 1 : (curptr->x / 100.0);
-			line_width *= lpgw->sampling * lpgw->linewidth;
+			line_width *= lpgw->sampling * lpgw->linewidth * lw_scale;
 			break;
 
 		case W_setcolor: {
@@ -1937,7 +1997,7 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 			break;
 		}
 
-		case W_filled_polygon_draw:	{
+		case W_filled_polygon_draw: {
 			/* end of point series --> draw polygon now */
 			if (!transparent) {
 #ifdef HAVE_GDIPLUS
@@ -2050,7 +2110,7 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 					}
 				}
 
-				/* copy to device with alpa blending */
+				/* copy to device with alpha blending */
 				ftn.BlendOp = AC_SRC_OVER;
 				ftn.BlendFlags = 0;
 				ftn.AlphaFormat = AC_SRC_ALPHA; /* bitmap has an alpha channel */
@@ -2567,6 +2627,7 @@ CopyPrint(LPGW lpgw)
 	if (StartDoc(printer, &docInfo) > 0) {
 		bool aa = lpgw->antialiasing;
 		lpgw->sampling = 1;
+		/* Mixing GDI/GDI+ does not seem to work properly on printer devices. */
 		lpgw->antialiasing = FALSE;
 		SetMapMode(printer, MM_TEXT);
 		SetBkMode(printer, OPAQUE);
@@ -3155,14 +3216,15 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 				int i;
 				int x = GET_X_LPARAM(lParam);
 				int y = GET_Y_LPARAM(lParam) - lpgw->ToolbarHeight;
-				for (i = 0; (i < lpgw->numplots) && (i < lpgw->maxkeyboxes) && (i < MAXPLOTSHIDE); i++) {
+				for (i = 0; (i < lpgw->numplots) && (i < lpgw->maxkeyboxes) && (i < lpgw->maxhideplots); i++) {
 					if ((lpgw->keyboxes[i].left != INT_MAX) &&
 						(x >= lpgw->keyboxes[i].left) &&
 						(x <= lpgw->keyboxes[i].right) &&
 						(y <= lpgw->keyboxes[i].top) &&
 						(y >= lpgw->keyboxes[i].bottom)) {
 						lpgw->hideplot[i] = ! lpgw->hideplot[i];
-						SendMessage(lpgw->hToolbar, TB_CHECKBUTTON, M_HIDEPLOT + i, (LPARAM)lpgw->hideplot[i]);
+						if (i < MAXPLOTSHIDE)
+							SendMessage(lpgw->hToolbar, TB_CHECKBUTTON, M_HIDEPLOT + i, (LPARAM)lpgw->hideplot[i]);
 						GetClientRect(hwnd, &rect);
 						InvalidateRect(hwnd, (LPRECT) &rect, 1);
 						UpdateWindow(hwnd);
@@ -3560,7 +3622,8 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			/* handle toolbar events  */
 			if ((LOWORD(wParam) >= M_HIDEPLOT) && (LOWORD(wParam) < (M_HIDEPLOT + MAXPLOTSHIDE))) {
 				unsigned button = LOWORD(wParam) - (M_HIDEPLOT);
-				lpgw->hideplot[button] = SendMessage(lpgw->hToolbar, TB_ISBUTTONCHECKED, LOWORD(wParam), (LPARAM)0);
+				if (button < lpgw->maxhideplots)
+					lpgw->hideplot[button] = SendMessage(lpgw->hToolbar, TB_ISBUTTONCHECKED, LOWORD(wParam), (LPARAM)0);
 				GetClientRect(hwnd, &rect);
 				InvalidateRect(hwnd, (LPRECT) &rect, 1);
 				UpdateWindow(hwnd);
@@ -3741,10 +3804,18 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 			if ((wParam == SIZE_MAXIMIZED) || (wParam == SIZE_RESTORED)) {
 				RECT rect;
-				SendMessage(hwnd,WM_SYSCOMMAND,M_REBUILDTOOLS,0L);
-				GetWindowRect(hwnd,&rect);
-				lpgw->Size.x = rect.right-rect.left;
-				lpgw->Size.y = rect.bottom-rect.top;
+				unsigned width, height;
+				GetWindowRect(hwnd, &rect);
+				width = rect.right - rect.left;
+				height = rect.bottom - rect.top;
+				/* Ignore minimize / de-minize */
+				if ((lpgw->Size.x != width) || (lpgw->Size.y != height)) {
+					lpgw->Size.x = width;
+					lpgw->Size.y = height;
+					GetClientRect(hwnd, &rect);
+					InvalidateRect(hwnd, (LPRECT) &rect, 1);
+					UpdateWindow(hwnd);
+				}
 			}
 			break;
 #ifndef WGP_CONSOLE
@@ -4050,13 +4121,17 @@ UpdateToolbar(LPGW lpgw)
 		lpgw->hidegrid = FALSE;
 		SendMessage(lpgw->hToolbar, TB_CHECKBUTTON, M_HIDEGRID, (LPARAM)FALSE);
 	}
-	for (i = 0; i < MAXPLOTSHIDE; i++) {
+	for (i = 0; i < GPMAX(MAXPLOTSHIDE, lpgw->maxhideplots); i++) {
 		if (i < lpgw->numplots) {
-			SendMessage(lpgw->hToolbar, TB_HIDEBUTTON, M_HIDEPLOT + i, (LPARAM)FALSE);
+			if (i < MAXPLOTSHIDE)
+				SendMessage(lpgw->hToolbar, TB_HIDEBUTTON, M_HIDEPLOT + i, (LPARAM)FALSE);
 		} else {
-			lpgw->hideplot[i] = FALSE;
-			SendMessage(lpgw->hToolbar, TB_HIDEBUTTON, M_HIDEPLOT + i, (LPARAM)TRUE);
-			SendMessage(lpgw->hToolbar, TB_CHECKBUTTON, M_HIDEPLOT + i, (LPARAM)FALSE);
+			if (i < lpgw->maxhideplots)
+				lpgw->hideplot[i] = FALSE;
+			if (i < MAXPLOTSHIDE) {
+				SendMessage(lpgw->hToolbar, TB_HIDEBUTTON, M_HIDEPLOT + i, (LPARAM)TRUE);
+				SendMessage(lpgw->hToolbar, TB_CHECKBUTTON, M_HIDEPLOT + i, (LPARAM)FALSE);
+			}
 		}
 	}
 }

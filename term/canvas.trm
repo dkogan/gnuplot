@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: canvas.trm,v 1.56 2011/10/28 23:37:06 sfeam Exp $
+ * $Id: canvas.trm,v 1.56.2.3 2012/08/03 05:15:11 sfeam Exp $
  *
  */
 
@@ -462,9 +462,10 @@ CANVAS_graphics()
 	    );
 	fprintf(gpoutfile,
 		"<!--[if IE]><script type=\"text/javascript\" src=\"excanvas.js\"></script><![endif]-->\n"
-		"<script src=\"%scanvastext.js\"></script>\n"
+		"<script src=\"%s%s.js\"></script>\n"
 		"<script src=\"%sgnuplot_common.js\"></script>\n"
 		, CANVAS_scriptdir
+		, (encoding == S_ENC_UTF8) ? "canvasmath" : "canvastext"
 		, CANVAS_scriptdir);
 	if (canvas_dashed)
 	    fprintf(gpoutfile,
@@ -532,8 +533,8 @@ CANVAS_graphics()
 	"function DL  (x,y) {gnuplot.dashstep(x,y);};\n"
 	"function M   (x,y) {if (gnuplot.pattern.length > 0) DS(x,y); else gnuplot.M(x,y);};\n"
 	"function L   (x,y) {if (gnuplot.pattern.length > 0) DL(x,y); else gnuplot.L(x,y);};\n"
-	"function Dot (x,y) {gnuplot.Dot(x,y);};\n"
-	"function Pt  (N,x,y,w) {gnuplot.Pt(N,x,y,w);};\n"
+	"function Dot (x,y) {gnuplot.Dot(x/10.,y/10.);};\n"
+	"function Pt  (N,x,y,w) {gnuplot.Pt(N,x/10.,y/10.,w/10.);};\n"
 	"function R   (x,y,w,h) {gnuplot.R(x,y,w,h);};\n"
 	"function T   (x,y,fontsize,justify,string) {gnuplot.T(x,y,fontsize,justify,string);};\n"
 	"function TR  (x,y,angle,fontsize,justify,string) {gnuplot.TR(x,y,angle,fontsize,justify,string);};\n"
@@ -602,8 +603,10 @@ CANVAS_text()
 	    else if (udv->udv_value.type == CMPLX) \
 		fprintf(gpoutfile, "%s = %g;\n", js_NAME, udv->udv_value.v.cmplx_val.real); \
 	}
-	MOUSE_PARAM("GPVAL_X_MIN", "gnuplot.plot_axis_xmin");
-	MOUSE_PARAM("GPVAL_X_MAX", "gnuplot.plot_axis_xmax");
+	if (axis_array[FIRST_X_AXIS].datatype != DT_TIMEDATE) {
+	    MOUSE_PARAM("GPVAL_X_MIN", "gnuplot.plot_axis_xmin");
+	    MOUSE_PARAM("GPVAL_X_MAX", "gnuplot.plot_axis_xmax");
+	}
 	MOUSE_PARAM("GPVAL_Y_MIN", "gnuplot.plot_axis_ymin");
 	MOUSE_PARAM("GPVAL_Y_MAX", "gnuplot.plot_axis_ymax");
 
@@ -641,6 +644,11 @@ CANVAS_text()
 	 * recognize additional formats.
 	 */
 	if (axis_array[FIRST_X_AXIS].datatype == DT_TIMEDATE) {
+	    /* May need to reconstruct time to millisecond precision */
+	    fprintf(gpoutfile, "gnuplot.plot_axis_xmin = %.3f;\n",
+		    axis_array[FIRST_X_AXIS].min);
+	    fprintf(gpoutfile, "gnuplot.plot_axis_xmax = %.3f;\n",
+		    axis_array[FIRST_X_AXIS].max);
 	    fprintf(gpoutfile, "gnuplot.plot_timeaxis_x = \"%s\";\n",
 		(mouse_alt_string) ? mouse_alt_string
 		: (mouse_mode == 4) ? "Date"
@@ -901,7 +909,7 @@ CANVAS_justify_text(enum JUSTIFY mode)
 TERM_PUBLIC void
 CANVAS_point(unsigned int x, unsigned int y, int number)
 {
-    double width  = CANVAS_ps * 0.6 * CANVASHTIC / CANVAS_OVERSAMPLE;
+    double width  = CANVAS_ps * 0.6 * CANVASHTIC;
     int pt = number % 9;
 
     /* Skip size 0 points;  the alternative would be to draw a Dot instead */
@@ -912,8 +920,8 @@ CANVAS_point(unsigned int x, unsigned int y, int number)
 
     switch (pt) {
     default:
-	fprintf(gpoutfile, "Dot(%.1f,%.1f);\n",
-		x/CANVAS_OVERSAMPLE, (canvas_ymax-y)/CANVAS_OVERSAMPLE);
+	fprintf(gpoutfile, "Dot(%d,%d);\n",
+		x, (canvas_ymax-y));
 	break;
     case 4:
     case 6:
@@ -929,8 +937,8 @@ CANVAS_point(unsigned int x, unsigned int y, int number)
     case 3:
     case 5:
     case 7:
-	fprintf(gpoutfile, "Pt(%d,%.1f,%.1f,%.1f);\n", pt,
-		x/CANVAS_OVERSAMPLE, (canvas_ymax-y)/CANVAS_OVERSAMPLE, width);
+	fprintf(gpoutfile, "Pt(%d,%d,%d,%.1f);\n", pt,
+		x, (canvas_ymax-y), width);
 	break;
     }
 }
@@ -1231,7 +1239,7 @@ ENHCANVAS_OPEN(
  * we can go to the trouble of actually counting character widths.
  * As it happens, the averages width of ascii characters is 20.
  */
-static int utf8strlen(char *s)
+static int canvas_strwidth(char *s)
 {
     int width = 0;
     char *end = s + strlen(s);
@@ -1274,7 +1282,7 @@ ENHCANVAS_FLUSH()
 	save_fontsize = canvas_font_size;
 	x = canvas_x;
 	y = canvas_y;
-	w = utf8strlen(enhanced_text) * CANVAS_OVERSAMPLE * ENHCANVAS_fontsize/25.;
+	w = canvas_strwidth(enhanced_text) * CANVAS_OVERSAMPLE * ENHCANVAS_fontsize/25.;
 
 	canvas_font_size = ENHCANVAS_fontsize;
 	x += sin((double)canvas_text_angle * M_PI_2/90.) * ENHCANVAS_base;

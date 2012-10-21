@@ -1,5 +1,5 @@
 ## Process this file with automake to produce Makefile.in -*-Makefile-*-
-AUTOMAKE_OPTIONS = foreign 1.2h
+AUTOMAKE_OPTIONS = foreign
 
 ##plt-files-begin
 PLT_FILES = eg1.plt eg2.plt eg3.plt eg4.plt eg5.plt eg6.plt eg7.plt \

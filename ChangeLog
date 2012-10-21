@@ -1,4 +1,485 @@
-2012-03-04  RELEASE 4.6.0
+2012-09-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c: Fix bug preventing explicit assignment of color
+	sequence in stacked histograms.
+
+	* src/datafile.c src/util.c (streq) src/util.h:  New utility function
+	streq(char *a, char *b) returns TRUE if a and b are identical save for
+	leading and trailing whitespace.  Use this for matching requested string
+	labels in a using spec to the actual column header text in a data file.
+	Bug #3571243
+
+	* src/axis.c src/axis.h src/mouse.c src/plot2d.c src/util.c:
+	Allow zooming of plots that originally had an explicit range in the
+	plot command.
+
+2012-09-22  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* lisp/configure.in docs/Makefile.in:
+	Backport emacs+info build configuration from 4.7
+
+2012-09-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c: valgrind found a code path in which the key placement
+	was never initialized.
+
+2012-09-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* lisp/gnuplot.el: elisp is now getting serious about a syntax change
+	announced 10+ years ago.   s/(` (/`(/
+
+	* lisp/configure.in lisp/Makefile.am:  The autoconfigure scripting for
+	the lisp directory is failing when $(EMACS) is redefined by the user.
+	But the failure is only relevant to testing/patching info-look.el for
+	very old versions of emacs.  Deal with it by simply assuming that
+	everyone has an emacs version newer than 20.3 and therefore no patching
+	is needed.
+
+	* src/graphics.c:  Incorrect default layout of rotated xtic labels.
+	Bug #3568817
+
+2012-09-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/PostScript/prologue.ps term/post.trm:
+	Handle transparent fill patterns in PS_fillbox() in the same way
+	as is already done in PS_filled_polygon().
+	Bug #3567035
+
+	* src/eval.c (fill_gpval_axis):  Do not swap axis min/max values when
+	storing them for later mousing calculations by the canvas, svg, and
+	other terminals.  Fixes bug in the mouse readout from reversed axes.
+
+2012-09-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c:  Index histogram stacks using the point's index rather
+	than its x coordinate. Fixes rowstacked histogram array overflow.
+	Bug #3566662
+
+2012-09-07  Mojca Miklavec  <mojca.miklavec.lists@gmail.com>
+
+	* configure.in src/Makefile.am src/qtterminal/QtGnuplotWidget.cpp 
+	src/qtterminal/QtGnuplotWidget.h src/qtterminal/qt_term.cpp
+	src/qtterminal/qt_term_mac.m src/qtterminal/QtGnuplotScene.cpp:
+	Backport recent OSX-related Qt modifications from 4.7 to 4.6.1.
+
+2012-09-07  Thomas Orgis  <sobukus@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotApplication.cpp src/wxterminal/wxt_gui.cpp:
+	The wxt and qt terminals handle -persist by continuing execution of a
+	forked thread after the main thread has exited.  However, anyone waiting
+	on the main thread won't see it as finished unless the stdout and
+	stderr streams inherited by the continuing process are closed.
+	Bug #3309277
+
+2012-09-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* Bump version to 4.6.1 in preparation for release
+
+2012-09-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/tabulate.c:  Output a column for variable color if it is used 
+	in the plot command.
+
+	* src/datafile.c src/datafile.h src/plot2d.c src/tabulate.c:
+	Blank lines separating datasets in an input file were stored as an
+	UNDEFINED point but not otherwise marked. This patch introduces a
+	recognizable (struct coordinate)blank_data_line that is stored when
+	a blank line is encounted. This means that when writing the data back
+	out via "set table" the separation between data sets can be maintained.
+	Bug #3553151
+
+2012-09-04  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* term/emf.trm:  Revise the object-handling code so that the current
+	brush or pen is deselected before being deleted and recreated.
+	Defer application of new dash+color line properties until needed for a
+	new line segment.
+
+2012-09-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/emf.trm: Seek to the beginning of the output file after plotting.
+	If a user mistakenly tries to place two plots in the same file, the 
+	second will cleanly overwrite the first rather than corrupting it.
+
+2012-08-31  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/emf.trm:  Fix dashed line support (broken for a looong time).
+
+	* term/emf.trm (EMF_set_font): (thanks to Shige Takeno) The intended
+	optimization to prevent redundant requests for the same font was not
+	implemented correctly.  This change fixes it so that a new font request
+	is ignored if it would reapply the current font.
+
+	* src/unset.c: "unset object N" succeeds even if there is no object N
+
+2012-08-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/contour.c:  Invoke CheckZero() when automatically choosing contour
+	levels.  The need for this check can be seen in contour.dem plots 19-21.
+
+2012-08-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (do_key_layout): The height of opaque fill for the key
+	box must be adjusted to allow for superscripts/subscripts in the title.
+	Bug #3556892
+
+2012-08-23  Thomas Gaillard <tgaillard@users.sourceforge.net>
+
+	* src/interpol.c:  Mean and sigma of kernel density function were
+	incorrectly calculated.
+	Bug #3519563
+
+2012-08-22  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c:  Clip over-wide key box to left edge of plot.
+	Bug #3560531
+
+2012-08-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* docs/Makefile.in:  Remove dependency on emacs for "make install"
+	in the docs subdirectory.  If no emacs is available, skip installation
+	of the site-lisp files.
+	Bug #3528377
+
+2012-08-07  Mojca Miklavec <mojca.miklavec.lists@gmail.com>
+
+	* term/aquaterm.trm:  Revised test for transparency support to match
+	the implementation in AquaTerm version 1.1.1
+
+2012-08-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/pslatex.trm (EPSLATEX_set_color):  Some cairolatex set_color
+	requests were being incorrectly ignored.
+	Bug #3553940
+
+2012-08-02  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/canvas.trm term/svg.trm: Since we now support time to
+	millisecond precision, the bounds of a time/date axis need to be
+	written out using %.3f rather than %g.
+	Bug #3548932
+
+	* src/misc.c (load_file): The multiline bracketed clause handling adds
+	trailing newlines to the input.  It is essential to check and extend the
+	input buffer if needed before doing this.
+	Bug #3549386
+
+	* term/gd.trm: Restore the deprecated syntax "set term png xRRGGBB" for
+	setting the PNG background color in 4.6.1, since the manual still lists
+	it.  But it will definitely go away in 4.7.
+	Bug #3551340
+
+2012-07-25  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgraph.c (drawgraph):  Check if the printer driver can
+	actually do transparency (AlphaBlend). Fixes printing of transparent
+	filled polygons and boxes.
+	See bug #3503318
+
+2012-07-24  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/standard.c (f_asin, f_asinh): The patch of March 2011 got the
+	overall sign wrong in the (x == 0.0) case.
+	Bug #3542862
+
+2012-07-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/standard.c (f_acos): acos(x) was returning the complex conjugate
+	of the correct result for complex input x with imag(x) > 0.
+	Bug #3542862
+
+	* src/parse.c (set_up_columnheader_parsing):  Take the column header 
+	from the second using spec (normally the Y coordinate) to satisfy
+	set key autotitle columnhead;  plot 'data' using "X":"Y"
+	Bug #3542065
+
+	* src/datafile.c (plot_option_using):  Track the appropriate column
+	header when the column is specified via a non-string variable; e.g.
+	plot for [i=1:N] 'data' using 1:(column(i))
+	Bug #3542065
+
+2012-07-18  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* term/win.trm (WIN_options): Specifying only the font size (ie. ",8")
+	would overwrite the font name with a bogus string. Bug fix.
+
+2012-07-17  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/hidden3d.c (draw_edge): Fix broken tracking of top/bottom color
+	distinction in hidden3d plots when the line colors are not specified in
+	palette or RGB mode.
+	Bugfix
+
+2012-07-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/QtGnuplotScene.cpp (wheelEvent)
+	src/wxterminal/wxt_gui.cpp (OnMouseWheel):
+	Pass current mouse position in the structure for mouse wheel events.
+
+2012-07-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/pm3d.c (z2cb):  After "set log cb", z2cb(x) was returning 0 for
+	x<=0 rather than -inf.  This causes it to be mistaken for the logged
+	value of x=1.  Now we return CB_AXIS.min instead.
+	Bug #3540048
+
+2012-07-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c (draw_3d_graphbox): Rather than treating the position
+	of the z-axis label as a fixed 3D [x,y,z], always draw it at a fixed
+	distance to the left of the z axis.  This is a CHANGE in behavior.
+	Bug #2879916
+
+	* src/qtterminal/QtGnuplotScene.cpp: Set Z value of zoom box to a
+	large value so that it is not occluded by plot elements.
+
+	* src/datafile.c (df_readascii): If the first line in a data file 
+	contains column headers (strings to be used as titles), then that line
+	should be ignored when applying the "plot ... every N:M(:N1:M1)" filter.
+	Bug #3438848
+
+2012-06-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (eval_plots):  Zero is often a special point in a
+	function domain.  Make sure we don't miss it due to round-off error.
+	Bug #3519079
+
+2012-06-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c:  plot ... using "a":"b" was not setting the 
+	parse_1st_row_as_headers flag.  Bug #3536514
+
+2012-06-13  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/mingw/Makefile config/msvc/Makefile:  Include
+	templates for initialization files in distribution.
+
+	* src/win/wgraph.c (drawgraph): Do not try to detect color capabilities
+	of printers. When drawing to a printer, scale line widths to match the
+	widths on screen and fix placement of super- and subscripts.
+	Bug #3503318
+
+2012-06-12  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_readascii):  Bugfix for label plots using column 0
+	to generate text. E.g. plot foo using 1:2:(sprintf("%d",$0)) with labels
+
+2012-06-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/tabulate.c:  Allow tabulation (set table) of pixel values for
+	IMAGE RGBIMAGE RGBA_IMAGE.
+
+2012-06-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (box_range_fiddling):
+	Autoscaling + auto-boxwidth + log scale on x = fail.
+	Bug #3529285
+
+2012-05-30  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/pslatex.trm: More helpful error message if output filename
+	is not acceptable.
+	Bug #3529832
+
+	* src/interpol.c (cp_implode): This routine was not preserving the z
+	value (used as a weight by smooth acsplines) of input data points.
+	Bug #3529621
+
+2012-05-20  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wcommon.h src/win/wgnuplib.h src/win/wgraph.c: Remove limit
+	on number of plots which can be toggled on/off via key entries.
+	Maximum number of toolbar buttons still restricted to MAXPLOTSHIDE.
+	Bug #3516417
+
+2012-05-17  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/faq-ja.tex docs/gnuplot-ja.doc man/gnuplot-ja.1:
+	Sync with English FAQ rev. 1.48 and documentation rev. 1.701.2.14.
+
+2012-05-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (do_arc) src/graphics.c (do_ellipse):  Clip the filled
+	interior of circles and ellipses.
+	Bug #3522515
+
+	* docs/gnuplot.doc src/graphics.c (do_rectangle):  Establish a clipping
+	behavior for rectangles - clip to fit in the graph unless one or both
+	corners are given in screen coordinates.
+
+2012-05-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/wxterminal/wxt_gui.cpp (wxt_cairo_refresh):  Execution of the
+	command list must be protected by command_list_mutex or it will blow up
+	if the command list is cleared/replaced during execution.
+	Bug #3371205
+
+	* src/graphics.c: allow log-scaled y axis when plotting with fillsteps
+	Bug #3324785
+
+2012-05-10  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (lf_push lf_pop) src/misc.h:  The lf_push/lf_pop mechanism
+	for restoring context after a "call" statement was saving the individual
+	call args $0 $1 etc, but failing to save the number of active args.
+	Bug #3525155
+
+2012-05-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* CodeStyle config/Makefile.am.in configure.in demo/Makefile.am.in
+	 lisp/Makefile.am m4/Makefile.am.in Makefile.am man/Makefile.am
+	 share/LaTeX/Makefile.am share/Makefile.am src/Makefile.am
+	 src/qtterminal/Makefile.am src/version.c src/wxterminal/Makefile.am
+	 term/Makefile.am.in tutorial/Makefile.am.in:
+
+	 Automake 1.12 removes support for the AM_C_PROTOTYPES macro and for
+	 conversion of ANSI C code to K&R C code.  Gnuplot's CodeStyle file has
+	 warned since version 3.7 that gnuplot would drop support for ansi2knr
+	 "very soon".  Now 12+ years later the other shoe has dropped.
+	 
+2012-05-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/cairo.trm term/pslatex.trm: Fix 'set term cairolatex pdf mono'
+	Bug-Debian: http://bugs.debian.org/668339
+
+2012-05-06  Anton Gladky <gladky.anton@gmail.com>
+
+	* src/command.c: Fix segfault in initial check of history when using
+	--with-readline=bsd
+	Bug-Debian: http://bugs.debian.org/665832
+
+	* src/plot.c: EAM - avoid calling buggy libedit emulation of
+	using_history().
+	Bug-Debian: http://bugs.debian.org/598547
+
+2012-05-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c term/estimate.trm:  Rename utf8_strlen to utf8_strwidth
+	to avoid name collision.
+
+	* src/internal.c (f_strlen f_range) src/util.c (strlen_utf8 gp_strlen)
+	(utf8_strchrn gp_strchrn) src/util.h:  Fix gnuplot's user-visible
+	string handling routines strlen() and substr() so that they handle
+	multibyte UTF-8 characters correctly.  I.e. strlen() returns the number
+	of characters, not the number of bytes.  Other multi-byte encodings are
+	not handled, however.
+	Bug #3480075
+
+2012-05-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c(set_command) src/command.c(do_command):  Test for empty
+	iteration loop in "set for ..." and "do for ..." commands.
+
+2012-04-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/svg.trm:  Prevent illegal characters from being generated as 
+	subplot ids if there are more than 30 subplots in a multiplot.
+
+2012-04-26  Jon Oddie  <joddie@users.sourceforge.net>
+
+	* docs/doc2texi.c: Two bug fixes
+	Cleaner code to determine which term files to read in d2t-get-terminals.
+	Fix code for uniquifying duplicate node names.
+
+	* configure.in docs/Makefile.in docs/doc2texi.c:
+	Create an Emacs Lisp file of documentation strings extracted from the
+	syntax descriptions in gnuplot.doc. Gnuplot-mode can then optionally
+	display these strings as automatic one-line documentation while editing,
+
+2012-04-24  Mojca Miklavec <mojca.miklavec.lists@gmail.com>
+
+	* term/aquaterm.trm:  Clip images to bounding box. Reset line type
+	at the start of each plot.
+
+2012-04-20  Michael Reeves  <mgreeves@users.sourceforge.net>
+
+	* src/graphics.c: Improved calculation of the margin space needed to
+	hold rotated x and x2 tic labels.  backported fix for Bug #3482491
+
+2012-04-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/canvas.trm: backport recent changes (UTF-8 character set,
+	precision of point coordinates).
+
+2012-04-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/svg.trm: The svg code refers to CANVAS_OVERSAMPLE when it should
+	refer to SVG_SCALE.  Fortunately they both equal 10.
+
+2012-04-17  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (load_file):  If the input file did not end in a newline,
+	the test for balanced {} occurred too early, causing a false error if
+	the final partial line did in fact contain the required }.
+	Bug #3518476
+
+2012-04-10  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_readbinary):  Check for NaN in binary input.
+
+2012-04-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	Backport various minor additions from 4.7
+
+	* src/term.c src/svg.trm:  Backport fix for toggling multiplots.
+
+	* src/breaders.c src/datafile.c src/datafile.h src/plot2d.c
+	src/plot3d.c src/stats.c:
+	Try to report the name of the datafile in which an error was found.
+	Handles plot, splot, and stats but not fit.
+
+	* src/wxterminal/wxt_gui.cpp: Support horizontal mouse scroll
+	(needs wxt 2.9.0).
+
+	* src/gplt_x11.c: (Colin Macdonald) Set WM_CLASS to "Gnuplot" for the
+	benefit of various window managers.
+
+2012-04-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (iso_alloc iso_extend):  Initialize each 3D coordinate
+	structure on allocation.  Fixes problems found by valgrind and easily
+	seen by running imageNaN.dem.
+
+2012-04-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c (copy_or_invent_formatstring):  Expansion to many decimal
+	places of precision is not necessary if the axis range spans 0, because
+	in that case exponential notation can be used instead.
+	Bug #3514604
+
+2012-04-01  Hannes Nagel  <hannes.nagel@itp.uni-leipzig.de>
+
+	* term/lua.term: Do not create external png images if they are not 
+	going to be used in the tex document.
+
+2012-03-31  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/pm3d.c term/post.trm term/pslatex.trm src/term_api.h src/color.c:
+	The core code should not write terminal-specific output.  Instead define
+	TERM_LAYER_BEGIN_PM3D_MAP and TERM_LAYER_END_PM3D_MAP and use the 
+	term->layer() mechanism.  This prevents garbage from being written out
+	to the cairolatex terminals in pm3d mode.
+	Bug #3513291
+
+2012-03-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/wxterminal/gp_cairo.c (gp_cairo_draw_polygon): Always stroke
+	previous path before starting a new polygon.  Also, dots are slow.
+	Only draw them if specifically requested.
+	Bug #3512955
+
+2012-03-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (enhanced_recursion): Revised handling of backslash
+	character in enhanced text processing.
+	Bug #3496517
+
+2012-03-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/post.trm term/svg.trm:  
+	Do not allow execution of popen() commands during initialization.
+
+2012-03-08  RELEASE 4.6.0
 
 2012-03-04  Ethan A Merritt  <merritt@u.washington.edu>
 
