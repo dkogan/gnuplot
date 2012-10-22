@@ -1,11 +1,13 @@
-gnuplot (4.6.1-1) experimental; urgency=low
+gnuplot (4.6.1-1~exp1) experimental; urgency=low
 
   * [b6d2e38] Remove Bradley Smith <bradsmith@debian.org> from uploaders. 
               (Closes: #674889)
   * [2d56f4c] Imported Upstream version 4.6.1. (Closes: #689453)
   * [6d9c716] Remove patches, applied by upstream. Refresh patches.
+  * [ca7a82b] Use compat-level 9.
+  * [2ad2237] Enable hardening=+all option.
 
- -- Anton Gladky <gladky.anton@gmail.com>  Sun, 21 Oct 2012 22:49:00 +0200
+ -- Anton Gladky <gladky.anton@gmail.com>  Mon, 22 Oct 2012 18:30:54 +0200
 
 gnuplot (4.6.0-8) unstable; urgency=low
 
