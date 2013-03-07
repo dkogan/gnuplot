@@ -370,6 +370,11 @@ refresh_3dbounds(struct surface_points *first_plot, int nplots)
 	}	/* End of this plot */
 
     }
+
+    /* Make sure the bounds are reasonable, and tweak them if they aren't */
+    axis_checked_extend_empty_range(FIRST_X_AXIS, NULL);
+    axis_checked_extend_empty_range(FIRST_Y_AXIS, NULL);
+    axis_checked_extend_empty_range(FIRST_Z_AXIS, NULL);
 }
 #endif /* VOLATILE_REFRESH */
 
