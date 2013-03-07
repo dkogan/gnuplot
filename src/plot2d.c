@@ -291,6 +291,10 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 	     * mark everything INRANGE and re-evaluate the axis limits now.
 	     * Otherwise test INRANGE/OUTRANGE against previous axis limits.
 	     */
+
+	    /* This autoscaling logic is identical to that in
+	     * refresh_3dbounds() in plot3d.c
+	     */
 	    if (!this_plot->noautoscale) {
 		if (x_axis->set_autoscale & AUTOSCALE_MIN && point->x < x_axis->min)
 		     x_axis->min = point->x;
