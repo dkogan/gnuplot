@@ -3,9 +3,11 @@ Author: Anton Gladky <gladky.anton@gmail.com>
 Bug-Debian: http://bugs.debian.org/668955
 Last-Update: 2012-04-16
 
---- a/src/term.c
-+++ b/src/term.c
-@@ -1743,14 +1743,14 @@
+Index: gnuplot.deb/src/term.c
+===================================================================
+--- gnuplot.deb.orig/src/term.c	2013-03-07 14:01:29.933012234 -1000
++++ gnuplot.deb/src/term.c	2013-03-07 14:13:18.316524911 -1000
+@@ -1791,14 +1791,14 @@
  	    term_name = "sun";
  #endif /* SUN */
  
