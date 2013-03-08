@@ -80,7 +80,7 @@ override_dh_auto_install:
 
 override_dh_auto_test:
 	cp -f $(BUILDDIR_X11)/demo/binary* ./demo/
-	cd demo; $(BUILDDIR_NOX)/src/gnuplot all.dem </dev/null
+	cd demo; $(BUILDDIR_NOX)/src/gnuplot -d all.dem </dev/null
 
 override_dh_compress-indep:
 	dh_compress -Xall.dem
