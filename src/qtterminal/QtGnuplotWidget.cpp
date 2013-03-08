@@ -159,8 +159,8 @@ void QtGnuplotWidget::resizeEvent(QResizeEvent* event)
 	if ((viewport->size() != m_lastSizeRequest) && (m_lastSizeRequest != QSize(-1, -1)))
 	{
 		m_eventHandler->postTermEvent(GE_fontprops,viewport->size().width(),
-		                               viewport->size().height(), 9, 9, 0); /// @todo m_id
-		if (m_replotOnResize)
+		                               viewport->size().height(), 0, 0, 0); /// @todo m_id
+		if (m_replotOnResize && m_active)
 			m_eventHandler->postTermEvent(GE_keypress, 0, 0, 'e', 0, 0); // ask for replot
 		else
 			m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
@@ -256,7 +256,8 @@ void QtGnuplotWidget::exportToSvg()
 
 	QSvgGenerator svg;
 	svg.setFileName(fileName);
-	svg.setSize(QSize(m_scene->width(), m_scene->height()));
+	svg.setSize(QSize(m_view->width(), m_view->height()));
+	svg.setViewBox(QRect(0, 0, m_view->width(), m_view->height()));
 	QPainter painter(&svg);
 	m_scene->render(&painter);
 	painter.end();

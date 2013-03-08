@@ -88,6 +88,7 @@ typedef struct text_label {
     struct lp_style_type lp_properties;
     struct position offset;
     TBOOLEAN noenhanced;
+    TBOOLEAN hypertext;
 } text_label;
 
 /* This is the default state for the axis, timestamp, and plot title labels
@@ -98,15 +99,23 @@ typedef struct text_label {
     {NULL, NONROTATABLE_LABEL_TAG, \
      {character, character, character, 0.0, 0.0, 0.0}, CENTRE, 0, 0, \
      NULL, NULL, {TC_LT, -2, 0.0}, DEFAULT_LP_STYLE_TYPE, \
-     {character, character, character, 0.0, 0.0, 0.0}, FALSE }
+     {character, character, character, 0.0, 0.0, 0.0}, FALSE, \
+     FALSE}
 
 /* Datastructure for implementing 'set arrow' */
+typedef enum arrow_type {
+    arrow_end_absolute,
+    arrow_end_relative,
+    arrow_end_oriented
+    } arrow_type;
+
 typedef struct arrow_def {
     struct arrow_def *next;	/* pointer to next arrow in linked list */
     int tag;			/* identifies the arrow */
+    arrow_type type;		/* how to interpret t_position end */
     t_position start;
     t_position end;
-    TBOOLEAN relative;		/* second coordinate is relative to first */
+    double angle;		/* angle in degrees if type arrow_end_oriented */
     struct arrow_style_type arrow_properties;
 } arrow_def;
 
@@ -128,6 +137,7 @@ typedef struct circle {
     t_position extent;		/* radius */
     double arc_begin;
     double arc_end;
+    TBOOLEAN wedge;		/* TRUE = connect arc ends to center */
 } t_circle;
 
 #define ELLIPSEAXES_XY (0)
@@ -442,16 +452,31 @@ extern TBOOLEAN is_3d_plot;
    either the plot is a 2D plot, or it is a suitably oriented 3D plot (e.g. map).
 */
 #define ALMOST2D      \
-    ( !is_3d_plot ||  \
+    ( !is_3d_plot || splot_map || \
       ( fabs(fmod(surface_rot_z,90.0))<0.1  \
         && fabs(fmod(surface_rot_x,180.0))<0.1 ) )
 
+typedef enum E_Refresh_Allowed {
+   E_REFRESH_NOT_OK = 0,
+   E_REFRESH_OK_2D = 2,
+   E_REFRESH_OK_3D = 3
+} TRefresh_Allowed;
+
 #ifdef VOLATILE_REFRESH
-extern int refresh_ok;		/* 0 = no;  2 = 2D ok;  3 = 3D ok */
+extern TRefresh_Allowed refresh_ok;
+# define SET_REFRESH_OK(ok, nplots) do { \
+   refresh_ok = (ok); \
+   refresh_nplots = (nplots); \
+} while(0)
 extern int refresh_nplots;
-#else
-#define refresh_ok FALSE
-#endif
+#else /* VOLATILE_REFRESH */
+# define refresh_ok E_REFRESH_NOT_OK
+# define SET_REFRESH_OK(ok, nplots) do { \
+   (void)(ok); \
+   (void)(nplots); \
+} while(0)
+#endif /* VOLATILE_REFRESH */
+
 extern TBOOLEAN volatile_data;
 
 /* WINDOWID to be filled by terminals running on X11 (x11, wxt, qt, ...) */
@@ -495,7 +520,7 @@ extern struct object default_circle;
 #define DEFAULT_CIRCLE_STYLE { NULL, -1, 0, OBJ_CIRCLE,       \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
 	{0, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, BACKGROUND_COLORSPEC},			\
-	{.circle = {1, {0,0,0,0.,0.,0.}, {graph,0,0,0.02,0.,0.}, 0., 360. }} }
+	{.circle = {1, {0,0,0,0.,0.,0.}, {graph,0,0,0.02,0.,0.}, 0., 360., TRUE }} }
 
 extern struct object default_ellipse;
 #define DEFAULT_ELLIPSE_STYLE { NULL, -1, 0, OBJ_ELLIPSE,       \
@@ -520,11 +545,13 @@ extern TBOOLEAN prefer_line_styles;
 extern histogram_style histogram_opts;
 
 void default_arrow_style __PROTO((struct arrow_style_type *arrow));
+void apply_head_properties __PROTO((struct arrow_style_type *arrow_properties));
 
 void free_labels __PROTO((struct text_label *tl));
 
 void get_offsets __PROTO((struct text_label *this_label,
 	struct termentry *t, int *htic, int *vtic));
 void write_label __PROTO((unsigned int x, unsigned int y, struct text_label *label));
+int label_width __PROTO((const char *, int *));
 
 #endif /* GNUPLOT_GADGETS_H */

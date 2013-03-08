@@ -57,6 +57,7 @@ QtGnuplotScene::QtGnuplotScene(QtGnuplotEventHandler* eventHandler, QObject* par
 	m_lastModifierMask = 0;
 	m_textAngle = 0.;
 	m_textAlignment = Qt::AlignLeft;
+	m_textOffset = QPoint(10,10);
 	m_currentZ = 1.;
 	m_currentPointSize = 1.;
 	m_enhanced = 0;
@@ -264,6 +265,18 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 			update_key_box( QRectF(point, QSize(2,2)) );
 		else
 			m_currentGroup.append(pointItem);
+
+		// EAM DEBUG 
+		// Create a hypertext label that will become visible on mouseover.
+		// The Z offset is a kludge to force the label into the foreground.
+		if (!m_currentHypertext.isEmpty()) {
+			QGraphicsTextItem* textItem = addText(m_currentHypertext, m_font);
+			textItem->setPos(point + m_textOffset);
+			textItem->setZValue(m_currentZ+10000);
+			textItem->setVisible(false);
+			m_hypertextList.append(textItem);
+			m_currentHypertext.clear();
+		}
 	}
 	else if (type == GEPutText)
 	{
@@ -402,6 +415,11 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		if (layer == QTLAYER_END_KEYSAMPLE) m_inKeySample = false;
 		if (layer == QTLAYER_BEFORE_ZOOM) m_preserve_visibility = true;
 	}
+	else if (type == GEHypertext)
+	{
+		m_currentHypertext.clear();
+		in >> m_currentHypertext;
+	}
 	else if (type == GEDone)
 		m_eventHandler->postTermEvent(GE_plotdone, 0, 0, 0, 0, 0);
 		/// @todo m_id;//qDebug() << "Done !" << items().size();
@@ -434,6 +452,11 @@ void QtGnuplotScene::resetItems()
 		if (!m_preserve_visibility)
 			m_key_boxes[i].setHidden(false);
 	}
+
+	m_hypertextList.clear();
+	m_hypertextList.append(addRect(QRect(), QPen(QColor(0, 0, 0, 100)), QBrush(QColor(225, 225, 225, 200))));
+	m_hypertextList[0]->setVisible(false);
+
 	m_plot_group.clear();	// Memory leak?  Destroy groups first?
 }
 
@@ -452,9 +475,9 @@ void QtGnuplotScene::setBrushStyle(int style)
 
 	QColor color = m_currentPen.color();
 
-	if ((fillstyle == FS_TRANSPARENT_SOLID) || ((fillstyle == FS_SOLID) && (fillpar == 100)))
+	if (fillstyle == FS_TRANSPARENT_SOLID)
 		color.setAlphaF(double(fillpar)/100.);
-	else if (fillstyle == FS_SOLID)
+	else if (fillstyle == FS_SOLID && (fillpar < 100))
 	{
 		double fact  = double(100 - fillpar)/100.;
 		double factc = 1. - fact;
@@ -554,11 +577,18 @@ void QtGnuplotScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 	{
 		m_lineTo->hide();
 		QString status;
-		for (int i = 0; i < 4; i++)
-			if (m_axisValid[i])
-				status += (i % 2 ? QString("y") : QString("x")) + (i / 2 ? QString("2"): QString("")) + " = "
-				       + QString::number(sceneToGraph(0, i % 2 ? event->scenePos().y() : event->scenePos().x()));
-		//status << sceneToGraph(0, event->scenePos().x()) << sceneToGraph(1, event->scenePos().y());
+		if (m_axisValid[0])
+			status += QString("x = ")
+			+ QString::number(sceneToGraph(0,event->scenePos().x()));
+		if (m_axisValid[1])
+			status += QString(" y = ")
+			+ QString::number(sceneToGraph(1,event->scenePos().y()));
+		if (m_axisValid[2])
+			status += QString(" x2 = ")
+			+ QString::number(sceneToGraph(2,event->scenePos().x()));
+		if (m_axisValid[3])
+			status += QString(" y2 = ")
+			+ QString::number(sceneToGraph(3,event->scenePos().y()));
 		m_widget->setStatusText(status);
 		QGraphicsScene::mouseMoveEvent(event);
 		return;
@@ -573,6 +603,23 @@ void QtGnuplotScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 		line.setP2(event->scenePos());
 		m_lineTo->setLine(line);
 	}
+
+	// The first item in m_hypertextList is always a background rectangle for the text
+	int i = m_hypertextList.count();
+	bool hit = false;
+	while (i-- > 1) {
+		if (!hit && ((m_hypertextList[i]->pos() - m_textOffset) 
+				- m_lastMousePos).manhattanLength() <= 5) {
+			hit = true;
+			m_hypertextList[i]->setVisible(true);
+			((QGraphicsRectItem *)m_hypertextList[0])->setRect(m_hypertextList[i]->boundingRect());
+			m_hypertextList[0]->setPos(m_hypertextList[i]->pos());
+			m_hypertextList[0]->setZValue(m_hypertextList[i]->zValue()-1);
+		} else {
+			m_hypertextList[i]->setVisible(false);
+		}
+	}
+	m_hypertextList[0]->setVisible(hit);
 
 	m_eventHandler->postTermEvent(GE_motion, int(event->scenePos().x()), int(event->scenePos().y()), 0, 0, 0); /// @todo m_id
 	QGraphicsScene::mouseMoveEvent(event);

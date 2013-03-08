@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.133.2.2 2012/09/26 23:05:56 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.146 2013/01/08 01:00:29 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -298,9 +298,6 @@ static void
 MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double *y2)
 {
     if (!is_3d_plot) {
-	FPRINTF((stderr, "POS: plot_bounds.xleft=%i, plot_bounds.xright=%i, plot_bounds.ybot=%i, plot_bounds.ytop=%i\n",
-		 plot_bounds.xleft, plot_bounds.xright, plot_bounds.ybot, plot_bounds.ytop));
-
 	if (plot_bounds.xright == plot_bounds.xleft)
 	    *x = *x2 = VERYLARGE;	/* protection */
 	else {
@@ -342,9 +339,14 @@ MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double 
 		+ ((double) xx) / axis3d_y_dx * (axis_array[FIRST_Y_AXIS].max -
 						 axis_array[FIRST_Y_AXIS].min);
 	} else if (axis3d_y_dy != 0) {
-	    *y = axis_array[FIRST_Y_AXIS].min
-		+ ((double) yy) / axis3d_y_dy * (axis_array[FIRST_Y_AXIS].max -
-						 axis_array[FIRST_Y_AXIS].min);
+	    if (splot_map) 
+		*y = axis_array[FIRST_Y_AXIS].max
+		    + ((double) yy) / axis3d_y_dy * (axis_array[FIRST_Y_AXIS].min -
+						     axis_array[FIRST_Y_AXIS].max);
+	    else
+		*y = axis_array[FIRST_Y_AXIS].min
+		    + ((double) yy) / axis3d_y_dy * (axis_array[FIRST_Y_AXIS].max -
+						     axis_array[FIRST_Y_AXIS].min);
 	} else {
 	    /* both diffs are zero (y axis points into the screen */
 	    *y = VERYLARGE;
@@ -366,6 +368,17 @@ MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double 
     if (!is_3d_plot) {
 	*x2 = AXIS_DE_LOG_VALUE(SECOND_X_AXIS, *x2);
 	*y2 = AXIS_DE_LOG_VALUE(SECOND_Y_AXIS, *y2);
+    }
+
+    /* If x2 is linked to x via a mapping function, apply it now */
+    /* Similarly for y/y2 */
+    if (!is_3d_plot) {
+	if (axis_array[SECOND_X_AXIS].linked_to_primary
+	&&  axis_array[SECOND_X_AXIS].link_udf->at)
+	    *x2 = eval_link_function(SECOND_X_AXIS, *x);
+	if (axis_array[SECOND_Y_AXIS].linked_to_primary
+	&&  axis_array[SECOND_Y_AXIS].link_udf->at)
+	    *y2 = eval_link_function(SECOND_Y_AXIS, *y);
     }
 }
 
@@ -396,7 +409,22 @@ zoombox_format()
 static char *
 GetAnnotateString(char *s, double x, double y, int mode, char *fmt)
 {
-    if (mode == MOUSE_COORDINATES_XDATE || mode == MOUSE_COORDINATES_XTIME || mode == MOUSE_COORDINATES_XDATETIME || mode == MOUSE_COORDINATES_TIMEFMT) {	/* time is on the x axis */
+    if (axis_array[FIRST_X_AXIS].datatype == DT_DMS
+    ||  axis_array[FIRST_Y_AXIS].datatype == DT_DMS) {
+	static char dms_format[16];
+	sprintf(dms_format, "%%D%s%%.2m'", degree_sign);
+	if (axis_array[FIRST_X_AXIS].datatype == DT_DMS)
+	    gstrdms(s, fmt ? fmt : dms_format, x);
+	else
+	    sprintf(s, mouse_setting.fmt, x);
+	strcat(s,", ");
+	s += strlen(s);
+	if (axis_array[FIRST_Y_AXIS].datatype == DT_DMS)
+	    gstrdms(s, fmt ? fmt : dms_format, y);
+	else
+	    sprintf(s, mouse_setting.fmt, y);
+	s += strlen(s);
+    } else if (mode == MOUSE_COORDINATES_XDATE || mode == MOUSE_COORDINATES_XTIME || mode == MOUSE_COORDINATES_XDATETIME || mode == MOUSE_COORDINATES_TIMEFMT) {	/* time is on the x axis */
 	char buf[0xff];
 	char format[0xff] = "[%s, ";
 	strcat(format, mouse_setting.fmt);
@@ -595,26 +623,16 @@ apply_zoom(struct t_zoom *z)
 {
     char s[1024];		/* HBB 20011005: made larger */
     int is_splot_map = (is_3d_plot && (splot_map == TRUE));
-    int flip = 0;
 
     if (zoom_now != NULL) {	/* remember the current zoom */
 	zoom_now->xmin = axis_array[FIRST_X_AXIS].set_min;
 	zoom_now->xmax = axis_array[FIRST_X_AXIS].set_max;
 	zoom_now->x2min = axis_array[SECOND_X_AXIS].set_min;
 	zoom_now->x2max = axis_array[SECOND_X_AXIS].set_max;
-	zoom_now->was_splot_map = is_splot_map;
-	if (!is_splot_map) { /* 2D plot */
-	    zoom_now->ymin = axis_array[FIRST_Y_AXIS].set_min;
-	    zoom_now->ymax = axis_array[FIRST_Y_AXIS].set_max;
-	    zoom_now->y2min = axis_array[SECOND_Y_AXIS].set_min;
-	    zoom_now->y2max = axis_array[SECOND_Y_AXIS].set_max;
-	} else { /* the opposite, i.e. case 'set view map' */
-	    zoom_now->ymin = axis_array[FIRST_Y_AXIS].set_max;
-	    zoom_now->ymax = axis_array[FIRST_Y_AXIS].set_min;
-	    zoom_now->y2min = axis_array[SECOND_Y_AXIS].set_max;
-	    zoom_now->y2max = axis_array[SECOND_Y_AXIS].set_min;
-	}
-
+	zoom_now->ymin = axis_array[FIRST_Y_AXIS].set_min;
+	zoom_now->ymax = axis_array[FIRST_Y_AXIS].set_max;
+	zoom_now->y2min = axis_array[SECOND_Y_AXIS].set_min;
+	zoom_now->y2max = axis_array[SECOND_Y_AXIS].set_max;
     }
 
     /* EAM DEBUG - The autoscale save/restore was too complicated, and
@@ -643,11 +661,9 @@ apply_zoom(struct t_zoom *z)
     /* Now we're committed. Notify the terminal the the next replot is a zoom */
     (*term->layer)(TERM_LAYER_BEFORE_ZOOM);
 
-    flip = (is_splot_map && zoom_now->was_splot_map);
     sprintf(s, "set xr[%.12g:%.12g]; set yr[%.12g:%.12g]",
 	       zoom_now->xmin, zoom_now->xmax, 
-	       (flip) ? zoom_now->ymax : zoom_now->ymin,
-	       (flip) ? zoom_now->ymin : zoom_now->ymax);
+	       zoom_now->ymin, zoom_now->ymax);
 
     if (!is_3d_plot) {
 	sprintf(s + strlen(s), "; set x2r[% #g:% #g]; set y2r[% #g:% #g]",
@@ -672,16 +688,16 @@ apply_zoom(struct t_zoom *z)
 #ifdef VOLATILE_REFRESH
 	/* Falling through to do_string_replot() does not work! */
 	if (volatile_data) {
-	    if (refresh_ok == 2) {
+	    if (refresh_ok == E_REFRESH_OK_2D) {
 		refresh_request();
 		return;
 	    }
-	    if (is_splot_map && refresh_ok == 3) {
+	    if (is_splot_map && (refresh_ok == E_REFRESH_OK_3D)) {
 		refresh_request();
 		return;
 	    }
 	}
-#endif
+#endif /* VOLATILE_REFRESH */
 
     } else {
 	inside_zoom = TRUE;
@@ -722,7 +738,6 @@ do_zoom(double xmin, double ymin, double x2min, double y2min, double xmax, doubl
     z->ymax = ymax;
     z->x2max = x2max;
     z->y2max = y2max;
-    z->was_splot_map = (is_3d_plot && (splot_map == TRUE)); /* see is_splot_map in apply_zoom() */ 
     apply_zoom(z);
 }
 
@@ -1058,12 +1073,6 @@ builtin_toggle_mouse(struct gp_event_t *ge)
 	if (display_ipc_commands()) {
 	    fprintf(stderr, "turning mouse off.\n");
 	}
-# if 0
-	if (ruler.on) {
-	    ruler.on = FALSE;
-	    (*term->set_ruler) (-1, -1);
-	}
-# endif
     }
 # ifdef OS2
     PM_update_menu_items();
@@ -1447,7 +1456,7 @@ event_buttonpress(struct gp_event_t *ge)
 
 
     if ((b == 4 || b == 6) && /* 4 - wheel up, 6 - wheel left */
-	(!replot_disabled || refresh_ok)	/* Use refresh if available */
+	(!replot_disabled || (E_REFRESH_NOT_OK != refresh_ok))	/* Use refresh if available */
 	&& !(paused_for_mouse & PAUSE_BUTTON3)) {
       double xmin, ymin, x2min, y2min;
       double xmax, ymax, x2max, y2max;
@@ -1543,7 +1552,7 @@ event_buttonpress(struct gp_event_t *ge)
 	}
       }
     } else if (((b == 5) || (b == 7)) && /* 5 - wheel down, 7 - wheel right */
-	       (!replot_disabled || refresh_ok)	/* Use refresh if available */
+	       (!replot_disabled || (E_REFRESH_NOT_OK != refresh_ok))	/* Use refresh if available */
 	       && !(paused_for_mouse & PAUSE_BUTTON3)) {
       double xmin, ymin, x2min, y2min;
       double xmax, ymax, x2max, y2max;
@@ -1625,7 +1634,7 @@ event_buttonpress(struct gp_event_t *ge)
 	    } else if (2 == b) {
 		/* not bound in 2d graphs */
 	    } else if (3 == b && 
-	    	(!replot_disabled || refresh_ok)	/* Use refresh if available */
+	    	(!replot_disabled || (E_REFRESH_NOT_OK != refresh_ok))	/* Use refresh if available */
 		&& !(paused_for_mouse & PAUSE_BUTTON3)) {
 		/* start zoom; but ignore it when
 		 *   - replot is disabled, e.g. with inline data, or
@@ -1784,8 +1793,8 @@ event_buttonrelease(struct gp_event_t *ge)
 	}
 	if (b == 2) {
 
-	    /* draw temporary annotation or label. For 3d plots this takes
-	     * only place, if the user didn't drag (scale) the plot */
+	    /* draw temporary annotation or label. For 3d plots this is
+	     * only done if the user didn't drag (scale) the plot */
 
 	    if (!is_3d_plot || !motion) {
 
@@ -1828,6 +1837,15 @@ event_buttonrelease(struct gp_event_t *ge)
     /* Export current mouse coords to user-accessible variables also */
     load_mouse_variables(mouse_x, mouse_y, TRUE, b);
     UpdateStatusline();
+
+    /* In 2D mouse button 1 is available for "bind" commands */
+    if (!is_3d_plot && (b == 1)) {
+	int save = ge->par1;
+	ge->par1 = GP_Button1;
+	ge->par2 = 0;
+	event_keypress(ge, TRUE);
+	ge->par1 = save;	/* needed for "pause mouse" */
+    }
 
 #ifdef _Windows
     if (paused_for_mouse & PAUSE_CLICK) {
@@ -1874,12 +1892,6 @@ event_motion(struct gp_event_t *ge)
 	    relx = fabs(mouse_x - start_x) / term->h_tic;
 	    rely = fabs(mouse_y - start_y) / term->v_tic;
 
-# if 0
-	    /* threshold: motion should be at least 3 pixels.
-	     * We've to experiment with this. */
-	    if (relx < 3 && rely < 3)
-		return;
-# endif
 	    if (modifier_mask & Mod_Shift) {
 		xyplane.z += (1 + fabs(xyplane.z))
 		    * (mouse_y - start_y) * 2.0 / term->ymax;
@@ -2009,14 +2021,11 @@ event_reset(struct gp_event_t *ge)
     }
 }
 
+
 void
 do_event(struct gp_event_t *ge)
 {
     if (!term)
-	return;
-
-    if (multiplot && ge->type != GE_fontprops)
-	/* only informational event processing for multiplot */
 	return;
 
     /* disable `replot` when some data were sent through stdin */
@@ -2068,12 +2077,42 @@ do_event(struct gp_event_t *ge)
 	event_reset(ge);
 	break;
     case GE_fontprops:
-	term->h_char = ge->par1;
-	term->v_char = ge->par2;
-	/* Update aspect ratio based on current window size */
-	term->v_tic = term->h_tic * (double)ge->mx / (double)ge->my;
-	/* EAM FIXME - We could also update term->xmax and term->ymax here, */
-	/*             but the existing code doesn't expect it to change.   */
+#ifdef X11
+	/* EAM FIXME:  Despite the name, only X11 uses this to pass font info.	*/
+	/* Everyone else passes just the plot height and width.			*/
+	if (!strcmp(term->name,"x11")) {
+	    /* These are declared in ../term/x11.trm */
+	    extern int          X11_hchar_saved, X11_vchar_saved;
+	    extern double       X11_ymax_saved;
+
+	    /* Cached sizing values for the x11 terminal. Each time an X11 window is
+	       resized, these are updated with the new sizes. When a replot happens some
+	       time later, these saved values are used. The normal mechanism for doing this
+	       is sending a QG from inboard to outboard driver, then the outboard driver
+	       responds with the sizing info in a GE_fontprops event. The problem is that
+	       other than during plot initialization the communication is asynchronous.
+	    */
+	    X11_hchar_saved = ge->par1;
+	    X11_vchar_saved = ge->par2;
+	    X11_ymax_saved = (double)term->xmax * (double)ge->my / fabs((double)ge->mx);
+
+	    /* If mx < 0, we simply save the values for future use, and move on */
+	    if (ge->mx < 0) {
+		break;
+	    } else {
+	    /* Otherwise we apply the changes right now */
+		term->h_char = X11_hchar_saved;
+		term->v_char = X11_vchar_saved;
+		/* factor of 2.5 must match the use in x11.trm */
+		term->h_tic = term->v_tic = X11_vchar_saved / 2.5;
+		term->ymax  = X11_ymax_saved;
+	    }
+	} else
+	    /* Fall through to cover non-x11 case */
+#endif
+	/* Other terminals update aspect ratio based on current window size */
+	    term->v_tic = term->h_tic * (double)ge->mx / (double)ge->my;
+
 	FPRINTF((stderr, "mouse do_event: window size %d X %d, font hchar %d vchar %d\n",
 		ge->mx, ge->my, ge->par1,ge->par2));
 	break;
@@ -2096,7 +2135,7 @@ do_save_3dplot(struct surface_points *plots, int pcount, int quick)
      (A.log && ((!(A.set_autoscale & AUTOSCALE_MIN) && A.set_min <= 0) || \
 		(!(A.set_autoscale & AUTOSCALE_MAX) && A.set_max <= 0)))
 
-    if (!plots || !refresh_ok) {
+    if (!plots || (E_REFRESH_NOT_OK == refresh_ok)) {
 	/* !plots might happen after the `reset' command for example
 	 * (reported by Franz Bakan).
 	 * !refresh_ok can happen for example if log scaling is reset (EAM).

@@ -1,7 +1,8 @@
 #
-# $Id: all.dem,v 1.44 2011/10/03 00:17:21 sfeam Exp $
+# $Id: all.dem,v 1.53 2012/11/24 21:54:29 sfeam Exp $
 #
-# Executes ALL demos in this directory, in functionality order.
+# Executes all demos (OK, MOST demos) in this directory.
+# This serves as a series of unit tests for non-interactive capabilities.
 #
 
 print "******************** file simple.dem ********************"
@@ -42,11 +43,20 @@ load "mgr.dem"
 reset
 
 print "******************** file fit.dem ********************"
+set fit quiet
 load "fit.dem"
+reset
+
+print "******************** file named_var.dem ********************"
+load "named_var.dem"
 reset
 
 print "******************** file param.dem ********************"
 load "param.dem"
+reset
+
+print "******************** file piecewise.dem ********************"
+load "piecewise.dem"
 reset
 
 print "******************** file polar.dem ********************"
@@ -55,6 +65,10 @@ reset
 
 print "******************** file poldat.dem ********************"
 load "poldat.dem"
+reset
+
+print "******************** file boxplot.dem ********************"
+load "boxplot.dem"
 reset
 
 print "******************** file multiplt.dem ********************"
@@ -93,6 +107,10 @@ reset
 
 print "******************** file random.dem ********************"
 load "random.dem"
+reset
+
+print "******************** file rugplot.dem ********************"
+load "rugplot.dem"
 reset
 
 print "******************** file smooth.dem ********************"
@@ -163,6 +181,10 @@ print "********************** file pm3dcolors.dem *********************"
 load "pm3dcolors.dem"
 reset
 
+print "********************** file complex_trig.dem *********************"
+load "complex_trig.dem"
+reset
+
 print "********************** file heatmaps.dem *********************"
 load "heatmaps.dem"
 reset
@@ -203,6 +225,10 @@ print "********************** file datastrings.dem *********************"
 load "datastrings.dem"
 reset
 
+print "********************** file hypertext.dem *********************"
+load "hypertext.dem"
+reset
+
 print "********************** file stats.dem *********************"
 load "stats.dem"
 reset
@@ -220,6 +246,8 @@ print "**********************    Image formats    *********************"
 load "image.dem"
 load "image2.dem"
 load "rgbalpha.dem"
+load "imageNaN.dem"
+load "barchart_art.dem"
 reset
 
 print "********************** file stringvar.dem *********************"
@@ -244,6 +272,10 @@ reset
 
 print "********************** file key.dem *********************"
 load "key.dem"
+reset
+
+print "********************** file nokey.dem *********************"
+load "nokey.dem"
 reset
 
 print "********************** file borders.dem *********************"

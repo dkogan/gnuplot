@@ -71,13 +71,16 @@ print STDERR $name, "\n";
 # input and output files
 	open(IN,  "<$GNUPLOT_LIB/$name.dem") or die "can't open $GNUPLOT_LIB/$name.dem";
 	open(OUT, ">$name.html") or die "can't open $ARGV[0].html";
+	binmode IN, ":encoding(UTF-8)";
+	binmode OUT,":encoding(UTF-8)";
 
 # open pipe to gnuplot and set terminal type
 	open(GNUPLOT, "|$gnuplot") or die "can't find gnuplot";
+	binmode GNUPLOT,":encoding(UTF-8)";
 	if ((defined $ENV{DEMOTERM}) && $DEMOTERM ne "") {
 	    print GNUPLOT "set term $DEMOTERM\n";
 	} else {
-	    print GNUPLOT "set term canvas name \"$name"."_$plot\" jsdir \".\"\n";
+	    print GNUPLOT "set term canvas name \"$name"."_$plot\" jsdir \".\" lw 1.6\n";
 	}
 	print GNUPLOT "set output \"$name.$plot.js\"\n";
 	if ($grid) {
@@ -92,13 +95,14 @@ print STDERR $name, "\n";
 # Boiler plate header
 	print OUT "<!DOCTYPE HTML>\n";
 	print OUT "<html>\n<head>\n<title>gnuplot demo script: $name.dem </title>\n";
+	print OUT "<meta charset=\"UTF-8\" />\n";
 	print OUT "<link rel=\"stylesheet\" href=\"gnuplot_demo.css\" type=\"text/css\">\n"
 		  if (-e "gnuplot_demo.css");
 	print OUT "<link rel=\"stylesheet\" href=\"gnuplot_mouse.css\" type=\"text/css\">\n"
 		  if ($mousing && -e "gnuplot_mouse.css");
 
 	print OUT "<meta http-equiv=\"content-type\" content=\"text/html; charset=UTF-8\">\n";
-	print OUT "<script src=\"canvastext.js\"></script>\n";
+	print OUT "<script src=\"canvasmath.js\"></script>\n";
 	print OUT "<script src=\"gnuplot_common.js\"></script>\n";
 	print OUT "<script src=\"gnuplot_dashedlines.js\"></script>\n";
 	print OUT "<script src=\"gnuplot_mouse.js\"></script>\n"
@@ -186,10 +190,10 @@ print STDERR $name, "\n";
 			}
 
 			print OUT "<pre>\n";
-	    		print GNUPLOT "set term canvas name \"$name"."_$plot\" jsdir \".\"\n";
+	    		print GNUPLOT "set term canvas name \"$name"."_$plot\" jsdir \".\" lw 1.6\n";
 			print GNUPLOT "set output \"$name.$plot.js\"\n";
 		} elsif (/^pause/) {
-	    		print GNUPLOT "set term canvas name \"$name"."_$plot\" jsdir \".\"\n";
+	    		print GNUPLOT "set term canvas name \"$name"."_$plot\" jsdir \".\" lw 1.6\n";
 			print GNUPLOT "set output \"$name.$plot.js\"\n";
 		} elsif (/^ *reset/) {
 			print GNUPLOT;

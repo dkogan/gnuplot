@@ -1,5 +1,5 @@
 /*
- * $Id: eval.h,v 1.39 2011/09/08 05:19:07 sfeam Exp $
+ * $Id: eval.h,v 1.42 2012/08/05 19:24:53 sfeam Exp $
  */
 
 /* GNUPLOT - eval.h */
@@ -49,14 +49,14 @@
 
 /* Type definitions */
 
-/* HBB 20010725: Moved here, from parse.h */
+/* These are used by add_action() to index the subroutine list ft[] in eval.c */
 enum operators {
     /* keep this in line with table in eval.c */
     PUSH, PUSHC, PUSHD1, PUSHD2, PUSHD, POP,
     CALL, CALLN, SUM, LNOT, BNOT, UMINUS,
     LOR, LAND, BOR, XOR, BAND, EQ, NE, GT, LT, GE, LE, PLUS, MINUS, MULT,
     DIV, MOD, POWER, FACTORIAL, BOOLE,
-    DOLLARS, 
+    DOLLARS,
     CONCATENATE, EQS, NES, RANGE,
     ASSIGN,
     /* only jump operators go between jump and sf_start, for is_jump() */
@@ -134,6 +134,7 @@ double gp_exp __PROTO((double x));
 
 /* HBB 20010726: Moved these here, from util.h. */
 double real __PROTO((struct value *));
+int real_int __PROTO((struct value *val));
 double imag __PROTO((struct value *));
 double magnitude __PROTO((struct value *));
 double angle __PROTO((struct value *));
@@ -174,5 +175,8 @@ void fill_gpval_complex __PROTO((char *var, double areal, double aimag));
 /* C-callable versions of internal gnuplot functions word() and words() */
 char * gp_word __PROTO((char *string, int i));
 int gp_words __PROTO((char *string));
+
+/* Evaluate the function linking secondary axis to primary axis */
+double eval_link_function __PROTO((int, double));
 
 #endif /* GNUPLOT_EVAL_H */

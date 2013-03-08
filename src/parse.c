@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: parse.c,v 1.66.2.2 2012/07/18 23:30:25 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: parse.c,v 1.78 2012/11/23 07:00:19 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - parse.c */
@@ -38,6 +38,7 @@ static char *RCSid() { return RCSid("$Id: parse.c,v 1.66.2.2 2012/07/18 23:30:25
 
 #include "alloc.h"
 #include "command.h"
+#include "datablock.h"
 #include "eval.h"
 #include "help.h"
 #include "util.h"
@@ -124,6 +125,13 @@ real_expression()
 }
 
 
+void
+parse_reset_after_error()
+{
+    string_result_only = FALSE;
+    parse_recursion_level = 0;
+}
+
 /* JW 20051126:
  * Wrapper around const_express() called by try_to_get_string().
  * Disallows top level + and - operators.
@@ -176,12 +184,17 @@ string_or_express(struct at_type **atptr)
     free(str);
     str = NULL;
 
+    if (atptr)
+	*atptr = NULL;
+
     if (END_OF_COMMAND)
 	int_error(c_token, "expression expected");
 
+    /* parsing for datablocks */
+    if (equals(c_token,"$"))
+	return parse_datablock_name();
+
     if (isstring(c_token)) {
-	if (atptr)
-	    *atptr = NULL;
 	str = try_to_get_string();
 	return str;
     }
@@ -247,8 +260,8 @@ perm_at()
     size_t len;
 
     (void) temp_at();
-    len = sizeof(struct at_type) +
-     (at->a_count - MAX_AT_LEN) * sizeof(struct at_entry);
+    len = sizeof(struct at_type)
+	+ (at->a_count - MAX_AT_LEN) * sizeof(struct at_entry);
     at_ptr = (struct at_type *) gp_realloc(at, len, "perm_at");
     at = NULL;			/* invalidate at pointer */
     return (at_ptr);
@@ -428,13 +441,20 @@ parse_primary_expression()
     } else if (equals(c_token, "$")) {
 	struct value a;
 
-	if (!isanumber(++c_token))
+	c_token++;
+	if (equals(c_token,"N")) {	/* $N == pseudocolumn -3 means "last column" */
+	    c_token++;
+	    Ginteger(&a, -3);
+	    at_highest_column_used = -3;
+	} else if (!isanumber(c_token)) {
 	    int_error(c_token, "Column number expected");
-	convert(&a, c_token++);
-	if (a.type != INTGR || a.v.int_val < 0)
-	    int_error(c_token, "Positive integer expected");
-	if (at_highest_column_used < a.v.int_val)
-	    at_highest_column_used = a.v.int_val;
+	} else {
+	    convert(&a, c_token++);
+	    if (a.type != INTGR || a.v.int_val < 0)
+		int_error(c_token, "Positive integer expected");
+	    if (at_highest_column_used < a.v.int_val)
+		at_highest_column_used = a.v.int_val;
+	}
 	add_action(DOLLARS)->v_arg = a;
     } else if (isanumber(c_token)) {
 	/* work around HP 9000S/300 HP-UX 9.10 cc limitation ... */
@@ -453,18 +473,6 @@ parse_primary_expression()
 	    num_params.type = INTGR;
 
 	    if (whichfunc) {
-#ifdef BACKWARDS_COMPATIBLE
-		/* Deprecated syntax:   if (defined(foo)) ...  */
-		/* New syntax:          if (exists("foo")) ... */
-		if (strcmp(ft[whichfunc].f_name,"defined")==0) {
-		    struct udvt_entry *udv = add_udv(c_token+2);
-		    union argument *foo = add_action(PUSHC);
-		    foo->v_arg.type = INTGR;
-		    foo->v_arg.v.int_val = udv->udv_undef ? 0 : 1;
-		    c_token += 4;  /* skip past "defined ( <foo> ) " */
-		    return;
-		}
-#endif
 		c_token += 2;	/* skip fnc name and '(' */
 		parse_expression(); /* parse fnc argument */
 		num_params.v.int_val = 1;
@@ -599,7 +607,7 @@ parse_primary_expression()
 	if (equals(++c_token,"*") || equals(c_token,"]")) {
 	    union argument *empty = add_action(PUSHC);
 	    empty->v_arg.type = INTGR;
-	    empty->v_arg.v.int_val = 65535; /* should be MAXINT */
+	    empty->v_arg.v.int_val = 65535; /* should be INT_MAX */
 	    if (equals(c_token,"*"))
 		c_token++;
 	} else
@@ -801,9 +809,9 @@ parse_additive_expression()
 	    (void) add_action(CONCATENATE);
 	/* If only string results are wanted
 	 * do not accept '-' or '+' at the top level. */
-	} else if (string_result_only && parse_recursion_level == 1)
+	} else if (string_result_only && parse_recursion_level == 1) {
 	    break;
-	else if (equals(c_token, "+")) {
+	} else if (equals(c_token, "+")) {
 	    c_token++;
 	    accept_multiplicative_expression();
 	    (void) add_action(PLUS);
@@ -855,14 +863,55 @@ parse_unary_expression()
 	parse_unary_expression();
 	(void) add_action(BNOT);
     } else if (equals(c_token, "-")) {
+	struct at_entry *previous;
 	c_token++;
 	parse_unary_expression();
-	(void) add_action(UMINUS);
+	/* Collapse two operations PUSHC <pos-const> + UMINUS
+	 * into a single operation PUSHC <neg-const>
+	 */
+	previous = &(at->actions[at->a_count-1]);
+	if (previous->index == PUSHC &&  previous->arg.v_arg.type == INTGR) {
+	    previous->arg.v_arg.v.int_val = -previous->arg.v_arg.v.int_val;
+	} else if (previous->index == PUSHC &&  previous->arg.v_arg.type == CMPLX) {
+	    previous->arg.v_arg.v.cmplx_val.real = -previous->arg.v_arg.v.cmplx_val.real;
+	    previous->arg.v_arg.v.cmplx_val.imag = -previous->arg.v_arg.v.cmplx_val.imag;
+	} else
+	    (void) add_action(UMINUS);
     } else if (equals(c_token, "+")) {	/* unary + is no-op */
 	c_token++;
 	parse_unary_expression();
     } else
 	parse_primary_expression();
+}
+
+
+/*
+ * Syntax: set link {x2|y2} {via <expression1> inverse <expression2>}
+ * Create action code tables for the functions linking primary and secondary axes.
+ * expression1 maps primary coordinates into the secondary coordinate space.
+ * expression2 maps secondary coordinates into the primary coordinate space.
+ */
+void
+parse_link_via( struct udft_entry *udf, char *domain )
+{
+    int start_token;
+    
+    /* Caller left us pointing at "via" or "inverse" */
+    c_token++;
+    start_token = c_token;
+    if (END_OF_COMMAND)
+	int_error(c_token,"Missing expression");
+
+    /* Save action table for the linkage mapping */
+    strcpy(c_dummy_var[0], "x");
+    strcpy(c_dummy_var[1], "y");
+    dummy_func = udf;
+    free_at(udf->at);
+    udf->at = perm_at();
+    dummy_func = NULL;
+
+    /* Save the mapping expression itself */
+    m_capture(&(udf->definition), start_token, c_token - 1);
 }
 
 

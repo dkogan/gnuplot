@@ -42,9 +42,9 @@ GNUPLOT_X11 = `echo gnuplot_x11 | sed '$(transform)'`$(EXEEXT)
 
 AM_CPPFLAGS = -I../term -I$(top_srcdir)/term -DBINDIR=\"$(bindir)\" -DX11_DRIVER_DIR=\"$(X11_DRIVER_DIR)\" -DQT_DRIVER_DIR=\"$(QT_DRIVER_DIR)\" -DGNUPLOT_SHARE_DIR=\"$(GNUPLOT_SHARE_DIR)\" -DGNUPLOT_PS_DIR=\"$(GNUPLOT_PS_DIR)\" -DGNUPLOT_JS_DIR=\"$(GNUPLOT_JS_DIR)\" -DGNUPLOT_LUA_DIR=\"$(GNUPLOT_LUA_DIR)\"  -DCONTACT=\"$(EMAIL)\" -DHELPFILE=\"$(HELPFILE)\" -DGNUPLOT_X11=\"$(GNUPLOT_X11)\" -DXAPPLRESDIR=\"$(XAPPLRESDIR)\"
 
-gnuplot_SOURCES = alloc.c alloc.h ansichek.h axis.c axis.h binary.c \
-breaders.c breaders.h bitmap.h color.c color.h command.c \
-command.h contour.c contour.h datafile.c datafile.h dynarray.c dynarray.h \
+gnuplot_SOURCES = alloc.c alloc.h axis.c axis.h breaders.c breaders.h bitmap.h \
+boundary.c boundary.h color.c color.h command.c command.h contour.c contour.h \
+datablock.c datablock.h datafile.c datafile.h dynarray.c dynarray.h \
 eval.c eval.h fit.c fit.h gadgets.c gadgets.h getcolor.c getcolor.h gp_hist.h \
 gp_time.h gp_types.h gplt_x11.h graph3d.c graph3d.h graphics.c graphics.h \
 help.c help.h hidden3d.c hidden3d.h history.c internal.c internal.h \
@@ -79,11 +79,11 @@ endif
 
 SUBDIRS = $(d_beos) wxterminal qtterminal
 
-EXTRA_gnuplot_SOURCES = corplot.c os9.c strftime.c vms.c
+EXTRA_gnuplot_SOURCES = corplot.c strftime.c vms.c
 
 EXTRA_DIST = GNUmakefile Makefile.maint NeXT OpenStep README \
 corgraph.asm genopt.com gnuplot.opt header.mac \
-hrcgraph.asm intergra.x11 lasergnu lineproc.mac linkopt.vms \
+hrcgraph.asm lineproc.mac linkopt.vms \
 makefile.all makefile.awc os2 pcgraph.asm win x11.opt \
 $(EXTRA_gnuplot_SOURCES)
 
@@ -142,6 +142,7 @@ clean-local: clean-qt-extra clean-demo
 # Qt terminal sources
 
 gnuplot_SOURCES += qtterminal/qt_term.cpp
+
 if BUILD_ON_APPLE 
 gnuplot_SOURCES += qtterminal/qt_term_mac.m 
 endif 

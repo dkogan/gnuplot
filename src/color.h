@@ -1,5 +1,5 @@
 /*
- * $Id: color.h,v 1.35 2011/10/08 00:07:41 sfeam Exp $
+ * $Id: color.h,v 1.37 2012/10/30 04:43:42 sfeam Exp $
  */
 
 /* GNUPLOT - color.h */
@@ -232,7 +232,7 @@ void invalidate_palette __PROTO((void));
    according to sm_palette.positive == SMPAL_POSITIVE or SMPAL_NEGATIVE
 */
 void set_color __PROTO(( double gray ));
-void set_rgbcolor __PROTO(( int rgblt ));
+void set_rgbcolor __PROTO(( unsigned int rgbvalue ));
 
 void ifilled_quadrangle __PROTO((gpiPoint* icorners));
 
@@ -263,6 +263,10 @@ void filled_polygon_3dcoords_zfixed __PROTO((int points, struct coordinate GPHUG
 */
 void draw_color_smooth_box __PROTO((int plot_mode));
 
+/*
+ Support for user-callable routines
+*/
+void f_hsv2rgb __PROTO((union argument *));
 
 #endif /* COLOR_H */
 

@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.701.2.20 2012/09/14 20:53:22 sfeam Exp $
+C RCS $Id: gnuplot.doc,v 1.771 2013/03/04 01:15:20 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -6,7 +6,7 @@ C
 ?gnuplot
 ^<h2 align="center"> An Interactive Plotting Program </h2>
 ^<p align="center">  Thomas Williams & Colin Kelley</p>
-^<p align="center">  Version 4.6 organized by Ethan A Merritt and others</p>
+^<p align="center">  Version 4.4 organized by Ethan A Merritt and others</p>
 ^<p align="center">Major contributors (alphabetic order):<br>
 ^<br>
 ^  Hans-Bernhard Broeker, John Campbell,<br>
@@ -162,9 +162,9 @@ C
  and FAQ.
 2 Seeking-assistance
 ?help-desk
-?seeking-assistance
 ?faq
 ?FAQ
+?seeking-assistance
  The canonical gnuplot web page can be found at
 ^ <a href="http://www.gnuplot.info">
            http://www.gnuplot.info
@@ -203,153 +203,64 @@ C
 
 2 New features
 ?new-features
- This section lists major additions since version 4.4.
- For a more exhaustive list, see the NEWS file.
+ This section lists major additions since version 4.6 and changes that may
+ cause certain scripts written for earlier versions of gnuplot to behave
+ differently.
 
-3 New syntax
-Ffigure_newsyntax
- This version of gnuplot introduces command iteration and block-structured
- if/else/while/do constructs.  See `if`, `while`, and `do`.
- Simple iteration is possible inside `plot` or `set` commands.
- See `iteration`.  General iteration spanning multiple
- commands is possible using a block construct as shown below.
- For a related new feature, see the `summation` expression type.
- Here is an example using several of these new syntax features:
-       set multiplot layout 2,2
-       fourier(k, x) = sin(3./2*k)/k * 2./3*cos(k*x)
-       do for [power = 0:3] {
-           TERMS = 10**power
-           set title sprintf("%g term Fourier series",TERMS)
-           plot 0.5 + sum [k=1:TERMS] fourier(k,x) notitle 
-       }
-       unset multiplot
+ * New coordinate system (Degrees, Minutes, Seconds). See `set xdata geographic`.
+
+ * Command scripts may contain in-line data that is loaded into a named
+ data block for repeated plotting. See `inline data`.
  
- It is now possible to select a column of data from a data file by
- matching a label in the first row of the file. See `columnhead`.
- For example
-       plot for [crop in "Oats Peas Beans"] 'data' using "Year":crop
+ * Support for 32-bit Alpha channel + RGB color #AARRGGBB.  See `colorspec`.
 
-3 Local customization of linetypes
- You can now customize properties (color, linewidth, point type) of the
- default sequence of linetypes used in plotting. See `set linetype`.
- This is normally done in an initialization file, either the system-wide
- file `gnuplotrc` or a private file `~/.gnuplot`. See `initialization`.
+ * Support for HSV color space via a translation function hsv2rgb(H,S,V).
 
- Most terminals now allow you to set an explicit background color for the plot.
- The special linetype `bgnd` can be used to draw in this color. See `bgnd`.
+ * Secondary axes (x2, y2) may be locked to the primary axis via a mapping
+ function.  In the simplest case this guarantees that the primary and secondary
+ axis ranges are identical.  In the general case it allows you to define a
+ non-linear axis, something that previously was possible only for log scaling.
+ See `set link`.
 
-3 New plot styles
- See documentation for plot styles `boxplot`, `circles`, `ellipses`, and
- `fillsteps`.
+ * Each function in a plot command may optionally be preceded by a sampling
+ range.  This does not affect the overall range of the plot, only the range
+ over which this function is sampled.  See `plot` and `piecewise.dem`.
 
-3 Revised polar axes
- Polar plot mode has been reworked to support additional plot styles.
- The polar axes can now be drawn and labeled independent of the x and y
- axes. See `set polar` and `set rrange`.
+ * Changed handling of NaN, inconsistent number of input data columns, or 
+ other unexpected input data.  See the Note under `missing` for examples
+ and figures.
 
-3 New smoothing algorithms
-=kdensity
-=cumulative
- New smoothing algorithms have been added for both 2- and 3-dimensional plots.
- `smooth kdensity` and `smooth cumulative` can be used with `plot` to draw 
- smooth histograms and cumulative distribution functions.  Several new smoothing
- kernels have been added to `dgrid3d` for use with `splot`.
- See `smooth` `dgrid3d`.
+ * `unset xrange` (and other axis ranges) restores the original default range.
 
-3 New time/date handling
-=time
- Gnuplot now tracks time to millisecond precision. Time formats have been
- modified to match this. The new built-in function time() returns the current
- time of day according to the system clock.
- Example: print the current time to msec precision
-      print strftime("%H:%M:%.3S %d-%b-%Y",time(0.0))
-      18:15:04.253 16-Apr-2011
-3 Statistical summary of data
- The new `stats` command reads data from a file using the same syntax as
- the `plot` or `splot` commands. Rather than drawing a graph, it prints
- out a statistical summary of the data contained in the column[s] requested.
- The resulting statistics  min, max, mean, standard deviation, correlation,
- etc. are also stored in named variables that can be used to compose or modify
- subsequent plotting commands.  See `stats`.
+ * `unset terminal` restores the original terminal of the gnuplot session.
 
-3 New or revised terminal drivers
- The `qt` driver implements an interactive terminal on top of the Qt
- graphics layer.  It can function either as a window in a full-featured
- desktop enviroment or as a full-screen application on a Qt-based 
- embedded device.  The `qt` terminal is new and may still have some
- rough edges.
-
- Two terminal types support web-based interactive display. The HTML5 `canvas`
- terminal was introduced in version 4.4. The `svg` terminal has been extensively
- revised to include support for mousing and better incorporation of svg plots
- from gnuplot into larger svg/xml documents.
-
- The `canvas` terminal driver produces javascript output that draws onto the
- HTML canvas element of a web page.  It can produce either a complete web page
- containing a single plot, or a script that can be embedded as part of an
- externally generated HTML document that perhaps contains multiple plots.
- The embedded plots support browser-side mousing, including zoom/unzoom.
-
- The `lua` terminal driver creates data intended to be further processed
- by a script in the lua programming language.  At this point only one such
- lua script, gnuplot-tikz.lua, is available.  It produces a TeX document
- suitable for use with the latex TikZ package.  Other lua scripts could be
- written to process the gnuplot output for use with other TeX packages,
- or with other non-TeX tools.
-
- `set term tikz` is shorthand for `set term lua tikz`.  As decribed above, it
- uses the generic lua terminal and an external lua script to produce a latex
- document.
-
- The `context` terminal driver creates output to be further processed by
- the ConTeXt TeX macro package. To process its output, you additionally require
- the gnuplot module for ConTeXt available at
-^ <a href="http://ctan.org/pkg/context-gnuplot">
-           http://ctan.org/pkg/context-gnuplot
-^ </a>
-
- The `epscairo` terminal uses the cairo and pango libraries to create
- encapsulated postscript (eps) ouput. It is an alternative to the `postscript`
- terminal driver for those who would like to have their eps files look equal
- to e.g. screen output by the `wxt` terminal.
-
- The `cairolatex` terminal uses the cairo backend of the `pdfcairo` or 
- `epscairo` terminal to produce graphs for inclusion in LaTeX documents. It
- creates pdf or eps graphics but transfers texts to LaTeX in the same way as
- the `epslatex` terminal.
+ * The `reverse` keyword of the `set [axis]range` command affects only
+ autoscaling. It does not invert or otherwise alter the meaning of a command
+ such as `set xrange [0:1]`.  If you want to reverse the direction of the
+ x axis in such a case, say instead `set xrange [1:0]`.
  
- The `windows` terminal driver has been revised to suport transparency,
- antialiasing, buffered output, multiple graph windows and copying to clipboard
- and saving of graphs as emf files. It has many new options and a revised user
- interface. Additionaly, the code of the text console has been largely rewritten
- to support wrapping of long lines. Help is now provided via HTML.
+ * The optional bandwidth for the kernel density smoothing option is taken from
+ a keyword rather than a data column.  See `smooth kdensity`.
 
-2 Backwards compatibility
+2 Deprecated syntax
+?deprecated syntax
 ?backwards compatibility
 ?compatibility
- Gnuplot version 4.0 deprecated certain syntax used in earlier versions, but
- continued to recognize it.  This is now under the control of a configuration
- option, and can be enabled as follows:
-
-       ./configure --enable-backwards-compatibility
-
- Notice: Deprecated syntax items may be removed entirely in some future
- version of gnuplot.
-
- One major difference is the introduction of keywords to disambiguate complex
- commands, particularly commands containing string variables. A notable issue
- was the use of bare numbers to specify offsets, line and point types.
- Illustrative examples:
+ Gnuplot version 4 deprecated certain syntax used in earlier versions but
+ provided a configuration option that allowed backward compatability.
+ Support for the old syntax has now been removed.
 
  Deprecated:
        set title "Old" 0,-1
        set data linespoints
        plot 1 2 4               # horizontal line at y=1
+       if (defined(VARNAME)) ...
  New:
        TITLE = "New"
        set title TITLE offset char 0, char -1
        set style data linespoints
        plot 1 linetype 2 pointtype 4
+       if (exists("VARNAME")) ...
 
 2 Batch/Interactive Operation
 ?batch/interactive
@@ -396,11 +307,10 @@ Ffigure_newsyntax
  In earlier versions of gnuplot, some terminal types used the values from
  `set size` to control also the size of the output canvas; others did not.
  The use of 'set size' for this purpose was deprecated in version 4.2.
- Since version 4.4 almost all terminals now behave as follows:
+ Almost all terminals now behave as follows:
 
  `set term <terminal_type> size <XX>, <YY>` controls the size of the output
- file, or "canvas". Please see individual terminal documentation for allowed
- values of the size parameters.  By default, the plot will fill this canvas.
+ file, or "canvas". By default, the plot will fill this canvas.
 
  `set size <XX>, <YY>` scales the plot itself relative to the size of the
  canvas.  Scale values less than 1 will cause the plot to not fill the entire
@@ -410,7 +320,7 @@ Ffigure_newsyntax
 
  The major exception to this convention is the PostScript driver, which
  by default continues to act as it has in earlier versions. Be warned that
- the next version of gnuplot may change the default behaviour of the
+ some future version of gnuplot may change the default behaviour of the
  PostScript driver as well.
 
  Example:
@@ -546,7 +456,7 @@ Ffigure_newsyntax
  `character`.
 
  `first` places the x, y, or z coordinate in the system defined by the left
- and bottom axes; `second` places it in the system defined by the second axes
+ and bottom axes; `second` places it in the system defined by the x2,y2 axes
  (top and right); `graph` specifies the area within the axes---0,0 is bottom
  left and 1,1 is top right (for splot, 0,0,0 is bottom left of plotting area;
  use negative z to get to the base---see `set xyplane`); `screen`
@@ -562,8 +472,8 @@ Ffigure_newsyntax
  In some cases, the given coordinate is not an absolute position but a
  relative value (e.g., the second position in `set arrow` ... `rto`).  In
  most cases, the given value serves as difference to the first position.
- If the given coordinate resides in a logarithmic axis the value is
- interpreted as factor. For example,
+ If the given coordinate belongs to a log-scaled axis, a relative value is
+ interpreted as multiplier. For example,
 
        set logscale x
        set arrow 100,5 rto 10,2
@@ -580,7 +490,7 @@ Ffigure_newsyntax
  Data files may contain string data consisting of either an arbitrary string
  of printable characters containing no whitespace or an arbitrary string of
  characters, possibly including whitespace, delimited by double quotes.
- The following sample line from a datafile is interpreted to contain four
+ The following line from a datafile is interpreted to contain four
  columns, with a text field in column 3:
 
    1.000 2.000 "Third column is all of this text" 4.00
@@ -614,7 +524,7 @@ Ffigure_newsyntax
 
    plot for [i=2:6] 'datafile' using i title "Results for ".columnhead(i)
 
- See `set style labels`, `using xticlabels`, `plot title`, `using`.
+ See `labels`, `using xticlabels`, `plot title`, `using`.
 2 Enhanced text mode
 ?enhanced text
 ?enhanced
@@ -863,10 +773,10 @@ Ffigure_newsyntax
 ^<tr>    <td>EllipticK(k)</td>    <td>real k in (-1:1)</td>    <td><i>K(k)</i> complete elliptic integral of the first kind</td></tr>
 ^<tr>    <td>EllipticE(k)</td>    <td>real k in [-1:1]</td>    <td><i>E(k)</i> complete elliptic integral of the second kind</td></tr>
 ^<tr>    <td>EllipticPi(n,k)</td>    <td> real n&lt;1, real k in (-1:1)</td>    <td> &Pi;(<i>n,k</i>) complete elliptic integral of the third kind</td></tr>
-^<tr>    <td>besj0(x)</td>    <td>int or real</td>    <td><i>j</i><sub>0</sub> Bessel function of <i>x</i>, in radians</td></tr>
-^<tr>    <td>besj1(x)</td>    <td>int or real</td>    <td><i>j</i><sub>1</sub> Bessel function of <i>x</i>, in radians</td></tr>
-^<tr>    <td>besy0(x)</td>    <td>int or real</td>    <td><i>y</i><sub>0</sub> Bessel function of <i>x</i>, in radians</td></tr>
-^<tr>    <td>besy1(x)</td>    <td>int or real</td>    <td><i>y</i><sub>1</sub> Bessel function of <i>x</i>, in radians</td></tr>
+^<tr>    <td>besj0(x)</td>    <td>int or real</td>    <td><i>J</i><sub>0</sub> Bessel function of <i>x</i>, in radians</td></tr>
+^<tr>    <td>besj1(x)</td>    <td>int or real</td>    <td><i>J</i><sub>1</sub> Bessel function of <i>x</i>, in radians</td></tr>
+^<tr>    <td>besy0(x)</td>    <td>int or real</td>    <td><i>Y</i><sub>0</sub> Bessel function of <i>x</i>, in radians</td></tr>
+^<tr>    <td>besy1(x)</td>    <td>int or real</td>    <td><i>Y</i><sub>1</sub> Bessel function of <i>x</i>, in radians</td></tr>
 ^<tr>    <td>ceil(x)</td>    <td>any</td>    <td>&lceil;<i>x</i>&rceil;, smallest integer not less than <i>x</i> (real part)</td></tr>
 ^<tr>    <td>cos(x)</td>    <td>radians</td>    <td>cos <i>x</i>, cosine of <i>x</i></td></tr>
 ^<tr>    <td>cosh(x)</td>    <td>any</td>    <td>cosh <i>x</i>, hyperbolic cosine of <i>x</i> in radians</td></tr>
@@ -942,6 +852,7 @@ Ffigure_newsyntax
 ^<tr>    <td>columnhead(x)</td>    <td>int</td>    <td> string containing first entry of column <i>x</i> in datafile.</td></tr>
 ^<tr>    <td>defined(X)</td>    <td>variable name</td>    <td> [DEPRECATED] returns 1 if X is defined, 0 otherwise.</td></tr>
 ^<tr>    <td>exists("X")</td>    <td>string</td>    <td> returns 1 if a variable named X is defined, 0 otherwise.</td></tr>
+^<tr>    <td>hsv2rgb(h,s,v)</td>    <td>h,s,v in [0:1]</td>    <td> converts HSV color to 24bit RGB color.</td></tr>
 ^<tr>    <td>stringcolumn(x)</td>    <td>int</td>    <td> content column <i>x</i> as a string.</td></tr>
 ^<tr>    <td>timecolumn(x)</td>    <td>int</td>    <td> timecolumn <i>x</i> during datafile manipulation.</td></tr>
 ^<tr>    <td>tm_hour(x)</td>    <td>int</td>    <td>the hour</td></tr>
@@ -981,8 +892,11 @@ C marker below is used to signal this to doc2html:
  The `abs(x)` function returns the absolute value of its argument.  The
  returned value is of the same type as the argument.
 
+=norm
+=modulus
  For complex arguments, abs(x) is defined as the length of x in the complex
- plane [i.e.,  sqrt(real(x)**2 + imag(x)**2) ].
+ plane [i.e.,  sqrt(real(x)**2 + imag(x)**2) ]. This is also known as the norm
+ or complex modulus of x.
 4 acos
 ?expressions functions acos
 ?acos
@@ -1067,30 +981,30 @@ C marker below is used to signal this to doc2html:
 4 besj0
 ?expressions functions besj0
 ?besj0
-#besj0(x) & int or real &  $j_{0}$ Bessel function of $x$, in radians \\
-%besj0(x)@int or real@$j sub 0$ Bessel function of $x$, in radians
- The `besj0(x)` function returns the j0th Bessel function of its argument.
+#besj0(x) & int or real &  $J_{0}$ Bessel function of $x$, in radians \\
+%besj0(x)@int or real@$J sub 0$ Bessel function of $x$, in radians
+ The `besj0(x)` function returns the J0th Bessel function of its argument.
  `besj0` expects its argument to be in radians.
 4 besj1
 ?expressions functions besj1
 ?besj1
-#besj1(x) & int or real & $j_{1}$ Bessel function of $x$, in radians \\
-%besj1(x)@int or real@$j sub 1$ Bessel function of $x$, in radians
- The `besj1(x)` function returns the j1st Bessel function of its argument.
+#besj1(x) & int or real & $J_{1}$ Bessel function of $x$, in radians \\
+%besj1(x)@int or real@$J sub 1$ Bessel function of $x$, in radians
+ The `besj1(x)` function returns the J1st Bessel function of its argument.
  `besj1` expects its argument to be in radians.
 4 besy0
 ?expressions functions besy0
 ?besy0
-#besy0(x) & int or real & $y_{0}$ Bessel function of $x$, in radians \\
-%besy0(x)@int or real@$y sub 0$ Bessel function of $x$, in radians
- The `besy0(x)` function returns the y0th Bessel function of its argument.
+#besy0(x) & int or real & $Y_{0}$ Bessel function of $x$, in radians \\
+%besy0(x)@int or real@$Y sub 0$ Bessel function of $x$, in radians
+ The `besy0(x)` function returns the Y0th Bessel function of its argument.
  `besy0` expects its argument to be in radians.
 4 besy1
 ?expressions functions besy1
 ?besy1
-#besy1(x) & int or real & $y_{1}$ Bessel function of $x$, in radians \\
-%besy1(x)@int or real@$y sub 1$ Bessel function of $x$, in radians
- The `besy1(x)` function returns the y1st Bessel function of its argument.
+#besy1(x) & int or real & $Y_{1}$ Bessel function of $x$, in radians \\
+%besy1(x)@int or real@$Y sub 1$ Bessel function of $x$, in radians
+ The `besy1(x)` function returns the Y1st Bessel function of its argument.
  `besy1` expects its argument to be in radians.
 4 ceil
 ?expressions functions ceil
@@ -1454,6 +1368,12 @@ C marker below is used to signal this to doc2html:
  The argument to exists() is a string constant or a string variable;
  if the string contains the name of a defined variable, the function returns 1.
  Otherwise the function returns 0.
+4 hsv2rgb
+?expressions functions hsv2rgb 
+?hsv2rgb
+#hsv2rgb(h,s,v) & h,s,v $\in$ [0:1] & 24bit RGB color value. \\
+%hsv2rgb(h,s,v)@h,s,v $\in$ [0:1]@ 24bit RGB color value.
+ The HSV (Hue/Saturation/Value) triplet is converted to an equivalent RGB value.
 4 stringcolumn
 ?expressions functions stringcolumn
 ?stringcolumn
@@ -1922,7 +1842,7 @@ C ... and restart the table:
  Example:  To calculate the fractional screen coordinates of the point [X,Y]
       GRAPH_X = (X - GPVAL_X_MIN) / (GPVAL_X_MAX - GPVAL_X_MIN)
       GRAPH_Y = (Y - GPVAL_Y_MIN) / (GPVAL_Y_MAX - GPVAL_Y_MIN)
-      SCREEN_X = GPVAL_TERM_XMIN + GRAPH_X * (GPVAL_TERM_XMAX - GPVAL_TERM_XMIN)
+      SCREEN_X = GPVAL_TERM_XMIN + GRAPH_X * (GPVAL_TERM_XMAX - GPVAL_TERM_XMIN) 
       SCREEN_Y = GPVAL_TERM_YMIN + GRAPH_Y * (GPVAL_TERM_YMAX - GPVAL_TERM_YMIN)
       FRAC_X = SCREEN_X / GPVAL_TERM_XSIZE
       FRAC_Y = SCREEN_Y / GPVAL_TERM_YSIZE
@@ -2132,12 +2052,12 @@ C ... and restart the table:
  The word "title" occurs with multiple meanings in `gnuplot`.  In this
  document, it will always be preceded by the adjective "plot", "line", or
  "key" to differentiate among them.
- A 2D graph may have up to four labelled `axes`.  The names of the four axes
+ A 2D graph may have up to four labeled `axes`.  The names of the four axes
  are "x" for the axis along the bottom border of the plot, "y" for the axis
  along the left border, "x2" for the top border, and "y2" for the right border.
  See `axes`.
 
- A 3D graph may have up to three labelled `axes` -- "x", "y" and "z".  It is
+ A 3D graph may have up to three labeled `axes` -- "x", "y" and "z".  It is
  not possible to say where on the graph any particular axis will fall because
  you can change the direction from which the graph is seen with `set view`.
 
@@ -2147,6 +2067,26 @@ C ... and restart the table:
  a single record.  A "datablock" is a set of points from consecutive records,
  delimited by blank records.  A line, when referred to in the context of a
  data file, is a subset of a datablock.
+2 iteration
+?iteration
+?iterate
+Ffigure_newsyntax
+ Version 4.6 of gnuplot introduced command iteration and block-structured
+ if/else/while/do constructs.  See `if`, `while`, and `do`.
+ Simple iteration is possible inside `plot` or `set` commands.
+ See `plot for`.  General iteration spanning multiple
+ commands is possible using a block construct as shown below.
+ For a related new feature, see the `summation` expression type.
+ Here is an example using several of these new syntax features:
+       set multiplot layout 2,2
+       fourier(k, x) = sin(3./2*k)/k * 2./3*cos(k*x)
+       do for [power = 0:3] {
+           TERMS = 10**power
+           set title sprintf("%g term Fourier series",TERMS)
+           plot 0.5 + sum [k=1:TERMS] fourier(k,x) notitle 
+       }
+       unset multiplot
+
 2 linetypes, colors, and styles
 ?linetypes
 ?colors
@@ -2214,8 +2154,6 @@ C ... and restart the table:
 ?tc
 ?textcolor
  Many commands allow you to specify a linetype with an explicit color.
- Terminal-independent color choice is only possible for terminals that support
- RGB color or pm3d palettes.
 
  Syntax:
 
@@ -2224,9 +2162,11 @@ C ... and restart the table:
 
  where <colorspec> has one of the following forms:
 
-       rgbcolor "colorname"
-       rgbcolor "#RRGGBB"
-       rgbcolor variable       # color is read from input file
+       rgbcolor "colorname"    # e.g. "blue"
+       rgbcolor "#RRGGBB"      # string containing hexadecimal value
+       rgbcolor "#AARRGGBB"    # string containing hexadecimal value
+       rgbcolor <integer val>  # integer value representing AARRGGBB
+       rgbcolor variable       # integer value is read from input file
        palette frac <val>      # <val> runs from 0 to 1
        palette cb <value>      # <val> lies within cbrange
        palette z
@@ -2242,6 +2182,13 @@ C ... and restart the table:
  from 0 - 255.  For example, magenta = full-scale red + full-scale blue would
  be represented by #FF00FF, which is the hexadecimal representation of
  (255 << 16) + (0 << 8) + (255).
+
+ "#AARRGGBB" represents an RGB color with an alpha channel (transparency) 
+ value in the high bits. An alpha value of 0 represents a fully opaque color;
+ i.e., "#00RRGGBB" is the same as "#RRGGBB".  An alpha value of 255 (FF)
+ represents full transparency. `Note`: This convention for the alpha channel
+ is backwards from that used by the "with rgbalpha" image plot mode in earlier
+ versions of gnuplot.
 
  The color palette is a linear gradient of colors that smoothly maps a
  single numerical value onto a particular color.  Two such mappings are always
@@ -2355,7 +2302,7 @@ C ... and restart the table:
  bindings, except that <space> and 'q' cannot normally be rebound. For an
  exception, see `bind space`.
 
- Mouse buttons cannot be rebound.
+ Only mouse button 1 can be bound, and only for 2D plots.
 
  You get the list of all hotkeys by typing `show bind` or `bind` or by typing
  the hotkey 'h' in the graph window.
@@ -2389,7 +2336,6 @@ C ... and restart the table:
      bind "ctrl-alt-a" ""   # removes binding for ctrl-alt-a
                               (note that builtins cannot be removed)
      reset bind             # installs default (builtin) bindings
-     bind!                  # deprecated form of "reset bind"
 
  - bind a key to toggle something:
    v=0
@@ -2418,7 +2364,7 @@ C ... and restart the table:
 
  The following are window events rather than actual keys
 
-    "Close"
+    "Button1" "Close"
 
  See also help for `mouse`.
 4 bind space
@@ -2813,6 +2759,12 @@ C ... and restart the table:
 
  which will produce xtic labels that look like "03/21".
 
+ Gnuplot tracks time to millisecond precision. Time formats have been
+ modified to match this.
+ Example: print the current time to msec precision
+      print strftime("%H:%M:%.3S %d-%b-%Y",time(0.0))
+      18:15:04.253 16-Apr-2011
+
  See `time_specifiers`.
 1 plotting styles
 ?plotting styles
@@ -2837,8 +2789,6 @@ C ... and restart the table:
  file are interpreted as plot data, see `using`.
 
 2 boxerrorbars
-?commands set style boxerrorbars
-?set style boxerrorbars
 ?plotting styles boxerrorbars
 ?style boxerrorbars
 ?boxerrorbars
@@ -2872,8 +2822,6 @@ Ffigure_boxerrorbars
  errorbar demo.
 ^ </a>
 2 boxes
-?commands set style boxes
-?set style boxes
 ?plotting styles boxes
 ?style boxes
 ?boxes
@@ -2985,8 +2933,6 @@ Ffigure_boxplot
  See `set style boxplot`, `bars`, `boxwidth`, `fillstyle`, `candlesticks`.
 
 2 boxxyerrorbars
-?commands set style boxxyerrorbars
-?set style boxxyerrorbars
 ?plotting styles boxxyerrorbars
 ?style boxxyerrorbars
 ?boxxyerrorbars
@@ -3012,8 +2958,6 @@ Ffigure_boxxyerrorbars
  See `set style fill` and `boxes` for details.  Alternatively a new fillstyle
  may be specified in the plot command.
 2 candlesticks
-?commands set style candlesticks
-?set style candlesticks
 ?plotting styles candlesticks
 ?style candlesticks
 ?candlesticks
@@ -3079,8 +3023,6 @@ Ffigure_candlesticks
 
  See `set boxwidth`, `set bars`, `set style fill`, and `boxplot`.
 2 circles
-?commands set style circles
-?set style circles
 ?plotting styles circles
 ?style circles
 ?circles
@@ -3091,11 +3033,12 @@ Ffigure_circles
  (x or x2).  The scale on y and the aspect ratio of the plot are both ignored.
  If only two columns are present, the radius is taken from `set style circle`.
  In this case the radius may be given in graph or screen coordinates.
+
  By default a full circle will be drawn.  It is possible to plot arc segments
  instead of full circles by specifying a start and end angle in the 4th and 5th
  columns.  An optional 4th or 6th column can specify per-circle color.
  The start and end angles of the circle segments must be specified in degrees.
-
+ See `set style circle` and `set style fill`.
 
  Examples:
 
@@ -3176,8 +3119,6 @@ Ffigure_ellipses
 
  See also `set object ellipse`, `set style ellipse` and `fillstyle`.
 2 dots
-?commands set style dots
-?set style dots
 ?plotting styles dots
 ?style dots
 ?dots
@@ -3194,8 +3135,6 @@ Ffigure_dots
       3 columns:  x  y  z   # 3D only (splot)
 
 2 filledcurves
-?commands set style filledcurves
-?set style filledcurves
 ?plotting styles filledcurves
 ?style filledcurves
 ?filledcurves
@@ -3257,8 +3196,6 @@ Ffigure_filledcurves
  are moved to the graph boundary. Then the actually filled area in the case
  of option xy=<x>,<y> will depend on xrange and yrange.
 2 financebars
-?commands set style financebars
-?set style financebars
 ?plotting styles financebars
 ?style financebars
 ?financebars
@@ -3281,8 +3218,6 @@ Ffigure_financebars
  finance demo.
 ^ </a>
 2 fsteps
-?commands set style fsteps
-?set style fsteps
 ?plotting styles fsteps
 ?style fsteps
 ?fsteps
@@ -3299,15 +3234,11 @@ Ffigure_fsteps
  steps demo.
 ^ </a>
 2 fillsteps
-?commands set style fillsteps
-?set style fillsteps
 ?style fillsteps
 ?fillsteps
  The `fillsteps` style is exactly like `steps` except that the area between
  the curve and y=0 is filled in the current fill style.  See `steps`.
 2 histeps
-?commands set style histeps
-?set style histeps
 ?plotting styles histeps
 ?style histeps
 ?histeps
@@ -3330,8 +3261,6 @@ Ffigure_histeps
  `histeps` is only a plotting style; `gnuplot` does not have the ability to
  create bins and determine their population from some data set.
 2 histograms
-?commands set style histogram
-?set style histogram
 ?style histograms
 ?plotting styles histograms
 ?histograms
@@ -3407,7 +3336,7 @@ Ffigure_histclust
  and error estimates in columns 3, 5, 7, ...  This example plots the values
  in columns 2 and 4 as a histogram of clustered boxes (the default style).
  Because we use iteration in the plot command, any number of data columns can
- be handled in a single command. See `iteration`.
+ be handled in a single command. See `plot for`.
 
        set boxwidth 0.9 relative
        set style data histograms
@@ -3433,8 +3362,9 @@ Ffigure_histerrorbar
        set style histogram errorbars gap 2 lw 2
        plot for [COL=2:4:2] 'file.dat' using COL:COL+1
 
- To plot the same data as a rowstacked histogram.  Just to be different, this
- example lists the separate columns explicitly rather than using iteration.
+ This shows how to plot the same data as a rowstacked histogram.  Just to be
+ different, this example lists the separate columns explicitly rather than using
+ iteration.
 
        set style histogram rowstacked
        plot 'file.dat' using 2, '' using 4:xtic(1)
@@ -3443,7 +3373,8 @@ Ffigure_histrows
  This will produce a plot in which each vertical bar corresponds to one row of
  data.  Each vertical bar contains a stack of two segments, corresponding in
  height to the values found in columns 2 and 4 of the datafile.
-       
+
+
 
  Finally, the commands
 
@@ -3515,14 +3446,12 @@ Ffigure_newhist
 ?styles histograms automated
 ?plotting styles histograms automated
  If you want to create a histogram from many columns of data in a single file,
- it is very convenient to use the plot iteration feature.  See `iteration`.
+ it is very convenient to use the plot iteration feature.  See `plot for`.
  For example, to create stacked histograms of the data in columns 3 through 8
 
        set style histogram columnstacked
        plot for [i=3:8] "datafile" using i title columnhead
 2 image
-?commands set style image
-?set style image
 ?plotting styles image
 ?style image
 ?image
@@ -3590,20 +3519,19 @@ Ffigure_scaled_image
  Only a few terminal types can handle this correctly; other terminals will
  approximate this by treating alpha as being either 0 or 255.
 3 image failsafe
-?commands set style image failsafe
-?set style image failsafe
 ?plotting styles image failsafe
 ?style image failsafe
 ?image failsafe
 ?failsafe
- Some terminal drivers provide code to optimize rendering of image data
- within a rectangular 2D area.  However this code is known to be imperfect.
- This optimized code may be disabled by using the keyword `failsafe`. E.g.
-
+ Some terminals use device- or library-specific optimizations to render image
+ data within a rectangular 2D area.  This sometimes produces undesirable output,
+ e.g. bad clipping or scaling, missing edges.  The `failsafe` keyword tells
+ gnuplot to use generic code that renders the image pixel-by-pixel instead.
+ This rendering mode is slower and may result in much larger output files, but
+ should produce a consistent rendered view on all terminals.
+ Example:
        plot 'data' with image failsafe
 2 impulses
-?commands set style impulses
-?set style impulses
 ?plotting styles impulses
 ?style impulses
 ?impulses
@@ -3619,8 +3547,6 @@ Ffigure_impulses
       3 columns:  x  y  z  # line from [x,y,0] to [x,y,z] (3D)
 
 2 labels
-?commands set style labels
-?set style labels
 ?plotting styles labels
 ?style labels
 ?labels
@@ -3643,10 +3569,17 @@ Ffigure_labels
    CityName(String,Size) = sprintf("{/=%d %s}", Scale(Size), String)
    plot 'cities.dat' using 5:4:(CityName(stringcolumn(1),$3)) with labels
 
- If we did not want to adjust the font to a different size for each city,
- the command would be much simpler:
+ If we did not want to adjust the font size to a different size for each city
+ name, the command would be much simpler:
 
    plot 'cities.dat' using 5:4:1 with labels font "Times,8"
+
+ If the labels are marked as `hypertext` then the text only appears if the
+ mouse is hovering over the corresponding anchor point.  See `hypertext`.
+ In this case you must enable the label's `point` attribute so that there is
+ a point to act as the hypertext anchor:
+
+   plot 'cities.dat' using 5:4:1 with labels hypertext point pt 7
 
  The `labels` style can also be used in 3D plots. In this case four input
  column specifiers are required, corresponding to X Y Z and text.
@@ -3655,8 +3588,6 @@ Ffigure_labels
 
  See also `datastrings`, `set style data`.
 2 lines
-?commands set style lines
-?set style lines
 ?plotting styles lines
 ?style lines
 ?lines
@@ -3676,11 +3607,7 @@ Ffigure_lines
 
  See also `linetype`, `linewidth`, and `linestyle`.
 2 linespoints
-?commands set style linespoints
-?commands set style lp
-?set style linespoints
 ?plotting styles linespoints
-?set style lp
 ?style linespoints
 ?style lp
 ?linespoints
@@ -3703,8 +3630,6 @@ Ffigure_linespoints
 
  `linespoints` may be abbreviated `lp`.
 2 points
-?commands set style points
-?set style points
 ?plotting styles points
 ?style points
 ?points
@@ -3725,8 +3650,6 @@ Ffigure_polar
  See `set polar`, `set rrange`, `set size square`.
 
 2 steps
-?commands set style steps
-?set style steps
 ?plotting styles steps
 ?style steps
 ?steps
@@ -3744,20 +3667,14 @@ Ffigure_steps
 ^ </a>
 
 2 rgbalpha
-?commands set style rgbalpha
-?set style rgbalpha
 ?plotting styles rgbalpha
 ?style rgbalpha
  See `image`.
 2 rgbimage
-?commands set style rgbimage
-?set style rgbimage
 ?plotting styles rgbimage
 ?style rgbimage
  See `image`.
 2 vectors
-?commands set style vectors
-?set style vectors
 ?plotting styles vectors
 ?style vectors
 ?vectors
@@ -3794,8 +3711,6 @@ Ffigure_steps
  `set clip one` and `set clip two` affect vectors drawn in 2D.
  Please see `set clip` and `arrowstyle`.
 2 xerrorbars
-?commands set style xerrorbars
-?set style xerrorbars
 ?plotting styles xerrorbars
 ?style xerrorbars
 ?xerrorbars
@@ -3814,8 +3729,6 @@ Ffigure_xerrorbars
  such as variable point color.
 
 2 xyerrorbars
-?commands set style xyerrorbars
-?set style xyerrorbars
 ?plotting styles xyerrorbars
 ?style xyerrorbars
 ?xyerrorbars
@@ -3841,12 +3754,8 @@ Ffigure_xyerrorbars
  (per-datapoint) color information. 
 
 2 yerrorbars
-?commands set style yerrorbars
-?commands set style errorbars
 ?plotting styles yerrorbars
 ?plotting styles errorbars
-?set style yerrorbars
-?set style errorbars
 ?style yerrorbars
 ?style errorbars
 ?yerrorbars
@@ -3856,8 +3765,9 @@ Ffigure_yerrorbars
  At each point (x,y), a line is drawn from (x,y-ydelta) to (x,y+ydelta) or
  from (x,ylow) to (x,yhigh), depending on how many data columns are provided.
  A tic mark is placed at the ends of the error bar (unless `set bars` is
- used---see `set bars` for details).  Either 3 or 4 input columns are required.
+ used---see `set bars` for details).
 
+      2 columns:  [implicit x] y ydelta
       3 columns:  x  y  ydelta
       4 columns:  x  y  ylow  yhigh
 
@@ -3869,8 +3779,6 @@ Ffigure_yerrorbars
  errorbar demo.
 ^ </a>
 2 xerrorlines
-?commands set style xerrorlines
-?set style xerrorlines
 ?plotting styles xerrorlines
 ?style xerrorlines
 ?xerrorlines
@@ -3890,8 +3798,6 @@ Ffigure_xerrorlines
  such as variable point color.
 
 2 xyerrorlines
-?commands set style xyerrorlines
-?set style xyerrorlines
 ?plotting styles xyerrorlines
 ?style xyerrorlines
 ?xyerrorlines
@@ -3918,12 +3824,8 @@ Ffigure_xyerrorlines
  (per-datapoint) color information. 
 
 2 yerrorlines
-?commands set style yerrorlines
-?commands set style errorlines
 ?plotting styles yerrorlines
 ?plotting styles errorlines
-?set style yerrorlines
-?set style errorlines
 ?style yerrorlines
 ?style errorlines
 ?yerrorlines
@@ -3959,15 +3861,11 @@ Ffigure_surface
  such that it clearly represents a 3D surface.  In this case the X, Y, and Z
  axes are all visible in the plot. The illusion of 3D is enhanced by choosing
  hidden line removal or depth-sorted surface elements.
- See `hidden3d` and `pm3d depthorder`.
+ See `hidden3d` and the `depthorder` option of `set pm3d`.
 Ffigure_surface+contours
  The `splot` command can also calculate and draw contour lines corresponding
  to constant Z values. These contour lines may be drawn onto the surface
  itself, or projected onto the XY plane. See `set contour`.
-  
-  
-  
-  
 3 2D projection (set view map)
 ?2D projection (set view map)
 ?projection
@@ -3975,8 +3873,7 @@ Ffigure_mapcontours
  An important special case of the `splot` command is to map the Z coordinate
  onto a 2D surface by projecting the plot along the Z axis.  See `set view map`.
  This plot mode can be used to generate contour plots and heat maps.
-  
-  
+
 1 Commands
 ?commands
  This section lists the commands acceptable to `gnuplot` in alphabetical
@@ -4155,8 +4052,8 @@ Ffigure_mapcontours
  previously user-defined function of the form f(x) or f(x,y).
 
  <datafile> is treated as in the `plot` command.  All the `plot datafile`
- modifiers (`using`, `every`,...) except `smooth` and the deprecated `thru`
- are applicable to `fit`. See `plot datafile`.
+ modifiers (`using`, `every`,...) except `smooth` are applicable to `fit`.
+ See `plot datafile`.
 
  The default data formats for fitting functions with a single
  independent variable, z=f(x), are z or x:z.  That is, if there is
@@ -4230,10 +4127,10 @@ Ffigure_mapcontours
  should be deleted or renamed as desired. By using the command
  `set fit logfile`, the name of the log file can be changed.
 
- If gnuplot was built with this option, and you activated it using `set fit
- errorvariables`, the error for each fitted parameter will be stored in
- a variable named like the parameter, but with "_err" appended.  Thus the
- errors can be used as input for further computations.
+ If activated by using `set fit errorvariables`, the error for each fitted
+ parameter will be stored in a variable named like the parameter, but with
+ "_err" appended.  Thus the errors can be used as input for further
+ computations.
 
  The fit may be interrupted by pressing Ctrl-C.
  After the current iteration completes, you have the option to
@@ -4450,7 +4347,7 @@ Ffigure_mapcontours
 
  If you supplied valid data errors, the number of data points is large enough,
  and the model is correct, the reduced chisquare should be about unity.  (For
- details, look up the 'chi-squared distribution' in your favourite statistics
+ details, look up the 'chi-squared distribution' in your favorite statistics
  reference.)  If so, there are additional tests, beyond the scope of this
  overview, for determining how well the model fits the data.
 
@@ -4694,7 +4591,7 @@ Ffigure_mapcontours
 ?commands if
 ?if
  New syntax:
-       if (<condition>) { <command>; <command>
+       if (<condition>) { <commands>;
               <commands>
               <commands>
        } else {
@@ -4714,9 +4611,8 @@ Ffigure_mapcontours
 ?if if-old
 ?if-old
  Through gnuplot version 4.4, the scope of the if/else commands was limited to
- a single input line. This has been replaced by allowing a multi-line clause to
- be enclosed in curly brackets. The old syntax is still honored by itself but
- cannot be used inside a bracketed clause.
+ a single input line. Now a multi-line clause may be enclosed in curly brackets.
+ The old syntax is still honored but cannot be used inside a bracketed clause.
 
  If no opening "{" follows the `if` keyword, the command(s) in <command-line>
  will be executed if <condition> is true (non-zero) or skipped if <condition> is
@@ -4738,13 +4634,10 @@ Ffigure_mapcontours
        v=0
        v=v+1; if (v%2) print "2" ; else if (v%3) print "3"; else print "fred"
  (repeat the last line repeatedly!)
-
- See `reread` for an example of using if and reread together to perform a loop.
-2 iteration
-?iteration
-?iterate
+2 for
+?for
  The `plot`, `splot`, `set` and `unset` commands may optionally contain an
- iteration clause.  This has the effect of executing the basic command 
+ iteration for clause.  This has the effect of executing the basic command 
  multiple times, each time re-evaluating any expressions that make use of the
  iteration control variable.  Iteration of arbitrary command sequences can be
  requested using the `do` command.
@@ -4764,8 +4657,7 @@ Ffigure_mapcontours
 
        set for [i=1:9] for [j=1:9] label i*10+j sprintf("%d",i*10+j) at i,j
 
- See additional documentation for `plot iteration`, `do`.
-
+ See additional documentation for `iteration`, `do`.
 2 load
 ?commands load
 ?load
@@ -4877,25 +4769,30 @@ Ffigure_mapcontours
 2 plot
 ?commands plot
 ?plot
- `plot` is the primary command for drawing plots with `gnuplot`.  It creates
- plots of functions and data in many, many ways.  `plot` is used to draw 2D
- functions and data; `splot` draws 2D projections of 3D surfaces and data.
- `plot` and `splot` offer many features in common; see `splot` for differences.
- Note specifically that although the `binary <binary list>` variation does
- work for both `plot` and `splot`, there are small differences between them.
+ `plot` is the primary command for drawing plots with `gnuplot`.  It offers
+ many different graphical representations for functions and data.
+ `plot` is used to draw 2D functions and data.
+ `splot` draws 2D projections of 3D surfaces and data.
 
  Syntax:
-       plot {<ranges>}
-            {<iteration>}
-            {<function> | {"<datafile>" {datafile-modifiers}}}
-            {axes <axes>} {<title-spec>} {with <style>}
-            {, {definitions{,}} <function> ...}
+       plot {<ranges>} <plot-element> {, <plot-element>, <plot-element>}
 
- where either a <function> or the name of a data file enclosed in quotes is
- supplied.  A function is a mathematical expression or a pair of mathematical
- expressions in parametric mode.  Functions may be builtin, user-defined, or
- provided in the plot command itself.  Multiple datafiles and/or functions may
- be plotted in a single command, separated by commas.  See `data`, `functions`.
+ Each plot element consists of a definition, a function, or a data source
+ together with optional properties or modifiers:
+       plot-element:
+            {sampling-range} {<iteration>}
+            <definition> | <function> | <data source>
+            {axes <axes>} {<title-spec>}
+            {with <style>}
+
+ The graphical representation of each plot element is determined by the keyword
+ `with`, e.g. `with lines` or `with boxplot`.   See `plotting styles`.
+
+ The data to be plotted is either generated by a function (two functions if in
+ parametric mode), read from a data file, or read from a named data block that
+ was defined previously.  Multiple datafiles, data blocks, and/or functions may
+ be plotted in a single plot command separated by commas.
+ See `data`, `inline data`, `functions`.
 
  Examples:
        plot sin(x)
@@ -4925,29 +4822,28 @@ Ffigure_mapcontours
 ?plot data binary
  BINARY DATA FILES:
 
- Some earlier versions of `gnuplot` automatically detected binary data files.
- It is now necessary to provide the keyword `binary` after the filename.
+ It is necessary to provide the keyword `binary` after the filename.
  Adequate details of the file format must be given on the command line or
  extracted from the file itself for a supported binary `filetype`.
  In particular, there are two structures for binary files,  binary matrix
  format and binary general format.
 
  The `binary matrix` format contains a two dimensional array of 32 bit IEEE
- float values with an additional column and row of coordinate values.  As
- with ASCII matrix, in the `using` list, enumeration of the coordinate row
- constitutes column 1, enumeration of the coordinate column constitutes
- column 2, and the array of values constitutes column 3.
+ float values plus an additional column and row of coordinate values.  In the
+ `using` specifier of a plot command, column 1 refers to the matrix row
+ coordinate, column 2 refers to the matrix column coordinate, and column 3
+ refers to the value stored in the array at those coordinates.
 
  The `binary general` format contains an arbitrary number of columns for which
  information must be specified at the command line.  For example, `array`,
  `record`, `format` and `using` can indicate the size, format and dimension
  of data.  There are a variety of useful commands for skipping file headers
  and changing endianess.  There are a set of commands for positioning and
- translating data since often coordinates are not part of the file when
- uniform sampling is inherent in the data.  Different from matrix binary or
- ASCII, general binary does not treat the generated columns as 1, 2 or 3 in
- the `using` list.  Rather, column 1 begins with column 1 of the file, or as
- specified in the `format` list.
+ translating data since often coordinates are not part of the file when uniform
+ sampling is inherent in the data.  Unlike reading from a text or matrix binary
+ file, general binary does not treat the generated columns as 1, 2 or 3 in the
+ `using` list. Instead column 1 refers to column 1 of the file, or as specified
+ in the `format` list.
 
  There are global default settings for the various binary options which may
  be set using the same syntax as the options when used as part of the `(s)plot
@@ -4979,11 +4875,13 @@ Ffigure_mapcontours
 ?datafile binary general
 ?data binary general
 ?binary general
- General binary data in which format information is not necessarily part of
- the file can be read by giving further details about the file format at the
- command line.  Although the syntax is slightly arcane to the casual user,
- general binary is particularly useful for application programs using gnuplot
- and sending large amounts of data.
+ The `binary` keyword appearing alone indicates a binary data file that
+ contains both coordinate information describing a non-uniform grid and
+ the value of each grid point (see `binary matrix`).  Binary data in any other
+ format requires additional keywords to describe the layout of the data.
+ Unfortunately the syntax of these required additional keywords is convoluted.
+ Nevertheless the general binary mode is particularly useful for application
+ programs sending large amounts of data to gnuplot.
 
  Syntax:
        plot '<file_name>' {binary <binary list>} ...
@@ -4991,46 +4889,24 @@ Ffigure_mapcontours
 
  General binary format is activated by keywords in <binary list> pertaining
  to information about file structure, i.e., `array`, `record`, `format` or
- `filetype`.  Otherwise, matrix binary format is assumed.  (See `binary matrix`
- for more details.)
+ `filetype`.  Otherwise, non-uniform matrix binary format is assumed.
+ (See `binary matrix` for more details.)
 
- There are some standard file types that may be read for which details about
- the binary format may be extracted automatically.  (Type `show datafile
- binary` at the command line for a list.)  Otherwise, details must be
- specified at the command line or set in the defaults.  Keywords are described
- below.
+ NB: In previous versions of gnuplot there have been some differences between
+ the interpretation of binary data keywords by `plot` and `splot`.  Where the
+ meanings differ, one or both may change in a future gnuplot version.
 
- The keyword `filetype` in <binary list> controls the routine used to
- read the file, i.e., the format of the data.  For a list of the supported
- file types, type `show datafile binary filetypes`.  If no file type is
- given, the rule is that traditional gnuplot binary is assumed for `splot`
- if the `binary` keyword stands alone.  In all other circumstances, for
- `plot` or when one of the <binary list> keywords appears, a raw binary
- file is assumed whereby the keywords specify the binary format.
-
- General binary data files fall into two basic classes, and some files may
- be of both classes depending upon how they are treated.  There is that
- class for which uniform sampling is assumed and point coordinates must be
- generated.  This is the class for which full control via the <binary
- list> keywords applies.  For this class, the settings precedence is that
- command line parameters override in-file parameters, which override
- default settings.  The other class is that set of files for which
- coordinate information is contained within the file or there is possibly
- a non-uniform sampling such as gnuplot binary.
-
- Other than for the unique data files such as gnuplot binary, one should
- think of binary data as conceptually the same as ASCII data.  Each point
- has columns of information which are selected via the `<using list>`
- associated with `using`.  When no `format` string is specified, gnuplot
- will retrieve a number of binary variables equal to the largest column
- given in the `<using list>`.  For example, `using 1:3` will result in
- three columns being read, of which the second will be ignored.  There are
- default using lists based upon the typical number of parameters associated
- with a certain plot type.  For example, `with image` has a default of
- `using 1`, while `with rgbimage` has a default of `using 1:2:3`.  Note
- that the special characters for `using` representing point/line/index
- generally should not be used for binary data.  There are keywords in
- <binary list> that control this.
+ Gnuplot knows how to read a few standard binary file types that are fully
+ self-describing, e.g. PNG images.  Type `show datafile binary` at the
+ command line for a list. Apart from these, you can think of binary data 
+ files as conceptually the same as text data.  Each point has columns of
+ information which are selected via the `using` specification.  If no `format`
+ string is specified, gnuplot will read in a number of binary values equal
+ to the largest column given in the `<using list>`.  For example, `using 1:3`
+ will result in three columns being read, of which the second will be ignored.
+ Certain plot types have an associated default using specification.
+ For example, `with image` has a default of `using 1`, while `with rgbimage`
+ has a default of `using 1:2:3`.  
 4 array
 ?binary array
  Describes the sampling array dimensions associated with the binary file.
@@ -5044,12 +4920,10 @@ Ffigure_mapcontours
  For example, `array=25:35` indicates there are two one-dimensional records in
  the file.
        Note:  Gnuplot version 4.2 used the syntax array=128x128 rather than
-              array=(128,128). The older syntax is now deprecated, but may
-              still work if your copy of gnuplot was built to support
-              backwards compatibility.
+              array=(128,128). The older syntax is now deprecated.
 4 record
 ?binary record
- This keyword serves the same function as `array`, having the same syntax.
+ This keyword serves the same function as `array` and has the same syntax.
  However, `record` causes gnuplot to not generate coordinate information.
  This is for the case where such information may be included in one of the
  columns of the binary data file.
@@ -5106,8 +4980,7 @@ Ffigure_mapcontours
  binary file's extension is a quasi-standard extension for a supported format.
 
  Command line keywords may be used to override settings extracted from the file.
- The settings from the file override any defaults.  (See `set datafile binary`
- for details.)
+ The settings from the file override any defaults.  See `set datafile binary`.
 5 avs
 ?binary filetype avs
 ?filetype avs
@@ -5259,30 +5132,28 @@ Ffigure_mapcontours
                           {{nonuniform} matrix}
                           {index <index list> | index "<name>"}
                           {every <every list>}
-                          {thru <thru expression>}
                           {using <using list>}
                           {smooth <option>}
                           {volatile} {noautoscale}
 
- The modifiers `binary`, `index`, `every`, `thru`, `using`, and `smooth` are
+ The modifiers `binary`, `index`, `every`, `using`, and `smooth` are
  discussed separately.  In brief, `binary` allows data entry from a binary
- file (default is ASCII), `index` selects which data sets in a multi-data-set
- file are to be plotted, `every` specifies which points within a single data
- set are to be plotted, `using` determines how the columns within a single
- record are to be interpreted (`thru` is a special case of `using`), and
- `smooth` allows for simple interpolation and approximation.  (`splot` has a
- similar syntax, but does not support the `smooth` and `thru` options.)
+ file, `index` selects which data sets in a multi-data-set file are to be
+ plotted, `every` specifies which points within a single data set are to be
+ plotted, `using` determines how the columns within a single record are to be
+ interpreted, and `smooth` allows for simple interpolation and approximation.
+ `splot` has a similar syntax, but does not support the `smooth` option.
 
  The `noautoscale` keyword means that the points making up this plot will be
  ignored when automatically determining axis range limits.
 
- ASCII DATA FILES:
+ TEXT DATA FILES:
 
  Data files should contain at least one data point per record (`using`
  can select one data point from the record). Records beginning with `#`
  (and also with `!` on VMS) will be treated as comments and ignored.
  Each data point represents an (x,y) pair. For `plot`s with error bars or
- error bars with lines (see `set style errorbars` or `set style errorlines`),
+ error bars with lines (see `errorbars` or `errorlines`),
  each data point is (x,y,ydelta), (x,y,ylow,yhigh),
  (x,y,xdelta), (x,y,xlow,xhigh), or (x,y,xlow,xhigh,ylow,yhigh).
 
@@ -5491,6 +5362,34 @@ Ffigure_mapcontours
 ^ <a href="http://www.gnuplot.info/demo/multimsh.html">
 ^ splot with indices demo.
 ^ </a></p>
+4 inline data
+?inline data
+?inline
+?datablocks
+ There are two mechanisms for embedding data into a stream of gnuplot commands.
+ If the special filename '-' appears in a plot command, then the lines
+ immediately following the plot command are interpreted as inline data.
+ See `special-filenames`.  Data provided in this way can only be used once, by
+ the plot command it follows.
+
+ The second mechanism defines a named data block as a here-document.  The named
+ data is persistent and may be referred to by more than one plot command.
+ Example:
+      $Mydata << EOD
+      11 22 33 first line of data
+      44 55 66 second line of data
+      # comments work just as in a data file
+      77 88 99
+      EOD
+      stats $Mydata using 1:3
+      plot $Mydata using 1:3 with points, $Mydata using 1:2 with impulses
+
+ Data block names must begin with a $ character, which distinguishes them from
+ other types of persistent variables.  The end-of-data delimiter (EOD in the
+ example) may be any sequence of alphanumeric characters.
+
+ The storage associated with named data blocks can be released using `undefine`
+ command. `undefine $*` frees all named data blocks at once.
 4 smooth
 ?commands plot datafile smooth
 ?plot datafile smooth
@@ -5504,7 +5403,7 @@ Ffigure_mapcontours
  externally or by using `fit` with an appropriate model.
 
  Syntax:
-       smooth {unique | frequency | cumulative | cnormal | kdensity 
+       smooth {unique | frequency | cumulative | cnormal | kdensity {bandwidth}
                       | csplines | acsplines | bezier | sbezier}
 
  `unique`, `frequency`, `cumulative` and `cnormal` plot the data after
@@ -5540,9 +5439,9 @@ Ffigure_mapcontours
  The `acsplines` option approximates the data with a "natural smoothing spline".
  After the data are made monotonic in x (see `smooth unique`), a curve is
  piecewise constructed from segments of cubic polynomials whose coefficients
- are found by the weighting the data points; the weights are taken from the
- third column in the data file.  That default can be modified by the third
- entry in the `using` list, e.g.,
+ are found by fitting to the individual data points weighted by the value,
+ if any, given in the third column of the using spec.  The default is equivalent
+ to
        plot 'data-file' using 1:2:(1.0) smooth acsplines
 
  Qualitatively, the absolute magnitude of the weights determines the number
@@ -5674,12 +5573,13 @@ Ffigure_mapcontours
  A Gaussian is placed at the location of each point in the first column and
  the sum of all these Gaussians is plotted as a function. The value in the
  second column is taken as weight of the Gaussian. (To obtain a normalized
- histogram, this should be 1/number-of-points). The value of the third column,
- if supplied, is taken as the bandwidth for the kernels. If only two columns
- have been specified, or if the value of the third column is zero or less,
- gnuplot calculates the bandwidth which would be optimal if the input data was
- normally distributed. (This will usually be a very conservative, i.e. broad 
- bandwidth.)
+ histogram, this should be 1/number-of-points). By default gnuplot calculates
+ and uses the bandwidth which would be optimal for normally distributed input
+ data. (This will usually be a very conservative, i.e. broad bandwidth.)
+ Alternatively, you can provide an explicit bandwidth.
+      plot $DATA smooth kdensity bandwith <value> with boxes
+ The bandwidth used in the previous plot is stored in variable 
+ GPVAL_KDENSITY_BANDWIDTH.
 4 special-filenames
 ?commands plot datafile special-filenames
 ?plot datafile special-filenames
@@ -5699,10 +5599,13 @@ Ffigure_mapcontours
  The pseudo-file '+' treats the sampled points as column 1, and allows
  additional column values to be specified via a `using` specification, just as
  for a true input file.  The number of samples returned is controlled by
- `set samples`.
+ `set samples`.  By default samples are generated over the full range on x, but
+ an independent sampling range can be provided immediately before the '+'
+ (see `plot sampling`).
  Example:
 
        plot '+' using ($1):(sin($1)):(sin($1)**2) with filledcurves
+       plot $MYDATA, [sample=5:25] '+' using (sample):(f(sample)) with lines
 
  Similarly the pseudo-file '++' returns 2 columns of data forming a regular
  grid of [x,y] coordinates with the number of points along x controlled by
@@ -5788,7 +5691,16 @@ Ffigure_mapcontours
        plot "< awk '$0 !~ /^#/ {print $1-1965, $2}' population.dat"
 
  While this approach is most flexible, it is possible to achieve simple
- filtering with the `using` or `thru` keywords.
+ filtering with the `using` keyword.
+
+ On systems with an fdopen() function, data can be read from an arbitrary file
+ descriptor attached to either a file or pipe.  To read from file descriptor
+ `n` use `'<&n'`.  This allows you to easily pipe in several data files in a
+ single call from a POSIX shell:
+
+       $ gnuplot -p -e "plot '<&3', '<&4'" 3<data-3 4<data-4
+       $ ./gnuplot 5< <(myprogram -with -options)
+       gnuplot> plot '<&5'
 4 thru
 ?commands plot datafile thru
 ?plot datafile thru
@@ -5796,23 +5708,13 @@ Ffigure_mapcontours
 ?data-file thru
 ?datafile thru
 ?thru
- The `thru` function is provided for backward compatibility.
+ The `thru` keyword is deprecated.
 
- Syntax:
+ Old syntax:
        plot 'file' thru f(x)
 
- It is equivalent to:
-
+ Current syntax:
        plot 'file' using 1:(f($2))
-
- While the latter appears more complex, it is much more flexible.  The more
- natural
-
-       plot 'file' thru f(y)
-
- also works (i.e. you can use y as the dummy variable).
-
- `thru` is parsed for `splot` and `fit` but has no effect.
 4 using
 ?commands plot datafile using
 ?plot datafile using
@@ -6168,48 +6070,40 @@ Ffigure_mapcontours
 ?plot ranges
 ?splot ranges
 ?ranges
- The optional ranges specify the region of the graph that will be displayed.
- Note that if you specify the range as part of a plot command rather than using
- a separate `set range` statement, you will not be able to pan or zoom the plot
- interactively, and will not be able to change the range later and then `replot`.
+ This section describes only the optional axis ranges that may appear as the 
+ very first items in a `plot` command.  If present, these ranges override any
+ range limits established by a previous `set range` statement.  For optional
+ ranges elsewhere in a `plot` command that limit sampling of an individual
+ plot component see `sampling`.
 
  Syntax:
        [{<dummy-var>=}{{<min>}:{<max>}}]
        [{{<min>}:{<max>}}]
 
  The first form applies to the independent variable (`xrange` or `trange`, if
- in parametric mode).  The second form applies to the dependent variable
- `yrange` (and `xrange`, too, if in parametric mode).  <dummy-var> is a new
- name for the independent variable.  (The defaults may be changed with `set
- dummy`.)  The optional <min> and <max> terms can be constant expressions or *.
+ in parametric mode).  The second form applies to dependent variables.
+ <dummy-var> optionally establishes a new name for the independent variable.
+ (The default name may be changed with `set dummy`.)
 
- In non-parametric mode, the order in which ranges must be given is `xrange`
- and `yrange`.
+ In non-parametric mode, ranges must be given in the order
+       plot [<xrange>][<yrange>][<x2range>][<y2range>] ...
 
- In parametric mode, the order for the `plot` command is `trange`, `xrange`,
- and `yrange`.  The following `plot` command shows setting the `trange` to
- [-pi:pi], the `xrange` to [-1.3:1.3] and the `yrange` to [-1:1] for the
- duration of the graph:
+ In parametric mode, ranges must be given in the order
+       plot [<trange>][<xrange>][<yrange>][<x2range>][<y2range>] ...
+ The following `plot` command shows setting `trange` to [-pi:pi], `xrange`
+ to [-1.3:1.3] and `yrange` to [-1:1] for the duration of the graph:
 
        plot [-pi:pi] [-1.3:1.3] [-1:1] sin(t),t**2
 
- Note that the x2range and y2range cannot be specified here---`set x2range`
- and `set y2range` must be used.
+ `*` can be used to allow autoscaling of either of min and max.
+ Use an empty range `[]` as a placeholder if necessary. 
 
- Ranges are interpreted in the order listed above for the appropriate mode.
- Once all those needed are specified, no further ones must be listed, but
- unneeded ones cannot be skipped---use an empty range `[]` as a placeholder.
-
- `*` can be used to allow autoscaling of either of min and max.  See also
- `set autoscale`.
-
- Ranges specified on the `plot` or `splot` command line affect only that
+ Ranges specified on the `plot` or `splot` command line affect only that one
  graph; use the `set xrange`, `set yrange`, etc., commands to change the
  default ranges for future graphs.
 
- With time data, you must provide the range (in the same manner as the time
- appears in the datafile) within quotes.  `gnuplot` uses the `timefmt` string
- to read the value---see `set timefmt`.
+ For time data you must provide the range in quotes, using the same format
+ used to read time from the datafile.  See `set timefmt`.
 
  Examples:
 
@@ -6225,21 +6119,58 @@ Ffigure_mapcontours
  This sets both the x and y ranges:
        plot [-pi:pi] [-3:3]  tan(x), 1/x
 
- This sets only the y range, and turns off autoscaling on both axes:
+ This sets only the y range:
        plot [ ] [-2:sin(5)*-8] sin(x)**besj0(x)
 
  This sets xmax and ymin only:
-       plot [:200] [-pi:]  exp(sin(x))
+       plot [:200] [-pi:]  $mydata using 1:2
 
  This sets the x range for a timeseries:
        set timefmt "%d/%m/%y %H:%M"
        plot ["1/6/93 12:00":"5/6/93 12:00"] 'timedata.dat'
 
-3 iteration
-?commands plot iteration
-?commands splot iteration
-?plot iteration
-?splot iteration
+3 sampling
+?sampling
+?commands plot sampling
+?plot sampling
+=sample
+ By default, computed functions or data generated for the pseudo-file "+" are
+ sampled over the entire range of the plot. This range may have been specified
+ by a prior `set xrange` command, by an explicit global range specifier at the
+ very start of the plot command, or by autoscaling of the range to span data
+ seen in all the elements of this plot command.  However, individual plot
+ components can be assigned a more restricted sampling range. 
+
+ Examples:
+
+ This establishes a total range on x running from 0 to 1000 and then plots
+ data from a file and two functions each spanning a portion of the total range:
+       plot [0:1000] 'datafile', [0:200] func1(x), [200:500] func2(x)
+
+ This is similar except that the total range is established by the contents
+ of the data file. In this case the sampled functions may or may not be
+ entirely contained in the plot:
+       set autoscale x
+       plot 'datafile', [0:200] func1(x), [200:500] func2(x)
+
+ This command is ambiguous. The initial range will be interpreted as applying to
+ the entire plot, not solely to the sampling of the first function as was
+ probably the intent:
+       plot [0:10] f(x), [10:20] g(x), [20:30] h(x)
+
+ This command removes the ambiguity of the previous example by inserting the
+ keyword `sample` so that the range is not applyied to the entire plot:
+       plot sample [0:10] f(x), [10:20] g(x), [20:30] h(x)
+
+ This example shows one way of tracing out a helix in a 3D plot
+       splot [-2:2][-2:2] sample [h=1:10] '+' using (cos(h)):(sin(h)):(h)
+
+3 for loops in plot command
+?commands plot for
+?commands splot for
+?plot for
+?splot for
+?for loops
 =iteration
  If many similar files or functions are to be plotted together, it may be
  convenient to do so by iterating over a shared plot command.
@@ -6248,8 +6179,9 @@ Ffigure_mapcontours
        plot for [<variable> = <start> : <end> {:<increment>}]
        plot for [<variable> in "string of words"]
 
- The scope of an iteration ends at the next comma or the end of the
- command, whichever comes first.  Iteration can not be nested.
+ The scope of an iteration ends at the next comma or the end of the command,
+ whichever comes first.  Therefore iteration does not work for plots in
+ parametric mode.
 
  This will plot one curve, sin(3x), because iteration ends at the comma
        plot for [i=1:3] j=i, sin(j*x)
@@ -6308,6 +6240,7 @@ Ffigure_mapcontours
  Syntax:
        title <text> | notitle [<ignored text>]
        title columnheader | title columnheader(N)
+             {at {beginning|end}}
 
  where <text> is a quoted string or an expression that evaluates to a string.
  The quotes will not be shown in the key.
@@ -6330,6 +6263,11 @@ Ffigure_mapcontours
  The layout of the key itself (position, title justification, etc.) can be
  controlled by `set key`.  Please see `set key` for details.
 
+ If you want the title of a plotted line to be placed immediately before or
+ after that line in the graph itself, use `at {beginning|end}`.  This option
+ may be useful when plotting `with lines` but makes little sense for some
+ other plot styles.
+
  Examples:
 
  This plots y=x with the title 'x':
@@ -6342,8 +6280,12 @@ Ffigure_mapcontours
  This puts an untitled circular border around a polar graph:
        set polar; plot my_function(t), 1 notitle
 
- Plot multiple columns of data, each of which contains its own title in the file
-       plot for [i=1:4] 'data' using i title columnhead
+ Plot multiple columns of data, each of which contains its own title on the
+ first line of the file.  Place the titles after the corresponding lines rather
+ than in a separate key:
+       unset key
+       set offset 0, graph 0.1
+       plot for [i=1:4] 'data' using i with lines title columnhead at end 
 
 3 with
 ?commands plot with
@@ -6377,12 +6319,11 @@ Ffigure_mapcontours
       lines        dots       steps     errorbars     xerrorbar    xyerrorlines
       points       impulses   fsteps    errorlines    xerrorlines  yerrorbars
       linespoints  labels     histeps   financebars   xyerrorbars  yerrorlines
-                                        vectors
+      surface      vectors
  or
-       boxes            candlesticks   image      circles
-       boxerrorbars     filledcurves   rgbimage   ellipses
-       boxxyerrorbars   histograms     rgbalpha   pm3d
-       boxplot
+      boxes            boxplot        ellipses       image
+      boxerrorbars     candlesticks   filledcurves   rgbimage
+      boxxyerrorbars   circles        histograms     rgbalpha   pm3d
 
  The first group of styles have associated line, point, and text properties.
  The second group of styles also have fill properties.  See `fillstyle`.  Some
@@ -6589,8 +6530,8 @@ Ffigure_mapcontours
  over again.  In most cases you can use the `refresh` command instead, which
  will redraw the plot using the data previously read in.
 
- Note that `replot` does not work in `multiplot` mode, since it reproduces
- only the last plot rather than the entire screen.
+ Note that in multiplot mode, `replot` can only reproduce the most recent
+ component plot, not the full set.
 
  See also `command-line-editing` for ways to edit the last `plot` (`splot`)
  command.
@@ -6729,7 +6670,7 @@ Ffigure_mapcontours
  when the variable was initially defined.
 =iteration
  The `set` and `unset` commands may optionally contain an iteration clause.
- See `iteration`.
+ See `plot for`.
 
 3 angles
 ?commands set angles
@@ -6788,15 +6729,16 @@ Ffigure_mapcontours
  Arbitrary arrows can be placed on a plot using the `set arrow` command.
 
  Syntax:
-       set arrow {<tag>} {from <position>} {to|rto <position>}
-                 { {arrowstyle | as <arrow_style>}
-                   | { {nohead | head | backhead | heads}
-                       {size <length>,<angle>{,<backangle>}}
+       set arrow {<tag>} from <position> to <position>
+       set arrow {<tag>} from <position> rto <position>
+       set arrow {<tag>} from <position> length <coord> angle <ang>
+       set arrow <tag> arrowstyle | as <arrow_style>
+       set arrow <tag> {nohead | head | backhead | heads}
+                       {size <headlength>,<headangle>{,<backangle>}}
                        {filled | empty | nofilled}
                        {front | back}
-                       { {linestyle | ls <line_style>}
-                         | {linetype | lt <line_type>}
-                           {linewidth | lw <line_width} } } }
+                       {linestyle <line_style>}
+                       {linetype <line_type>} {linewidth <line_width}
 
        unset arrow {<tag>}
        show arrow {<tag>}
@@ -6807,64 +6749,34 @@ Ffigure_mapcontours
  arrow, use the `set arrow` command with the appropriate tag and specify the
  parts of the arrow to be changed.
 
+ The position of the first end point of the arrow is always specified by "from".
+ The other end point can be specified using any of three different mechanisms.
  The <position>s are specified by either x,y or x,y,z, and may be preceded by
  `first`, `second`, `graph`, `screen`, or `character` to select the coordinate
- system.  Unspecified coordinates default to 0.  The end points can be
- specified in one of five coordinate systems---`first` or `second` axes,
- `graph`, `screen`, or `character`.  See `coordinates` for details.  A
- coordinate system specifier does not carry over from the "from" position to
- the "to" position.  Arrows outside the screen boundaries are permitted but
- may cause device errors.  If the end point is specified by "rto" instead of
- "to" it is drawn relatively to the start point.  For linear axes, `graph`
- and `screen` coordinates, the distance between the start and the end point
- corresponds to the given relative coordinate.  For logarithmic axes, the
- relative given coordinate corresponds to the factor of the coordinate
+ system.  Unspecified coordinates default to 0. See `coordinates` for details.
+ A coordinate system specifier does not carry over from the first endpoint
+ description the second.
+
+ 1) "to <position>" specifies the absolute coordinates of the other end.
+
+ 2) "rto <position>" specifies an offset to the "from" position.  For linear
+ axes, `graph` and `screen` coordinates, the distance between the start and the
+ end point corresponds to the given relative coordinate.  For logarithmic axes,
+ the relative given coordinate corresponds to the factor of the coordinate
  between start and end point.  Thus, a negative relative value or zero are
  not allowed for logarithmic axes.
 
- Specifying `nohead` produces an arrow drawn without a head---a line segment.
- This gives you yet another way to draw a line segment on the plot.  By
- default, an arrow has a head at its end. Specifying `backhead` draws an arrow
- head at the start point of the arrow while `heads` draws arrow heads on both
- ends of the line.  Not all terminal types support double-ended arrows.
+ 3) "length <coordinate> angle <angle>" specifies the orientation of the arrow
+ in the plane of the graph.  Again any of the coordinate systems can
+ be used to specify the length.  The angle is always in degrees.
 
- Head size can be controlled by `size <length>,<angle>` or
- `size <length>,<angle>,<backangle>`, where `<length>` defines length of each
- branch of the arrow head and `<angle>` the angle (in degrees) they make with
- the arrow.  `<Length>` is in x-axis units; this can be changed by `first`,
- `second`, `graph`, `screen`, or `character` before the <length>;  see
- `coordinates` for details.  `<Backangle>` only takes effect when `filled`
- or `empty` is also used.  Then, `<backangle>` is the angle (in degrees) the
- back branches make with the arrow (in the same direction as `<angle>`).
- The `fig` terminal has a restricted backangle function. It supports three
- different angles. There are two thresholds: Below 70 degrees, the arrow head
- gets an indented back angle. Above 110 degrees, the arrow head has an acute
- back angle. Between these thresholds, the back line is straight.
-
- Specifying `filled` produces filled arrow heads (if heads are used).
- Filling is supported on filled-polygon capable terminals, see help of `pm3d`
- for their list, otherwise the arrow heads are closed but not filled.
- The same result (closed but not filled arrow head) is reached by specifying
- `empty`.  Further, filling and outline is obviously not supported on
- terminals drawing arrows by their own specific routines, like `metafont`,
- `metapost`, `latex` or `tgif`.
-
- The line style may be selected from a user-defined list of line styles
- (see `set style line`) or may be defined here by providing values for
- <line_type> (an index from the default list of styles) and/or <line_width>
- (which is a  multiplier for the default width).
-
- Note, however, that if a user-defined line style has been selected, its
- properties (type and width) cannot be altered merely by issuing another
- `set arrow` command with the appropriate index and `lt` or `lw`.
-
- If `front` is given, the arrow is written on top of the graphed data. If
- `back` is given (the default), the arrow is written underneath the graphed
- data.  Using `front` will prevent an arrow from being obscured by dense data.
+ Other characteristics of the arrow can either be specified as a pre-defined
+ arrow style or by providing them in `set arrow` command.  For a detailed
+ explanation of arrow characteristics, see `arrowstyle`.
 
  Examples:
 
- To set an arrow pointing from the origin to (1,2) with user-defined style 5,
+ To set an arrow pointing from the origin to (1,2) with user-defined linestyle 5,
  use:
        set arrow to 1,2 ls 5
 
@@ -6922,6 +6834,7 @@ Ffigure_mapcontours
 
  Syntax:
        set autoscale {<axes>{|min|max|fixmin|fixmax|fix} | fix | keepfix}
+       set autoscale noextend
        unset autoscale {<axes>}
        show autoscale
 
@@ -6935,6 +6848,8 @@ Ffigure_mapcontours
  axes using equidistant tics; `set autoscale fix` sets this for all axes.
  Command `set autoscale keepfix` autoscales all axes while keeping the fix
  settings.
+
+ `set autoscale noextend` is a synonym for `set autoscale fix`.
 
  When autoscaling, the axis range is automatically computed and the dependent
  axis (y for a `plot` and z for `splot`) is scaled to include the range of the
@@ -6964,9 +6879,10 @@ Ffigure_mapcontours
 
  When tics are displayed on second axes but no plot has been specified for
  those axes, x2range and y2range are inherited from xrange and yrange.  This
- is done _before_ xrange and yrange are autoextended to a whole number of
- tics, which can cause unexpected results.  You can use the `fixmin`
- or `fixmax` options to avoid this.
+ is done _before_ applying offsets or autoextending the ranges to a whole
+ number of tics, which can cause unexpected results.  To prevent this you can
+ explicitly link the secondary axis range to the primary axis range.
+ See `set link`.
 
  Examples:
 
@@ -7097,10 +7013,10 @@ Ffigure_mapcontours
  and bottom front corners is the "front vertical".  (This nomenclature is
  defined solely to allow the reader to figure out the table that follows.)
 
- The borders are encoded in a 12-bit integer: the bottom four bits control the
+ The borders are encoded in a 12-bit integer: the four low bits control the
  border for `plot` and the sides of the base for `splot`; the next four bits
- control the verticals in `splot`; the top four bits control the edges on top
- of the `splot`.  In detail, `<integer>` should be the sum of the appropriate
+ control the verticals in `splot`; the four high bits control the edges on top
+ of an `splot`.  The border settings is thus the sum of the appropriate
  entries from the following table:
 
 @start table - first is interactive cleartext form
@@ -7174,10 +7090,8 @@ Ffigure_mapcontours
 ^</tbody>
 ^</table>
 
- Various bits or combinations of bits may be added together in the command.
-
- The default is 31, which is all four sides for `plot`, and base and z axis
- for `splot`.
+ The default setting is 31, which is all four sides for `plot`, and base and 
+ z axis for `splot`.
 
  In 2D plots the border is normally drawn on top of all plots elements
  (`front`). If you want the border to be drawn behind the plot elements,
@@ -7539,7 +7453,7 @@ Ffigure_mapcontours
  See also `set cntrparam` for the parameters that affect the drawing of
  contours, and `set clabel` for control of labelling of the contours.
 
- The surface can be switched off (see `set surface`), giving a contour-only
+ The surface can be switched off (see `unset surface`), giving a contour-only
  graph.  Though it is possible to use `set size` to enlarge the plot to fill
  the screen, more control over the output format can be obtained by writing
  the contour information to a file, and rereading it as a 2D datafile plot:
@@ -7602,23 +7516,25 @@ Ffigure_mapcontours
 ?show datafile missing
 ?set missing
 ?missing
- The `set datafile missing` command allows you to tell `gnuplot` what character
- string is used in a data file to denote missing data.  Exactly how this missing
- value will be treated depends on the `using` specifier of the `plot` or `splot`
- command.
+ The `set datafile missing` command tells `gnuplot` there is a special string
+ used in input data files to denote a missing data entry.  There is no default
+ character for `missing`, but in many cases any non-parsible string of
+ characters found where a numerical value is expected will cause the line to be
+ treated as missing data. There is a distinction between missing data and 
+ invalid data (e.g. "NaN", 1/0.).  Invalid data causes a gap in the line drawn
+ through the points; missing data does not.
 
  Syntax:
-       set datafile missing {"<string>"}
+       set datafile missing "<string>"
        show datafile missing
        unset datafile
 
- Example:
-       # Ignore entries containing IEEE NaN ("Not a Number") code
-       set datafile missing "NaN"
-
+ `Note`: The treatment of certain cases has changed in this version of gnuplot.
+ The example below shows the difference.
+Ffigure_missing
  Example:
        set style data linespoints
-       plot '-'
+       plot '-' title "(a)"
           1 10
           2 20
           3 ?
@@ -7626,83 +7542,77 @@ Ffigure_mapcontours
           5 50
           e
        set datafile missing "?"
-       plot '-'
+       plot '-' title "(b)"
           1 10
           2 20
           3 ?
           4 40
           5 50
           e
-       plot '-' using 1:2
+       plot '-' using 1:2 title "(c)"
           1 10
           2 20
-          3 ?
+          3 NaN
           4 40
           5 50
           e
-       plot '-' using 1:($2)
+       plot '-' using 1:($2) title "(d)"
           1 10
           2 20
-          3 ?
+          3 NaN
           4 40
           5 50
           e
 
- The first `plot` will recognize only the first datum in the "3 ?" line.  It
- will use the single-datum-on-a-line convention that the line number is "x"
- and the datum is "y", so the point will be plotted (in this case erroneously)
- at (2,3).
+ Plot (a) differs because the third line contains only one valid number.
+ Old gnuplot versions switched to a single-datum-on-a-line convention that the
+ line number is "x" and the datum is "y", erroneously placing the point at(2,3).
 
- The second and third `plot` commands will correctly ignore the middle line.
- The plotted line will connect the points at (2,20) and (4,40).
+ Both the old and new gnuplot versions handle the same data correctly if the
+ '?' character is designated as a marker for missing data (b).
 
- The fourth `plot` will also correctly ignore the middle line, but the plotted
- line will not connect the points at (2,20) and (4,40).
-
- There is no default character for `missing`, but in many cases any
- non-parsible string of characters found where a numerical value is expected
- will be treated as missing data.
+ Old gnuplot versions handled NaN differently depending of the form of the
+ `using` clause, as shown in plots (c) and (d).  Gnuplot now handles NaN the
+ same whether the input column was specified as N or ($N).
 
 4 set datafile separator
 ?set datafile separator
 ?show datafile separator
 ?datafile separator
 ?separator
- The command `set datafile separator "<char>"` tells `gnuplot` that data fields
- in subsequent input files are separated by <char> rather than by whitespace.
- The most common use is to read in csv (comma-separated value) files written
- by spreadsheet or database programs. By default data fields are separated by
- whitespace.
+ The command `set datafile separator` tells `gnuplot` that data fields in
+ subsequent input files are separated by a specific character rather than by
+ whitespace.  The most common use is to read in csv (comma-separated value)
+ files written by spreadsheet or database programs. By default data fields
+ are separated by whitespace.
 
  Syntax:
-       set datafile separator {"<char>" | whitespace}
+       set datafile separator {whitespace | tab | comma | "<char>"}
 
  Examples:
        # Input file contains tab-separated fields
        set datafile separator "\t"
 
        # Input file contains comma-separated values fields
-       set datafile separator ","
+       set datafile separator comma
 4 set datafile commentschars
 ?set datafile commentschars
 ?commentschars
- The `set datafile commentschars` command allows you to tell `gnuplot` what
- characters are used in a data file to denote comments.  Gnuplot will ignore
- rest of the line behind the specified characters if either of them is the
- first non-blank character on the line.
+ The `set datafile commentschars` tells `gnuplot` what characters are used in a
+ data file to begin comment lines. If the first non-blank character on a line is
+ one of the specified characters then the rest of the input line is ignored.
+ Default value of the string is "#!" on VMS and "#" otherwise.
 
  Syntax:
        set datafile commentschars {"<string>"}
        show datafile commentschars
        unset commentschars
 
- Default value of the string is "#!" on VMS and "#" otherwise.
-
  Then, the following line in a data file is completely ignored
      # 1 2 3 4
  but the following
      1 # 3 4
- produces rather unexpected plot unless
+ produces a rather unexpected plot unless
      set datafile missing '#'
  is specified as well.
 
@@ -7951,7 +7861,7 @@ Ffigure_mapcontours
     iso_8859_2  - used in Central and Eastern Europe
     iso_8859_9  - used in Turkey (also known as Latin5)
     koi8r       - popular Unix cyrillic encoding
-    koi8u       - ukrainian Unix cyrillic encoding
+    koi8u       - Ukrainian Unix cyrillic encoding
     cp437       - codepage for MS-DOS
     cp850       - codepage for OS/2, Western Europe
     cp852       - codepage for OS/2, Central and Eastern Europe
@@ -7983,7 +7893,10 @@ Ffigure_mapcontours
  The `fit` setting defines where the `fit` command writes its output.
 
  Syntax:
-       set fit {logfile {"<filename>"}} {{no}errorvariables} {{no}quiet}
+       set fit {logfile {"<filename>"}}
+               {{no}errorvariables}
+               {{no}errorscaling}
+               {{no}quiet}
        unset fit
        show fit
 
@@ -8008,6 +7921,14 @@ Ffigure_mapcontours
         print "error of a is:", a_err
         set label 'a=%6.2f', a, '+/- %6.2f', a_err
         plot 'datafile' using 1:2, f(x)
+
+ If the `errorscaling` option is specified, which is the default, the
+ calculated parameter errors are scaled with the reduced chi square.  This is
+ equivalent to providing data errors equal to the calculated standard
+ deviation of the fit (FIT_STDFIT) resulting in a reduced chi square of one.
+ With the `noerrorscaling` option the estimated errors are the unscaled
+ standard deviations of the fit parameters.
+ If no weights are specified for the data, parameter errors are always scaled.
 
  By default the information written to the log file is also echoed to
  the terminal session. `set fit quiet` turns off the echo.
@@ -8654,39 +8575,32 @@ Ffigure_mapcontours
 ?key
 ?nokey
 ?legend
- The `set key` command enables a key (or legend) describing plots on a plot.
-
- The contents of the key, i.e., the names given to each plotted data set and
- function and samples of the lines and/or symbols used to represent them, are
- determined by the `title` and `with` options of the {`s`}`plot` command.
- Please see `plot title` and `plot with` for more information.
+ The `set key` command enables a key (or legend) containing a title and a
+ sample (line, point, box) for each plot in the graph. The key may be turned off
+ by requesting `set key off` or `unset key`.  Individual key entries may be
+ turned off by using the `notitle` keyword in the corresponding plot command.
+ The text of the titles is controlled by the `set key autotitle` option or by
+ the `title` keyword of individual `plot` and `splot` commands.
+ See `plot title` for more information.
 
  Syntax:
        set key {on|off} {default}
-               {{inside | outside} | {lmargin | rmargin | tmargin | bmargin}
-                 | {at <position>}}
-               {left | right | center} {top | bottom | center}
-               {vertical | horizontal} {Left | Right}
-               {{no}opaque}
-               {{no}reverse} {{no}invert}
-               {samplen <sample_length>} {spacing <vertical_spacing>}
-               {width <width_increment>}
-               {height <height_increment>}
-               {{no}autotitle {columnheader}}
-               {title "<text>"} {{no}enhanced}
-               {font "<face>,<size>"} {textcolor <colorspec>}
-               {{no}box { {linestyle | ls <line_style>}
-                          | {linetype | lt <line_type>}
-                            {linewidth | lw <line_width>}}}
-               {maxcols {<max no. of columns> | auto}}
-               {maxrows {<max no. of rows> | auto}}
+             {{inside | outside} | {lmargin | rmargin | tmargin | bmargin}
+               | {at <position>}}
+             {left | right | center} {top | bottom | center}
+             {vertical | horizontal} {Left | Right}
+             {{no}opaque}
+             {{no}reverse} {{no}invert}
+             {samplen <sample_length>} {spacing <vertical_spacing>}
+             {width <width_increment>} {height <height_increment>}
+             {{no}autotitle {columnheader}}
+             {title "<text>"} {{no}enhanced}
+             {font "<face>,<size>"} {textcolor <colorspec>}
+             {{no}box {linestyle <style> | linetype <type> | linewidth <width>}}
+             {maxcols {<max no. of columns> | auto}}
+             {maxrows {<max no. of rows> | auto}}
        unset key
        show key
-
- The key contains a title and a sample (line, point, box) for each plot
- in the graph. The key may be turned off by requesting `set key off` or
- `unset key`.  Individual key entries may be turned off by using the
- `notitle` keyword in the corresponding plot command.
 
  Elements within the key are stacked according to `vertical` or `horizontal`.
  In the case of `vertical`, the key occupies as few columns as possible.  That
@@ -8905,6 +8819,7 @@ Ffigure_mapcontours
                  {textcolor <colorspec>}
                  {point <pointstyle> | nopoint}
                  {offset <offset>}
+                 {hypertext}
        unset label {<tag>}
        show label
 
@@ -9029,6 +8944,20 @@ Ffigure_mapcontours
  To set a label whose color matches the z value (in this case 5.5) of some
  point on a 3D splot colored using pm3d:
        set label 'text' at 0,0,5.5 tc palette z
+4 hypertext
+?hypertext
+?label hypertext
+?set label hypertext
+ Some terminals (wxt, qt, svg, canvas, win) allow you to attach hypertext
+ to specific points on the graph or elsewhere on the canvas. When the mouse
+ hovers over the anchor point, a pop-up box containing the text is displayed.
+ Terminals that do not support hypertext will display nothing. You must enable
+ the `point` attribute of the label in order for the hypertext to be anchored.
+ Examples:
+       set label at 0,0 "Plot origin" hypertext point pt 1
+       plot 'data' using 1:2:0 with labels hypertext point pt 7 \
+            title 'mouse over point to see its order in data set'
+
 3 linetype
 ?commands set linetype
 ?commands unset linetype
@@ -9052,8 +8981,8 @@ Ffigure_mapcontours
  line (the previous default meaning of lt 1).  This includes uses such as the
  definition of a temporary linestyle derived from the base linetype 1.
 
- `Note`: This command is new to gnuplot version 4.6.  It supersedes a rather
- cryptic command in version 4.2 "set style increment user".
+ `Note`: This command was introduced in gnuplot version 4.6.  It supersedes a
+ rather cryptic command "set style increment user".
  The older command is now deprecated.
 
  This mechanism can be used to define a set of personal preferences for the
@@ -9090,7 +9019,34 @@ Ffigure_mapcontours
  this command.  `unset linetype cycle` disables this feature.  If the line
  properties of a higher numbered linetype are explicitly defined, this takes
  precedence over the recycled low-number linetype properties.
+3 link
+?commands set link
+?set link
+?link
+ Syntax:
+       set link {x2 | y2} {via <expression1> inverse <expression2>}
+       unset link
 
+ The `set link` command establishes a mapping between the x and x2 axes, or the
+ y and y2 axes.  <expression1> maps primary axis coordinates onto the secondary
+ axis.  <expression2> maps secondary axis coordinates onto the primary axis.
+
+ Examples:
+       
+       set link x
+
+ This is the simplest form of the command. It forces the x2 axis to have
+ identically the same range, scale, and direction as the x axis.
+ Commands `set xrange`, `set auto x`, etc will affect both the x and x2 axes.
+ Commands `set x2range`, etc, will be ignored while the linkage is in effect.
+       
+       set link x2 via x**2 inverse sqrt(x)
+       plot "sqrt_data" using 1:2 axes x2y1, "linear_data" using 1:2 axes x1y1
+
+ This command establishes forward and reverse mapping between the x and x2 axes.
+ The forward mapping is used to generate x2 tic labels and x2 mouse coordinate
+ The reverse mapping is used to plot coordinates given in the x2 coordinate
+ system.  Note that the mapping as given is valid only for x non-negative.
 3 lmargin
 ?commands set lmargin
 ?set lmargin
@@ -9282,7 +9238,7 @@ Ffigure_mapcontours
  The command `set mouse` enables mouse actions for the current interactive
  terminal.  It is usually enabled by default in interactive mode, but disabled
  by default if commands are being read from a file.
- 
+
  There are two mouse modes. The 2D mode works for `plot` commands and for `splot`
  maps (i.e. `set view` with z-rotation 0, 90, 180, 270 or 360 degrees, including
  `set view map`).  In this mode the mouse position is tracked and you can pan or
@@ -9426,11 +9382,12 @@ Ffigure_mapcontours
  several plots are placed on the same page, window, or screen.
 
  Syntax:
-       set multiplot { layout <rows>,<cols>
-                       {rowsfirst|columnsfirst} {downwards|upwards}
-                       {title <page title>}
-                       {scale <xscale>{,<yscale>}} {offset <xoff>{,<yoff>}}
-                     }
+       set multiplot
+           { title <page title> {font <fontspec>} {enhanced|noenhanced} }
+           { layout <rows>,<cols> 
+             {rowsfirst|columnsfirst} {downwards|upwards}
+             {scale <xscale>{,<yscale>}} {offset <xoff>{,<yoff>}}
+           }
        unset multiplot
 
  For some terminals, no plot is displayed until the command `unset multiplot`
@@ -9842,20 +9799,16 @@ Ffigure_mapcontours
  When both `set terminal` and `set output` are used together, it is safest to
  give `set terminal` first, because some terminals set a flag which is needed
  in some operating systems.  This would be the case, for example, if the
- operating system needs to know whether or not a file is to be formatted in
- order to open it properly.
+ operating system needs a separate open command for binary files.
 
- On machines with popen functions (Unix), output can be piped through a shell
- command if the first non-whitespace character of the filename is '|'.
+ On platforms that support pipes, it may be useful to pipe terminal output.
  For instance,
 
        set output "|lpr -Plaser filename"
-       set output "|lp -dlaser filename"
+       set term png; set output "|display png:-"
 
  On MSDOS machines, `set output "PRN"` will direct the output to the default
- printer.  On VMS, output can be sent directly to any spooled device.  It is
- also possible to send the output to DECnet transparent tasks, which allows
- some flexibility.
+ printer.  On VMS, output can be sent directly to any spooled device.
 3 parametric
 ?commands set parametric
 ?commands unset parametric
@@ -9932,7 +9885,9 @@ Ffigure_mapcontours
                   { flush { begin | center | end } }
                   { ftriangles | noftriangles }
                   { clip1in | clip4in }
-                  { corners2color { mean|geomean|median|min|max|c1|c2|c3|c4 } }
+                  { corners2color
+                    { mean|geomean|harmean|rms|median|min|max|c1|c2|c3|c4 }
+                  }
                   { hidden3d {<linestyle>} | nohidden3d }
                   { implicit | explicit }
                   { map }
@@ -10080,11 +10035,6 @@ Ffigure_mapcontours
 
 4 color_assignment
 ?pm3d color_assignment
-=mean
-=geomean
-=median
-=min
-=max
  `3 columns of data (x,y,z)`:
 
  The coloring setup as well as the color box drawing are determined by
@@ -10094,22 +10044,8 @@ Ffigure_mapcontours
  when your terminal is running out of available colors.
 
  There is a single gray/color value associated to each drawn pm3d quadrangle
- (no smooth color change among vertices).  The value is calculated from
- z-coordinates from the surrounding corners according to `corners2color
- <option>`.  The options 'mean' (default), 'geomean' and 'median' produce
- various kinds of surface color smoothing, while options 'min' and 'max' choose
- minimal or maximal value, respectively. This may not be desired for pixel
- images or for maps with sharp and intense peaks, in which case the options
- 'c1', 'c2', 'c3' or 'c4' can be used instead to assign the quadrangle color
- based on the z-coordinate of only one corner.  Some experimentation may be
- needed to determine which corner corresponds to 'c1', as the orientation
- depends on the drawing direction.  Because the pm3d algorithm does not extend
- the colored surface outside the range of the input data points, the 'c<j>'
- coloring options will result in pixels along two edges of the grid not
- contributing to the color of any quadrangle.  For example, applying the pm3d
- algorithm to the 4x4 grid of data points in script `demo/pm3d.dem` (please have
- a look) produces only (4-1)x(4-1)=9 colored rectangles.
-
+ (it contains a solid color, not a gradient).  The value is calculated from
+ z-coordinates the four corners according to `corners2color <option>`.
  `4 columns of data (x,y,z,color)`:
 
  If a fourth column of data is provided, it is normally interpreted as a 
@@ -10130,6 +10066,31 @@ Ffigure_mapcontours
  independently by `set zrange`, `set cbrange`, as well as `set log` for z or
  cb.  Maps can be adjusted by the cb-axis only; see also `set view map` and
  `set colorbox`.
+4 corners2color
+?pm3d corners2color
+?corners2color
+=mean
+=geomean
+=harmean
+=median
+=min
+=max
+=rms
+ The color of each quadrangle in a pm3d surface is assigned based on the color
+ values of its four bounding vertices.
+ The options 'mean' (default), 'geomean', 'harmean, 'rms', and 'median' produce
+ various kinds of surface color smoothing, while options 'min' and 'max' choose
+ minimal or maximal value, respectively. This may not be desired for pixel
+ images or for maps with sharp and intense peaks, in which case the options
+ 'c1', 'c2', 'c3' or 'c4' can be used instead to assign the quadrangle color
+ based on the z-coordinate of only one corner.  Some experimentation may be
+ needed to determine which corner corresponds to 'c1', as the orientation
+ depends on the drawing direction.  Because the pm3d algorithm does not extend
+ the colored surface outside the range of the input data points, the 'c<j>'
+ coloring options will result in pixels along two edges of the grid not
+ contributing to the color of any quadrangle.  For example, applying the pm3d
+ algorithm to the 4x4 grid of data points in script `demo/pm3d.dem` (please have
+ a look) produces only (4-1)x(4-1)=9 colored rectangles.
 4 hidden3d
 ?set pm3d hidden3d
 ?pm3d hidden3d
@@ -10150,17 +10111,22 @@ Ffigure_mapcontours
 4 interpolate
 ?set pm3d interpolate
 ?pm3d interpolate
- The option `interpolate m,n` will interpolate grid points into a finer mesh,
- and color each quadrangle appropriately.  For data files, this will smoothen
- the color surface, and enhance spikes in a color surface. For functions,
- interpolation makes little sense, except to trade off precision for memory.
- It would usually make more sense to use `samples` and `isosamples` when
- working with functions. For positive m and n, each quadrangle or triangle
- is interpolated m-times and n-times in the respective direction.  For negative
- m and n, the interpolation frequency is chosen so that there will be at least
- |m| and |n| points drawn; you can consider this as a special gridding function.
- Zeros, i.e. `interpolate 0,0`, will automatically choose an optimal number of
+ The option `interpolate m,n` will interpolate between grid points to generate
+ a finer mesh.  For data files, this smooths the color surface and enhances the
+ contrast of spikes in the surface.  When working with functions, interpolation
+ makes little sense.  It would usually make more sense to increase `samples` and
+ `isosamples`.
+
+ For positive m and n, each quadrangle or triangle is interpolated m-times and
+ n-times in the respective direction.  For negative m and n, the interpolation
+ frequency is chosen so that there will be at least |m| and |n| points drawn;
+ you can consider this as a special gridding function.
+
+ Note: `interpolate 0,0`, will automatically choose an optimal number of
  interpolated surface points.
+
+ Note: Currently color interpolation is always linear, even if corners2color
+ is set to a nonlinear scheme such as the geometric mean.
 4 deprecated_options
 ?pm3d deprecated_options
  There used to be an option {transparent|solid} to this command.  Now
@@ -10522,21 +10488,14 @@ Ffigure_mapcontours
  in one graph.  Well, you can achieve this functionality by `multiplot` with
  fixed `origin` and `size`.
 
- If pm3d map has been plotted from gridded or almost regular data with an
- output to a postscript file, then it is possible to reduce the size of this
- postscript file up to at about 50% by the enclosed awk script
- `pm3dCompress.awk`.  This you may find  interesting if you intend to keep the
- file for including it into your publication or before downloading a very large
- file into a slow printer. Usage:
+ If you are writing a pm3d surface to a postscript file, it may be possible to
+ reduce the file size by up to 50% by the enclosed awk script
+ `pm3dCompress.awk`.  If the data lies on a rectangular grid, even greater
+ compression may be possible using the script `pm3dConvertToImage.awk`.
+ Usage:
      awk -f pm3dCompress.awk thefile.ps >smallerfile.ps
+     awk -f pm3dConvertToImage.awk thefile.ps >smallerfile.ps
 
- If pm3d map has been plotted from rectangular gridded data with an output
- to a postscript file, then it is possible to reduce the file size even more
- by the enclosed awk script `pm3dConvertToImage.awk`.  Usage:
-     awk -f pm3dConvertToImage.awk <thefile.ps >smallerfile.ps
-
- You may manually change the postscript output from gray to color and vice
- versa and change the definition of <maxcolors>.
 3 pointintervalbox
 ?commands set pointintervalbox
 ?set pointintervalbox
@@ -10699,8 +10658,9 @@ Ffigure_mapcontours
 ?set samples
 ?show samples
 ?samples
- The sampling rate of functions, or for interpolating data, may be changed
- by the `set samples` command.
+ The default sampling rate of functions, or for interpolating data, may be
+ changed by the `set samples` command.  To change the sampling range for a
+ particular plot, see `plot sampling`.
 
  Syntax:
        set samples <samples_1> {,<samples_2>}
@@ -10730,6 +10690,7 @@ Ffigure_mapcontours
 ?set size square
 ?set size ratio
 ?ratio
+?square
  Syntax:
        set size {{no}square | ratio <r> | noratio} {<xscale>,<yscale>}
        show size
@@ -10740,7 +10701,7 @@ Ffigure_mapcontours
  Important note:
        In earlier versions of gnuplot, some terminal types used the values from
        `set size` to control also the size of the output canvas; others did not.
-       In version 4.6 almost all terminals now follow the following convention:
+       Almost all terminals now follow the following convention:
 
  `set term <terminal_type> size <XX>, <YY>` controls the size of the output
  file, or `canvas`. Please see individual terminal documentation for allowed
@@ -10765,8 +10726,9 @@ Ffigure_mapcontours
  the terminal selected.  The graph area will be the largest rectangle of
  aspect ratio <r> that will fit into the specified portion of the output
  (leaving adequate margins, of course).
+=square
 
- `square` is a synonym for `ratio 1`.
+ `set size square` is a synonym for `set size ratio 1`.
 
  Both `noratio` and `nosquare` return the graph to the default aspect ratio
  of the terminal, but do not return <xscale> or <yscale> to their default
@@ -10941,14 +10903,14 @@ Ffigure_mapcontours
 
  By default boxplots are drawn in a style similar to candlesticks, but you have
  the option of using instead a style similar to finance bars.
- 
+
  If the using specification for a boxplot contains a fourth column, the values
  in that column will be interpreted as the discrete leveles of a factor 
  variable.  In this case more than one boxplots may be drawn, as many as the
  number of levels of the factor variable.  These boxplots will be drawn next to
  each other, the distance between them is 1.0 by default (in x-axis units).
  This distance can be changed by the option `separation`.
- 
+
  The `labels` option governs how and where these boxplots (each representing a
  part of the dataset) are labeled.  By default the value of the factor is put 
  as a tick label on the horizontal axis -- x or x2, depending on which one is
@@ -10956,7 +10918,7 @@ Ffigure_mapcontours
  The labels can be forced to use either of the x or x2 axes -- options
  `labels x` and `labels x2`, respectively --, or they can be turned off
  altogether with the option `labels off`.
- 
+
  By default the boxplots corresponding to different levels of the factor
  variable are not sorted; they will be drawn in the same order the levels are
  encountered in the data file. This behavior corresponds to the `unsorted`
@@ -11260,11 +11222,13 @@ Ffigure_mapcontours
 ?show style circle
 
  Syntax:
-       set style circle {radius {graph|screen} <R>}
+       set style circle {radius {graph|screen} <R>} {{no}wedge}
 
  This command sets the default radius used in plot style "with circles".  It
  applies to data plots with only 2 columns of data (x,y) and to function plots.
- The default is "set style circle radius graph 0.02".
+ The default is "set style circle radius graph 0.02".  `Nowedge` disables
+ drawing of the two radii that connect the ends of an arc to the center.
+ The default is `wedge`.  This parameter has no effect on full circles.
 
 4 set style rectangle
 ?commands set style rectangle
@@ -11343,29 +11307,34 @@ Ffigure_mapcontours
 ?show surface
 ?surface
 ?nosurface
- The command `set surface` controls the display of surfaces by `splot`.
+ The `set surface` command is only relevant for 3D plots (`splot`).
 
  Syntax:
-       set surface
+       set surface {implicit|explicit}
        unset surface
        show surface
 
- The surface is drawn with the style specified by `with`, or else the
- appropriate style, data or function.
-
  `unset surface` will cause `splot` to not draw points or lines corresponding
- to any of the function or data file points.  If you want to turn off the surface
- for an individual function or data file while leaving the others active, use
- the `nosurface` keyword in the `splot` command.  Contours may still be drawn on
- the surface, depending on the `set contour` option.  The combination
- `unset surface; set contour base` is useful for displaying contours on the grid
- base.  See also `set contour`. 
+ to any of the function or data file points.  This is mainly useful for drawing
+ only contour lines rather than the surface they were derived from.  Contours
+ may still be drawn on the surface, depending on the `set contour` option.
+ To turn off the surface for an individual function or data file while leaving
+ others active, use the `nosurface` keyword in the `splot` command.
+ The combination `unset surface; set contour base` is useful for displaying
+ contours on the grid base.  See also `set contour`. 
+
+ If an 3D data set is recognizable as a mesh (grid) then by default the program
+ implicitly treats the plot style `with lines` as requesting a gridded surface.
+ See `grid_data`.  The command `set surface explicit` suppresses this expansion,
+ plotting only the individual lines described by separate data blocks in the
+ input file.  A gridded surface can still be plotted by explicitly requesting
+ splot `with surface`.
 3 table
 ?commands set table
 ?set table
 ?table
  When `table` mode is enabled, `plot` and `splot` commands print out a
- multicolumn ASCII table of X Y {Z} R values rather than creating an actual
+ multicolumn text table of X Y {Z} R values rather than creating an actual
  plot on the current terminal.  The character R takes on one of three values:
  "i" if the point is in the active range, "o" if it is out-of-range, or "u"
  if it is undefined.  The data format is determined by the format of the axis
@@ -11431,6 +11400,7 @@ Ffigure_mapcontours
  another terminal has been pushed explicitly.
 
  For more information, see the `complete list of terminals`.
+
 3 termoption
 ?commands set termoption
 ?set termoption
@@ -11454,10 +11424,10 @@ Ffigure_mapcontours
 ?unset tics
 ?show tics
 ?tics
- Control of the major (labelled) tics on all axes at once is possible with the
+ Control of the major (labeled) tics on all axes at once is possible with the
  `set tics` command.
 
- Fine control of the major (labelled) tics on all axes at once is possible
+ Fine control of the major (labeled) tics on all axes at once is possible
  with the `set tics` command.  The tics may be turned off with the `unset tics`
  command, and may be turned on (the default state) with `set tics`.  Similar
  commands (by preceding 'tics' by the axis name) control the major tics on a
@@ -11474,8 +11444,9 @@ Ffigure_mapcontours
        unset tics
        show tics
 
- The options in the first set above can be applied individually to
- any or all axes, i.e., x, y, z, x2, y2, and cb.
+ The options can be applied to a single axis (x, y, z, x2, y2, cb), e.g.
+       set xtics rotate by -90
+       unset cbtics
 
  Set tics `front` or `back` applies to all axes at once, but only for 2D plots
  (not splot).  It controls whether the tics are placed behind or in front of
@@ -11488,7 +11459,7 @@ Ffigure_mapcontours
  `set border`).  The relevant margin settings will usually be sized badly by
  the automatic layout algorithm in this case.
 
- `mirror` tells `gnuplot` to put unlabelled tics at the same positions on the
+ `mirror` tells `gnuplot` to put unlabeled tics at the same positions on the
  opposite border.  `nomirror` does what you think it does.
 
  `in` and `out` change the tic marks to be drawn inwards or outwards.
@@ -11520,7 +11491,7 @@ Ffigure_mapcontours
  `set tics` with no options restores to place tics inwards. Every other
  options are retained.
 
- See also `set xtics` for more control of major (labelled) tic marks and
+ See also `set xtics` for more control of major (labeled) tic marks and
  `set mxtics` for control of minor tic marks.  These commands provide control
  at a axis by axis basis.
 3 ticslevel
@@ -11577,11 +11548,15 @@ Ffigure_mapcontours
 ?show timefmt
 ?timefmt
  This command applies to timeseries where data are composed of dates/times.
- It has no meaning unless the command `set xdata time` is given also.
+ It has no meaning unless the command `set *data time` is given also.
 
  Syntax:
-       set timefmt "<format string>"
+       set timefmt {<axis>} "<format string>"
        show timefmt
+
+ The optional <axis> argument allows to specify different time input formats
+ for individual axes.  If it is omitted, the format string is applied to all
+ axes.
 
  The string argument tells `gnuplot` how to read timedata from the datafile.
  The valid formats are:
@@ -11890,7 +11865,9 @@ Ffigure_mapcontours
 ?show x2range
 ?x2range
  The `set x2range` command sets the horizontal range that will be displayed on
- the x2 (top) axis.  Please see `set xrange` for details.
+ the x2 (top) axis.  See `set xrange` for the full set of command options.
+ This command is ignored if the x2 axis range is explicitly linked to the
+ x axis.  See `set link`.
 3 x2tics
 ?commands set x2tics
 ?commands unset x2tics
@@ -11900,7 +11877,7 @@ Ffigure_mapcontours
 ?show x2tics
 ?x2tics
 ?nox2tics
- The `set x2tics` command controls major (labelled) tics on the x2 (top) axis.
+ The `set x2tics` command controls major (labeled) tics on the x2 (top) axis.
  Please see `set xtics` for details.
 3 x2zeroaxis
 ?commands set x2zeroaxis
@@ -11919,31 +11896,61 @@ Ffigure_mapcontours
 ?set xdata
 ?show xdata
 ?xdata
- This command sets the datatype on the x axis to time/date.  A similar command
- does the same thing for each of the other axes.
+ This command controls interpretation of data on the x axis.
+ An analogous command acts on each of the other axes.
 
  Syntax:
-       set xdata {time}
+       set xdata {time | geographic}
        show xdata
 
  The same syntax applies to `ydata`, `zdata`, `x2data`, `y2data` and `cbdata`.
 
- The `time` option signals that the datatype is indeed time/date.  If the
- option is not specified, the datatype reverts to normal.
+ The `time` option signals that data represents a time/date in seconds.
+ The current version of gnuplot stores time to a millisecond precision.
 
- See `set timefmt` to tell gnuplot how to read date or time data.  The
- time/date is converted to seconds from start of the century.  There is
+ The `geographic` option signals that data represents a geographical coordinate
+ measured in degrees/minutes/seconds.
+
+ If no option is specified, the data interpretation reverts to normal.
+4 time
+?commands set xdata time
+?set xdata time
+ `set xdata time` indicates that the x coordinate is to be interpreted as a
+ date or time to millisecond precision.
+
+ See `set timefmt` to tell gnuplot how to read date or time data from a file.
+ The time/date is converted to seconds from start of the century.  There is
  currently only one timefmt, which implies that all the time/date columns must
  conform to this format.  Specification of ranges should be supplied as quoted
  strings according to this format to avoid interpretation of the time/date as
  an expression.
 
- The function 'strftime' (type "man strftime" on unix to look it up) is used
- to print tic-mark labels.  `gnuplot` tries to figure out a reasonable format
- for this  unless the `set format x "string"` has supplied something that does
- not look like a decimal format (more than one '%' or neither %f nor %g).
-
+ By default the function 'strftime' (type "man strftime" on unix to look it up)
+ is used to label axis tickmarks.  `gnuplot` tries to figure out a reasonable
+ format for this.  You can customize the label format using `set format x`.
+ See `time_specifiers` for a special set of time format specifiers.
  See also `time/date` for more information.
+4 geographic
+?commands set xdata geographic
+?set xdata geographic
+?geographic
+ `set xdata geographic` indicates that the x coordinate is to be interpreted as
+ a geographic coordinate measured in degrees.  Use `set format x` to establish
+ how the coordinate appears as an axis tick label.  The format specifiers for
+ geographic data are as follows:
+        %D                   = integer degrees
+        %<width.precision>d  = floating point degrees
+        %M                   = integer minutes
+        %<width.precision>m  = floating point minutes
+        %S                   = integer seconds
+        %<width.precision>s  = floating point seconds
+        %E                   = label with E/W instead of +/-
+        %N                   = label with N/S instead of +/-
+ For example, the command `set format x "%Ddeg %5.2mmin %E"` will cause 
+ x coordinate -1.51 to be labeled as `" 1deg 30.60min W"`.
+
+ If no special format is provided, the coordinate will be reported as a decimal
+ number of degrees.
 3 xdtics
 ?commands set xdtics
 ?commands unset xdtics
@@ -12085,11 +12092,13 @@ Ffigure_mapcontours
 
  The same syntax applies to `yrange`, `zrange`, `x2range`, `y2range`, `cbrange`,
  `rrange`, `trange`, `urange` and `vrange`.
+ 
+ See `set link` for options that link the ranges of x and x2, or y and y2.
 
- The `reverse` option reverses the direction of the axis, e.g., `set xrange
- [0:1] reverse` will produce an axis with 1 on the left and 0 on the right.
- This is identical to the axis produced by `set xrange [1:0]`, of course.
- `reverse` is intended primarily for use with `autoscale`.
+ The `reverse` option reverses the direction of an autoscaled axis. For example,
+ if the data values range from 10 to 100, it will autoscale to the equivalent of
+ set xrange [100:10].  The `reverse` flag has no effect if the axis is not
+ autoscaled. NB: This is a change introduced in version 4.7.
 
  Autoscaling:  If <min> (the same applies for correspondingly to <max>) is
  an asterisk "*" autoscaling is turned on.  The range in which autoscaling
@@ -12180,7 +12189,7 @@ Ffigure_mapcontours
 ?show xtics
 ?xtics
 ?noxtics
- Fine control of the major (labelled) tics on the x axis is possible with the
+ Fine control of the major (labeled) tics on the x axis is possible with the
  `set xtics` command.  The tics may be turned off with the `unset xtics`
  command, and may be turned on (the default state) with `set xtics`.  Similar
  commands control the major tics on the y, z, x2 and y2 axes.
@@ -12209,7 +12218,7 @@ Ffigure_mapcontours
  tic labels to outside the border.  The relevant margin settings will usually
  be sized badly by the automatic layout algorithm in this case.
 
- `mirror` tells `gnuplot` to put unlabelled tics at the same positions on the
+ `mirror` tells `gnuplot` to put unlabeled tics at the same positions on the
  opposite border.  `nomirror` does what you think it does.
 
  `in` and `out` change the tic marks to be drawn inwards or outwards.
@@ -12309,8 +12318,8 @@ Ffigure_mapcontours
        set ytics ("bottom" 0, "" 10, "top" 20)
        set ytics ("bottom" 0, "" 10 1, "top" 20)
 
- In the second example, all tics are labelled.  In the third, only the end
- tics are labelled.  In the fourth, the unlabeled tic is a minor tic.
+ In the second example, all tics are labeled.  In the third, only the end
+ tics are labeled.  In the fourth, the unlabeled tic is a minor tic.
 
  Normally if explicit tics are given, they are used instead of auto-generated
  tics. Conversely if you specify `set xtics auto` or the like it will erase
@@ -12330,7 +12339,7 @@ Ffigure_mapcontours
  Format (or omission) of the tic labels is controlled by `set format`, unless
  the explicit text of a label is included in the `set xtics ("<label>")` form.
 
- Minor (unlabelled) tics can be added automatically by the `set mxtics`
+ Minor (unlabeled) tics can be added automatically by the `set mxtics`
  command, or at explicit positions by the `set xtics ("" <pos> 1, ...)` form.
 4 xtics time_data
 ?set xtics time_axis tics
@@ -12355,7 +12364,7 @@ Ffigure_mapcontours
        set xrange ["01/12":"06/12"]
        set xtics ("01/12", "" "03/12", "05/12")
  Both of these will produce tics "Dec 1", "Dec 3", and "Dec 5", but in the
- second example the tic at "Dec 3" will be unlabelled.
+ second example the tic at "Dec 3" will be unlabeled.
 4 xtics rangelimited
 ?set xtics rangelimited
 ?xtics rangelimited
@@ -12462,7 +12471,9 @@ Ffigure_mapcontours
 ?show y2range
 ?y2range
  The `set y2range` command sets the vertical range that will be displayed on
- the y2 (right-hand) axis.  Please see `set xrange` for details.
+ the y2 (right) axis.  See `set xrange` for the full set of command options.
+ This command is ignored if the y2 axis range is explicitly linked to the
+ y axis.  See `set link`.
 3 y2tics
 ?commands set y2tics
 ?commands unset y2tics
@@ -12472,7 +12483,7 @@ Ffigure_mapcontours
 ?show y2tics
 ?y2tics
 ?noy2tics
- The `set y2tics` command controls major (labelled) tics on the y2 (right-hand)
+ The `set y2tics` command controls major (labeled) tics on the y2 (right-hand)
  axis.  Please see `set xtics` for details.
 3 y2zeroaxis
 ?commands set y2zeroaxis
@@ -12539,7 +12550,7 @@ Ffigure_mapcontours
 ?show ytics
 ?ytics
 ?noytics
- The `set ytics` command controls major (labelled) tics on the y axis.
+ The `set ytics` command controls major (labeled) tics on the y axis.
  Please see `set xtics` for details.
 3 yzeroaxis
 ?commands set yzeroaxis
@@ -12694,7 +12705,7 @@ Ffigure_mapcontours
 ?show ztics
 ?ztics
 ?noztics
- The `set ztics` command controls major (labelled) tics on the z axis.
+ The `set ztics` command controls major (labeled) tics on the z axis.
  Please see `set xtics` for details.
 3 cblabel
 ?commands set cblabel
@@ -12739,7 +12750,7 @@ Ffigure_mapcontours
 ?show cbtics
 ?cbtics
 ?nocbtics
- The `set cbtics` command controls major (labelled) tics on the color box axis.
+ The `set cbtics` command controls major (labeled) tics on the color box axis.
  Please see `set xtics` for details.
 2 shell
 ?commands shell
@@ -12767,9 +12778,8 @@ Ffigure_mapcontours
 2 splot
 ?commands splot
 ?splot
- `splot` is the command for drawing 3D plots (well, actually projections on
- a 2D surface, but you knew that).  It can create a plot from functions or
- data read from files in a manner very similar to the `plot` command.
+ `splot` is the command for drawing 3D plots (well, actually projections on a 2D
+ surface, but you knew that).  It is the 3D equivalent of the `plot` command.
  `splot` provides only a single x, y, and z axis; there is no equivalent to the
  x2 and y2 secondary axes provided by `plot`.
 
@@ -12778,32 +12788,35 @@ Ffigure_mapcontours
  Syntax:
        splot {<ranges>}
              {<iteration>}
-             <function> | "<datafile>" {datafile-modifiers}}
+             <function> | {{<file name> | <data block name>} {datafile-modifiers}}
              {<title-spec>} {with <style>}
              {, {definitions{,}} <function> ...}
 
- where either a <function> or the name of a data file enclosed in quotes is
- supplied.  The function can be a mathematical expression, or a triple of
- mathematical expressions in parametric mode.
+ The `splot` command operates on a data generated by a function, read from
+ a data file, or stored previously in a named data block.  Data file names
+ are usually provided as a quoted string.  The function can be a mathematical
+ expression, or a triple of mathematical expressions in parametric mode.
 
  By default `splot` draws the xy plane completely below the plotted data.
  The offset between the lowest ztic and the xy plane can be changed by `set
  xyplane`.  The orientation of a `splot` projection is controlled by
  `set view`.  See `set view` and `set xyplane` for more information.
 
- The syntax for setting ranges on the `splot` command is the same as for
- `plot`.  In non-parametric mode, the order in which ranges must be given is
- `xrange`, `yrange`, and `zrange`.  In parametric mode, the order is `urange`,
- `vrange`, `xrange`, `yrange`, and `zrange`.
+ The syntax for setting ranges on the `splot` command is the same as for `plot`.
+ In non-parametric mode, ranges must be given in the order
+       splot [<xrange>][<yrange>][<zrange>] ...
+ In parametric mode, the order is
+       splot [<urange>][<vrange>][<xrange>][<yrange>][<zrange>] ...
 
  The `title` option is the same as in `plot`.  The operation of `with` is also
- the same as in `plot`, except that the plotting styles available to `splot`
- are limited to `lines`, `points`, `linespoints`, `dots`, and `impulses`;  the
- error-bar capabilities of `plot` are not available for `splot`.
+ the same as in `plot` except that not all 2D plotting styles are available.
 
  The `datafile` options have more differences.
 
- See also `show plot`.
+ As an alternative to surfaces drawn using parametric or function mode, the
+ pseudo-file '++' can be used to generate samples on a grid in the xy plane.
+
+ See also `show plot`, `set view map`, and `sampling`.
 3 data-file
 ?commands splot datafile
 ?splot datafile
@@ -12829,7 +12842,7 @@ Ffigure_mapcontours
  does so also, except that the `using` list must provide three entries
  instead of two.
 
- The `plot` options `thru` and `smooth` are not available for `splot`, but
+ The `plot` option `smooth` is not available for `splot`, but
  `cntrparam` and `dgrid3d` provide limited smoothing capabilities.
 
  Data file organization is essentially the same as for `plot`, except that
@@ -12864,9 +12877,9 @@ Ffigure_mapcontours
  Gnuplot can interpret matrix input in two different ways.
  The first of these assumes a uniform grid of x and y coordinates, and assigns
  each value in the input matrix to one element of this uniform grid.
- This is the default for ascii data input, but not for binary input.
+ This is the default for text data input, but not for binary input.
  Example commands for plotting uniform matrix data:
-      splot 'file' matrix using 1:2:3          # ascii input
+      splot 'file' matrix using 1:2:3          # text input
       splot 'file' binary general using 1:2:3  # binary input
 
  In a uniform grid matrix the z-values are read in a row at a time, i. e.,
@@ -12875,7 +12888,7 @@ Ffigure_mapcontours
      z31 z32 z33 z34 ...
  and so forth.
 
- For ascii input, a blank line or comment line ends the matrix, and starts a new
+ For text input, a blank line or comment line ends the matrix, and starts a new
  surface mesh.  You can select among the meshes inside a file by the `index`
  option to the `splot` command, as usual. 
 =nonuniform
@@ -12883,10 +12896,10 @@ Ffigure_mapcontours
  coordinates. The first row of input data contains the y coordinates; 
  the first column of input data contains the x coordinates.  For binary input
  data, the first element of the first row must contain the number of data
- columns. (This number is ignored for ascii input).  Both the coordinates and
+ columns. (This number is ignored for text input).  Both the coordinates and
  the data values in a binary input are treated as single precision floats.
  Example commands for plotting non-uniform matrix data:
-      splot 'file' nonuniform matrix using 1:2:3  # ascii input
+      splot 'file' nonuniform matrix using 1:2:3  # text input
       splot 'file' binary matrix using 1:2:3      # binary input
 
  Thus the data organization for non-uniform matrix input is
@@ -12926,10 +12939,10 @@ Ffigure_mapcontours
  using 1:2 the point coordinates (rather useless). Applying the `every` option
  you can specify explicit rows and columns.
 
- Example -- rescale axes of a matrix in an ascii file:
+ Example -- rescale axes of a matrix in a text file:
      splot `a.dat` matrix using (1+$1):(1+$2*10):3
 
- Example -- plot the 3rd row of a matrix in an ascii file:
+ Example -- plot the 3rd row of a matrix in a text file:
      plot 'a.dat' matrix using 1:3 every 1:999:1:2
  (rows are enumerated from 0, thus 2 instead of 3).
 
@@ -13048,7 +13061,7 @@ Ffigure_mapcontours
  analysis. See `set xrange`. The summary is printed to the screen by default.
  Output can be redirected to a file by prior use of the command `set print`,
  or suppressed altogether using the `nooutput` option.  
- 
+
  In addition to printed output, the program stores the individual statistics
  into three sets of variables.
  The first set of variables reports how the data is laid out in the file:
@@ -13057,6 +13070,7 @@ Ffigure_mapcontours
       STATS_invalid           # number of invalid/incomplete/missing records
       STATS_blank             # number of blank lines in the file
       STATS_blocks            # number of indexable data blocks in the file
+      STATS_columns           # number of data columns in the first row of data
 
  The second set reports properties of the in-range data from a single column.
  If the corresponding axis is autoscaled (x-axis for the 1st column, y-axis 
@@ -13084,7 +13098,7 @@ Ffigure_mapcontours
       STATS_sumxy             # sum of x*y
       STATS_pos_min_y         # x coordinate of a point with minimum y value
       STATS_pos_max_y         # x coordinate of a point with maximum y value
- 
+
  It may be convenient to track the statistics from more than one file at the
  same time. The `name` option causes the default prefix "STATS" to be replaced
  by a user-specified string.  For example, the mean value of column 2 data from
@@ -13167,7 +13181,7 @@ Ffigure_mapcontours
 =iteration
  Options set using the `set` command may be returned to their default state by
  the corresponding `unset` command.  The `unset` command may contain an optional
- iteration clause. See `iteration`.
+ iteration clause. See `plot for`.
 
  Examples:
        set xtics mirror rotate by -45 0,10,100
@@ -13176,7 +13190,20 @@ Ffigure_mapcontours
 
        # Unset labels numbered between 100 and 200
        unset for [i=100:200] label i
-
+3 output
+?unset output
+ Because some terminal types allow multiple plots to be written into a single
+ output file, the output file is not automatically closed after plotting.
+ In order to print or otherwise use the file safely, it should first be closed
+ explicitly by using `unset output` or by using `set output` to close the 
+ previous file and then open a new one.
+3 terminal
+?unset terminal
+ The default terminal that is active at the time of program entry depends on the
+ system platform, gnuplot build options, and the environmental variable GNUTERM.
+ Whatever this default may be, gnuplot saves it in the internal variable GNUTERM.
+ The `unset terminal` command restores this initial state.  It is equivalent to
+ `set terminal GNUTERM`.
 2 update
 ?commands update
 ?update

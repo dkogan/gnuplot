@@ -1,0 +1,16 @@
+config.h
+*.chm
+*.cobj
+*.dll
+*.exe
+*.ico
+*.manifest
+*.map
+*.mnu
+*.msw
+*.obj
+*.pobj
+*.res
+gdwin32
+lua
+share

@@ -2,17 +2,17 @@
 <html>
 <head>
 <meta charset="UTF-8"> 
-<title>Gnuplot demo scripts run through the HTML canvas terminal</title>
+<title>Gnuplot 4.7 demo scripts run through the HTML canvas terminal</title>
 <link type="text/css" href="gnuplot_demo.css" rel="stylesheet">
 <link type="text/css" href="gnuplot_mouse.css" rel="stylesheet">
 </head>
 
 <body oncontextmenu="return false;">
 
-<h2 align=center>Gnuplot demo scripts run through the HTML canvas terminal<br>
+<h2 align=center>Gnuplot 4.7 demo scripts run through the HTML canvas terminal<br>
     See also the demo output for the
-    <a href="http://gnuplot.sourceforge.net/demo_cvs/">PNG</a> and
-    <a href="http://gnuplot.sourceforge.net/demo_svg/">SVG</a> terminals.
+    <a href="http://gnuplot.sourceforge.net/demo_4.7/">PNG</a> and
+    <a href="http://gnuplot.sourceforge.net/demo_svg_4.7/">SVG</a> terminals.
 </h2>
 <canvas id="warning" width=1 height=1>
     <div class='box'><h2>Your browser may not support the HTML 5 canvas element</h2></div>
@@ -20,7 +20,7 @@
 
 <p>
 The canvas driver for gnuplot was contributed by Bruce Lueckenhoff, and extended by Ethan Merritt (sfeam).
-To view the results you need a browser that supports the HTML 5 'canvas' element.
+To view the results you need a browser that supports the HTML5 'canvas' element.
 </p>
 
 
@@ -41,9 +41,11 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
     <li><a href="using.html">mixing styles</a></li>
     <li><a href="pointsize.html">variable size points</a></li>
     <li><a href="param.html">parametric&nbsp;functions</a></li>
+    <li><a href="piecewise.html">piecewise&nbsp;functions</a></li>
     <li><a href="vector.html">vector fields</a></li>
     <li><a href="circles.html">circles</a></li>
     <li><a href="boxplot.html">boxplots</a></li>
+    <li><a href="rugplot.html">rug plot</a></li>
     </ul>
 
     <h4>Math functions</h4>
@@ -51,6 +53,7 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
     <li><a href="approximate.html">approximation</a></li>
     <li><a href="spline.html">B-splines</a></li>
     <li><a href="airfoil.html">Bezier splines</a></li>
+    <li><font color=gray>complex functions</font></li>
     <li><a href="prob2.html">probability</a></li>
     <li><a href="prob.html">probability (more)</a></li>
     <li><a href="random.html">random numbers</a></li>
@@ -80,6 +83,7 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
 
     <h4>Coordinate and<br> axis transforms</h4>
     <ul>
+    <li><a href="linkedaxes.html">linked axes</a></li>
     <li><a href="polar.html">polar coords</a></li>
     <li><a href="poldat.html">polar data</a></li>
     <li><a href="world.html">cylindrical/spherical</a></li>
@@ -95,8 +99,9 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
 
     <h4>Colors</h4>
     <ul>
-    <li><a href="rainbow.html">user-defined colors</a></li>
-    <li><a href="rgb_variable.html">RGB coloring</a></li>
+    <li><a href="varcolor.html">data-dependent coloring</a></li>
+    <li><a href="rgb_variable.html">RGB and HSV coloring</a></li>
+    <li><a href="rgba_lines.html">RGB + Alpha</a></li>
     <li><a href="pm3dcolors.html">pm3d colors</a></li>
     </ul>
 </td>
@@ -119,6 +124,7 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
     <li><a href="datastrings.html">string data</a></li>
     <li><a href="cities.html">variable font size</a></li>
     <li><a href="canvas_utf8.html">utf8 math symbols</a></li>
+    <li><a href="hypertext.html">hypertext</a></li>
     </ul>
 
     <h4>Page Layout</h4>
@@ -132,9 +138,8 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
 
     <h4>Styles</h4>
     <ul>
-    <li><a href="dashcolor.html">line styles</a></li>
+    <li><a href="lines_arrows.html">line and arrow styles</a></li>
     <li><a href="fillstyle.html">fill styles</a></li>
-    <li><a href="arrowstyle.html">arrow styles</a></li>
     <li><a href="transparent.html">transparency</a></li>
     <li><a href="transparent_solids.html">transparent solids</a></li>
     </ul>
@@ -200,7 +205,7 @@ To view the results you need a browser that supports the HTML 5 'canvas' element
 <tbody><tr valign="top">
 
     <td>
-    <i>This page created by Ethan Merritt<br>April 2011</i>
+    <i>This page created by Ethan Merritt<br>May 2012</i>
     </td>
 
     <td>

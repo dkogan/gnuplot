@@ -1,8 +1,7 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.210.2.3 2012/05/07 16:53:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.229 2013/01/05 23:15:57 sfeam Exp $"); }
 #endif
 
-#define X11_POLYLINE 1
 #define MOUSE_ALL_WINDOWS 1
 
 /* GNUPLOT - gplt_x11.c */
@@ -334,6 +333,8 @@ static void Remove_CMap_From_Linked_List __PROTO((cmap_t *));
 static cmap_t *Find_CMap_In_Linked_List __PROTO((cmap_t *));
 static int cmaps_differ __PROTO((cmap_t *, cmap_t *));
 
+static void clear_used_font_list __PROTO((void));
+
 /* current_cmap always points to a valid colormap.  At start up
  * it is the default colormap.  When a palette command comes
  * across the pipe, the current_cmap is set to point at the
@@ -462,6 +463,7 @@ static void pr_pointsize __PROTO((void));
 static void pr_width __PROTO((void));
 static void pr_window __PROTO((plot_struct *));
 static void pr_raise __PROTO((void));
+static void pr_replotonresize __PROTO((void));
 static void pr_persist __PROTO((void));
 static void pr_feedback __PROTO((void));
 static void pr_ctrlq __PROTO((void));
@@ -481,8 +483,8 @@ static double mouse_to_axis __PROTO((int, axis_scale_t *));
 
 static char *FallbackFont = "fixed";
 #ifdef USE_X11_MULTIBYTE
-static char *FallbackFontMB =
-    "mbfont:*-medium-r-normal--14-*;*-medium-r-normal--16-*";
+static char *FallbackFontMB = "mbfont:*-medium-r-normal--14-*,*-medium-r-normal--16-*";
+static char *FallbackFontMBUTF = "mbfont:*-medium-r-normal--14-*-iso10646-1";
 # define FontSetSep ';'
 static int usemultibyte = 0;
 static int multibyte_fonts_usable=1;
@@ -499,7 +501,7 @@ static char *gpFallbackFont __PROTO((void));
 static int gpXGetFontascent __PROTO((XFontStruct *cfont));
 
 enum set_encoding_id encoding = S_ENC_DEFAULT; /* EAM - mirrored from core code by 'QE' */
-static char default_font[64] = { '\0' };
+static char default_font[196] = { '\0' };
 static char default_encoding[16] = { '\0' };
 
 #define Nwidths 10
@@ -557,6 +559,7 @@ static int do_raise = yes, persist = no;
 static TBOOLEAN fast_rotate = TRUE;
 static int feedback = yes;
 static int ctrlq = no;
+static int replot_on_resize = yes;
 static int dashedlines = no;
 #ifdef EXPORT_SELECTION
 static TBOOLEAN exportselection = TRUE;
@@ -577,7 +580,14 @@ static int button_pressed = 0;
 static int windows_open = 0;
 
 static int gX = 100, gY = 100;
-static unsigned int gW = 640, gH = 450;
+
+/* gW and gH are the sizes of the plot, when it was first made. If the window is
+   resized after the plot is made (and we're not replotting on resize), the
+   plot->width and plot->height track the window size, but gW and gH do NOT.
+   This allows the plot to be maximally scaled while preserving the aspect
+   ratio.
+*/
+static unsigned int gW = 640, gH = 450; /* defaults must match those in x11.trm */
 static unsigned int gFlags = PSize;
 
 static unsigned int BorderWidth = 2;
@@ -596,15 +606,17 @@ static int vchar, hchar;
 /* Speficy negative values as indicator of uninitialized state */
 static double xscale = -1.;
 static double yscale = -1.;
+static int    ymax   = 4096;
+
 double pointsize = -1.;
 /* Avoid a crash upon using uninitialized variables from
    above and avoid unnecessary calls to display().
    Probably this is not the best fix ... */
 #define Call_display(plot) if (xscale<0.) display(plot);
 #define X(x) (int) ((x) * xscale)
-#define Y(y) (int) ((4095-(y)) * yscale)
+#define Y(y) (int) (( (  ymax -1)-(y)) * yscale)
 #define RevX(x) (((x)+0.5)/xscale)
-#define RevY(y) (4095-((y)+0.5)/yscale)
+#define RevY(y) (ymax-1 -((y)+0.5)/yscale)
 /* note: the 0.5 term in RevX(x) and RevY(y) compensates for the round-off in X(x) and Y(y) */
 
 static char buf[X11_COMMAND_BUFFER_LENGTH];
@@ -643,11 +655,12 @@ static const char stipple_pattern_bits[stipple_pattern_num][8] = {
 static Pixmap stipple_pattern[stipple_pattern_num];
 static int stipple_initialized = 0;
 
-#ifdef X11_POLYLINE
 static XPoint *polyline = NULL;
 static int polyline_space = 0;
 static int polyline_size = 0;
-#endif
+
+static void gpXStoreName __PROTO((Display *, Window, char *));
+
 
 /*
  * Main program
@@ -696,11 +709,9 @@ main(int argc, char *argv[])
     }
 # endif
 
-#ifdef X11_POLYLINE
     polyline_space = 100;
     polyline = calloc(polyline_space, sizeof(XPoint));
     if (!polyline) fprintf(stderr, "Panic: cannot allocate polyline\n");
-#endif
 
     mainloop();
 
@@ -1390,10 +1401,10 @@ record()
 		    if (msg = (char *) malloc(orig_len + strlen(added_text) + 1)) {
 			strcpy(msg, plot->titlestring);
 			strcat(msg, added_text);
-			XStoreName(dpy, plot->window, msg);
+			gpXStoreName(dpy, plot->window, msg);
 			free(msg);
 		    } else
-			XStoreName(dpy, plot->window, added_text + 1);
+			gpXStoreName(dpy, plot->window, added_text + 1);
 		}
 #else
 		if (!button_pressed) {
@@ -1511,7 +1522,7 @@ record()
 		    } else
 			cp = "<lost name>";
 		    if (current_plot->window)
-			XStoreName(dpy, current_plot->window, cp);
+			gpXStoreName(dpy, current_plot->window, cp);
 		}
 		return 1;
 	    }
@@ -1563,7 +1574,9 @@ record()
 	    {
 		int tmp_do_raise = UNSET, tmp_persist = UNSET;
 		int tmp_dashed = UNSET, tmp_ctrlq = UNSET;
-		sscanf(buf, "X%d%d%d%d", &tmp_do_raise, &tmp_persist, &tmp_dashed, &tmp_ctrlq);
+		int tmp_replot_on_resize = UNSET;
+		sscanf(buf, "X%d %d %d %d %d",
+		       &tmp_do_raise, &tmp_persist, &tmp_dashed, &tmp_ctrlq, &tmp_replot_on_resize);
 		if (UNSET != tmp_do_raise)
 		    do_raise = tmp_do_raise;
 		if (UNSET != tmp_persist)
@@ -1572,6 +1585,8 @@ record()
 		    dashedlines = tmp_dashed;
 		if (UNSET != tmp_ctrlq)
 		    ctrlq = tmp_ctrlq;
+		if (UNSET != tmp_replot_on_resize)
+		    replot_on_resize = tmp_replot_on_resize;
 	    }
 	    return 1;
 
@@ -1591,7 +1606,7 @@ record()
 	    {
 		/* `set cursor' */
 		int c, x, y;
-		sscanf(buf, "u%4d%4d%4d", &c, &x, &y);
+		sscanf(buf, "u%d %d %d", &c, &x, &y);
 		if (plot) {
 		    switch (c) {
 		    case -4:	/* switch off line between ruler and mouse cursor */
@@ -1651,18 +1666,32 @@ record()
 	    if (!pipe_died)
 #endif
 	    {
-		int where;
+		int where = -1;
 		char *second;
-		if (sscanf(buf, "t%4d", &where) != 1)
+		char* str;
+		int char_byte_offset;
+
+		/* sscanf manpage says %n may or may not count in the return
+		   value of sscanf. I thus don't do a strong check on the number
+		   of parsed elements, but also check for a valid number being
+		   parsed */
+		if (sscanf(buf, "t%d%n", &where, &char_byte_offset) < 1 ||
+		    where < 0 )
+		{
 		    return 1;
+		}
 		buf[strlen(buf) - 1] = 0;	/* remove trailing \n */
 		if (plot) {
+
+		    /* extra 1 for the space before the string start */
+		    str = &buf[ char_byte_offset + 1 ];
+
 		    switch (where) {
 		    case 0:
-			DisplayCoords(plot, buf + 5);
+			DisplayCoords(plot, str);
 			break;
 		    case 1:
-			second = strchr(buf + 5, '\r');
+			second = strchr(str, '\r');
 			if (second == NULL) {
 			    *(plot->zoombox_str1a) = '\0';
 			    *(plot->zoombox_str1b) = '\0';
@@ -1672,13 +1701,13 @@ record()
 			second++;
 			if (plot->zoombox_on)
 			    DrawBox(plot);
-			strcpy(plot->zoombox_str1a, buf + 5);
+			strcpy(plot->zoombox_str1a, str);
 			strcpy(plot->zoombox_str1b, second);
 			if (plot->zoombox_on)
 			    DrawBox(plot);
 			break;
 		    case 2:
-			second = strchr(buf + 5, '\r');
+			second = strchr(str, '\r');
 			if (second == NULL) {
 			    *(plot->zoombox_str2a) = '\0';
 			    *(plot->zoombox_str2b) = '\0';
@@ -1688,7 +1717,7 @@ record()
 			second++;
 			if (plot->zoombox_on)
 			    DrawBox(plot);
-			strcpy(plot->zoombox_str2a, buf + 5);
+			strcpy(plot->zoombox_str2a, str);
 			strcpy(plot->zoombox_str2b, second);
 			if (plot->zoombox_on)
 			    DrawBox(plot);
@@ -1706,7 +1735,7 @@ record()
 		if (plot) {
 		    int x, y;
 		    DrawRuler(plot);	/* erase previous ruler */
-		    sscanf(buf, "r%4d%4d", &x, &y);
+		    sscanf(buf, "r%d %d", &x, &y);
 		    if (x < 0) {
 			DrawLineToRuler(plot);
 			plot->ruler_on = FALSE;
@@ -1745,22 +1774,36 @@ record()
 	case 'Q':
 	    /* Set default font immediately and return size info through pipe */
 	    if (buf[1] == 'G') {
+
+	      /* received QG. We're thus setting up the graphics for the first
+		 time. We grab the window sizes and send the back to inboard
+		 gnuplot via GE_fontprops. For subsequent replots, we receive Qg
+		 instead: see below */
 		int scaled_hchar, scaled_vchar;
 		char *c = &(buf[strlen(buf)-1]);
 		while (*c <= ' ') *c-- = '\0';
 		strncpy(default_font, &buf[2], strlen(&buf[2])+1);
 		pr_font(NULL);
 		if (plot) {
-		    /* EAM FIXME - this is all out of order; initialization doesnt */
-		    /*             happen until term->graphics() is called.        */
-		    xscale = (plot->width > 0) ? plot->width / 4096. : gW / 4096.;
-		    yscale = (plot->height > 0) ? plot->height / 4096. : gH / 4096.;
-		    scaled_hchar = (1.0/xscale) * hchar;
-		    scaled_vchar = (1.0/yscale) * vchar;
+		    double scale = (double)plot->width / 4096.0;
+		    scaled_hchar = (1.0/scale) * hchar;
+		    scaled_vchar = (1.0/scale) * vchar;
 		    FPRINTF((stderr, "gplt_x11: preset default font to %s hchar = %d vchar = %d \n",
 			     default_font, scaled_hchar, scaled_vchar));
 		    gp_exec_event(GE_fontprops, plot->width, plot->height,
 				  scaled_hchar, scaled_vchar, 0);
+		    ymax = 4096.0 * (double)plot->height / (double)plot->width;
+		}
+		return 1;
+	    }
+	    else if (buf[1] == 'g') {
+	      /* received Qg. Unlike QG, this is sent during replots, not plots.
+		 We simply take the current window size as the plot size */
+
+		if (plot) {
+		  ymax = 4096.0 * (double)plot->height / (double)plot->width;
+		  gW   = plot->width;
+		  gH   = plot->height;
 		}
 		return 1;
 	    }
@@ -2038,13 +2081,16 @@ exec_cmd(plot_struct *plot, char *command)
 {
     int x, y, sw, sl, sj;
     char *buffer, *str;
+    char *strx, *stry;
 
     buffer = command;
+    strx = buffer+1;
 
-#ifdef X11_POLYLINE
     /*   X11_vector(x, y) - draw vector  */
     if (*buffer == 'V') {
-	sscanf(buffer, "V%4d%4d", &x, &y);
+	x = strtol(strx, &stry, 0);
+	y = strtol(stry, NULL, 0);
+
 	if (polyline_size == 0) {
 	    polyline[polyline_size].x = X(cx);
 	    polyline[polyline_size].y = Y(cy);
@@ -2072,18 +2118,12 @@ exec_cmd(plot_struct *plot, char *command)
 			polyline, polyline_size+1, CoordModeOrigin);
 	polyline_size = 0;
     }
-#else
-    /*   X11_vector(x, y) - draw vector  */
-    if (*buffer == 'V') {
-	sscanf(buffer, "V%4d%4d", &x, &y);
-	XDrawLine(dpy, plot->pixmap, *current_gc, X(cx), Y(cy), X(x), Y(y));
-	cx = x;
-	cy = y;
-    } else
-#endif
+
     /*   X11_move(x, y) - move  */
-    if (*buffer == 'M')
-	sscanf(buffer, "M%4d%4d", &cx, &cy);
+    if (*buffer == 'M') {
+	cx = strtol(strx, &stry, 0);
+	cy = strtol(stry, NULL, 0);
+    }
 
     /* change default font (QD) encoding (QE) or current font (QF)  */
     else if (*buffer == 'Q') {
@@ -2103,6 +2143,7 @@ exec_cmd(plot_struct *plot, char *command)
 		    int tmp;
 		    sscanf(buffer, "QE%d", &tmp);
 		    encoding = (enum set_encoding_id)tmp;
+		    clear_used_font_list();
 		}
 		FPRINTF((stderr, "gnuplot_x11: changing encoding to %d\n", encoding));
 		break;
@@ -2120,21 +2161,22 @@ exec_cmd(plot_struct *plot, char *command)
     else if (*buffer == 'T') {
 	/* Enhanced text mode added November 2003 - Ethan A Merritt */
 	int x_offset=0, y_offset=0, v_offset=0;
+	int char_byte_offset;
 
 	switch (buffer[1]) {
 
 	case 'j':	/* Set start for right-justified enhanced text */
-		    sscanf(buffer+2, "%4d%4d", &x_offset, &y_offset);
+		    sscanf(buffer+2, "%d %d", &x_offset, &y_offset);
 		    plot->xLast = x_offset - (plot->xLast - x_offset);
 		    plot->yLast = y_offset - (vchar/3) / yscale;
 		    return;
 	case 'k':	/* Set start for center-justified enhanced text */
-		    sscanf(buffer+2, "%4d%4d", &x_offset, &y_offset);
+		    sscanf(buffer+2, "%d %d", &x_offset, &y_offset);
 		    plot->xLast = x_offset - 0.5*(plot->xLast - x_offset);
 		    plot->yLast = y_offset - (vchar/3) / yscale;
 		    return;
 	case 'l':	/* Set start for left-justified enhanced text */
-		    sscanf(buffer+2, "%4d%4d", &x_offset, &y_offset);
+		    sscanf(buffer+2, "%d %d", &x_offset, &y_offset);
 		    plot->xLast = x_offset;
 		    plot->yLast = y_offset - (vchar/3) / yscale;
 		    return;
@@ -2142,7 +2184,7 @@ exec_cmd(plot_struct *plot, char *command)
 	case 'c':	/* Enhanced mode print with update to center */
 	case 'u':	/* Enhanced mode print with update */
 	case 's':	/* Enhanced mode update with no print */
-		    sscanf(buffer+2, "%4d%4d", &x_offset, &y_offset);
+		    sscanf(buffer+2, "%d %d%n", &x_offset, &y_offset, &char_byte_offset);
 		    /* EAM FIXME - This code has only been tested for x_offset == 0 */
 		    if (plot->angle != 0) {
 			int xtmp=0, ytmp=0;
@@ -2155,7 +2197,10 @@ exec_cmd(plot_struct *plot, char *command)
 		    }
 		    x = plot->xLast + x_offset;
 		    y = plot->yLast + y_offset;
-		    str = buffer + 10;
+
+		    /* buffer+2 was the start point for sscanf above */
+		    /* extra 1 for the space before the string start */
+		    str = buffer+2 + char_byte_offset + 1;
 		    break;
 	case 'p':	/* Push (Save) position for later use */
 		    plot->xSave = plot->xLast;
@@ -2166,10 +2211,19 @@ exec_cmd(plot_struct *plot, char *command)
 		    plot->yLast = plot->ySave;
 		    return;
 	default:
-		    sscanf(buffer, "T%4d%4d", &x, &y);
-		    v_offset = vchar/3;		/* Why is this??? */
-		    str = buffer + 9;
+		    sscanf(buffer, "T%d %d%n", &x, &y, &char_byte_offset);
+		    /* extra 1 for the space before the string start */
+		    str = buffer + char_byte_offset + 1;
+		    v_offset = vchar/3;		/* Why? */
 		    break;
+	}
+
+	/* FIXME EAM DEBUG: We should not have gotten here without a valid font	*/
+	/* but apparently it can happen in the case of UTF-8.  The sanity check	*/
+	/* below must surely belong somewhere during font selection instead.	*/
+	if (usemultibyte && !mbfont) {
+	    usemultibyte = 0;
+	    fprintf(stderr,"gnuplot_x11: invalid multibyte font\n");
 	}
 
 	sl = strlen(str) - 1;
@@ -2223,7 +2277,7 @@ exec_cmd(plot_struct *plot, char *command)
     } else if (*buffer == 'F') {	/* fill box */
 	int style, xtmp, ytmp, w, h;
 
-	if (sscanf(buffer + 1, "%4d%4d%4d%4d%4d", &style, &xtmp, &ytmp, &w, &h) == 5) {
+	if (sscanf(buffer + 1, "%d %d %d %d %d", &style, &xtmp, &ytmp, &w, &h) == 5) {
 
 	    /* Load selected pattern or fill into a separate gc */
 	    if (!fill_gc)
@@ -2242,28 +2296,31 @@ exec_cmd(plot_struct *plot, char *command)
     }
     /*   X11_justify_text(mode) - set text justification mode  */
     else if (*buffer == 'J')
-	sscanf(buffer, "J%4d", (int *) &plot->jmode);
+	sscanf(buffer, "J%d", (int *) &plot->jmode);
 
     else if (*buffer == 'A')
 	sscanf(buffer + 1, "%lf", &plot->angle);
 
     /*  X11_linewidth(plot->lwidth) - set line width */
     else if (*buffer == 'W')
-	sscanf(buffer + 1, "%4d", &plot->user_width);
+	sscanf(buffer + 1, "%d", &plot->user_width);
 
     /*   X11_linetype(plot->type) - set line type  */
     else if (*buffer == 'L') {
-	sscanf(buffer, "L%4d", &plot->lt);
+	sscanf(buffer, "L%d", &plot->lt);
+
 	plot->lt = (plot->lt % 8) + 2;
 
-	if (plot->lt < 0) /* LT_NODRAW, LT_BACKGROUND, LT_UNDEFINED */
+	/* Fixme: no mechanism to hold width or dashstyle for LT_BACKGROUND */
+	if (plot->lt < 0) { /* LT_NODRAW, LT_BACKGROUND, LT_UNDEFINED */
 	    plot->lt = -3;
+	    plot->lwidth = plot->user_width;
 
-	else { /* Fixme: no mechanism to hold width or dashstyle for LT_BACKGROUND */
+	} else { 
 	    /* default width is 0 {which X treats as 1} */
 	    plot->lwidth = widths[plot->lt] ? plot->user_width * widths[plot->lt] : plot->user_width;
 
-	    if ((dashedlines && dashes[plot->lt][0])
+	    if (((dashedlines == yes) && dashes[plot->lt][0])
 	    ||  (plot->lt == LT_AXIS+2 && dashes[LT_AXIS+2][0])) {
 		plot->type = LineOnOffDash;
 		XSetDashes(dpy, gc, 0, dashes[plot->lt], strlen(dashes[plot->lt]));
@@ -2280,11 +2337,13 @@ exec_cmd(plot_struct *plot, char *command)
     /*   X11_point(number) - draw a point */
     else if (*buffer == 'P') {
 	int point;
-	sscanf(buffer + 1, "%d %d %d", &point, &x, &y);
+	point = strtol(buffer+1, &strx, 0);
+	x = strtol(strx, &stry, 0);
+	y = strtol(stry, NULL, 0);
 	if (point == -2) {
 	    /* set point size */
-	    plot->px = (int) (x * xscale * pointsize);
-	    plot->py = (int) (y * yscale * pointsize);
+	    plot->px = (int) (x * pointsize * 3.0 / 4096.0);
+	    plot->py = (int) (y * pointsize * 3.0 / 4096.0);
 	} else if (point == -1) {
 	    /* dot */
 	    XDrawPoint(dpy, plot->pixmap, *current_gc, X(x), Y(y));
@@ -2428,7 +2487,7 @@ exec_cmd(plot_struct *plot, char *command)
     }
     else if (*buffer == X11_GR_SET_LINECOLOR) {
 	    int lt;
-	    sscanf(buffer + 1, "%4d", &lt);
+	    lt = strtol(strx, NULL, 0);
 	    lt = (lt % 8) + 2;
 	    if (lt < 0) /* LT_NODRAW, LT_BACKGROUND, LT_UNDEFINED */
 		lt = -3;
@@ -2501,78 +2560,6 @@ exec_cmd(plot_struct *plot, char *command)
 	    PaletteSetColor(plot, (double)gray);
 	    current_gc = &gc;
 	}
-    }
-
-    else if (*buffer == X11_GR_FILLED_POLYGON) {	/* filled polygon */
-	if (have_pm3d) {	/* ignore, if your X server is not supported */
-	    static XPoint *points = NULL;
-	    static int st_npoints = 0;
-	    static int saved_npoints = -1, saved_i = -1;	/* HBB 20010919 */
-	    int i, npoints, style;
-	    char *ptr = buffer + 1;
-
-	    sscanf(ptr, "%4d", &npoints);
-
-	    if (npoints > 0) {
-		ptr += 4;
-		sscanf(ptr, "%4d", &style);
-	    }
-
-	    /* HBB 20010919: Implement buffer overflow protection by
-	     * breaking up long lines */
-	    if (npoints == -1) {
-		/* This is a continuation line. */
-		if (saved_npoints < 100) {
-		    fprintf(stderr, "gnuplot_x11: filled_polygon() protocol error\n");
-		    EXIT(1);
-		}
-		/* Continue filling at end of previous list: */
-		i = saved_i;
-		npoints = saved_npoints;
-	    } else {
-		saved_npoints = npoints;
-		i = 0;
-	    }
-
-	    ptr += 4;
-	    if (npoints > st_npoints) {
-		XPoint *new_points = realloc(points, sizeof(XPoint) * npoints);
-		st_npoints = npoints;
-		if (!new_points) {
-		    perror("gnuplot_x11: exec_cmd()->points");
-		    EXIT(1);
-		}
-		points = new_points;
-	    }
-
-	    while (*ptr != 'x' && i < npoints) {	/* not end-of-line marker */
-		sscanf(ptr, "%4d%4d", &x, &y);
-		ptr += 8;
-		points[i].x = X(x);
-		points[i].y = Y(y);
-		i++;
-	    }
-
-	    if (i >= npoints) {
-		/* Load selected pattern or fill into a separate gc */
-		if (!fill_gc)
-		    fill_gc = XCreateGC(dpy, plot->window, 0, 0);
-		XCopyGC(dpy, *current_gc, ~0, fill_gc);
-
-		x11_setfill(&fill_gc, style);
-
-		XFillPolygon(dpy, plot->pixmap, fill_gc, points, npoints,
-			     Nonconvex, CoordModeOrigin);
-
-		/* Flag this continuation line as closed */
-		saved_npoints = saved_i = -1;
-	    } else {
-		/* Store how far we got: */
-		saved_i = i;
-	    }
-
-	}
-
     }
 
     else if (*buffer == X11_GR_BINARY_POLYGON) {	/* filled polygon */
@@ -2897,22 +2884,22 @@ exec_cmd(plot_struct *plot, char *command)
 
 		    case PseudoColor:
 			fprintf(stderr, ERROR_NOTICE("PseudoColor"));
-			fputs(display_error_text_after,stderr);
+			fprintf(stderr, "%s", display_error_text_after);
 			break;
 
 		    case GrayScale:
 			fprintf(stderr, ERROR_NOTICE("GrayScale"));
-			fputs(display_error_text_after,stderr);
+			fprintf(stderr, "%s", display_error_text_after);
 			break;
 
 		    case StaticColor:
 			fprintf(stderr, ERROR_NOTICE("StaticColor"));
-			fputs(display_error_text_after,stderr);
+			fprintf(stderr, "%s", display_error_text_after);
 			break;
 
 		    case StaticGray:
 			fprintf(stderr, ERROR_NOTICE("StaticGray"));
-			fputs(display_error_text_after,stderr);
+			fprintf(stderr, "%s", display_error_text_after);
 			break;
 
 		    case DirectColor:
@@ -3189,14 +3176,27 @@ display(plot_struct *plot)
 {
     int n;
 
+    /* set scaling factor between internal driver & window geometry */
+    unsigned int winW = plot->width;
+    unsigned int winH = GRAPH_HEIGHT(plot);
+
     FPRINTF((stderr, "Display %d ; %d commands\n", plot->plot_number, plot->ncommands));
 
     if (plot->ncommands == 0)
 	return;
 
-    /* set scaling factor between internal driver & window geometry */
-    xscale = plot->width / 4096.0;
-    yscale = GRAPH_HEIGHT(plot) / 4096.0;
+    /* make the plot as large as possible, while preserving the aspect ratio and
+       fitting into the window */
+    if( winW * gH > gW * winH )
+    {
+      /* window is too wide; height dominates */
+      yscale = xscale = (double)(winH * gW) / (double)(gH * 4096.0);
+    }
+    else
+    {
+      /* window is too tall; width dominates */
+      yscale = xscale = (double)winW / 4096.0;
+    }
 
     /* initial point sizes, until overridden with P7xxxxyyyy */
     plot->px = (int) (xscale * pointsize);
@@ -3262,7 +3262,7 @@ display(plot_struct *plot)
 	/* restore default window title */
 	char *cp = plot->titlestring;
 	if (!cp) cp = "";
-	XStoreName(dpy, plot->window, cp);
+	gpXStoreName(dpy, plot->window, cp);
     }
 #else
     if (!button_pressed) {
@@ -3556,7 +3556,7 @@ PaletteMake(t_sm_palette * tpal)
 		    else
 			msg[0] = '\0';
 		    strcat(msg, added_text);
-		    XStoreName(dpy, current_plot->window, msg);
+		    gpXStoreName(dpy, current_plot->window, msg);
 		    free(msg);
 		}
 	    }
@@ -3675,7 +3675,7 @@ PaletteMake(t_sm_palette * tpal)
 	/* Restore window title (current_plot and current_plot->window are
 	 * valid, otherwise would not have been able to get save_title.
 	 */
-	XStoreName(dpy, current_plot->window, save_title);
+	gpXStoreName(dpy, current_plot->window, save_title);
 	XFree(save_title);
     }
 #endif
@@ -4275,7 +4275,29 @@ process_configure_notify_event(XEvent *event)
 	    }
 #endif
 
-	    display(plot);
+		/* Don't replot if we're replotting-on-window-resizes, since replotting
+		   happens elsewhere in those cases. If the inboard driver is dead, and
+		   the window is still around with -persist, replot also. */
+		if ((replot_on_resize != yes) || pipe_died)
+			display(plot);
+
+#ifdef USE_MOUSE
+	    {
+	    /* the window was resized. Send the sizing information back to
+	       inboard gnuplot. I send -plot->width to indicate that this sizing
+	       information shouldn't be used yet, just saved for a future
+	       replot */
+	      double scale = (double)plot->width / 4096.0;
+	      int scaled_hchar = (1.0/scale) * hchar;
+	      int scaled_vchar = (1.0/scale) * vchar;
+
+	      gp_exec_event(GE_fontprops, -plot->width, plot->height,
+			    scaled_hchar, scaled_vchar, 0);
+
+	      if (replot_on_resize == yes)
+		gp_exec_event(GE_keypress, 0, 0, 'e', 0, 0);
+	    }
+#endif
 	}
     }
 }
@@ -4808,6 +4830,8 @@ static XrmOptionDescRec options[] = {
     {"-xrm", NULL, XrmoptionResArg, (XPointer) NULL},
     {"-raise", "*raise", XrmoptionNoArg, (XPointer) "on"},
     {"-noraise", "*raise", XrmoptionNoArg, (XPointer) "off"},
+    {"-replotonresize", "*replotonresize", XrmoptionNoArg, (XPointer) "on"},
+    {"-noreplotonresize", "*replotonresize", XrmoptionNoArg, (XPointer) "off"},
     {"-feedback", "*feedback", XrmoptionNoArg, (XPointer) "on"},
     {"-nofeedback", "*feedback", XrmoptionNoArg, (XPointer) "off"},
     {"-ctrlq", "*ctrlq", XrmoptionNoArg, (XPointer) "on"},
@@ -5091,6 +5115,7 @@ gnuplot: X11 aborted.\n", ldisplay);
     pr_dashes();
     pr_pointsize();
     pr_raise();
+    pr_replotonresize();
     pr_persist();
     pr_feedback();
     pr_ctrlq();
@@ -5407,7 +5432,7 @@ char *gpFallbackFont(void)
 {
 #ifdef USE_X11_MULTIBYTE
     if (usemultibyte)
-	return FallbackFontMB;
+	return (encoding == S_ENC_UTF8) ? FallbackFontMBUTF : FallbackFontMB;
 #endif
     return FallbackFont;
 }
@@ -5430,6 +5455,13 @@ int gpXGetFontascent(XFontStruct *cfont)
     }
     return max_ascent;
 #endif
+}
+
+static void
+gpXStoreName (Display *dpy, Window w, char *name)
+{
+    XStoreName(dpy, w, name);
+    XSetIconName(dpy, w, name);
 }
 
 #ifdef USE_X11_MULTIBYTE
@@ -5460,27 +5492,59 @@ pr_encoding()
     }
 }
 
+/* EAM Dec 2012 - To save a lot of overhead in looking for, allocating, and	*/
+/* freeing fonts, we will keep a list of all the fonts we have used so far.	*/
+/* Each new request will be first checked against the list.  If it is already	*/
+/* known, we use it.  If it isn't know, we add it to the list.			*/
+/* Because the requested names may be of the form ",size" we must clear the	*/
+/* list whenever a new default font is set.					*/
+struct used_font {
+	char *requested_name;	/* The name passed to pr_font() */
+	XFontStruct *font;	/* The font we ended up with for that request */
+	int vchar;
+	int hchar;
+	struct used_font *next;	/* pointer to next font in list */
+} used_font;
+static struct used_font fontlist = {NULL, NULL, 12, 8, NULL};
+
+/* Helper routine to clear the used font list */
+static void
+clear_used_font_list() {
+    struct used_font *f;
+    while (fontlist.next) {
+	f = fontlist.next;
+	gpXFreeFont(dpy, f->font);
+	free(f->requested_name);
+	fontlist.next = f->next;
+	free(f);
+    }
+}
+
 static void
 pr_font( fontname )
 char *fontname;
 {
-    static char previous_font_name[128];
     char fontspec[128];
     int  fontsize = 0;
 #ifdef USE_X11_MULTIBYTE
     char *orgfontname = NULL;
 #endif
+    struct used_font *search;
+    char *requested_name;
+    char *try_name;	/* Only for debugging */
 
-    if (!fontname || !(*fontname)) {
+    /* Blank string means "default font".  If none has been set this session,
+     * try to find one from the X11 settings.  Clear any previous font results.
+     */
+    if (!fontname)
+	clear_used_font_list();
+    if (!fontname || !(*fontname))
 	fontname = default_font;
-	*previous_font_name = '\0';
-    }
-
     if (!fontname || !(*fontname)) {
-	if ((fontname = pr_GetR(db, ".font")))
+	if ((fontname = pr_GetR(db, ".font"))) {
 	    strncpy(default_font, fontname, sizeof(default_font)-1);
-	    FPRINTF((stderr, "gnuplot_x11: setting default font %s from Xresource\n",
-		    fontname));
+	    clear_used_font_list();
+	}
     }
 
 #ifdef USE_X11_MULTIBYTE
@@ -5489,6 +5553,8 @@ char *fontname;
 	    usemultibyte = 1;
 	    orgfontname = fontname;
 	    fontname = &fontname[7];
+	    if (!*fontname)
+		fontname = NULL;
 	} else {
 	    usemultibyte=0;
 	    fontname=NULL;
@@ -5498,12 +5564,24 @@ char *fontname;
     if (!fontname)
       fontname = gpFallbackFont();
 
-    /* EAM DEBUG - Free previous font before searching for a new one. */
-    /* This doesn't seem right, since we will probably need it again  */
-    /* very soon. But if we don't free it, we gradually leak memory.  */
-    gpXFreeFont(dpy, font);
+    /* Look in the used font list to see if this one was requested before. */
+    /* FIXME: This is probably the wrong thing to do for multibyte fonts.  */
+    for (search = fontlist.next; search; search = search->next) {
+	if (!strcmp(fontname, search->requested_name)) {
+	    font = search->font;
+	    vchar = search->vchar;
+	    hchar = search->hchar;
+	    return;
+	}
+    }
+    /* If we get here, the request doesn't match a previously used font.
+     * Whatever font we end up with should be recorded in the used_font
+     * list so that we can find it cheaply next time.		
+     */
+    requested_name = strdup(fontname);
 
-    font = gpXLoadQueryFont(dpy, fontname);
+    /* Try using the requested name directly as an x11 font spec. */
+    font = gpXLoadQueryFont(dpy, try_name = fontname);
 
 #ifndef USE_X11_MULTIBYTE
     if (!font) {
@@ -5521,16 +5599,9 @@ char *fontname;
 	/* Enhanced font processing wants a method of requesting a new size  */
 	/* for whatever the previously selected font was, so we have to save */
 	/* and reuse the previous font name to construct the new spec.       */
-	if (!strncmp(fontname, "DEFAULT", 7)) {
-	    sscanf(&fontname[8], "%d", &fontsize);
+	if (*fontname == ',') {
+	    fontsize = atof(&(fontname[1])) + 0.5;
 	    fontname = default_font;
-	    *previous_font_name = '\0';
-#ifdef USE_X11_MULTIBYTE
-	    backfont = 1;
-#endif
-	} else if (*fontname == ',') {
-	    sscanf(&fontname[1], "%d", &fontsize);
-	    fontname = previous_font_name;
 #ifdef USE_X11_MULTIBYTE
 	    backfont = 1;
 #endif
@@ -5550,7 +5621,7 @@ char *fontname;
 	strncpy(shortname, fontname, sep);
 	shortname[sep] = '\0';
 	if (!fontsize)
-	    sscanf( &(fontname[sep+1]), "%d", &fontsize);
+	    fontsize = atof(&(fontname[sep+1])) + 0.5;
 	if (fontsize > 99 || fontsize < 1)
 	    fontsize = 12;
 
@@ -5561,12 +5632,13 @@ char *fontname;
 	weight = strstr(&fontname[sep+1], "bold")   ? "bold" :
 		 strstr(&fontname[sep+1], "medium") ? "medium" :
 		                                     "*" ;
-
 	if (!strncmp("Symbol", shortname, 6) || !strncmp("symbol", shortname, 6))
 	    fontencoding = "*-*";
 #ifdef USE_X11_MULTIBYTE
 	else if (usemultibyte)
-	    fontencoding = "*-*";
+	    fontencoding = (
+		encoding == S_ENC_UTF8      ? "iso10646-1" :
+		"*-*" ) ;	/* EAM 2011 - This used to work but, alas, no longer. */
 #endif
 	else
 	    fontencoding = (
@@ -5577,14 +5649,18 @@ char *fontname;
 		encoding == S_ENC_ISO8859_15 ? "iso8859-15" :
 		encoding == S_ENC_KOI8_R    ? "koi8-r" :
 		encoding == S_ENC_KOI8_U    ? "koi8-u" :
-		encoding == S_ENC_UTF8      ? "utf-8" :
+		encoding == S_ENC_UTF8      ? "iso10646-1" :
 		default_encoding[0] ? default_encoding :
-		"*-*" ) ;
+#if (0)
+		"*-*" ) ;	/* EAM 2011 - This used to work but, alas, no longer. */
+#else
+		"iso8859-1" ) ;	/* biased to English, but since the wildcard doesn't work ... */
+#endif
 
-	sprintf(fontspec, "-*-%s-%s-%c-*-*-%d-*-*-*-*-*-%s",
+	sprintf(fontspec, "-*-%s-%s-%c-*--%d-*-*-*-*-*-%s",
 		shortname, weight, slant, fontsize, fontencoding
 		);
-	font = gpXLoadQueryFont(dpy, fontspec);
+	font = gpXLoadQueryFont(dpy, try_name = fontspec);
 
 #ifndef USE_X11_MULTIBYTE
 	if (!font) {
@@ -5654,15 +5730,16 @@ char *fontname;
 		sprintf(fontspec, "-*-gothic-bold-%c-*--%d-*", slant, fontsize);
 	    }
 #endif /* USE_X11_MULTIBYTE */
-	    font = gpXLoadQueryFont(dpy, fontspec);
+	    font = gpXLoadQueryFont(dpy, try_name = fontspec);
 
 #ifdef USE_X11_MULTIBYTE
 	    if (usemultibyte && !mbfont) {
 		/* But (mincho|gothic) X fonts are not provided
 		 * on some X servers even in Japan
 		 */
-		sprintf(fontspec, "*-%s-%c-*--%d-*", weight, slant, fontsize);
-		font = gpXLoadQueryFont(dpy, fontspec);
+		sprintf(fontspec, "*-%s-%c-*--%d-*", 
+			weight, slant, fontsize);
+		font = gpXLoadQueryFont(dpy, try_name = fontspec);
 	    }
 #endif /* USE_X11_MULTIBYTE */
 	}
@@ -5676,8 +5753,6 @@ char *fontname;
 	if (usemultibyte && orgfontname)
 	  fontname = orgfontname;
 #endif
-        strncpy(previous_font_name, fontname, sizeof(previous_font_name)-1);
-        FPRINTF((stderr, "gnuplot_x11:saving current font name \"%s\"\n", previous_font_name));
     }
 
     /* By now we have tried everything we can to honor the specific request. */
@@ -5689,19 +5764,19 @@ char *fontname;
     if (!usemultibyte && !font) {
 #endif
 	sprintf(fontspec, "-*-bitstream vera sans-bold-r-*-*-%d-*-*-*-*-*-*-*", fontsize);
-	font = gpXLoadQueryFont(dpy, fontspec);
+	font = gpXLoadQueryFont(dpy, try_name = fontspec);
 	fontname = fontspec;
 	if (!font) {
 	    sprintf(fontspec, "-*-arial-medium-r-*-*-%d-*-*-*-*-*-*-*", fontsize);
-	    font = gpXLoadQueryFont(dpy, fontspec);
+	    font = gpXLoadQueryFont(dpy, try_name = fontspec);
 	}
 	if (!font) {
 	    sprintf(fontspec, "-*-helvetica-medium-r-*-*-%d-*-*-*-*-*-*", fontsize);
-	    font = gpXLoadQueryFont(dpy, fontspec);
+	    font = gpXLoadQueryFont(dpy, try_name = fontspec);
 	}
 	if (!font) {
-	    font = gpXLoadQueryFont(dpy, gpFallbackFont());
 	    fontname = gpFallbackFont();
+	    font = gpXLoadQueryFont(dpy, try_name = fontname);
 	}
 	if (!font) {
 	    fprintf(stderr, "\ngnuplot_x11: can't find usable font - X11 aborted.\n");
@@ -5711,10 +5786,10 @@ char *fontname;
     }
 #ifdef USE_X11_MULTIBYTE
     if (usemultibyte && !mbfont) { /* multibyte font setting */
-	font = gpXLoadQueryFont(dpy, gpFallbackFont());
+	font = gpXLoadQueryFont(dpy, try_name = gpFallbackFont());
 	if (!mbfont) {
 	    usemultibyte=0;
-	    font = gpXLoadQueryFont(dpy, gpFallbackFont());
+	    font = gpXLoadQueryFont(dpy, try_name = gpFallbackFont());
 	    if (!font) {
 		fprintf(stderr, "\ngnuplot_x11: can't find usable font - X11 aborted.\n");
 		EXIT(1);
@@ -5727,8 +5802,22 @@ char *fontname;
     vchar = gpXTextHeight(font);
     hchar = gpXTextWidth(font, "0123456789", 10) / 10;
 
+    /* Save a pointer to this font indexed by the name used to request it */
+    search = &fontlist;
+    while (search->next)
+	search = search->next;
+    search->next = malloc(sizeof(used_font));
+    search = search->next;
+    search->next = NULL;
+    search->font = font;
+    search->requested_name = requested_name;
+    search->vchar = vchar;
+    search->hchar = hchar;
+
     FPRINTF((stderr, "gnuplot_x11: pr_font() set font %s, vchar %d hchar %d\n",
 		fontname, vchar, hchar));
+    FPRINTF((stderr, "gnuplot_x11: requested \"%s\" succeeded with \"%s\"\n", 
+    		requested_name, try_name));
 
 }
 
@@ -5951,11 +6040,11 @@ pr_window(plot_struct *plot)
 	    if (orig_len && (plot->plot_number > 0))
 		plot->titlestring[orig_len++] = ' ';
 	    strcpy(plot->titlestring + orig_len, numstr + strlen(ICON_TEXT));
-	    XStoreName(dpy, plot->window, plot->titlestring);
+	    gpXStoreName(dpy, plot->window, plot->titlestring);
 	} else
-	    XStoreName(dpy, plot->window, title);
+	    gpXStoreName(dpy, plot->window, title);
     } else {
-	XStoreName(dpy, plot->window, plot->titlestring);
+	gpXStoreName(dpy, plot->window, plot->titlestring);
     }
     }
 #undef ICON_TEXT
@@ -5979,6 +6068,12 @@ pr_raise()
 	do_raise = (On(value.addr));
 }
 
+static void
+pr_replotonresize()
+{
+    if (pr_GetR(db, ".replotonresize"))
+	replot_on_resize = (On(value.addr));
+}
 
 static void
 pr_persist()
@@ -6147,8 +6242,8 @@ static void
 mouse_to_coords(plot_struct *plot, XEvent *event,
 		double *x, double *y, double *x2, double *y2)
 {
-    int xx =         4096. * (event->xbutton.x + 0.5)/ plot->width;
-    int yy = 4095. - 4096. * (event->xbutton.y + 0.5)/ plot->gheight;
+    int xx = RevX( event->xbutton.x );
+    int yy = RevY( event->xbutton.y );
 
     FPRINTF((stderr, "gnuplot_x11 %d: mouse at %d %d\t", __LINE__, xx, yy));
 

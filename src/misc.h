@@ -1,5 +1,5 @@
 /*
- * $Id: misc.h,v 1.37.2.1 2012/05/10 21:48:01 sfeam Exp $
+ * $Id: misc.h,v 1.38 2012/05/10 21:46:16 sfeam Exp $
  */
 
 /* GNUPLOT - misc.h */

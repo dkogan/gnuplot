@@ -1,5 +1,5 @@
 /*
- * $Id: axis.h,v 1.67.2.1 2012/09/26 23:05:56 sfeam Exp $
+ * $Id: axis.h,v 1.81 2012/11/29 00:12:56 broeker Exp $
  *
  */
 
@@ -36,6 +36,7 @@
 #ifndef GNUPLOT_AXIS_H
 #define GNUPLOT_AXIS_H
 
+#include <stddef.h>		/* for offsetof() */
 #include "gp_types.h"		/* for TBOOLEAN */
 
 #include "gadgets.h"
@@ -55,23 +56,24 @@
  * FIRST_X_AXIS & SECOND_AXES == 0
  */
 typedef enum AXIS_INDEX {
-#define FIRST_AXES 0
     FIRST_Z_AXIS,
+#define FIRST_AXES FIRST_Z_AXIS
     FIRST_Y_AXIS,
     FIRST_X_AXIS,
     COLOR_AXIS,			/* fill gap */
-#define SECOND_AXES 4
     SECOND_Z_AXIS,		/* not used, yet */
+#define SECOND_AXES SECOND_Z_AXIS
     SECOND_Y_AXIS,
     SECOND_X_AXIS,
     POLAR_AXIS,
     T_AXIS,
-    U_AXIS,			/* never used? */
-    V_AXIS			/* ditto */
-#define NO_AXIS 99
+    U_AXIS,
+    V_AXIS,
+    NO_AXIS = 99
 } AXIS_INDEX;
 
 # define AXIS_ARRAY_SIZE 11
+# define SAMPLE_AXIS SECOND_Z_AXIS
 # define LAST_REAL_AXIS  POLAR_AXIS
 
 /* What kind of ticmarking is wanted? */
@@ -188,10 +190,7 @@ typedef enum e_constraint {
     CONSTRAINT_UPPER = 1<<1,
     CONSTRAINT_BOTH  = (1<<0 | 1<<1)
 } t_constraint;
-    
 
-/* FIXME 20000725: collect some of those various TBOOLEAN fields into
- * a larger int (or -- shudder -- a bitfield?) */
 typedef struct axis {
 /* range of this axis */
     t_autoscale autoscale;	/* Which end(s) are autoscaled? */
@@ -199,8 +198,8 @@ typedef struct axis {
     int range_flags;		/* flag bits about autoscale/writeback: */
     /* write auto-ed ranges back to variables for autoscale */
 #define RANGE_WRITEBACK 1
+#define RANGE_SAMPLED   2
     /* allow auto and reversed ranges */
-#define RANGE_REVERSE   2
     TBOOLEAN range_is_reverted;	/* range [high:low] silently reverted? */
     double min;			/* 'transient' axis extremal values */
     double max;
@@ -227,6 +226,13 @@ typedef struct axis {
     TBOOLEAN log;		/* log axis stuff: flag "islog?" */
     double base;		/* logarithm base value */
     double log_base;		/* ln(base), for easier computations */
+
+/* linked axis information (used only by x2, y2)
+ * If linked_to_primary is TRUE, the primary axis info will be cloned into the
+ * secondary axis only up to this point in the structure.
+ */
+    TBOOLEAN linked_to_primary;
+    struct udft_entry *link_udf;
 
 /* time/date axis control */
     td_type datatype;		/* DT_NORMAL | DT_TIMEDATE | DT_DMS */
@@ -269,6 +275,7 @@ typedef struct axis {
 	0.,        		/* terminal scale */			    \
 	0,        		/* zero axis position */		    \
 	FALSE, 0.0, 0.0,	/* log, base, log(base) */		    \
+	FALSE, NULL,		/* linked_to_primary, link function */      \
 	DT_NORMAL, TRUE,	/* datatype, format_numeric */	            \
 	DEF_FORMAT, TIMEFMT,	/* output format, timefmt */		    \
 	NO_TICS,		/* tic output positions (border, mirror) */ \
@@ -281,6 +288,9 @@ typedef struct axis {
 	DEFAULT_AXIS_ZEROAXIS	/* zeroaxis line style */		    \
 }
 
+/* This much of the axis structure is cloned by the "set x2range link" command */
+#define AXIS_CLONE_SIZE offsetof(AXIS, linked_to_primary)
+
 /* Table of default behaviours --- a subset of the struct above. Only
  * those fields are present that differ from axis to axis. */
 typedef struct axis_defaults {
@@ -289,8 +299,6 @@ typedef struct axis_defaults {
     char name[4];		/* axis name, like in "x2" or "t" */
     int ticmode;		/* tics on border/axis? mirrored? */
 } AXIS_DEFAULTS;
-
-
 
 /* global variables in axis.c */
 
@@ -364,9 +372,6 @@ extern AXIS_INDEX x_axis, y_axis, z_axis;
   (((double)(pos)-axis_array[axis].term_lower)/axis_array[axis].term_scale \
    + axis_array[axis].min)
 
-/* these are the old names for these: */
-#define map_x(x) AXIS_MAP(x_axis, x)
-#define map_y(y) AXIS_MAP(y_axis, y)
 
 #define AXIS_SETSCALE(axis, out_low, out_high)			\
     axis_array[axis].term_scale = ((out_high) - (out_low))	\
@@ -469,18 +474,6 @@ do {									\
 
 #endif
 
-/* HBB NEW 20050316: macros to always access the actual minimum, even
- * if 'set view map' or something else flipped things around behind
- * our back */
-#define AXIS_ACTUAL_MIN(axis)				\
-    (axis_array[axis].range_flags & RANGE_REVERSE	\
-     ? axis_array[axis].max : axis_array[axis].min)
-
-#define AXIS_ACTUAL_MAX(axis)				\
-    (axis_array[axis].range_flags & RANGE_REVERSE	\
-     ? axis_array[axis].min : axis_array[axis].max)
-
-
 /* parse a position of the form
  *    [coords] x, [coords] y {,[coords] z}
  * where coords is one of first,second.graph,screen,character
@@ -520,81 +513,89 @@ do {							\
  */
 
 #define STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,	  \
-			        NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	  \
+				NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	  \
 do {									  \
-    if (AXIS == NO_AXIS)                                                  \
-	break;                                                            \
+    struct axis *axis = &axis_array[AXIS];				  \
+    double curval = VALUE;						  \
+    if (AXIS == NO_AXIS)						  \
+	break;								  \
     /* HBB 20040304: new check to avoid storing infinities and NaNs */	  \
-    if (! (VALUE > -VERYLARGE && VALUE < VERYLARGE)) {			  \
+    if (! (curval > -VERYLARGE && curval < VERYLARGE)) {		  \
 	TYPE = UNDEFINED;						  \
 	UNDEF_ACTION;							  \
 	break;								  \
     }									  \
-    if (axis_array[AXIS].log) {						  \
-	if (VALUE<0.0) {						  \
+    if (axis->log) {							  \
+	if (curval < 0.0) {						  \
 	    TYPE = UNDEFINED;						  \
 	    UNDEF_ACTION;						  \
 	    break;							  \
-	} else if (VALUE == 0.0) {					  \
+	} else if (curval == 0.0) {					  \
 	    STORE = -VERYLARGE;						  \
 	    TYPE = OUTRANGE;						  \
 	    OUT_ACTION;							  \
 	    break;							  \
 	} else {							  \
-	    STORE = AXIS_DO_LOG(AXIS,VALUE);				  \
+	    STORE = log(curval) / axis->log_base; /* AXIS_DO_LOG() */	  \
 	}								  \
     } else								  \
-	STORE = VALUE;							  \
+	STORE = curval;							  \
     if (NOAUTOSCALE)							  \
 	break;  /* this plot is not being used for autoscaling */	  \
     if (TYPE != INRANGE)						  \
 	break;  /* don't set y range if x is outrange, for example */	  \
-    if ((int)AXIS < 0)							  \
-	break;	/* HBB 20000507: don't check range if not a coordinate */ \
-    if ( VALUE<axis_array[AXIS].data_min )				  \
-	axis_array[AXIS].data_min = VALUE;				  \
-    if ( VALUE<axis_array[AXIS].min ) {					  \
-	if (axis_array[AXIS].autoscale & AUTOSCALE_MIN)	{		  \
-            if (axis_array[AXIS].min_constraint & CONSTRAINT_LOWER) {     \
-                if (axis_array[AXIS].min_lb <= VALUE) {                   \
-                    axis_array[AXIS].min = VALUE;                         \
-                } else {                                                  \
-                    axis_array[AXIS].min = axis_array[AXIS].min_lb;       \
-                    TYPE = OUTRANGE;                                       \
-                    OUT_ACTION;                                           \
-                    break;                                                \
-                }                                                         \
-            } else {                                                      \
-	        axis_array[AXIS].min = VALUE;				  \
+    if ((AXIS != COLOR_AXIS) && axis->linked_to_primary) {	  	  \
+	axis -= SECOND_AXES;						  \
+	if (axis->link_udf->at) 					  \
+	    curval = eval_link_function(AXIS - SECOND_AXES, curval);	  \
+    } 									  \
+    if ( curval < axis->data_min )					  \
+	axis->data_min = curval;					  \
+    if ( curval < axis->min						  \
+    &&  (curval <= axis->max || axis->max == -VERYLARGE)) {		  \
+	if (axis->autoscale & AUTOSCALE_MIN)	{			  \
+	    if (axis->min_constraint & CONSTRAINT_LOWER) {		  \
+		if (axis->min_lb <= curval) {				  \
+		    axis->min = curval;					  \
+		} else {						  \
+		    axis->min = axis->min_lb;				  \
+		    TYPE = OUTRANGE;					  \
+		    OUT_ACTION;						  \
+		    break;						  \
+		}							  \
+	    } else {							  \
+		axis->min = curval;					  \
 	    }								  \
-	} else {							  \
+	} else if (curval != axis->max) {				  \
 	    TYPE = OUTRANGE;						  \
 	    OUT_ACTION;							  \
 	    break;							  \
 	}								  \
     }									  \
-    if ( VALUE>axis_array[AXIS].data_max )				  \
-	axis_array[AXIS].data_max = VALUE;				  \
-    if ( VALUE>axis_array[AXIS].max ) {					  \
-	if (axis_array[AXIS].autoscale & AUTOSCALE_MAX)	{		  \
-	    if (axis_array[AXIS].max_constraint & CONSTRAINT_UPPER) {     \
-                if (axis_array[AXIS].max_ub >= VALUE) {                   \
-                    axis_array[AXIS].max = VALUE;                         \
-                } else {                                                  \
-                    axis_array[AXIS].max = axis_array[AXIS].max_ub;       \
-                    TYPE =OUTRANGE;                                       \
-                    OUT_ACTION;                                           \
-                    break;                                                \
-                }                                                         \
-            } else {                                                      \
-	        axis_array[AXIS].max = VALUE;                             \
-            }                                                     	  \
-	} else {							  \
+    if ( curval > axis->data_max )					  \
+	axis->data_max = curval;					  \
+    if ( curval > axis->max						  \
+    &&  (curval >= axis->min || axis->min == VERYLARGE)) {		  \
+	if (axis->autoscale & AUTOSCALE_MAX)	{			  \
+	    if (axis->max_constraint & CONSTRAINT_UPPER) {		  \
+		if (axis->max_ub >= curval) {				  \
+		    axis->max = curval;					  \
+		} else {						  \
+		    axis->max = axis->max_ub;				  \
+		    TYPE =OUTRANGE;					  \
+		    OUT_ACTION;						  \
+		    break;						  \
+		}							  \
+	    } else {							  \
+		axis->max = curval;					  \
+	    }								  \
+	} else if (curval != axis->min) {				  \
 	    TYPE = OUTRANGE;						  \
 	    OUT_ACTION;							  \
 	}								  \
     }									  \
 } while(0)
+
 
 /* Implementation of the above for the color axis. It should not change
  * the type of the point (out-of-range color is plotted with the color
@@ -603,7 +604,7 @@ do {									  \
 #define COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,	  \
 			       NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	  \
 {									  \
-    coord_type c_type_tmp = TYPE;						  \
+    coord_type c_type_tmp = TYPE;					  \
     STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, c_type_tmp, AXIS,	  \
 			       NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION);	  \
 }
@@ -613,7 +614,7 @@ do {									  \
 /* Now trying ((void)0) */
 #define NOOP ((void)0)
 
-/* HBB 20000506: new macro to automatically build intializer lists
+/* HBB 20000506: new macro to automatically build initializer lists
  * for arrays of AXIS_ARRAY_SIZE equal elements */
 #define AXIS_ARRAY_INITIALIZER(value) {			\
     value, value, value, value, value,			\
@@ -626,6 +627,12 @@ do {									  \
 	    axis_array[axis].format_is_numeric = 1;		\
 	}
 
+/* FIXME: replace by a subroutine? */
+#define clear_sample_range(axis) do {				\
+	axis_array[SAMPLE_AXIS].range_flags = 0;		\
+	axis_array[SAMPLE_AXIS].min = axis_array[axis].min;	\
+	axis_array[SAMPLE_AXIS].max = axis_array[axis].max;	\
+	} while (0)
 
 /* 'roundoff' check tolerance: less than one hundredth of a tic mark */
 #define SIGNIF (0.01)
@@ -656,8 +663,7 @@ void set_writeback_min __PROTO((AXIS_INDEX));
 void set_writeback_max __PROTO((AXIS_INDEX));
 
 void save_writeback_all_axes __PROTO((void));
-void parse_range __PROTO((AXIS_INDEX axis));
-int  parse_named_range __PROTO((AXIS_INDEX axis, int token));
+int  parse_range __PROTO((AXIS_INDEX axis));
 void parse_skip_range __PROTO((void));
 void check_axis_reversed __PROTO((AXIS_INDEX axis));
 
@@ -667,6 +673,13 @@ void widest_tic_callback __PROTO((AXIS_INDEX, double place, char *text,
 
 void get_position __PROTO((struct position *pos));
 void get_position_default __PROTO((struct position *pos, enum position_type default_type));
+
+void gstrdms __PROTO((char *label, char *format, double value));
+
+void clone_linked_axes __PROTO((AXIS_INDEX axis2, AXIS_INDEX axis1));
+
+int map_x __PROTO((double value));
+int map_y __PROTO((double value));
 
 /* ------------ autoscaling of the color axis */
 #define NEED_PALETTE(plot) \

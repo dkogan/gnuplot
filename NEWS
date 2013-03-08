@@ -1,48 +1,30 @@
-New features, changes and fixes since gnuplot version 4.6.0
-===========================================================
+New features, changes and fixes since gnuplot version 4.6
+=========================================================
 
-* NEW syntax hints inside Emacs gnuplot-mode
-* NEW support tabulation (set table) of pixel values from image plot styles
-* NEW support tabulation of variable color column
-* CHANGE emf output modified for better compatibility with MS Office programs
-* CHANGE canvas terminal loads appropriate font file for UTF-8 encoding
-* CHANGE skip execution of empty iteration loops in set and do commands
-* CHANGE build scripts modified to accommodate automake 1.12
-* CHANGE new policy: objects given in screen coords are not clipped to graph
-* CHANGE Draw the z-axis label at a fixed distance to the left of the z-axis
-* CHANGE "unset object N" succeeds even if there is currently no object N
-* CHANGE gnuplot.el: catch up with 10 year old syntax change in emacs/elisp
-* FIX margin space required for rotated axis tic labels
-* FIX check for NaN values in binary input
-* FIX backslash handling in enhanced text strings
-* FIX cairo terminals sometimes lost the line segment before a polygon
-* FIX interactive toggle of multiplots in svg
-* FIX failure to balance {} if an input file did not end with a newline
-* FIX strlen() and substring operators correctly handle UTF-8
-* FIX initialization of history when configured --with-readline=bsd
-* FIX set term cairolatex pdf mono
-* FIX palette-related corruption in some cairolatex output
-* FIX preserve number of active call arguments across a nested call command
-* FIX wxt terminal mutex protecting execution of the command list
-* FIX apply clipping to the interior fill of circles and ellipses
-* FIX corruption of weights used for plotting with smooth acsplines
-* FIX skip columnheader line when applying "every" filter
-* FIX handle out-of-range pm3d values when cb axis is set to log scale
-* FIX top/bottom color distinction in hidden3d when not using palette/RGB colors
-* FIX allow toggling on/off of more than 10 plots in windows terminal
-* FIX color printing from windows terminal
-* FIX set term win font ",<size>"
-* FIX incorrect return for acos(x) when imag(x) > 0 (bug present since v3.7)
-      incorrect return for asin(x) when imag(x) > 0 (bug in 4.4.4, 4.6.0)
-      incorrect asinh(x) when real(x) < 0 && imag(x) == 0 (bug in 4.4.4, 4.6.0)
-* FIX keep sufficient precision in canvas and svg coords to report time in msec
-* FIX the input buffer was not always extended correctly inside a { clause }
-* FIX some cairolatex set_color requests were being ignored
-* FIX calculated value of kernel density mean and sigma
-* FIX emf terminal dashed line support
-* FIX qt terminal build/installation procedure on OSX
-* FIX array overflow while processing rowstacked histograms
-* FIX boxes containing transparent patterns in PostScript output 
+* NEW piecewise functions via separate sampling ranges for each plot element
+* NEW function hsv2rgb(H,S,V) creates a 24-bit RGB value
+* NEW plot title can be placed next to the plot line in the graph proper
+* NEW inline data can be stored for reuse in named data blocks
+* NEW hypertext labels can be displayed on mouse-over
+* NEW geographic (Degrees Minutes Seconds) data axes
+* NEW set arrow <tag> from <start> length <len> angle <ang>
+* NEW the high bits of RGB colors are treated as an alpha channel
+* NEW 'set surface explicit' disables automatic generation of a surface mesh 
+* NEW 'set link [x2|y2]' ties secondary axis range to the primary axis
+* NEW 'set link x2 via f(x) inverse g(x)' introduces generic nonlinear axes
+* NEW 'set key opaque' works for 3D plots also
+* NEW x11 terminal is aware of current and requested plot aspect ratio
+* CHANGE Provide kdensity bandwidth via a keyword rather than a data column
+* CHANGE Pipe (popen/pclose) emulation within wgnuplot
+* CHANGE 'set [xyz]axis ... reverse' affects only auto-scaling
+* CHANGE Revised handling of NaN in input data stream
+* CHANGE Remove the BACKWARDS_COMPATIBLE build option (deprecated since v4.0)
+* CHANGE The number of valid columns in the first line of a data line
+         is used to decide the interpretation of all lines in the file.
+* CHANGE Automake 1.12 imposes an absolute requirement for C prototypes
+* CHANGE binary plot options are less order-dependent, but may be persistent
+* CHANGE leave axis log base non-zero so gprintf format %L works on linear axes
+
 
 New features, changes and fixes in gnuplot version 4.6
 ======================================================
@@ -95,7 +77,7 @@ New features, changes and fixes in gnuplot version 4.6
 * CHANGE 3D zoom using middle mouse button is now a logarithmic response
 * CHANGE 3D impulses are now always drawn from z=0
 * CHANGE remove vestigial code supporting Amiga, Apollo, and 16-bit MSDOS/WIN
-* CHANGE remove obsolete drivers unixplot and gnugraph
+* CHANGE remove obsolete drivers unixplot, gnugraph, and SCO cgi
 * CHANGE extend formats x/X/o/O to 64 bits if necessary to represent the value
 * CHANGE "set palette maxcolors" no longer fights with "set palette defined"
 * CHANGE javascript support for HTML5 canvas does not use global variables
@@ -108,8 +90,8 @@ New features, changes and fixes in gnuplot version 4.6
 * CHANGE hidden3d top/bottom surface colors taken from linetype, not line style
 
 
-New features, changes and fixes in gnuplot version 4.4
-======================================================
+New features, changes and fixes in gnuplot version 4.4.0
+========================================================
 
 * NEW CANDLESTICKS accept an option 6th input column specifying width
 * NEW point property 'pointinterval'

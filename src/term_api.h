@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.97.2.3 2012/03/31 05:54:38 sfeam Exp $
+ * $Id: term_api.h,v 1.107 2013/02/19 05:30:37 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -44,7 +44,6 @@
 #include "gp_types.h"
 
 #include "color.h"
-#include "mousecmn.h"
 #include "tables.h"
 
 /* Constants that are interpreted by terminal driver routines */
@@ -84,6 +83,11 @@ typedef enum VERT_JUSTIFY {
     JUST_BOT
 } VERT_JUSTIFY;
 
+typedef enum t_linecap {
+    BUTT = 0,
+    ROUNDED,
+    SQUARE
+} t_linecap;
 
 typedef struct lp_style_type {	/* contains all Line and Point properties */
     int     pointflag;		/* 0 if points not used, otherwise 1 */
@@ -141,6 +145,9 @@ typedef enum termlayer {
 	TERM_LAYER_END_PM3D_MAP
 } t_termlayer;
 
+/* Options used by the terminal entry point term->hypertext(). */
+#define TERM_HYPERTEXT_TOOLTIP 0
+
 typedef struct fill_style_type {
     int fillstyle;
     int filldensity;
@@ -164,20 +171,21 @@ typedef struct t_image {
 
 /* Values for the flags field of TERMENTRY
  */
-#define TERM_CAN_MULTIPLOT    1  /* tested if stdout not redirected */
-#define TERM_CANNOT_MULTIPLOT 2  /* tested if stdout is redirected  */
-#define TERM_BINARY           4  /* open output file with "b"       */
-#define TERM_INIT_ON_REPLOT   8  /* call term->init() on replot     */
-#define TERM_IS_POSTSCRIPT   16  /* post, next, pslatex, etc        */
-#define TERM_ENHANCED_TEXT   32  /* enhanced text mode is enabled   */
-#define TERM_NO_OUTPUTFILE   64  /* terminal doesnt write to a file */
-#define TERM_CAN_CLIP       128  /* terminal does its own clipping  */
-#define TERM_CAN_DASH       256  /* terminal supports dashed lines  */
-#define TERM_ALPHA_CHANNEL  512  /* alpha channel transparency      */
-#define TERM_MONOCHROME    1024  /* term is running in mono mode    */
-#define TERM_LINEWIDTH     2048  /* support for set term linewidth  */
-#define TERM_FONTSCALE     4096  /* terminal supports fontscale     */
-#define TERM_IS_LATEX      8192  /* text uses TeX markup            */
+#define TERM_CAN_MULTIPLOT    (1<<0)	/* tested if stdout not redirected */
+#define TERM_CANNOT_MULTIPLOT (1<<1)	/* tested if stdout is redirected  */
+#define TERM_BINARY           (1<<2)	/* open output file with "b"       */
+#define TERM_INIT_ON_REPLOT   (1<<3)	/* call term->init() on replot     */
+#define TERM_IS_POSTSCRIPT    (1<<4)	/* post, next, pslatex, etc        */
+#define TERM_ENHANCED_TEXT    (1<<5)	/* enhanced text mode is enabled   */
+#define TERM_NO_OUTPUTFILE    (1<<6)	/* terminal doesnt write to a file */
+#define TERM_CAN_CLIP         (1<<7)	/* terminal does its own clipping  */
+#define TERM_CAN_DASH         (1<<8)	/* terminal supports dashed lines  */
+#define TERM_ALPHA_CHANNEL    (1<<9)	/* alpha channel transparency      */
+#define TERM_MONOCHROME      (1<<10)	/* term is running in mono mode    */
+#define TERM_LINEWIDTH       (1<<11)	/* support for set term linewidth  */
+#define TERM_FONTSCALE       (1<<12)	/* terminal supports fontscale     */
+#define TERM_IS_LATEX        (1<<13)	/* text uses TeX markup            */
+#define TERM_EXTENDED_COLOR  (1<<14)	/* uses EXTENDED_COLOR_SPECS       */
 
 /* The terminal interface structure --- heart of the terminal layer.
  *
@@ -272,6 +280,9 @@ typedef struct TERMENTRY {
  */
     double tscale;
 
+/* Pass hypertext for inclusion in the output plot */
+    void (*hypertext) __PROTO((int type, const char *text));
+
 } TERMENTRY;
 
 # define termentry TERMENTRY
@@ -301,21 +312,6 @@ enum set_encoding_id {
  * semaphores => the code in gpexecute.c is used, and nothing more from here.
  */
 
-#ifdef PIPE_IPC
-
-enum { IPC_BACK_UNUSABLE = -2, IPC_BACK_CLOSED = -1 };
-
-/*
- * Currently only used for PIPE_IPC, but in principle
- * every term could use this file descriptor to write back
- * commands to gnuplot.  Note, that terminals using this fd
- * should set it to a negative value when closing. (joze)
- */
-/* HBB 20020225: currently not used anywhere outside term.c --> make
- * it static */
-/* extern int ipc_back_fd; */
-
-# endif /* PIPE_IPC */
 
 /* options handling */
 enum { UNSET = -1, no = 0, yes = 1 };
@@ -390,6 +386,7 @@ void term_end_multiplot __PROTO((void));
 void term_reset __PROTO((void));
 void term_apply_lp_properties __PROTO((struct lp_style_type *lp));
 void term_check_multiplot_okay __PROTO((TBOOLEAN));
+struct termentry *change_term __PROTO((const char *name, int length));
 
 void write_multiline __PROTO((unsigned int, unsigned int, char *, JUSTIFY, VERT_JUSTIFY, int, const char *));
 int estimate_strlen __PROTO((char *));
@@ -420,7 +417,8 @@ int style_from_fill __PROTO((struct fill_style_type *));
 #ifdef EAM_OBJECTS
 /* Terminal-independent routine to draw a circle or arc */
 void do_arc __PROTO(( unsigned int cx, unsigned int cy, double radius,
-                      double arc_start, double arc_end, int style));
+                      double arc_start, double arc_end, 
+		      int style, TBOOLEAN wedge));
 #endif
 
 #ifdef LINUXVGA

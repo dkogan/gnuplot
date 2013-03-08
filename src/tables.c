@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tables.c,v 1.110 2011/11/10 05:15:58 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tables.c,v 1.116 2012/11/29 00:12:57 broeker Exp $"); }
 #endif
 
 /* GNUPLOT - tables.c */
@@ -37,6 +37,7 @@ static char *RCSid() { return RCSid("$Id: tables.c,v 1.110 2011/11/10 05:15:58 s
 #include "tables.h"
 
 #include "command.h"
+#include "datablock.h"
 #include "fit.h"
 #include "setshow.h"
 #include "term_api.h"
@@ -95,6 +96,7 @@ const struct gen_ftable command_ftbl[] =
     { "{", begin_clause },
     { "}", end_clause },
     { ";", null_command },
+    { "$", datablock_command },
     /* last key must be NULL */
     { NULL, invalid_command }
 };
@@ -184,6 +186,7 @@ const struct gen_table set_tbl[] =
     { "k$ey", S_KEY },
     { "keyt$itle", S_KEYTITLE },
     { "la$bel", S_LABEL },
+    { "link", S_LINK },
     { "lines$tyle", S_LINESTYLE },
     { "linetype$s", S_LINETYPE },
     { "ls", S_LINESTYLE },
@@ -242,7 +245,7 @@ const struct gen_table set_tbl[] =
     { "su$rface", S_SURFACE },
     { "table", S_TABLE },
     { "t$erminal", S_TERMINAL },
-    { "termo$ptions", S_TERMOPTIONS },
+    { "termopt$ions", S_TERMOPTIONS },
     { "ti$cs", S_TICS },
     { "ticsc$ale", S_TICSCALE },
     { "ticsl$evel", S_TICSLEVEL },
@@ -623,7 +626,7 @@ struct gen_table default_color_names_tbl[] =
 struct gen_table *pm3d_color_names_tbl = default_color_names_tbl;
 struct gen_table *user_color_names_tbl = NULL;
 const int num_predefined_colors = sizeof(default_color_names_tbl)
-				/ sizeof(struct gen_table);
+				/ sizeof(struct gen_table) - 1;
 int num_userdefined_colors = 0;
 
 
@@ -682,7 +685,8 @@ const struct gen_table plotstyle_tbl[] =
     { "cir$cles", CIRCLES },
     { "ell$ipses", ELLIPSES },
 #endif
-    { NULL, -1 }
+    { "sur$face", SURFACEGRID },
+    { NULL, PLOT_STYLE_NONE }
 };
 
 const struct gen_table filledcurves_opts_tbl[] =

@@ -1,5 +1,5 @@
 #
-# $Id: Makefile,v 1.2.2.4 2012/09/16 18:38:14 markisch Exp $
+# $Id: Makefile,v 1.9 2012/07/18 16:42:51 markisch Exp $
 #
 # GNUPLOT Makefile Microsoft Visual C++ 2005 or newer
 
@@ -41,7 +41,7 @@
 
 # Compilation options, disable by setting to zero
 # Is libgd available? (required by terminal png/jpeg/gif)?
-GDLIB = 1
+GDLIB = 0
 # Is pdflib available? (required by terminal pdf)
 PDFLIB = 0
 # Build wxt terminal? (required GTK, wxWidgets, cairo and pango libraries)
@@ -49,10 +49,7 @@ PDFLIB = 0
 #     http://wiki.wxwidgets.org/Visual_Studio_2008_%289.0%29
 WXT = 0
 # Build the lua/tikz terminal?
-LUA = 1
-# Choose help format:
-# for HTML help (.chm) this should be 1, for (.hlp) it should be 0
-HTML_HELP = 1
+LUA = 0
 
 # Location of additional libraries
 GDDIR = gdwin32
@@ -87,8 +84,9 @@ LD = link
 # /Zi means prepare for codeview
 # /MD means include multi-thread support (DLL)
 CBASEFLAGS = /EHsc /GR /MD /O2 /nologo
-CFLAGS = $(CBASEFLAGS) /I. /I$(TOP) /I$(S) /D_Windows /DWIN32 /DHAVE_CONFIG_H /D__MSC__ /DHELPFILE=\"$(HELPFILE)\" $(OPTIONS)
+CFLAGS = $(CBASEFLAGS) /I. /I$(TOP) /I$(S) /D_Windows /DWIN32 /DHAVE_CONFIG_H /D__MSC__ $(OPTIONS)
 CFLAGS = $(CFLAGS) /DGNUPLOT_SHARE_DIR=\"$(GNUPLOT_SHARE_DIR)\"
+WIN_CFLAGS = /DUSE_FAKEPIPES
 CONSOLE_CFLAGS = /DWGP_CONSOLE /DCONSOLE_SWITCH_CP /DPIPES
 OPTIONS = /DUSE_MOUSE
 OPTIONS = $(OPTIONS) /DGNUPLOT_HISTORY
@@ -121,7 +119,6 @@ TERMFLAGS = $(TERMFLAGS) /I$(PDFDIR)\pdflib
 WXTLIBS = glib-2.0.lib gobject-2.0.lib gmodule-2.0.lib \
 	cairo.lib pango-1.0.lib pangocairo-1.0.lib \
 	wxmsw28.lib wxtiff.lib
-CFLAGS = $(CFLAGS) -DWXWIDGETS
 !ENDIF
 
 !IF "$(LUA)" == "1"
@@ -132,14 +129,8 @@ TERMFLAGS = $(TERMFLAGS) /DGNUPLOT_LUA_DIR=\"$(GNUPLOT_LUA_DIR)\"
 LUALIBS = lua51.lib
 !ENDIF
 
-!IF "$(HTML_HELP)" == "1"
 HELPFILE = wgnuplot.chm
-OPTIONS = $(OPTIONS) /DWITH_HTML_HELP
 HHWPATH=$(PROGRAMFILES)\HTML Help Workshop\\
-!ELSE
-HELPFILE = wgnuplot.hlp
-HCWPATH=$(PROGRAMFILES)\help workshop\\
-!ENDIF
 
 !IF "$(PROCESSOR_ARCHITECTURE)" == "ALPHA"
 MACHINE = $(PROCESSOR_ARCHITECTURE)
@@ -170,19 +161,19 @@ ALL_CONSOLE_OBJS = $(OBJS:.obj=.cobj) $(WINOBJS:.obj=.cobj)
 
 # default rules
 {$(S)}.c.obj:
-	$(CC) /c $(CFLAGS) $(S)\\$*.c
+	$(CC) /c $(CFLAGS) $(WIN_CFLAGS) $(S)\\$*.c
 
 {$(S)}.c.cobj:
 	$(CC) /c $(CFLAGS) $(CONSOLE_CFLAGS) $(S)\\$*.c /Fo$@
 
 {$(W)}.c.obj:
-	$(CC) /c $(CFLAGS) $(W)$*.c /Fo$@
+	$(CC) /c $(CFLAGS) $(WIN_CFLAGS) $(W)$*.c /Fo$@
 
 {$(W)}.c.cobj:
 	$(CC) /c $(CFLAGS) $(CONSOLE_CFLAGS) $(W)$*.c /Fo$@
 
 {$(W)}.cpp.obj:
-	$(CC) /c $(CFLAGS) $(W)$*.cpp /Fo$@
+	$(CC) /c $(CFLAGS) $(WIN_CFLAGS) $(W)$*.cpp /Fo$@
 
 {$(W)}.cpp.cobj:
 	$(CC) /c $(CFLAGS) $(CONSOLE_CFLAGS) $(W)$*.cpp /Fo$@
@@ -196,7 +187,7 @@ $(OBJS): config.h
 config.h: $(TOP)\config\config.nt
 	copy $(TOP)\config\config.nt config.h
 
-wgnuplot.exe: $(OBJS) $(WINOBJS) wgnuplot.res linkopt-w.msw texticon.ico grpicon.ico
+wgnuplot.exe: $(OBJS) $(WINOBJS) wgnuplot.res linkopt-w.msw
 	$(LD) /subsystem:windows $(LDFLAGS) /map:wgnuplot.map /out:$@ @linkopt-w.msw
 !IF "$(GDLIB)" == "1"
 	copy $(GDDIR)\bin\*.dll .
@@ -205,7 +196,7 @@ wgnuplot.exe: $(OBJS) $(WINOBJS) wgnuplot.res linkopt-w.msw texticon.ico grpicon
 	copy $(LUADIR)\*.dll .
 !ENDIF
 
-gnuplot.exe: $(ALL_CONSOLE_OBJS) wgnuplot.res linkopt-c.msw texticon.ico grpicon.ico
+gnuplot.exe: $(ALL_CONSOLE_OBJS) wgnuplot.res linkopt-c.msw
 	$(LD) /subsystem:console $(LDFLAGS) /map:wgnuplot.map /out:$@ @linkopt-c.msw
 !IF "$(GDLIB)" == "1"
 	copy $(GDDIR)\bin\*.dll .
@@ -222,9 +213,7 @@ linkopt-w.msw: Makefile
 	echo $(WINOBJS) >> linkopt-w.msw
 	echo $(COMMONLIBS) >> linkopt-w.msw
 	echo wgnuplot.res >> linkopt-w.msw
-!IF "$(HTML_HELP)" == "1"
 	echo htmlhelp.lib >> linkopt-w.msw
-!ENDIF
 !IF "$(GDLIB)" == "1"
 	echo bgd.lib >> linkopt-w.msw
 !ENDIF
@@ -243,9 +232,7 @@ linkopt-c.msw: Makefile
 	echo $(COMMONLIBS) >> linkopt-c.msw
 	echo $(CONSOLELIBS) >> linkopt-c.msw
 	echo wgnuplot.res >> linkopt-c.msw
-!IF "$(HTML_HELP)" == "1"
 	echo htmlhelp.lib >> linkopt-c.msw
-!ENDIF
 !IF "$(GDLIB)" == "1"
 	echo bgd.lib >> linkopt-c.msw
 !ENDIF
@@ -262,13 +249,13 @@ linkopt-c.msw: Makefile
 # rules
 
 term.obj: $(S)\term.c $(S)\term.h $(S)\plot.h $(S)\setshow.h $(S)\bitmap.h $(CORETERM)
-	$(CC) /c $(CFLAGS) $(TERMFLAGS) $(S)\$(*B).c /Fo$@
+	$(CC) /c $(CFLAGS) $(WIN_CFLAGS) $(TERMFLAGS) $(S)\$(*B).c /Fo$@
 
 term.cobj: $(S)\term.c $(S)\term.h $(S)\plot.h $(S)\setshow.h $(S)\bitmap.h $(CORETERM)
 	$(CC) /c $(CFLAGS) $(CONSOLE_CFLAGS) $(TERMFLAGS) $(S)\$(*B).c /Fo$@
 
 winmain.obj: $(W)winmain.c $(W)wgnuplib.h $(W)wtext.h $(S)\plot.h
-	$(CC) /c $(CFLAGS) $(W)$(*B).c /Fo$@
+	$(CC) /c $(CFLAGS) $(WIN_CFLAGS) $(W)$(*B).c /Fo$@
 
 winmain.cobj: $(W)winmain.c $(W)wgnuplib.h $(W)wtext.h $(S)\plot.h
 	$(CC) /c $(CFLAGS) $(CONSOLE_CFLAGS) $(W)winmain.c /Fo$@
@@ -278,21 +265,11 @@ winmain.cobj: $(W)winmain.c $(W)wgnuplib.h $(W)wtext.h $(S)\plot.h
 wgnuplot.mnu: $(W)wgnuplot.mnu
 	copy $(W)wgnuplot.mnu wgnuplot.mnu
 
-wgnuplot.res :  $(W)wgnuplot.rc $(W)wgnuplib.rc $(W)wresourc.h texticon.ico grpicon.ico
-	$(RC) /l 0x409 /fowgnuplot.res /I $(W) /d "NDEBUG" /d WIN32 /d MSRC /d NO_MANIFEST $(W)wgnuplot.rc
-
-# extract icons from wgnuplot.rc
-texticon.ico: grpicon.ico
-
-grpicon.ico: geticon.exe $(W)wgnuplot.rc
-	geticon $(W)wgnuplot.rc
-
-geticon.exe: $(W)geticon.c
-	$(CC) /DMSDOS /F 5000 /W1 $(W)geticon.c
+wgnuplot.res :  $(W)wgnuplot.rc $(W)wgnuplib.rc $(W)wresourc.h $(W)grpicon.ico $(W)texticon.ico
+	$(RC) /l 0x409 /fowgnuplot.res /I $(W) /d "NDEBUG" /d WIN32 /d NO_MANIFEST $(W)wgnuplot.rc
 
 
 # build windows help file
-!IF "$(HTML_HELP)" == "1"
 $(HELPFILE): doc2html.exe $(D)gnuplot.doc gnuplot.exe
 	doc2html $(D)gnuplot.doc $(D)windows\\
 	cd $(D)
@@ -300,19 +277,9 @@ $(HELPFILE): doc2html.exe $(D)gnuplot.doc gnuplot.exe
 	-"$(HHWPATH)hhc" windows\wgnuplot.hhp
 	cd ..\\config\\msvc
 	if exist $(D)windows\wgnuplot.chm copy $(D)windows\wgnuplot.chm .
-!ELSE
-# convert gnuplot.doc to gnuplot.rtf
-$(HELPFILE): doc2rtf.exe $(D)gnuplot.doc $(W)wgnuplot.hpj
-	doc2rtf $(D)gnuplot.doc $(W)gnuplot.rtf
-	"$(HCWPATH)hcw" /c /e $(W)wgnuplot.hpj
-	if exist $(W)wgnuplot.hlp copy $(W)wgnuplot.hlp .
-!ENDIF
 
 doc2html.exe: $(D)windows\doc2html.c $(D)termdoc.c $(D)xref.c version.obj
 	$(CC) $(CFLAGS) /F 5000 /W1 /I. /DWINDOWS_NO_GUI /I$(D) /I$(T) -Fedoc2html.exe $(D)windows\doc2html.c $(D)termdoc.c $(D)xref.c version.obj
-
-doc2rtf.exe: $(D)doc2rtf.c $(D)termdoc.c $(D)xref.c
-	$(CC) $(CFLAGS) /F 5000 /W1 /I. /DWINDOWS_NO_GUI /I$(D) /I$(T) -Fedoc2rtf.exe $(D)doc2rtf.c $(D)termdoc.c $(D)xref.c
 
 
 # make binary demo files
@@ -330,15 +297,13 @@ dbinary.obj: $(S)\\binary.c
 clean:
 	if exist *.obj del *.obj
 	if exist *.cobj del *.cobj
-	if exist *.ico del *.ico
+	if exist *.map del *.map
 	if exist wgnuplot.res del wgnuplot.res
-	if exist gnuplot.rtf del gnuplot.rtf
+	if exist wgnuplot.chw del wgnuplot.chw
 	if exist $(M)bf_test.exe del $(M)bf_test.exe
 	if exist linkopt-w.msw del linkopt-w.msw
 	if exist linkopt-c.msw del linkopt-c.msw
 	if exist doc2html.exe del doc2html.exe
-	if exist doc2rtf.exe del doc2rtf.exe
-	if exist geticon.exe del geticon.exe
 	if exist gnuplot rmdir /s /q gnuplot
 
 veryclean: clean
@@ -348,6 +313,7 @@ veryclean: clean
 	if exist wgnuplot.mnu del wgnuplot.mnu
 	if exist pgnuplot.exe del pgnuplot.exe
 	if exist gnuplot.exe del gnuplot.exe
+	if exist *.manifest del *.manifest
 	if exist $(M)binary1 del $(M)binary1
 	if exist $(M)binary2 del $(M)binary2
 	if exist $(M)binary3 del $(M)binary3
@@ -390,4 +356,4 @@ install:
 
 zip:
 	$(MAKE) DESTDIR=.\gnuplot install
-	zip -mro9 gp461-msvc-win32.zip gnuplot
+	zip -mro9 gp470-msvc-win32.zip gnuplot

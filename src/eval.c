@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.96.2.3 2012/09/14 21:13:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.105 2012/10/30 04:43:42 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -43,11 +43,13 @@ static char *RCSid() { return RCSid("$Id: eval.c,v 1.96.2.3 2012/09/14 21:13:08 
 #include "syscfg.h"
 #include "alloc.h"
 #include "datafile.h"
+#include "datablock.h"
 #include "internal.h"
 #include "specfun.h"
 #include "standard.h"
 #include "util.h"
 #include "version.h"
+#include "term_api.h"
 
 #include <signal.h>
 #include <setjmp.h>
@@ -72,12 +74,7 @@ static int s_p = -1;		/* stack pointer */
 static int jump_offset;		/* to be modified by 'jump' operators */
 
 /* The table of built-in functions */
-/* HBB 20010725: I've removed all the casts to type (FUNC_PTR) ---
- * According to ANSI/ISO C Standards it causes undefined behaviour if
- * you cast a function pointer to any other type, including a function
- * pointer with a different set of arguments, and then call the
- * function.  Instead, I made all these functions adhere to the common
- * type, directly */
+/* These must strictly parallel enum operators in eval.h */
 const struct ft_entry GPFAR ft[] =
 {
     /* internal functions: */
@@ -173,9 +170,6 @@ const struct ft_entry GPFAR ft[] =
     {"rand",  f_rand},
     {"floor",  f_floor},
     {"ceil",  f_ceil},
-#ifdef BACKWARDS_COMPATIBLE
-    {"defined",  f_exists},       /* deprecated syntax defined(foo) */
-#endif
 
     {"norm",  f_normal},	/* XXX-JG */
     {"inverf",  f_inverse_erf},	/* XXX-JG */
@@ -210,6 +204,8 @@ const struct ft_entry GPFAR ft[] =
     {"exist", f_exists},	/* exists("foo") replaces defined(foo) */
     {"exists", f_exists},	/* exists("foo") replaces defined(foo) */
     {"value", f_value},		/* retrieve value of variable known by name */
+
+    {"hsv2rgb", f_hsv2rgb},	/* color conversion */
 
     {NULL, NULL}
 };
@@ -256,6 +252,25 @@ real(struct value *val)
     }
     /* NOTREACHED */
     return ((double) 0.0);
+}
+
+
+/* returns the real part of val, converted to int if necessary */
+int
+real_int(struct value *val)
+{
+    switch (val->type) {
+    case INTGR:
+	return val->v.int_val;
+    case CMPLX:
+	return (int) val->v.cmplx_val.real;
+    case STRING:
+	return atoi(val->v.string_val);
+    default:
+	int_error(NO_CARET, "unknown type in real_int()");
+    }
+    /* NOTREACHED */
+    return 0;
 }
 
 
@@ -692,7 +707,7 @@ get_udv_by_name(char *key)
 }
 
 void
-del_udv_by_name( char *key, TBOOLEAN wildcard )
+del_udv_by_name(char *key, TBOOLEAN wildcard)
 {
     struct udvt_entry *udv_ptr = first_udv;
 
@@ -701,6 +716,7 @@ del_udv_by_name( char *key, TBOOLEAN wildcard )
 	if (!wildcard && !strcmp(key, udv_ptr->udv_name)) {
 	    udv_ptr->udv_undef = TRUE;
 	    gpfree_string(&(udv_ptr->udv_value));
+	    gpfree_datablock(&(udv_ptr->udv_value));
 	    break;
 	}
 
@@ -708,6 +724,7 @@ del_udv_by_name( char *key, TBOOLEAN wildcard )
 	if ( wildcard && !strncmp(key, udv_ptr->udv_name, strlen(key)) ) {
 	    udv_ptr->udv_undef = TRUE;
 	    gpfree_string(&(udv_ptr->udv_value));
+	    gpfree_datablock(&(udv_ptr->udv_value));
 	    /* no break - keep looking! */
 	}
 
@@ -742,11 +759,6 @@ fill_gpval_axis(AXIS_INDEX axis)
     AXIS *ap = &axis_array[axis];
     double a = AXIS_DE_LOG_VALUE(axis, ap->min);
     double b = AXIS_DE_LOG_VALUE(axis, ap->max);
-    if ((ap->range_flags & RANGE_REVERSE) && (a > b)) {
-	double tmp = a;
-	a = b;
-	b = tmp;
-    }
     set_gpval_axis_sth_double(prefix, axis, "MIN", a, 0);
     set_gpval_axis_sth_double(prefix, axis, "MAX", b, 0);
     set_gpval_axis_sth_double(prefix, axis, "LOG", ap->base, 0);
@@ -952,7 +964,29 @@ gp_word(char *string, int i)
 	push(Ginteger(&a,i));
 	f_words((union argument *)NULL);
 	pop(&a);
-	
+
     return a.v.string_val;
 }
 
+
+/* Evaluate the function linking secondary axis to primary axis */
+double
+eval_link_function(int axis, double raw_coord)
+{
+    udft_entry *link_udf = axis_array[axis].link_udf;
+    int dummy_var;
+    struct value a;
+
+    if (axis == FIRST_Y_AXIS || axis == SECOND_Y_AXIS)
+	dummy_var = 1;
+    else
+	dummy_var = 0;
+
+    Gcomplex(&link_udf->dummy_values[dummy_var], raw_coord, 0.0);
+    evaluate_at(link_udf->at, &a);
+
+    if (a.type != CMPLX)
+	a = udv_NaN->udv_value;
+
+    return a.v.cmplx_val.real;
+}

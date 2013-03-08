@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: x11.trm,v 1.193 2011/10/08 00:07:41 sfeam Exp $
+ * $Id: x11.trm,v 1.206 2013/01/19 06:53:48 sfeam Exp $
  *
  */
 
@@ -107,19 +107,24 @@ TERM_PUBLIC void ENHX11_OPEN __PROTO((char * fontname, double fontsize,
 				int overprint));
 TERM_PUBLIC void ENHX11_FLUSH __PROTO((void));
 
+/* These are the default terminal sizing parameters. These should match the
+   sizes in gplt_x11.c, and both specify 640,450 */
 # define X11_XMAX 4096
-# define X11_YMAX 4096
+# define X11_YMAX (4096*450/640)
 
 static int X11_SIZE_X = 640;
 static int X11_SIZE_Y = 450;
 static int X11_POSITION_X = 0;
 static int X11_POSITION_Y = 0;
 
-/* approximations for typical font/screen sizes */
+/* approximations for typical font/screen sizes. The are just the defaults that
+   get updated by the outboard driver. We make sure that the inboard and the
+   outboard defaults match up at the start. The *10/25 is the factor of 2.5 that
+   gets applied in the GE_fontprops handler in mouse.c */
 # define X11_VCHAR (X11_YMAX/25)
 # define X11_HCHAR (X11_XMAX/100)
-# define X11_VTIC (X11_YMAX/100)
-# define X11_HTIC (X11_XMAX/150)
+# define X11_VTIC (X11_VCHAR * 10 / 25)
+# define X11_HTIC (X11_VCHAR * 10 / 25)
 #endif	/* TERM_PROTO */
 
 
@@ -170,6 +175,7 @@ static struct x11opt {
     { "-selectionTimeout", hasArg}, { "-title", hasArg},
     { "-xnllanguage", hasArg}, { "-xrm", hasArg},
     { "-raise", hasNoArg}, { "-noraise", hasNoArg},
+    { "-replotonresize", hasNoArg}, { "-noreplotonresize", hasNoArg},
     { "-solid", hasNoArg}, { "-dashed", hasNoArg}
 #ifdef USE_MOUSE
     , { "-nofeedback", hasNoArg}
@@ -213,6 +219,7 @@ static char *X11_full_command_path = NULL;
 /* must match the definition in src/gplt_x11.c: */
 static int persist = UNSET;
 static int do_raise = UNSET;
+static int replot_on_resize = UNSET;
 static int dashedlines = UNSET;
 static int ctrlq = UNSET;
 static int set_size = UNSET;
@@ -220,6 +227,13 @@ static int set_position = UNSET;
 
 /* driver properties managed by x11.trm rather than gnuplot_x11 */
 static double X11_linewidth_multiplier = 1.0;
+
+/* Internal markers to avoid duplicate move/vector/set_color(rgb) commands */
+static int X11_xlast = -1;
+static int X11_ylast = -1;
+#define X11_INVALIDATE_CURRENT_POSITION X11_xlast = X11_ylast = -1
+static unsigned int X11_rgblast;
+#define X11_INVALIDATE_CURRENT_RGB X11_rgblast = ~0x1FFFFFF
 
 #ifdef USE_MOUSE
 /* Interlock to prevent the mouse channel from being coopted more than
@@ -361,6 +375,8 @@ enum X11_id {
     X11_NOPERSIST,
     X11_RAISE,
     X11_NORAISE,
+    X11_REPLOTONRESIZE,
+    X11_NOREPLOTONRESIZE,
     X11_FONT,
     X11_TITLE,
     X11_ENHANCED,
@@ -386,6 +402,8 @@ static struct gen_table X11_opts[] = {
     {"noper$sist", X11_NOPERSIST},
     {"rai$se", X11_RAISE},
     {"norai$se", X11_NORAISE},
+    {"rep$lotonresize", X11_REPLOTONRESIZE},
+    {"norep$lotonresize", X11_NOREPLOTONRESIZE},
     {"font",   X11_FONT},
     {"fn$ame", X11_FONT},
     {"ti$tle", X11_TITLE},
@@ -418,6 +436,7 @@ X11_options()
     int background;
     TBOOLEAN duplication = FALSE;
     TBOOLEAN set_reset = FALSE, set_persist = FALSE, set_raise = FALSE, set_font = FALSE;
+    TBOOLEAN set_replotonresize = FALSE;
     TBOOLEAN set_ctrlq = FALSE;
     TBOOLEAN set_title = FALSE, set_number = FALSE, set_close = FALSE, set_solid = FALSE;
 #ifdef EXTERNAL_X11_WINDOW
@@ -426,6 +445,7 @@ X11_options()
 #endif
 
     do_raise = dashedlines = ctrlq = UNSET;
+    replot_on_resize = UNSET;
     set_size = set_position = UNSET;
     persist = persist_cl;	/* previously set from command line */
     strcpy(x11_userbkg,"#RRGGBB");
@@ -495,6 +515,18 @@ X11_options()
 	    c_token++;
 	    if (set_raise) duplication=TRUE;
 	    set_raise = TRUE;
+	    break;
+	case X11_REPLOTONRESIZE:
+	    replot_on_resize = yes;
+	    c_token++;
+	    if (set_replotonresize) duplication=TRUE;
+	    set_replotonresize = TRUE;
+	    break;
+	case X11_NOREPLOTONRESIZE:
+	    replot_on_resize = no;
+	    c_token++;
+	    if (set_replotonresize) duplication=TRUE;
+	    set_replotonresize = TRUE;
 	    break;
 	case X11_FONT:
 	    c_token++;
@@ -592,6 +624,12 @@ X11_options()
 #endif
 	case X11_OTHER:
 	default:
+	    /* Silently ignore these, as they are not yet implemented */
+	    if (equals(c_token, "dl") || almost_equals(c_token, "dashl$ength")) {
+		c_token++;
+		(void) real_expression();
+		break;
+	    }
 	    if (set_number) duplication=TRUE;
 	    /* let gnuplot_x11 check range */
 	    new_term_number = int_expression();
@@ -617,7 +655,11 @@ X11_options()
     /* Leave the current window unchanged when closing an old window */
     if (X11_ipc) {
 	if (set_close) {
-	    fprintf(X11_ipc, (set_number ? "C%d\n" : "C\n"), new_term_number);
+	    if (set_number) {
+		fprintf(X11_ipc, "C%d\n", new_term_number);
+	    } else {
+		fputs("C\n", X11_ipc);
+	    }
 	    fflush(X11_ipc);
 	} else if (set_number) {
 #ifdef EXTERNAL_X11_WINDOW
@@ -645,6 +687,9 @@ X11_options()
     if (UNSET != do_raise) {
 	strcat(term_options, (yes == do_raise ? " raise" : " noraise"));
     }
+    if (UNSET != replot_on_resize) {
+	strcat(term_options, (yes == replot_on_resize ? " replotonresize" : " noreplotonresize"));
+    }
     if (UNSET != persist) {
 	strcat(term_options, (yes == persist ? " persist" : " nopersist"));
     }
@@ -670,11 +715,11 @@ X11_options()
 	char *title;
 	int save_token = c_token;
 	c_token = c_title_token;
-	strncat(term_options, " title \"", MAX_LINE_LEN-strlen(term_options));
+	strncat(term_options, " title \"", sizeof(term_options)-strlen(term_options)-1);
 	title = term_options + strlen(term_options);
 	if (isstringvalue(c_title_token)) {
 	    char *s = try_to_get_string();
-	    strncat(term_options, s, MAX_LINE_LEN-strlen(term_options));
+	    strncat(term_options, s, sizeof(term_options)-strlen(term_options)-1);
 	    free(s);
 	} else
 	    copy_str(term_options+strlen(term_options), c_title_token, MAX_LINE_LEN-strlen(term_options));
@@ -690,7 +735,7 @@ X11_options()
 	    fputc('\n', X11_ipc);
 	    fflush(X11_ipc);
 	}
-	strncat(term_options, "\"", MAX_LINE_LEN-strlen(term_options));
+	strncat(term_options, "\"", sizeof(term_options)-strlen(term_options)-1);
 	c_token = save_token;
     }
     if (set_size != UNSET)
@@ -752,9 +797,14 @@ X11_update_opts()
     if (!X11_ipc)
 	return;
 
-    if (UNSET != do_raise || UNSET != persist || UNSET != dashedlines || UNSET != ctrlq) {
-	fprintf(X11_ipc, "X %d %d %d %d\n", 
-		do_raise, persist, dashedlines, ctrlq);
+    if (!strcmp("xlib",term->name))
+	return;
+
+    if (UNSET != do_raise || UNSET != persist || UNSET != dashedlines ||
+        UNSET != ctrlq || UNSET != replot_on_resize)
+    {
+	fprintf(X11_ipc, "X %d %d %d %d %d\n", 
+		do_raise, persist, dashedlines, ctrlq, replot_on_resize);
 	fflush(X11_ipc);
     }
 
@@ -861,13 +911,18 @@ AGAIN:
 		     * error occurs), so need to reset l first */
 		    l = 0;
 		    do_event(&ge);
-		    if (ge.type == GE_fontprops) {
-		    	if (repeat_count > 0) {
+
+		    /* I react only to the first GE_fontprops event. Subsequent
+		       GE_fontprops events only save the sizing information for
+		       later. We also can't use the main pipe at that point. The
+		       'pause' command gets confused, for example. */
+		    if (ge.type == GE_fontprops && !default_font_size_known) {
+		    	if (repeat_count > 0)
 		    	    FPRINTF((stderr,
 			        "X11_waitforinput: caught GE_fontprops after %d tries\n",
 				repeat_count));
-			}
-			return(GE_fontprops);
+			if (IPC_LOCK)
+			    return(GE_fontprops);
 		    }
 		    if (ge.type == GE_buttonrelease && (paused_for_mouse & PAUSE_CLICK)) {
 			int button = ge.par1;
@@ -1287,6 +1342,13 @@ X11_reset()
     You lose.
 #endif /* !VMS */
 
+
+/* Cached sizing values for the x11 terminal.
+ * Updated/Maintained in mouse.c 
+ */
+int          X11_hchar_saved, X11_vchar_saved;
+double       X11_ymax_saved = -1.0;
+
 /* common stuff, using macros defined above */
 
 TERM_PUBLIC void
@@ -1324,35 +1386,64 @@ X11_graphics()
 #endif
 #endif /* USE_MOUSE */
 
-#ifdef ULTRIX_KLUDGE
-    fflush(X11_ipc);
-#endif
-
     if (encoding != last_encoding) {
 	PRINT1("QE%d\n",encoding);
 	last_encoding = encoding;
     }
 
 #if defined(USE_MOUSE) && defined(PIPE_IPC)
+    /* EAM Jan 2013 - multiplot is incompatible with replot_on_resize.	*/
+    /* FIXME: This disables replot_on_resize until the next 'set term'.	*/
+    /* A cleaner solution would be to have gnuplot_x11 itself track 	*/
+    /* whether the current window contains a multiplot, and not	send	*/
+    /* replot requests if it does.					*/
+    if (multiplot) {
+	fprintf(X11_ipc, "X %d %d %d %d %d\n", 
+		do_raise, persist, dashedlines, ctrlq, no);
+	fflush(X11_ipc);
+    }
+
     /* EAM June 2003 - Flush the set font command through the pipe */
     /* to gnuplot_x11, then wait for it to return the resulting    */
     /* font size information (v_char and h_char). The feedback is  */
     /* caught by do_event() as an event of type GE_fontprops.      */
-    if (ipc_back_fd >= 0 && X11_MOUSE_FEEDBACK) {
+
+    /* Dima Kogan Sep 2012: Above is true when generating the plot THE FIRST
+       TIME.  I now save the sizing information every time the window sizes
+       change (in the ..._saved variables). Thus I no longer need
+       to ask for this information NOW, and can just use it.
+     */
 	if (!default_font_size_known) {
-	    IPC_LOCK = TRUE;
-	    PRINT1("QG%s\n",X11_default_font);
-	    FFLUSH();
-	    X11_waitforinput();
-	    default_font_size_known = TRUE;
-	    IPC_LOCK = FALSE;
+		IPC_LOCK = TRUE;
+		PRINT1("QG%s\n",X11_default_font);
+		FFLUSH();
+		if (ipc_back_fd >= 0 && X11_MOUSE_FEEDBACK)
+			X11_waitforinput();
+
+		default_font_size_known = TRUE;
+		IPC_LOCK = FALSE;
+	} else {
+		/* replot. I send a Qg to tell the outboard driver to use the new
+		   window sizes. I also use the stored window sizes to update myself
+		   (inboard driver) */
+		PRINT0("Qg\n");
+		FFLUSH();
+
+		if (X11_ymax_saved > 0.0) { /* use saved sizes if they're valid */
+			term->h_char = X11_hchar_saved;
+			term->v_char = X11_vchar_saved;
+			term->h_tic = term->v_tic = X11_vchar_saved / 2.5;
+			term->ymax = X11_ymax_saved;
+		}
 	}
-    }
 #endif
+
     /* Force default font at start of plot */
     *X11_last_font_used = '\01';
     X11_set_default_font();
     X11_set_font("");
+    X11_INVALIDATE_CURRENT_POSITION;
+    X11_INVALIDATE_CURRENT_RGB;
 }
 
 TERM_PUBLIC void
@@ -1416,13 +1507,21 @@ X11_text()
 TERM_PUBLIC void
 X11_move(unsigned int x, unsigned int y)
 {
-    PRINT2("M%04d%04d\n", x, y);
+    if (x == X11_xlast && y == X11_ylast)
+	return;
+    PRINT2("M%d %d\n", x, y);
+    X11_xlast = x;
+    X11_ylast = y;
 }
 
 TERM_PUBLIC void
 X11_vector(unsigned int x, unsigned int y)
 {
-    PRINT2("V%04d%04d\n", x, y);
+    if (x == X11_xlast && y == X11_ylast)
+	return;
+    PRINT2("V%d %d\n", x, y);
+    X11_xlast = x;
+    X11_ylast = y;
 }
 
 TERM_PUBLIC void
@@ -1431,19 +1530,20 @@ X11_pointsize(double ps)
     if (ps < 0)
 	ps = 1;
     PRINT2("P-2 %d %d\n",	/* size of point symbols */
-	   (int) (term->h_tic * ps * 0.5), (int) (term->v_tic * ps * 0.5));
+	   (int) (4096.0 * ps), (int) (4096.0 * ps));
 }
 
 TERM_PUBLIC void
 X11_linewidth(double lw)
 {
-    PRINT1("W%04d\n", (int) (lw * X11_linewidth_multiplier + 0.5));
+    PRINT1("W%d\n", (int) (lw * X11_linewidth_multiplier + 0.5));
 }
 
 TERM_PUBLIC void
 X11_linetype(int lt)
 {
-    PRINT1("L%04d\n", lt);
+    PRINT1("L%d\n", lt);
+    X11_INVALIDATE_CURRENT_RGB;
 }
 
 TERM_PUBLIC void
@@ -1454,11 +1554,8 @@ X11_put_text(unsigned int x, unsigned int y, const char str[])
 	strcpy(X11_last_font_used,X11_next_font_used);
 	PRINT1("QF%s\n", X11_next_font_used);
     }
-
-    /* badly outrange labels can overflow into text field */
-    if (x < 10000 && y < 10000) {
-	PRINT3("T%04d%04d%s\n", x, y, str);
-    }
+    PRINT3("T%d %d %s\n", x, y, str);
+    X11_INVALIDATE_CURRENT_POSITION;
 }
 
 TERM_PUBLIC int
@@ -1471,7 +1568,7 @@ X11_text_angle(int ang)
 TERM_PUBLIC int
 X11_justify_text(enum JUSTIFY mode)
 {
-    PRINT1("J%04d\n", mode);
+    PRINT1("J%d\n", mode);
     X11_last_justification = mode;
     return (TRUE);
 }
@@ -1480,6 +1577,7 @@ TERM_PUBLIC void
 X11_point(unsigned int x, unsigned int y, int number)
 {
     PRINT3("P%d %d %d\n", number, x, y);
+    X11_INVALIDATE_CURRENT_POSITION;
 }
 
 TERM_PUBLIC int
@@ -1500,8 +1598,9 @@ TERM_PUBLIC void
 X11_fillbox(int style, unsigned int x, unsigned int y, unsigned int w, unsigned int h)
 {
     if (X11_ipc) {
-	PRINT5("F%04d%04u%04u%04u%04u\n", style, x, y, w, h);
+	PRINT5("F%d %u %u %u %u\n", style, x, y, w, h);
     }
+    X11_INVALIDATE_CURRENT_POSITION;
 }
 
 #ifdef USE_MOUSE
@@ -1509,16 +1608,17 @@ TERM_PUBLIC void
 X11_put_tmptext(int i, const char str[])
 {
     if (X11_ipc) {
-	PRINT2("t%04d%s\n", i, str);
+	PRINT2("t%d %s\n", i, str);
 	FFLUSH();
     }
+    X11_INVALIDATE_CURRENT_POSITION;
 }
 
 TERM_PUBLIC void
 X11_set_ruler(int x, int y)
 {
     if (X11_ipc) {
-	PRINT2("r%04d%04d\n", x < 9999 ? x : 9999, y < 9999 ? y : 9999);
+	PRINT2("r%d %d\n", x, y);
 	FFLUSH();
     }
 }
@@ -1527,7 +1627,7 @@ TERM_PUBLIC void
 X11_set_cursor(int c, int x, int y)
 {
     if (X11_ipc) {
-	PRINT3("u%04d%04d%04d\n", c, x, y);
+	PRINT3("u%d %d %d\n", c, x, y);
 	FFLUSH();
     }
 }
@@ -1639,15 +1739,20 @@ TERM_PUBLIC void
 X11_set_color(t_colorspec *colorspec)
 {
     if (colorspec->type == TC_RGB) {
-	fputc(X11_GR_SET_RGBCOLOR, X11_ipc);
-	PRINT1("%6.6x\n", colorspec->lt & 0xffffff);
-	FFLUSH();
+	if (colorspec->lt != X11_rgblast) {
+	    fputc(X11_GR_SET_RGBCOLOR, X11_ipc);
+	    PRINT1("%6.6x\n", colorspec->lt & 0xffffff);
+	    FFLUSH();
+	}
+	X11_rgblast = colorspec->lt;
 	return;
+    } else {
+	X11_INVALIDATE_CURRENT_RGB;
     }
 
     if (colorspec->type == TC_LT) {
 	fputc(X11_GR_SET_LINECOLOR, X11_ipc);
-	PRINT1("%4d\n", colorspec->lt);
+	PRINT1("%d\n", colorspec->lt);
 	FFLUSH();
 	return;
     }
@@ -1761,6 +1866,7 @@ X11_filled_polygon(int points, gpiPoint *corners)
 	fputc('\n', X11_ipc);
 	FFLUSH();
     }
+    X11_INVALIDATE_CURRENT_POSITION;
 
     return;
 }
@@ -1797,10 +1903,10 @@ ENHX11_OPEN(
 {
     /* If the overprint code requests a save or request, that's all we do */
     if (overprint == 3) {
-	PRINT2("Tp%04d%04d\n", 0, 0);
+	PRINT2("Tp%d %d\n", 0, 0);
 	return;
     } else if (overprint == 4) {
-	PRINT2("Tr%04d%04d\n", 0, 0);
+	PRINT2("Tr%d %d\n", 0, 0);
 	return;
     }
 
@@ -1833,13 +1939,13 @@ ENHX11_FLUSH()
 	*X11_last_font_used = '\01';
 
 	if (!ENHx11_show || ENHx11_sizeonly)
-	    PRINT3("Ts%04d%04d%s\n", 0, (int)ENHx11_base, enhanced_text);
+	    PRINT3("Ts%d %d %s\n", 0, (int)ENHx11_base, enhanced_text);
 	else if (ENHx11_overprint == 1)
-	    PRINT3("Tc%04d%04d%s\n", 0, (int)ENHx11_base, enhanced_text);
+	    PRINT3("Tc%d %d %s\n", 0, (int)ENHx11_base, enhanced_text);
 	else if (!ENHx11_widthflag && ENHx11_overprint != 0)
-	    PRINT3("To%04d%04d%s\n", 0, (int)ENHx11_base, enhanced_text);
+	    PRINT3("To%d %d %s\n", 0, (int)ENHx11_base, enhanced_text);
 	else
-	    PRINT3("Tu%04d%04d%s\n", 0, (int)ENHx11_base, enhanced_text);
+	    PRINT3("Tu%d %d %s\n", 0, (int)ENHx11_base, enhanced_text);
 
 	ENHx11_opened_string = FALSE;
     }
@@ -1850,6 +1956,7 @@ ENHX11_put_text(unsigned int x, unsigned int y, const char *str)
 {
     char *original_string = (char *)str;
     static char *initial_font = NULL;
+    double firstpass_fontsize = X11_default_fontsize;
     int pass = 1;
 
     if (ignore_enhanced_text) {
@@ -1875,27 +1982,27 @@ ENHX11_put_text(unsigned int x, unsigned int y, const char *str)
 
 
     /* Tell gnuplot_x11 to set the current position to (x,y) */
-	PRINT2("Tl%04d%04d\n", x, y);
+	PRINT2("Tl%d %d\n", x, y);
 
     /* Text justification requires two passes. During the first pass we */
     /* don't draw anything, we just measure the space it will take.     */
     if (X11_last_justification != LEFT) {
-	PRINT1("J%04d\n", LEFT);
+	PRINT1("J%d\n", LEFT);
 	ENHx11_sizeonly = TRUE;
     }
 PASS2:
 
-    /* Make sure that we start out using the intended font.  */
-	ENHx11_font = "DEFAULT";
-	ENHx11_fontsize = X11_default_fontsize;
+    /* Make sure that we start out using the intended font.  	*/
+    /*	ENHx11_font = "DEFAULT";	This broke!		*/
+	ENHx11_font = "";
 	if (*X11_next_font_used) {
 	    int sep = strcspn(X11_next_font_used,",");
 	    free(initial_font);
 	    initial_font = gp_strdup(X11_next_font_used);
 	    initial_font[sep] = '\0';
-	    sscanf(&(X11_next_font_used[sep+1]),"%lf",&ENHx11_fontsize);
+	    sscanf(&(X11_next_font_used[sep+1]),"%lf",&firstpass_fontsize);
 	    ENHx11_font = initial_font;
-	    FPRINTF((stderr,"setting font to %s,%g\n",ENHx11_font,ENHx11_fontsize));
+	    FPRINTF((stderr,"Pass %d setting font to %s,%g\n",pass,ENHx11_font,firstpass_fontsize));
 	}
 
     /* Set the recursion going. We say to keep going until a
@@ -1906,7 +2013,7 @@ PASS2:
      * we get stuck in an infinite loop) and try again.
      */
     while (*(str = enhanced_recursion((char *)str, TRUE,
-			ENHx11_font, ENHx11_fontsize,
+			ENHx11_font, firstpass_fontsize,
 			0.0, TRUE, TRUE, 0))) {
 	(term->enhanced_flush)();
 
@@ -1922,7 +2029,7 @@ PASS2:
 
     /* Restore text justification flag after 2nd pass */
     if (pass > 1) {
-	PRINT1("J%04d\n", X11_last_justification);
+	PRINT1("J%d\n", X11_last_justification);
 	return;
     }
 
@@ -1932,15 +2039,16 @@ PASS2:
 	ENHx11_sizeonly = FALSE;
 
 	if (X11_last_justification == RIGHT) {
-		PRINT2("Tj%04d%04d\n", x, y);
+		PRINT2("Tj%d %d\n", x, y);
 	} else if (X11_last_justification == CENTRE) {
-		PRINT2("Tk%04d%04d\n", x, y);
+		PRINT2("Tk%d %d\n", x, y);
 	}
 	str = original_string;
 	pass = 2;
 	goto PASS2;
 
     }
+    X11_INVALIDATE_CURRENT_POSITION;
 
 }
 
@@ -2079,6 +2187,7 @@ X11_image(unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_i
     /* Check if some characters were put in the buffer that need to be flushed. */
     if (i_buffer != BINARY_MAX_CHAR_PER_TRANSFER) {fputc('\n', X11_ipc);  FFLUSH();}
 
+    X11_INVALIDATE_CURRENT_POSITION;
     return;
 }
 
@@ -2130,6 +2239,7 @@ START_HELP(x11)
 "                     {{no}enhanced} {font <fontspec>}",
 "                     {linewidth LW} {solid|dashed}",
 "                     {{no}persist} {{no}raise} {{no}ctrlq}",
+"                     {{no}replotonresize}",
 "                     {close}",
 "                     {size XX,YY} {position XX,YY}",
 "    set terminal x11 {reset}",
@@ -2186,6 +2296,14 @@ START_HELP(x11)
 " the behaviour of an already running driver can be modified.  If the window",
 " does not get raised, see discussion in `raise`.",
 "",
+" The option `replotonresize` (active by default) replots the data when the",
+" plot window is resized. Without this option, the even-aspect-ratio scaling",
+" may result in the plot filling only part of the window after resizing.",
+" With this option, gnuplot does a full replot on each resize event, resulting",
+" in better space utilization. This option is generally desirable, unless the",
+" potentially CPU-intensive replotting during resizing is a concern. Replots",
+" can be manually initiated with hotkey 'e' or the 'replot' command.",
+  "",
 " The option `title \"<title name>\"` will supply the title name of the window",
 " for the current plot window or plot window <n> if a number is given.",
 " Where (or if) this title is shown depends on your X window manager.",

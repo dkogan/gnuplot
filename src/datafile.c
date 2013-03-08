@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.212.2.11 2012/09/26 23:03:15 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.245 2013/02/17 19:39:14 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -143,10 +143,10 @@ static char *RCSid() { return RCSid("$Id: datafile.c,v 1.212.2.11 2012/09/26 23:
  */
 
 #include "datafile.h"
+#include "datablock.h"
 
 #include "alloc.h"
 #include "axis.h"
-#include "binary.h"
 #include "command.h"
 #include "eval.h"
 #include "gp_time.h"
@@ -197,6 +197,7 @@ enum COLUMN_TYPE { CT_DEFAULT, CT_STRING, CT_KEYLABEL,
 int df_no_use_specs;            /* how many using columns were specified */
 int df_line_number;
 int df_datum;                   /* suggested x value if none given */
+int df_last_col = 0;		/* visible to user via STATS_columns */
 AXIS_INDEX df_axis[MAXDATACOLS];
 TBOOLEAN df_matrix = FALSE;     /* indicates if data originated from a 2D or 3D format */
 
@@ -239,6 +240,9 @@ static FILE *data_fp = NULL;
 #if defined(PIPES)
 static TBOOLEAN df_pipe_open = FALSE;
 #endif
+#if defined(HAVE_FDOPEN)
+static int data_fd = -2;	/* only used for file redirection */
+#endif
 static TBOOLEAN mixed_data_fp = FALSE; /* inline data */
 char *df_filename = NULL;      /* name of data file */
 static int df_eof = 0;
@@ -246,11 +250,7 @@ static int df_eof = 0;
 static int df_no_tic_specs;     /* ticlabel columns not counted in df_no_use_specs */
 
 #ifndef MAXINT                  /* should there be one already defined ? */
-# ifdef INT_MAX                 /* in limits.h ? */
-#  define MAXINT INT_MAX
-# else
-#  define MAXINT ((~0)>>1)
-# endif
+#  define MAXINT INT_MAX	/* from <limits.h> */
 #endif
 
 /* stuff for implementing index */
@@ -279,6 +279,10 @@ static int df_pseudodata = 0;
 static int df_pseudorecord = 0;
 static int df_pseudospan = 0;
 
+/* for datablocks */
+static TBOOLEAN df_datablock = FALSE;
+static char **df_datablock_line = NULL;
+
 /* parsing stuff */
 struct use_spec_s use_spec[MAXDATACOLS];
 static char *df_format = NULL;
@@ -292,9 +296,7 @@ TBOOLEAN evaluate_inside_using = FALSE;
 
 typedef struct df_column_struct {
     double datum;
-    enum {
-	DF_BAD, DF_GOOD
-    } good;
+    enum DF_STATUS good;
     char *position;	/* points to start of this field in current line */
     char *header;	/* points to copy of the header for this column */
 } df_column_struct;
@@ -431,8 +433,7 @@ df_binary_file_record_struct df_bin_record_reset = {
     {0, 0, 0},
     DF_TRANSLATE_DEFAULT,
     {0, 0, 0},
-
-    NULL
+    NULL           /* data_memory */
 };
 
 int df_max_num_bin_records = 0, df_num_bin_records, df_bin_record_count;
@@ -446,7 +447,7 @@ static void raw_filetype_function __PROTO((void));
 static void avs_filetype_function __PROTO((void));
 
 static void (*binary_input_function)(void);	/* Will point to one of the above */
-static void auto_filetype_function(void){};	/* Just a placeholder for auto    */
+static void auto_filetype_function(void){}	/* Just a placeholder for auto    */
 
 struct gen_ftable df_bin_filetype_table[] = {
     {"avs", avs_filetype_function},
@@ -607,6 +608,9 @@ df_gets()
     if (df_pseudodata)
 	return df_generate_pseudodata();
 
+    if (df_datablock)
+	return *(df_datablock_line++);
+
     if (!fgets(line, max_line_len, data_fp))
 	return NULL;
 
@@ -701,6 +705,7 @@ df_tokenise(char *s)
 	    int dfncp1 = df_no_cols + 1;
 
 	    /* optimizations by Corey Satten, corey@cac.washington.edu */
+	    /* only scanf the field if it is mentioned in one of the using specs */
 	    if ((fast_columns == 0)
 		|| (df_no_use_specs == 0)
 		|| ((df_no_use_specs > 0)
@@ -712,8 +717,7 @@ df_tokenise(char *s)
 				|| (df_no_use_specs > 3
 				    && (use_spec[3].column == dfncp1
 				        || (df_no_use_specs > 4
-				            && (use_spec[4].column
-				                == dfncp1
+				            && (use_spec[4].column == dfncp1
 				                || df_no_use_specs > 5)
 				            )
 				        )
@@ -784,8 +788,11 @@ df_tokenise(char *s)
 
 	    df_column[df_no_cols].good = count == 1 ? DF_GOOD : DF_BAD;
 
-	    if (isnan(df_column[df_no_cols].datum))
-		df_column[df_no_cols].good = DF_BAD;
+	    if (isnan(df_column[df_no_cols].datum)) {
+		/* EAM April 2012 */
+		df_column[df_no_cols].good = DF_UNDEFINED;
+		FPRINTF((stderr,"NaN in column %d\n", df_no_cols));
+	    }
 	}
 
 	++df_no_cols;
@@ -1012,6 +1019,8 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 
 	/* look for binary / matrix */
 	if (almost_equals(c_token, "bin$ary")) {
+	    if (df_filename[0] == '$')
+		int_error(c_token, "data blocks cannot be binary");
 	    c_token++;
 	    if (df_binary_file) {
 		duplication=TRUE;
@@ -1128,6 +1137,8 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     df_pseudodata = 0;
     df_pseudorecord = 0;
     df_pseudospan = 0;
+    df_datablock = FALSE;
+    df_datablock_line = NULL;
 
     /* here so it's not done for every line in df_readline */
     if (max_line_len < DATA_LINE_BUFSIZ) {
@@ -1137,6 +1148,21 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     /*}}} */
 
     /*{{{  open file */
+#if defined(HAVE_FDOPEN)
+    if (*df_filename == '<' && strlen(df_filename) > 1 && df_filename[1] == '&') {
+	char *substr;
+	/* read from an already open file descriptor */
+	data_fd = strtol(df_filename + 2, &substr, 10);
+	if (*substr != '\0' || data_fd < 0 || substr == df_filename+2)
+	    int_error(name_token, "invalid file descriptor integer");
+	else if (data_fd == fileno(stdin)
+	     ||  data_fd == fileno(stdout)
+	     ||  data_fd == fileno(stderr))
+	    int_error(name_token, "cannot plot from stdin/stdout/stderr");
+	else if ((data_fp = fdopen(data_fd, "r")) == (FILE *) NULL)
+	    int_error(name_token, "cannot open file descriptor for reading data");
+    } else
+#endif /* HAVE_FDOPEN */
 #if defined(PIPES)
     if (*df_filename == '<') {
 	restrict_popen();
@@ -1146,7 +1172,8 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 	    df_pipe_open = TRUE;
     } else
 #endif /* PIPES */
-	/* I don't want to call strcmp(). Does it make a difference? */
+
+    /* Special filenames '-' '+' '++' '$DATABLOCK' */
     if (*df_filename == '-' && strlen(df_filename) == 1) {
 	plotted_data_from_stdin = TRUE;
 	volatile_data = TRUE;
@@ -1159,7 +1186,11 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 	    df_pseudodata = 1;
 	else if (df_filename[1] == '+' && strlen(df_filename) == 2)
 	    df_pseudodata = 2;
+    } else if (df_filename[0] == '$') {
+	df_datablock = TRUE;
+	df_datablock_line = get_datablock(df_filename);
     } else {
+
 	/* filename cannot be static array! */
 	gp_expand_tilde(&df_filename);
 #ifdef HAVE_SYS_STAT_H
@@ -1220,7 +1251,7 @@ df_close()
     /* paranoid - mark $n and column(n) as invalid */
     df_no_cols = 0;
 
-    if (!data_fp)
+    if (!data_fp && !df_datablock)
 	return;
 
     if (ydata_func.at) {
@@ -1243,7 +1274,17 @@ df_close()
 	}
     }
 
-    if (!mixed_data_fp) {
+    if (!mixed_data_fp && !df_datablock) {
+#if defined(HAVE_FDOPEN)
+	if (data_fd == fileno(data_fp)) {
+	    /* This will allow replotting if this stream is backed by a file,
+	     * and hopefully is harmless if it connects to a pipe.
+	     * Leave it open in either case.
+	     */
+	    rewind(data_fp);
+	    fprintf(stderr,"Rewinding fd %d\n", data_fd);
+	} else
+#endif
 #if defined(PIPES)
 	if (df_pipe_open) {
 	    (void) pclose(data_fp);
@@ -1449,9 +1490,12 @@ plot_option_using(int max_using)
 
 	    } else {
 		int col = int_expression();
-		
-		if (col < -2)
+
+		if (col == -3)	/* pseudocolumn -3 means "last column" */	
+		    fast_columns = 0;
+		else if (col < -2)
 		    int_error(c_token, "Column must be >= -2");
+
 		use_spec[df_no_use_specs++].column = col;
 
 		/* Supposedly only happens for binary files, but don't bet on it */
@@ -1467,6 +1511,14 @@ plot_option_using(int max_using)
 	 * specified column or the default.
 	 */
 	df_extend_binary_columns(no_cols);
+    }
+
+    /* Allow a format specifier after the enumeration of columns. */
+    /* Note: This was left out by mistake in versions 4.6.0 + 4.6.1 */
+    if (!END_OF_COMMAND && isstring(c_token)) {
+	df_format = try_to_get_string();
+	if (!valid_format(df_format))
+	    int_error(c_token, "format must have 1-7 conversions of type double (%%lf)");
     }
 
 }
@@ -1504,7 +1556,7 @@ void plot_ticlabel_using(int axis)
 int
 df_readline(double v[], int max)
 {
-    if (!data_fp && !df_pseudodata)
+    if (!data_fp && !df_pseudodata && !df_datablock)
 	return DF_EOF;
 
     if (df_read_binary)
@@ -1529,8 +1581,6 @@ df_readascii(double v[], int max)
 {
     char *s;
 
-    assert(data_fp != NULL || df_pseudodata);
-    assert(max_line_len);       /* alloc-ed in df_open() */
     assert(max <= MAXDATACOLS);
 
     /* catch attempt to read past EOF on mixed-input */
@@ -1712,6 +1762,13 @@ df_readascii(double v[], int max)
 		FPRINTF((stderr,"Col %d: \"%s\"\n",j,df_column[j].header));
 	    }
 	    df_already_got_headers = TRUE;
+
+	    /* Restrict the column number to possible values */
+	    if (column_for_key_title > df_no_cols)
+		column_for_key_title = df_no_cols;
+	    if (column_for_key_title == -3)	/* last column in file */ 
+		column_for_key_title = df_no_cols;
+
 	    if (column_for_key_title > 0) {
 		df_key_title = gp_strdup(df_column[column_for_key_title-1].header);
 		if (!df_key_title) {
@@ -1730,6 +1787,10 @@ df_readascii(double v[], int max)
 	    }
 	}
 
+	/* Used by stats to set STATS_columns */
+	if (df_datum == 0)
+		df_last_col = df_no_cols;
+
 	/*{{{  copy column[] to v[] via use[] */
 	{
 	    int limit = (df_no_use_specs
@@ -1744,6 +1805,9 @@ df_readascii(double v[], int max)
 		 * at=NULL */
 		int column = use_spec[output].column;
 		current_using_spec = output;
+
+		if (column == -3) /* pseudocolumn -3 means "last column" */
+		    column = use_spec[output].column = df_no_cols;
 
 		/* Handle cases where column holds a meta-data string */
 		/* Axis labels, plot titles, etc.                     */
@@ -1924,7 +1988,12 @@ df_readascii(double v[], int max)
 		    else if ((column <= df_no_cols)
 			     && (df_column[column - 1].good == DF_MISSING))
 			return DF_MISSING;
-		    else {
+		    else if ((column <= df_no_cols)
+			     && (df_column[column - 1].good == DF_UNDEFINED)) {
+			/* EAM October 2012 - return or continue?? */
+			v[output] = df_column[column - 1].datum;
+			return DF_UNDEFINED;
+		    } else {
 			/* line bad only if user explicitly asked
 			 * for this column */
 			if (df_no_use_specs)
@@ -1959,6 +2028,14 @@ df_readascii(double v[], int max)
 	assert(df_no_use_specs == 0
 	       || output == df_no_use_specs
 	       || output == max);
+
+	/*
+	 * EAM Apr 2012 - If there is no using spec, then whatever we found on
+	 * the first line becomes the expectation for the rest of the input file.
+	 * THIS IS A CHANGE!
+	 */
+	 if (df_no_use_specs == 0)
+		df_no_use_specs = output;
 
 	return output;
 
@@ -2103,17 +2180,19 @@ df_determine_matrix_info(FILE *fin)
 void
 f_dollars(union argument *x)
 {
-    int column = x->v_arg.v.int_val - 1;
-    /* we checked it was an integer >= 0 at compile time */
+    int column = x->v_arg.v.int_val;
     struct value a;
 
-    if (column == -1) {
+    if (column == -3)	/* pseudocolumn -3 means "last column" */
+	column = df_no_cols;
+
+    if (column == 0) {
 	push(Gcomplex(&a, (double) df_datum, 0.0));     /* $0 */
-    } else if (column >= df_no_cols || df_column[column].good != DF_GOOD) {
+    } else if (column > df_no_cols || df_column[column-1].good != DF_GOOD) {
 	undefined = TRUE;
 	push(&(x->v_arg));      /* this okay ? */
     } else
-	push(Gcomplex(&a, df_column[column].datum, 0.0));
+	push(Gcomplex(&a, df_column[column-1].datum, 0.0));
 }
 
 /*}}} */
@@ -2147,8 +2226,7 @@ f_column(union argument *arg)
 	    }
 	}
 	if (column == DF_COLUMN_HEADERS)
-	    int_error(NO_CARET,"could not find column with header \"%s\"\n",
-			a.v.string_val);
+	    FPRINTF(("could not find column with header \"%s\"\n", a.v.string_val));
 	gpfree_string(&a);
     } else
 	column = (int) real(&a);
@@ -2159,6 +2237,8 @@ f_column(union argument *arg)
 	push(Ginteger(&a, line_count));
     else if (column == 0)       /* $0 = df_datum */
 	push(Gcomplex(&a, (double) df_datum, 0.0));
+    else if (column == -3)	/* pseudocolumn -3 means "last column" */
+	push(Gcomplex(&a, df_column[df_no_cols - 1].datum, 0.0));
     else if (column < 1
 	     || column > df_no_cols
 	     || df_column[column - 1].good != DF_GOOD
@@ -2205,11 +2285,13 @@ f_stringcolumn(union argument *arg)
 	    }
 	}
 	if (column == DF_COLUMN_HEADERS)
-	    int_error(NO_CARET,"could not find column with header \"%s\"\n",
-			a.v.string_val);
+	    FPRINTF(("could not find column with header \"%s\"\n", a.v.string_val));
 	gpfree_string(&a);
     } else
 	column = (int) real(&a);
+
+    if (column == -3)	/* pseudocolumn -3 means "last column" */
+	column = df_no_cols;
 
     if (column == -2) {
 	char temp_string[32];
@@ -2294,10 +2376,6 @@ f_timecolumn(union argument *arg)
     AXIS_INDEX whichaxis;
     struct tm tm;
     double usec = 0.0;
-#if 0
-    int spec;
-    int limit = (df_no_use_specs ? df_no_use_specs : MAXDATACOLS);
-#endif
 
     (void) arg;                 /* avoid -Wunused warning */
     (void) pop(&a);
@@ -2306,19 +2384,6 @@ f_timecolumn(union argument *arg)
     if (!evaluate_inside_using)
 	int_error(c_token-1, "timecolumn() called from invalid context");
 
-#if 0
-    /* try to match datafile column with spec field number */
-    whichaxis = FIRST_X_AXIS;
-    for (spec = 0; spec<limit; spec++)
-	if(use_spec[spec].column == column) {
-	    /* Found a 'using' specifier whose (default) column number
-	     * is the same as the column being referred to here.  So
-	     * assume this spec's output axis is the one that we want
-	     * to use the timefmt of. */
-	    whichaxis = df_axis[spec];
-	    break;
-	}
-#endif
     whichaxis = df_axis[current_using_spec];
 
     if (column < 1
@@ -3472,7 +3537,12 @@ plot_option_array(void)
     if (!equals(c_token, "="))
 	int_error(c_token, equal_symbol_msg);
 
+#if (0)
+    /* Removing this call reduces the order-dependence of binary options.	*/
+    /* However, it may also introduce some option persistance across plots.	*/
+    /* See Bug #3408082 */
     clear_binary_records(DF_CURRENT_RECORDS);
+#endif
 
     do {
 	c_token++;
@@ -4212,7 +4282,6 @@ df_readbinary(double v[], int max)
     static int first_matrix_row_col_count;
     TBOOLEAN saved_first_matrix_column = FALSE;
 
-    assert(data_fp != NULL);
     assert(max <= MAXDATACOLS);
     assert(df_max_bininfo_cols > df_no_bin_cols);
     assert(df_no_bin_cols);
@@ -4289,6 +4358,8 @@ df_readbinary(double v[], int max)
 
 	    first_matrix_row_col_count = 0;
 	} else { /* general binary */
+
+	  
 	    for (i = 0; i < 3; i++) {
 		int map;
 		
@@ -4349,7 +4420,7 @@ df_readbinary(double v[], int max)
 	/* byte read order */
 	read_order = byte_read_order(df_bin_file_endianess);
 
-	/* amount to skip before record */
+	/* amount to skip before first record */
 	record_skip = this_record->scan_skip[0];
 
 	end_of_scan_line = FALSE;
@@ -4357,6 +4428,53 @@ df_readbinary(double v[], int max)
 	point_count = -1;
 	line_count = 0;
 	df_current_index = df_bin_record_count;
+
+	/* Craig DeForest Feb 2013 - Fast version of uniform binary matrix.
+	 * Don't apply this to ascii input or special filetypes.
+	 * Slurp all data from file or pipe in one shot to minimize fread calls.
+	 */
+	if (!memory_data && !(df_bin_filetype > 0)
+	&&  df_binary_file &&  df_matrix && !df_nonuniform_matrix) {
+	    int i;
+	    unsigned long int bytes_per_point = 0;
+	    unsigned long int bytes_per_line = 0;
+	    unsigned long int bytes_per_plane = 0;
+	    unsigned long int bytes_total = 0;
+	    size_t fread_ret;
+
+	    /* Accumulate total number of bytes in this tuple */
+	    for (i=0; i<df_no_bin_cols; i++)
+		bytes_per_point +=  
+		  df_column_bininfo[i].skip_bytes +
+		  df_column_bininfo[i].column.read_size;
+	    bytes_per_point += df_column_bininfo[df_no_bin_cols].skip_bytes;
+	  
+	    bytes_per_line  = bytes_per_point
+			    * (  (scan_size[0] > 0) ? scan_size[0] : 1 );
+	    bytes_per_plane = bytes_per_line
+			    * ( (scan_size[1] > 0) ? scan_size[1] : 1 );
+	    bytes_total     = bytes_per_plane
+			    * ( (scan_size[2]>0) ? scan_size[2] : 1);
+	    bytes_total    += record_skip;
+
+	    /* Allocate a chunk of memory and stuff it */
+	    /* EAM FIXME: Is this a leak if the plot errors out? */
+	    memory_data = gp_alloc(bytes_total, "df_readbinary slurper");
+	    this_record->memory_data = memory_data; 
+	 
+	    FPRINTF((stderr,"Fast matrix code:\n"));
+	    FPRINTF((stderr,"\t\t skip %d bytes, read %ld bytes as %d x %d array\n",
+		    record_skip, bytes_total, scan_size[0], scan_size[1]));
+ 
+	    /* Do the actual slurping */
+	    fread_ret = fread(memory_data, 1, bytes_total, data_fp);
+	    if (fread_ret != bytes_total) {
+		int_warn(NO_CARET, "Couldn't slurp %ld bytes (return was %zd)\n",
+			bytes_total, fread_ret);
+		df_eof = 1;
+		return DF_EOF;
+	    }
+	}
     }
 
     while (!df_eof) {
@@ -4444,7 +4562,8 @@ df_readbinary(double v[], int max)
 		}
 	    }
 
-	    df_swap_bytes_by_endianess(&io_val.ch, read_order,
+	    if (read_order != 0)
+		df_swap_bytes_by_endianess(&io_val.ch, read_order,
 				       df_column_bininfo[i].column.read_size);
 
 	    switch (df_column_bininfo[i].column.read_type) {
@@ -4702,10 +4821,14 @@ df_readbinary(double v[], int max)
 			line_okay = 0;
 		    break;  /* return or ignore depending on line_okay */
 		}
+
 		if (isnan(v[output])) {
-		    if (!df_matrix)
-			return DF_UNDEFINED;
+			/* EAM April 2012 - return, continue, or ignore??? */
+			FPRINTF((stderr,"NaN input value"));
+			if (!df_matrix)
+				return DF_UNDEFINED;
 		}
+
 	    }
 
 	    /* Linear translation. */
@@ -4822,13 +4945,20 @@ df_generate_pseudodata()
 		axis_array[FIRST_X_AXIS].max = 10;
 	    if (axis_array[FIRST_X_AXIS].min == VERYLARGE)
 		axis_array[FIRST_X_AXIS].min = -10;
-	    t_min = X_AXIS.min;
-	    t_max = X_AXIS.max;
+	    if ((axis_array[SAMPLE_AXIS].range_flags & RANGE_SAMPLED)) {
+		t_min = axis_array[SAMPLE_AXIS].min;
+		t_max = axis_array[SAMPLE_AXIS].max;
+	    } else {
+		t_min = X_AXIS.min;
+		t_max = X_AXIS.max;
+	    }
 	    axis_unlog_interval(x_axis, &t_min, &t_max, 1);
 	    t_step = (t_max - t_min) / (samples_1 - 1);
 	}
 	t = t_min + df_pseudorecord * t_step;
 	t = AXIS_DE_LOG_VALUE(x_axis, t);
+	if (df_current_plot->sample_var)
+	    Gcomplex(&(df_current_plot->sample_var->udv_value), t, 0.0);
 	sprintf(line,"%g",t);
 	++df_pseudorecord;
     }
@@ -4836,8 +4966,7 @@ df_generate_pseudodata()
     /* Pseudofile '++' returns a (samples X isosamples) grid of x,y coordinates */
     /* This code copied from that in second pass through eval_3dplots */
     if (df_pseudodata == 2) {
-	static double u_min, u_max, u_step, v_min, v_max, v_step;
-	static double u_isostep, v_isostep;
+	static double u_min, u_max, u_step, v_min, v_max, v_isostep;
 	static int nusteps, nvsteps;
 	double u, v;
 	AXIS_INDEX u_axis = FIRST_X_AXIS;
@@ -4863,14 +4992,11 @@ df_generate_pseudodata()
 
 	    if (hidden3d) {
 		 u_step = (u_max - u_min) / (iso_samples_1 - 1);
-		 v_step = (v_max - v_min) / (iso_samples_2 - 1);
 		 nusteps = iso_samples_1;
 	    } else {
 		 u_step = (u_max - u_min) / (samples_1 - 1);
-		 v_step = (v_max - v_min) / (samples_2 - 1);
 		 nusteps = samples_1;
 	    }
-	    u_isostep = (u_max - u_min) / (iso_samples_1 - 1);
 	    v_isostep = (v_max - v_min) / (iso_samples_2 - 1);
 	    nvsteps = iso_samples_2;
 	}

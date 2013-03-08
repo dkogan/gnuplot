@@ -1,5 +1,5 @@
 /*
- * $Id: wtext.h,v 1.10 2008/11/07 11:55:46 mikulik Exp $
+ * $Id: wtext.h,v 1.15 2013/03/02 16:07:43 broeker Exp $
  */
 
 /* GNUPLOT - win/wtext.h */
@@ -34,11 +34,14 @@
  * to the extent permitted by applicable law.
 ]*/
 
+#ifndef GNUPLOT_WTEXT_H
+#define GNUPLOT_WTEXT_H
+
 #include <stdio.h>
 #include <stdarg.h>
 
 /* redefine functions that can talk to tty devices, to use
- * implementation in winmain.c/wgnuplot.dll */
+ * implementation in winmain.c */
 
 #ifndef WGP_CONSOLE
 
@@ -49,11 +52,11 @@
 
 #define fgetc(file) MyFGetC(file)
 #undef  getchar
-#define getchar()   MyFGetC(stdin)
+#define getchar()   MyGetCh()
 #undef  getc
 #define getc(file)  MyFGetC(file)
 #define fgets(str,sz,file)  MyFGetS(str,sz,file)
-#define gets(str)  	    MyGetS(str)
+#define gets(str)   MyGetS(str)
 
 #define fputc(ch,file) MyFPutC(ch,file)
 #undef  putchar
@@ -86,6 +89,11 @@
 #define cscanf dontuse_cscanf
 #define ungetch dontuse_ungetch
 
+#ifdef USE_FAKEPIPES
+# define popen fake_popen
+# define pclose fake_pclose
+#endif
+
 /* now for the prototypes */
 
 int MyPutCh(int ch);
@@ -104,9 +112,18 @@ int MyPrintF(const char *fmt, ...);
 size_t MyFWrite(const void *ptr, size_t size, size_t n, FILE *stream);
 size_t MyFRead(void *ptr, size_t size, size_t n, FILE *stream);
 
+#ifdef USE_FAKEPIPES
+FILE *fake_popen(const char *command, const char *type);
+int fake_pclose(FILE *stream);
+#endif
+
 #else /* WGP_CONSOLE */
 
 #define getch ConsoleGetch
+#undef getchar
+#define getchar ConsoleGetch
 int ConsoleGetch();
 
 #endif /* WGP_CONSOLE */
+
+#endif /* GNUPLOT_WTEXT_H */

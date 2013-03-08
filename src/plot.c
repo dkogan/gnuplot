@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot.c,v 1.128.2.11 2012/05/06 22:52:55 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot.c,v 1.149 2013/02/26 23:38:42 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot.c */
@@ -72,11 +72,6 @@ static char *RCSid() { return RCSid("$Id: plot.c,v 1.128.2.11 2012/05/06 22:52:5
 # include "gpexecute.h"
 #endif
 
-/* Used nowhere else */
-#ifdef HAVE_SYS_UTSNAME_H
-# include <sys/utsname.h>
-#endif
-
 #if defined(MSDOS) || defined(__EMX__)
 # include <io.h>
 #endif
@@ -135,7 +130,8 @@ static void wrapper_for_write_history __PROTO((void));
 #endif				/* GNUPLOT_HISTORY */
 
 TBOOLEAN interactive = TRUE;	/* FALSE if stdin not a terminal */
-TBOOLEAN noinputfiles = TRUE; /* FALSE if there are script files */
+TBOOLEAN noinputfiles = TRUE;	/* FALSE if there are script files */
+TBOOLEAN skip_gnuplotrc = FALSE;/* skip system gnuplotrc and ~/.gnuplot */
 TBOOLEAN persist_cl = FALSE; /* TRUE if -persist is parsed in the command line */
 
 /* user home directory */
@@ -328,7 +324,7 @@ main(int argc, char **argv)
 
 #if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
     /* T.Walter 1999-06-24: 'rl_readline_name' must be this fix name.
-     * It is used to parse a 'gnuplot' specific section in '~/.inputrc' 
+     * It is used to parse a 'gnuplot' specific section in '~/.inputrc'
      * or gnuplot specific commands in '.editrc' (when using editline
      * instead of readline) */
     rl_readline_name = "Gnuplot";
@@ -360,6 +356,7 @@ main(int argc, char **argv)
 		    "  -V, --version\n"
 		    "  -h, --help\n"
 		    "  -p  --persist\n"
+		    "  -d  --default-settings\n"
 		    "  -e  \"command1; command2; ...\"\n"
 		    "gnuplot %s patchlevel %s\n",
 		    gnuplot_version, gnuplot_patchlevel);
@@ -375,8 +372,15 @@ main(int argc, char **argv)
 #endif
 	    return 0;
 
-	} else if (!strncmp(argv[i], "-persist", 2) || !strcmp(argv[i], "--persist")) {
+	} else if (!strncmp(argv[i], "-persist", 2) || !strcmp(argv[i], "--persist")
+#ifdef _Windows
+		|| !stricmp(argv[i], "-noend") || !stricmp(argv[i], "/noend")
+#endif
+		) {
 	    persist_cl = TRUE;
+	} else if (!strncmp(argv[i], "-d", 2) || !strcmp(argv[i], "--default-settings")) {
+	    /* Skip local customization read from ~/.gnuplot */
+	    skip_gnuplotrc = TRUE;
 	}
     }
 
@@ -392,30 +396,20 @@ main(int argc, char **argv)
     setbuf(stderr, (char *) NULL);
 
 #ifdef HAVE_SETVBUF
-    /* this was once setlinebuf(). Docs say this is
+    /* This was once setlinebuf(). Docs say this is
      * identical to setvbuf(,NULL,_IOLBF,0), but MS C
      * faults this (size out of range), so we try with
      * size of 1024 instead. [SAS/C does that, too. -lh]
-     * Failing this, I propose we just make the call and
-     * ignore the return : its probably not a big deal
      */
     if (setvbuf(stdout, (char *) NULL, _IOLBF, (size_t) 1024) != 0)
 	(void) fputs("Could not linebuffer stdout\n", stderr);
 
-#ifdef X11
-    /* This call used to be in x11.trm, with the following comment:
-     *   Multi-character inputs like escape sequences but also mouse-pasted
-     *   text got buffered and therefore didn't trigger the select() function
-     *   in X11_waitforinput(). Switching to unbuffered input solved this.
-     *   23 Jan 2002 (joze)
-     * But switching to unbuffered mode causes all characters in the input
+    /* Switching to unbuffered mode causes all characters in the input
      * buffer to be lost. So the only safe time to do it is on program entry.
-     * The #ifdef X11 is probably unnecessary, but makes the change minimal.
-     * Do any non-X platforms suffer from the same problem?
-     * EAM - Jan 2004.
+     * Do any non-X platforms suffer from this problem?
+     * EAM - Jan 2013 YES.
      */
     setvbuf(stdin, (char *) NULL, _IONBF, 0);
-#endif
 
 #endif
 
@@ -444,50 +438,24 @@ main(int argc, char **argv)
     interactive = isatty(fileno(stdin));
 # endif
 
-    if (argc > 1)
-	interactive = noinputfiles = FALSE;
-    else
-	noinputfiles = TRUE;
-
-    /* Need this before show_version is called for the first time */
-
-#ifdef HAVE_SYS_UTSNAME_H
-    {
-	struct utsname uts;
-
-	/* something is fundamentally wrong if this fails ... */
-	if (uname(&uts) > -1) {
-# ifdef _AIX
-	    strcpy(os_name, uts.sysname);
-	    sprintf(os_name, "%s.%s", uts.version, uts.release);
-# elif defined(SCO)
-	    strcpy(os_name, "SCO");
-	    strcpy(os_rel, uts.release);
-# elif defined(DJGPP)
-	    if (!strncmp(uts.sysname, "??Un", 4)) /* don't print ??Unknow" */
-		strcpy(os_name, "Unknown");
-	    else {
-		strcpy(os_name, uts.sysname);
-		strcpy(os_rel, uts.release);
-	    }
-# else
-	    strcpy(os_name, uts.sysname);
-	    strcpy(os_rel, uts.machine);
-# ifdef OS2
-	    if (!strchr(os_rel,'.'))
-		/* write either "2.40" or "4.0", or empty -- don't print "OS/2 1" */
-		strcpy(os_rel, "");
+    /* Note: we want to know whether this is an interactive session so that we can
+     * decide whether or not to write status information to stderr.  The old test
+     * for this was to see if (argc > 1) but the addition of optional command line
+     * switches broke this.  What we really wanted to know was whether any of the
+     * command line arguments are file names or an explicit in-line "-e command".
+     */
+    for (i = 1; i < argc; i++) {
+# ifdef _Windows
+	if (!stricmp(argv[i], "/noend"))
+	    continue;
 # endif
-
-# endif
+	if ((argv[i][0] != '-') || (argv[i][1] == 'e')) {
+	    interactive = FALSE;
+	    break;
 	}
     }
-#else /* ! HAVE_SYS_UTSNAME_H */
 
-    strcpy(os_name, OS);
-    strcpy(os_rel, "");
-
-#endif /* HAVE_SYS_UTSNAME_H */
+    /* Need this before show_version is called for the first time */
 
     if (interactive)
 	show_version(stderr);
@@ -500,7 +468,7 @@ main(int argc, char **argv)
 	fprintf(stderr,
 	    "\ngnuplot changed the codepage of this console from %i to %i to\n" \
 	    "match the graph window. Some characters might only display correctly\n" \
-	    "if you change the font to a non-raster type.\n", 
+	    "if you change the font to a non-raster type.\n",
 	    cp_input, GetConsoleCP());
     }
 #else
@@ -508,7 +476,7 @@ main(int argc, char **argv)
 	fprintf(stderr,
 	    "\nWarning: The codepage of the graph window (%i) and that of the\n" \
 	    "console (%i) differ. Use `set encoding` or `!chcp` if extended\n" \
-	    "characters don't display correctly.\n", 
+	    "characters don't display correctly.\n",
 	    GetACP(), GetConsoleCP());
     }
 #endif
@@ -619,25 +587,20 @@ main(int argc, char **argv)
 	}
     }
 
-    if (argc > 1) {
-#ifdef _Windows
-	TBOOLEAN noend = persist_cl;
-#endif
-
-	/* load filenames given as arguments */
-	while (--argc > 0) {
+    /* load filenames given as arguments */
+    while (--argc > 0) {
 	    ++argv;
 	    c_token = 0;
+	    if (!strncmp(*argv, "-persist", 2) || !strcmp(*argv, "--persist")
 #ifdef _Windows
-	    if (stricmp(*argv, "-noend") == 0 || stricmp(*argv, "/noend") == 0
-	       	|| stricmp(*argv, "-persist") == 0)
-		noend = TRUE;
-	    else
+		|| !stricmp(*argv, "-noend") || !stricmp(*argv, "/noend")
 #endif
-	    if (!strncmp(*argv, "-persist", 2) || !strcmp(*argv, "--persist")) {
+	    ) {
 		FPRINTF((stderr,"'persist' command line option recognized\n"));
-
 	    } else if (strcmp(*argv, "-") == 0) {
+#if defined(_Windows) && !defined(WGP_CONSOLE)
+		TextShow(&textwin);
+#endif
 		interactive = TRUE;
 		while (!com_line());
 		interactive = FALSE;
@@ -648,20 +611,28 @@ main(int argc, char **argv)
 		    fprintf(stderr, "syntax:  gnuplot -e \"commands\"\n");
 		    return 0;
 		}
+		interactive = FALSE;
+		noinputfiles = FALSE;
 		do_string(*argv);
 
+	    } else if (!strncmp(*argv, "-d", 2) || !strcmp(*argv, "--default-settings")) {
+		/* Ignore this; it already had its effect */
+		FPRINTF((stderr, "ignoring -d\n"));
+	    } else if (*argv[0] == '-') {
+		fprintf(stderr, "unrecognized option %s\n", *argv);
 	    } else {
+		interactive = FALSE;
+		noinputfiles = FALSE;
 		load_file(loadpath_fopen(*argv, "r"), gp_strdup(*argv), FALSE);
 	    }
-	}
-#ifdef _Windows
-	if (noend) {
-	    interactive = TRUE;
-	    while (!com_line());
-	}
-#endif
-    } else {
-	/* take commands from stdin */
+    }
+
+    /* take commands from stdin */
+    if (noinputfiles) {
+	/* FIXME: setting interactive true breaks Gnuplot.pm
+	 * but was used in the Windows code prior to Feb 2013.
+	 */
+	/* interactive = TRUE; */
 	while (!com_line());
     }
 
@@ -715,13 +686,16 @@ load_rcfile(int where)
     FILE *plotrc = NULL;
     char *rcfile = NULL;
 
+    if (skip_gnuplotrc)
+	return;
+
     if (where == 0) {
 #ifdef GNUPLOT_SHARE_DIR
 # if defined(_Windows)
 	/* retrieve path relative to gnuplot executable,
 	 * whose path is in szModuleName (winmain.c) */
-	rcfile = gp_alloc(strlen((char *)szPackageDir) + 1 +
-		strlen(GNUPLOT_SHARE_DIR) + 1 + strlen("gnuplotrc") + 1, "rcfile");
+	rcfile = gp_alloc(strlen((char *)szPackageDir) + 1
+	       + strlen(GNUPLOT_SHARE_DIR) + 1 + strlen("gnuplotrc") + 1, "rcfile");
 	strcpy(rcfile, (char *)szPackageDir);
 	PATH_CONCAT(rcfile, GNUPLOT_SHARE_DIR);
 # else

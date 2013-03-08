@@ -1,5 +1,5 @@
 /* -*- objc -*-
- * $Id: aquaterm.trm,v 1.43.2.3 2012/08/08 03:55:32 sfeam Exp $
+ * $Id: aquaterm.trm,v 1.48 2013/02/25 06:05:22 sfeam Exp $
  *
  */
 
@@ -561,11 +561,15 @@ AQUA_resume()
 TERM_PUBLIC void
 AQUA_boxfill(int style, unsigned int x1, unsigned int y1, unsigned int width, unsigned int height)
 {
-  float r,g,b;
+  float r,g,b,a;
 
   LOG(@"\nstyle=%d\nstyle & 0xf = %d\nfillpar=%d\n", style, style & 0xf, style >> 4);
+
   /* Save current color */
-  [adapter getColorRed:&r green:&g blue:&b];
+  if (AQUA_hasAlphaSupport)
+    [adapter getColorRed:&r green:&g blue:&b alpha:&a];
+  else
+    [adapter getColorRed:&r green:&g blue:&b];
 
   /* fillpar:
    * - solid   : 0 - 100
@@ -590,7 +594,7 @@ AQUA_boxfill(int style, unsigned int x1, unsigned int y1, unsigned int width, un
     } else
       /* fall through */
   case FS_SOLID: /* solid fill */
-    {
+    if (fillpar < 100) {
       float density = (100 - fillpar)*0.01;
       [adapter setColorRed:r*(1-density) + density
 	             green:g*(1-density) + density
@@ -609,8 +613,12 @@ AQUA_boxfill(int style, unsigned int x1, unsigned int y1, unsigned int width, un
   NSRect scaledRect = NSMakeRect(x1/AQUA_RESOLUTION, y1/AQUA_RESOLUTION, width/AQUA_RESOLUTION, height/AQUA_RESOLUTION);
   [adapter eraseRect:scaledRect];
   [adapter addFilledRect:scaledRect];
+  
   /* Restore color */
-  [adapter setColorRed:r green:g blue:b];
+  if (AQUA_hasAlphaSupport)
+    [adapter setColorRed:r green:g blue:b alpha:a];
+  else
+    [adapter setColorRed:r green:g blue:b];
 }
 
 TERM_PUBLIC void
@@ -640,6 +648,7 @@ TERM_PUBLIC void
 AQUA_set_color(t_colorspec *colorspec)
 {
   rgb_color color;
+  double alpha;
   
   switch (colorspec->type) {
   case TC_FRAC:
@@ -647,10 +656,16 @@ AQUA_set_color(t_colorspec *colorspec)
     [adapter setColorRed:color.r green:color.g blue:color.b];
     break;
   case TC_RGB:
-    color.r = (double)((colorspec->lt >> 16 ) & 255) / 255.;
+    color.r = (double)((colorspec->lt >> 16) & 255) / 255.;
     color.g = (double)((colorspec->lt >> 8 ) & 255) / 255.;
     color.b = (double)(colorspec->lt & 255) / 255.;
-    [adapter setColorRed:color.r green:color.g blue:color.b];
+    alpha   = (double)((colorspec->lt >> 24) & 255) / 255.;
+    if (AQUA_hasAlphaSupport && (alpha > 0)) {
+      alpha = 1.0 - alpha;
+      [adapter setColorRed:color.r green:color.g blue:color.b alpha:alpha];
+    } else {
+      [adapter setColorRed:color.r green:color.g blue:color.b];
+    }
     break;
   case TC_LT:
     [adapter takeColorFromColormapEntry:((colorspec->lt)%CYCLIC_COLORS)+SPECIAL_COLORS];
@@ -666,9 +681,13 @@ AQUA_filled_polygon(int pc, gpiPoint *corners)
 {
   int i;
   int fillpar = corners->style >> 4;
-  float r,g,b;
+  float r,g,b,a;
 
-  [adapter getColorRed:&r green:&g blue:&b];
+  /* Save current color */
+  if (AQUA_hasAlphaSupport)
+    [adapter getColorRed:&r green:&g blue:&b alpha:&a];
+  else
+    [adapter getColorRed:&r green:&g blue:&b];
  
   /* This switch is a clone of the one in AQUA_boxfill() */
   switch (corners->style & 0xf) {
@@ -687,7 +706,7 @@ AQUA_filled_polygon(int pc, gpiPoint *corners)
     } else
       /* fall through */
   case FS_SOLID: /* solid fill */
-    {
+    if (fillpar < 100) {
       float density = (100 - fillpar)*0.01;
       [adapter setColorRed:r*(1-density) + density
 	             green:g*(1-density) + density
@@ -719,15 +738,15 @@ AQUA_previous_palette()
 TERM_PUBLIC void
 AQUA_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_imagecolor color_mode)
 {
-  NSRect rect_image, rect_clip;
+  float width = (corner[1].x - corner[0].x)/AQUA_RESOLUTION;   
+  float height = (corner[0].y - corner[1].y)/AQUA_RESOLUTION;
+  float xPos = corner[0].x/AQUA_RESOLUTION;
+  float yPos = corner[1].y/AQUA_RESOLUTION;  
   int bitmapSize = M*N;
   int targetSize = 3 * bitmapSize;
   int srcSize;
   unsigned char *bitmap;
   int i;
-
-  rect_image = NSMakeRect(corner[0].x/AQUA_RESOLUTION, corner[1].y/AQUA_RESOLUTION, (corner[1].x - corner[0].x)/AQUA_RESOLUTION, (corner[0].y - corner[1].y)/AQUA_RESOLUTION);
-  rect_clip  = NSMakeRect(corner[2].x/AQUA_RESOLUTION, corner[3].y/AQUA_RESOLUTION, (corner[3].x - corner[2].x)/AQUA_RESOLUTION, (corner[2].y - corner[3].y)/AQUA_RESOLUTION);
 
   bitmap = malloc(targetSize*sizeof(unsigned char));
   if (bitmap != nil) {
@@ -752,13 +771,10 @@ AQUA_image (unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t
     } else {
       NSLog(@"Unknown bitmap format");
     }
-
-    [adapter setClipRect:rect_clip];
     [adapter addImageWithBitmap:bitmap 
 	     size:NSMakeSize(M, N)
-	     bounds:rect_image];
+	     bounds:NSMakeRect(xPos, yPos, width, height)];
     free(bitmap);
-    [adapter setDefaultClipRect];
   }
   return;
 }

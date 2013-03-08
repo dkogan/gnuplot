@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.82.2.3 2012/07/17 19:09:52 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.91 2013/01/21 17:45:44 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - hidden3d.c */
@@ -313,10 +313,6 @@ static GP_INLINE double area2D __PROTO((p_vertex v1, p_vertex v2,
 					p_vertex v3));
 static void draw_vertex __PROTO((p_vertex v));
 static GP_INLINE void draw_edge __PROTO((p_edge e, p_vertex v1, p_vertex v2));
-static GP_INLINE void handle_edge_fragment __PROTO((long int edgenum,
-						    long int vnum1,
-						    long int vnum2,
-						    long int firstpoly));
 static int in_front __PROTO((long int edgenum,
 			     long int vnum1, long int vnum2,
 			     long int *firstpoly));
@@ -1099,11 +1095,13 @@ build_networks(struct surface_points *plots, int pcount)
 	 * plot styles are mapped to others, that are genuinely
 	 * available in 3d. */
 	switch (this_plot->plot_style) {
+	case PM3DSURFACE:
 	case LINESPOINTS:
 	case STEPS:
 	case FSTEPS:
 	case HISTEPS:
 	case LINES:
+	case SURFACEGRID:
 	    nv += nverts;
 	    ne += nverts - ncrvs;
 	    if (this_plot->has_grid_topology) {
@@ -1176,6 +1174,13 @@ build_networks(struct surface_points *plots, int pcount)
 	if (above == LT_SINGLECOLOR-1)
 	    above = below = LT_SINGLECOLOR;
 
+	/* We will not actually draw PM3D surfaces here, but their 	*/
+	/* edges can be used to calculate occlusion of lines, including */
+	/* the plot borders. (NB: the PM3D surface will _not_ be hidden */
+	/* by other non-PM3D surfaces.					*/
+	if (this_plot->plot_style == PM3DSURFACE)
+	    above = below = LT_NODRAW;
+
 	/* calculate the point symbol type: */
 	/* Assumes that upstream functions have made sure this is
 	 * initialized sensibly --- thou hast been warned */
@@ -1241,11 +1246,13 @@ build_networks(struct surface_points *plots, int pcount)
 		    }
 
 		    switch (this_plot->plot_style) {
+		    case PM3DSURFACE:
 		    case LINESPOINTS:
 		    case STEPS:
 		    case FSTEPS:
 		    case HISTEPS:
 		    case LINES:
+		    case SURFACEGRID:
 			if (previousvertex >= 0)
 			    store_edge(thisvertex, edir_west, 0, lp, above);
 			break;
@@ -1326,11 +1333,13 @@ build_networks(struct surface_points *plots, int pcount)
 		    = -3;
 
 		switch (this_plot->plot_style) {
+		case PM3DSURFACE:
 		case LINESPOINTS:
 		case STEPS:
 		case FSTEPS:
 		case HISTEPS:
 		case LINES:
+		case SURFACEGRID:
 		    if (i > 0) {
 			/* not first point, so we might want to set up
 			 * the edge(s) to the left of this vertex */
@@ -1641,7 +1650,7 @@ draw_vertex(p_vertex v)
 	    apply_pm3dcolor(tc, term);
 	}
 	else if (tc->type == TC_RGB && tc->lt == LT_COLORFROMCOLUMN)
-	    set_rgbcolor((int)v->real_z);
+	    set_rgbcolor((unsigned int)v->real_z);
 	else if (tc->type == TC_RGB)
 	    set_rgbcolor(tc->lt);
 	else if (tc->type == TC_CB)
@@ -1798,25 +1807,6 @@ area2D(p_vertex v1, p_vertex v2, p_vertex v3)
 	dy12 = v2->y - v1->y,
 	dy13 = v3->y - v1->y;
     return (dx12 * dy13 - dy12 * dx13);
-}
-
-/* Utility routine: takes an edge and makes a new one, which is a fragment
- * of the old one. The fragment inherits the line style and stuff of the
- * given edge; only the two new vertices are different. The new edge
- * is then passed to in_front, for recursive handling */
-/* HBB 20001108: Changed from edge pointer to edge index. Don't
- * allocate a fresh anymore, as this is no longer needed after the
- * change to in_front().  What remains of this function may no longer
- * be worth having. I.e. it can be replaced by a direct recursion call
- * of in_front(), sometime soon. */
-static GP_INLINE void
-handle_edge_fragment(long edgenum, long vnum1, long vnum2, long firstpoly)
-{
-#if !HIDDEN3D_QUADTREE
-    /* Avoid checking against the same polygon again. */
-    firstpoly = plist[firstpoly].next;
-#endif
-    in_front(edgenum, vnum1, vnum2, &firstpoly);
 }
 
 /*********************************************************************/
@@ -2023,7 +2013,7 @@ in_front(
 	     * it is removed.
 	     * 
 	     * This routine is general in the sense that the earlier tests
-	     * it are only need for speed.
+	     * are only needed for speed.
 	     * 
 	     * The following website illustrates geometrical concepts and
 	     * formulas:  http://local.wasp.uwa.edu.au/~pbourke/geometry/
@@ -2115,7 +2105,13 @@ in_front(
 				 * segment near end of an edge.  Simply ignore.
 				 */
 				if (newvert[1] != vnum1) {
-				    handle_edge_fragment(edgenum, newvert[1], vnum2, polynum);
+#if HIDDEN3D_QUADTREE
+				    in_front(edgenum, newvert[1], vnum2, &polynum);
+#else
+				    /* Avoid checking against the same polygon again. */
+				    in_front(edgenum, newvert[1], vnum2,
+						&plist[polynum].next);
+#endif
 				    setup_edge(vnum1, newvert[0]);
 				}
 				break;

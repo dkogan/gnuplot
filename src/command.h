@@ -1,5 +1,5 @@
 /*
- * $Id: command.h,v 1.57 2011/10/03 00:17:22 sfeam Exp $
+ * $Id: command.h,v 1.59 2013/01/04 22:03:54 broeker Exp $
  */
 
 /* GNUPLOT - command.h */
@@ -151,6 +151,7 @@ void restore_prompt __PROTO((void));
 #endif
 #ifdef VOLATILE_REFRESH
 void refresh_request __PROTO((void));
+void refresh_command __PROTO((void));
 #endif
 void call_command __PROTO((void));
 void changedir_command __PROTO((void));
@@ -163,6 +164,7 @@ void do_command __PROTO((void));
 void if_command __PROTO((void));
 void else_command __PROTO((void));
 void invalid_command __PROTO((void));
+void link_command __PROTO((void));
 void load_command __PROTO((void));
 void begin_clause __PROTO((void));
 void clause_reset_after_error __PROTO((void));
@@ -172,7 +174,6 @@ void pause_command __PROTO((void));
 void plot_command __PROTO((void));
 void print_command __PROTO((void));
 void pwd_command __PROTO((void));
-void refresh_command __PROTO((void));
 void replot_command __PROTO((void));
 void reread_command __PROTO((void));
 void save_command __PROTO((void));

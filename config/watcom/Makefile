@@ -1,5 +1,5 @@
 # Hello, emacs: this is a -*- Makefile -*-
-# $Id: Makefile,v 1.8 2011/04/17 19:03:48 broeker Exp $
+# $Id: Makefile,v 1.10 2012/07/18 16:42:51 markisch Exp $
 #
 # GNUPLOT Makefile OpenWatcom 1.3 on Win32
 
@@ -22,12 +22,6 @@ VARIANT = PLAIN
 #VARIANT = CONSOLE
 
 TOP = ..\..
-
-# activate one of these to choose which of the help file formats you want:
-#   old-fashioned WinHelp ...
-# HELP_EXT=hlp
-#   ... or HTML help
-HELP_EXT=chm
 
 # Programs: 
 # The Microsoft Help compiler:
@@ -80,7 +74,7 @@ CPPFLAGS =  -DHAVE_CONFIG_H -D_Windows -DHAVE_CONFIG_H -DUSE_MOUSE -DEAM_OBJECTS
 # library-dependent ones may have to be added, like:
 # -DHAVE_LIBPNG -DHAVE_LIBPDF 
 
-HELPFILE = wgnuplot.$(HELP_EXT)
+HELPFILE = wgnuplot.chm
 
 DEFAULT_TARGETS = $(BINARYFILES) $(HELPFILE)
 
@@ -97,10 +91,7 @@ ALL_TARGETS = $(DEFAULT_TARGETS) $(TARGETS_PLAIN) $(TARGETS_PIPES) $(TARGETS_CON
 
 DEFAULT_TARGETS += $(TARGETS_$(VARIANT))
 
-!ifeq HELP_EXT chm
-CPPFLAGS += -DWITH_HTML_HELP
 LDLIBS += LIBRARY htmlhelp.lib
-!endif
 
 # compiler flags, determined from MS ones by OW's "cl /showwopts"
 
@@ -147,7 +138,7 @@ O=pobj
 PIPE_OBJS = $+ $(OBJS) $-
 O=obj
 
-WIN_EXTRA_INPUTS = wgnuplot.res texticon.ico grpicon.ico
+WIN_EXTRA_INPUTS = wgnuplot.res
 
 # extensions:
 .EXTENSIONS:
@@ -234,9 +225,9 @@ OPTION ELIMINATE
 
 # NOTE: Unknown what /l 0x409 does in MS RC call --- seems to work without, though
 wgnuplot.res :  $(W)\wgnuplot.rc $(W)\wgnuplib.rc &
-  $(W)\wresourc.h texticon.ico grpicon.ico
+  $(W)\wresourc.h $(W)\texticon.ico $(W)\grpicon.ico
         $(WRC) -r -q -bt=nt -fowgnuplot.res -i=$(W) &
-	   -d_WIN32 -dNDEBUG -dWIN32 -dMSRC $(W)\wgnuplot.rc
+	   -d_WIN32 -dNDEBUG -dWIN32 $(W)\wgnuplot.rc
 
 term.obj: $(S)\term.c $(CORETERM) .AUTODEPEND
         $(WCC) $(WCFLAGS) $(TERMFLAGS) $[@
@@ -252,25 +243,6 @@ pgnuplot.exe: $(W)\pgnuplot.c version.$(O) .AUTODEPEND
         $(WCL) -5r -zq -d2 -fm $(W)\pgnuplot.c -fe=pgnuplot.exe -I$(S) &
 	  version.$(O) user32.lib
 
-
-# extract icons from wgnuplot.rc
-texticon.ico: geticon.exe $(W)\wgnuplot.rc
-        geticon $(W)\wgnuplot.rc
-
-grpicon.ico: geticon.exe $(W)\wgnuplot.rc
-        geticon $(W)\wgnuplot.rc
-
-geticon.exe: $(W)\geticon.c
-        $(WCL) -bcl=nt -fd -fe=geticon.exe $[@
-
-# convert gnuplot.doc to gnuplot.rtf
-wgnuplot.hlp: doc2rtf.exe $(D)gnuplot.doc $(W)\wgnuplot.hpj
-        doc2rtf $(D)gnuplot.doc $(W)\gnuplot.rtf
-        $(HCW) /c /e $(W)\wgnuplot.hpj
-        if exist $(W)\wgnuplot.hlp copy $(W)\wgnuplot.hlp .
-
-doc2rtf.exe: $(D)doc2rtf.c $(D)termdoc.c $(D)xref.c .AUTODEPEND
-        $(WCL) $(WCFLAGS) -w1 -DWINDOWS_NO_GUI -I$(D);$(T) -fe$^@ $(D)doc2rtf.c $(D)termdoc.c $(D)xref.c
 
 WD=$(D)windows\
 HHP_PROJ=$(WD)wgnuplot.hhp
@@ -310,10 +282,10 @@ dbinary.$(O): $(S)\binary.c
 
 # clean up temporary files
 clean: .SYMBOLIC
-        rm -f *.obj *.cobj *.pobj *.err *.ico
+        rm -f *.obj *.cobj *.pobj *.err
         rm -f wgnuplot.res $(W)\gnuplot.rtf $(W)\wgnuplot.hlp
-        rm -f bf_test.exe linkopt1.oww doc2rtf.exe doc2html.exe geticon.exe
-		rm -f doc2gih.exe gnuplot.gih
+        rm -f bf_test.exe linkopt1.oww doc2html.exe
+        rm -f doc2gih.exe gnuplot.gih
         rm -f *.map *.sym wgnuplot.gid        
 
 realclean: clean .SYMBOLIC

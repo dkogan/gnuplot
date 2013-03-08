@@ -1,5 +1,5 @@
 /*
- * $Id: pm3d.h,v 1.28 2010/10/06 23:20:50 sfeam Exp $
+ * $Id: pm3d.h,v 1.30 2012/11/04 00:18:04 sfeam Exp $
  */
 
 /* GNUPLOT - pm3d.h */
@@ -87,12 +87,14 @@ typedef enum {
     PM3D_WHICHCORNER_C2 = 1, 	/* corner 2: first scan, second point  */
     PM3D_WHICHCORNER_C3 = 2, 	/* corner 3: second scan, first point  */
     PM3D_WHICHCORNER_C4 = 3,	/* corner 4: second scan, second point */
-    /* now in any order */
+    /* the rest can be in any order */
     PM3D_WHICHCORNER_MEAN    = 4, /* average z-value from all 4 corners */
     PM3D_WHICHCORNER_GEOMEAN = 5, /* geometrical mean of 4 corners */
-    PM3D_WHICHCORNER_MEDIAN  = 6, /* median of 4 corners */
-    PM3D_WHICHCORNER_MIN     = 7, /* minimum of 4 corners */
-    PM3D_WHICHCORNER_MAX     = 8  /* maximum of 4 corners */
+    PM3D_WHICHCORNER_HARMEAN = 6, /* harmonic mean of 4 corners */
+    PM3D_WHICHCORNER_MEDIAN  = 7, /* median of 4 corners */
+    PM3D_WHICHCORNER_RMS	 = 8,  /* root mean square of 4 corners*/
+    PM3D_WHICHCORNER_MIN     = 9, /* minimum of 4 corners */
+    PM3D_WHICHCORNER_MAX     = 10,  /* maximum of 4 corners */
 } PM3D_WHICH_CORNERS2COLOR;
 
 /*

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.191.2.1 2012/04/09 04:25:37 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.204 2013/02/17 17:51:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -39,7 +39,6 @@ static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.191.2.1 2012/04/09 04:25:
 
 #include "alloc.h"
 #include "axis.h"
-#include "binary.h"
 #include "command.h"
 #include "contour.h"
 #include "datafile.h"
@@ -180,7 +179,7 @@ sp_replace(
  *   surface points.
  */
 /* HBB 20000506: don't risk stack havoc by recursion, use iterative list
- * cleanup unstead */
+ * cleanup instead */
 void
 sp_free(struct surface_points *sp)
 {
@@ -215,9 +214,6 @@ sp_free(struct surface_points *sp)
 }
 
 
-
-/* support for dynamic size of input line */
-
 void
 plot3drequest()
 /*
@@ -231,10 +227,6 @@ plot3drequest()
     AXIS_INDEX u_axis, v_axis;
 
     is_3d_plot = TRUE;
-
-    /* change view to become map if requested by 'set view map' */
-    if (splot_map == TRUE)
-	splot_map_activate();
 
     if (parametric && strcmp(set_dummy_var[0], "t") == 0) {
 	strcpy(set_dummy_var[0], "u");
@@ -252,28 +244,24 @@ plot3drequest()
     if (!term)			/* unknown */
 	int_error(c_token, "use 'set term' to set terminal type first");
 
+    /* Range limits for the entire plot are optional but must be given	*/
+    /* in a fixed order. The keyword 'sample' terminates range parsing.	*/
     u_axis = (parametric ? U_AXIS : FIRST_X_AXIS);
     v_axis = (parametric ? V_AXIS : FIRST_Y_AXIS);
 
-    dummy_token0 = parse_named_range(u_axis, dummy_token0);
-    if (splot_map == TRUE && !parametric) /* v_axis==FIRST_Y_AXIS */
-	splot_map_deactivate();
-    dummy_token1 = parse_named_range(v_axis, dummy_token1);
-    if (splot_map == TRUE && !parametric) /* v_axis==FIRST_Y_AXIS */
-	splot_map_activate();
+    dummy_token0 = parse_range(u_axis);
+    dummy_token1 = parse_range(v_axis);
 
     if (parametric) {
 	parse_range(FIRST_X_AXIS);
-	if (splot_map == TRUE)
-	    splot_map_deactivate();
 	parse_range(FIRST_Y_AXIS);
-	if (splot_map == TRUE)
-	    splot_map_activate();
-    }				/* parametric */
+    }
     parse_range(FIRST_Z_AXIS);
     check_axis_reversed(FIRST_X_AXIS);
     check_axis_reversed(FIRST_Y_AXIS);
     check_axis_reversed(FIRST_Z_AXIS);
+    if (equals(c_token,"sample") && equals(c_token+1,"["))
+	c_token++;
 
     /* Clear out any tick labels read from data files in previous plot */
     for (u_axis=0; u_axis<AXIS_ARRAY_SIZE; u_axis++) {
@@ -285,15 +273,15 @@ plot3drequest()
     }
 
     /* use the default dummy variable unless changed */
-    if (dummy_token0 >= 0)
+    if (dummy_token0 > 0)
 	copy_str(c_dummy_var[0], dummy_token0, MAX_ID_LEN);
     else
-	(void) strcpy(c_dummy_var[0], set_dummy_var[0]);
+	strcpy(c_dummy_var[0], set_dummy_var[0]);
 
-    if (dummy_token1 >= 0)
+    if (dummy_token1 > 0)
 	copy_str(c_dummy_var[1], dummy_token1, MAX_ID_LEN);
     else
-	(void) strcpy(c_dummy_var[1], set_dummy_var[1]);
+	strcpy(c_dummy_var[1], set_dummy_var[1]);
 
     eval_3dplots();
 }
@@ -316,6 +304,7 @@ refresh_3dbounds(struct surface_points *first_plot, int nplots)
 	int i;		/* point index */
 	struct axis *x_axis = &axis_array[FIRST_X_AXIS];
 	struct axis *y_axis = &axis_array[FIRST_Y_AXIS];
+	struct axis *z_axis = &axis_array[FIRST_Z_AXIS];
 	struct iso_curve *this_curve;
 
 	/* IMAGE clipping is done elsewhere, so we don't need INRANGE/OUTRANGE
@@ -343,18 +332,37 @@ refresh_3dbounds(struct surface_points *first_plot, int nplots)
 	     * mark everything INRANGE and re-evaluate the axis limits now.
 	     * Otherwise test INRANGE/OUTRANGE against previous axis limits.
 	     */
-	    if (x_axis->set_autoscale & (AUTOSCALE_MIN|AUTOSCALE_MAX)) {
-		if (point->x > x_axis->max) x_axis->max = point->x;
-		if (point->x < x_axis->min) x_axis->min = point->x;
-	    } else if (!inrange(point->x, x_axis->min, x_axis->max)) {
+
+	    /* This autoscaling logic is identical to that in
+	     * refresh_bounds() in plot2d.c
+	     */
+	    if (!this_plot->noautoscale) {
+		if (x_axis->set_autoscale & AUTOSCALE_MIN && point->x < x_axis->min)
+		     x_axis->min = point->x;
+		if (x_axis->set_autoscale & AUTOSCALE_MAX && point->x > x_axis->max)
+		     x_axis->max = point->x;
+	    }
+	    if (!inrange(point->x, x_axis->min, x_axis->max)) {
 		point->type = OUTRANGE;
 		continue;
 	    }
-
-	    if (y_axis->set_autoscale & (AUTOSCALE_MIN|AUTOSCALE_MAX)) {
-		if (point->y > y_axis->max) y_axis->max = point->y;
-		if (point->y < y_axis->min) y_axis->min = point->y;
-	    } else if (!inrange(point->y, y_axis->min, y_axis->max)) {
+	    if (!this_plot->noautoscale) {
+		if (y_axis->set_autoscale & AUTOSCALE_MIN && point->y < y_axis->min)
+		     y_axis->min = point->y;
+		if (y_axis->set_autoscale & AUTOSCALE_MAX && point->y > y_axis->max)
+		     y_axis->max = point->y;
+	    }
+	    if (!inrange(point->y, y_axis->min, y_axis->max)) {
+		point->type = OUTRANGE;
+		continue;
+	    }
+	    if (!this_plot->noautoscale) {
+		if (z_axis->set_autoscale & AUTOSCALE_MIN && point->z < z_axis->min)
+		     z_axis->min = point->z;
+		if (z_axis->set_autoscale & AUTOSCALE_MAX && point->z > z_axis->max)
+		     z_axis->max = point->z;
+	    }
+	    if (!inrange(point->z, z_axis->min, z_axis->max)) {
 		point->type = OUTRANGE;
 		continue;
 	    }
@@ -362,8 +370,13 @@ refresh_3dbounds(struct surface_points *first_plot, int nplots)
 	}	/* End of this plot */
 
     }
+
+    /* Make sure the bounds are reasonable, and tweak them if they aren't */
+    axis_checked_extend_empty_range(FIRST_X_AXIS, NULL);
+    axis_checked_extend_empty_range(FIRST_Y_AXIS, NULL);
+    axis_checked_extend_empty_range(FIRST_Z_AXIS, NULL);
 }
-#endif
+#endif /* VOLATILE_REFRESH */
 
 
 static double
@@ -654,7 +667,7 @@ grid_nongrid_data(struct surface_points *this_plot)
 	    points->y = y;
 
 	    /* Honor requested x and y limits */
-	    /* FIXME: This code section was not in 4.2.  It imperfectly    */
+	    /* Historical note: This code was not in 4.0 or 4.2. It imperfectly */
 	    /* restores the clipping behaviour of version 3.7 and earlier. */
 	    if ((x < axis_array[x_axis].min && !(axis_array[x_axis].autoscale & AUTOSCALE_MIN))
 	    ||  (x > axis_array[x_axis].max && !(axis_array[x_axis].autoscale & AUTOSCALE_MAX))
@@ -948,8 +961,8 @@ get_3ddata(struct surface_points *this_plot)
 			"Wrong number of columns in input data - line %d",
 			df_line_number);
 
-	    /* FIXME: Work-around for hidden3d, which otherwise would use */
-	    /* the color of the vector midpoint rather than the endpoint. */
+	    /* Work-around for hidden3d, which otherwise would use the */
+	    /* color of the vector midpoint rather than the endpoint. */
 	    if (this_plot->plot_style == IMPULSES) {
 		if (this_plot->lp_properties.pm3d_color.type == TC_Z) {
 		    color = z;
@@ -1122,7 +1135,9 @@ get_3ddata(struct surface_points *this_plot)
 
     if (this_plot->num_iso_read <= 1)
 	this_plot->has_grid_topology = FALSE;
-    if (this_plot->has_grid_topology && !hidden3d) {
+
+    if (this_plot->has_grid_topology && !hidden3d 
+    &&   (implicit_surface || this_plot->plot_style == SURFACEGRID)) {
 	struct iso_curve *new_icrvs = NULL;
 	int num_new_iso = this_plot->iso_crvs->p_count;
 	int len_new_iso = this_plot->num_iso_read;
@@ -1287,8 +1302,13 @@ eval_3dplots()
     plot_iterator = check_for_iteration();
 
     while (TRUE) {
-	if (END_OF_COMMAND)
-	    int_error(c_token, "function to plot expected");
+
+	/* Forgive trailing comma on a multi-element plot command */
+	if (END_OF_COMMAND) {
+	    if (plot_num == 0)
+		int_error(c_token, "function to plot expected");
+	    break;
+	}
 
 	if (crnt_param == 0 && !was_definition)
 	    start_token = c_token;
@@ -1310,14 +1330,19 @@ eval_3dplots()
 	    TBOOLEAN set_lpstyle = FALSE;
 	    TBOOLEAN checked_once = FALSE;
 	    TBOOLEAN set_labelstyle = FALSE;
+	    int sample_range_token;
 
 	    if (!was_definition && (!parametric || crnt_param == 0))
 		start_token = c_token;
 	    was_definition = FALSE;
 
+	    /* Check for a sampling range */
+	    sample_range_token = parse_range(SAMPLE_AXIS);
+	    if (sample_range_token > 0)
+		axis_array[SAMPLE_AXIS].range_flags |= RANGE_SAMPLED;
+
+	    /* Should this be saved in this_plot? */
 	    dummy_func = &plot_func;
-	    /* WARNING: do NOT free name_str */
-	    /* FIXME: could also be saved in this_plot */
 	    name_str = string_or_express(NULL);
 	    dummy_func = NULL;
 	    if (name_str) {
@@ -1357,8 +1382,18 @@ eval_3dplots()
 		if (df_matrix)
 		    this_plot->has_grid_topology = TRUE;
 
-		/* parses all datafile-specific modifiers */
-		/* we will load the data after parsing title,with,... */
+		/* EAM FIXME - this seems to work but I am uneasy that c_dummy_var[]	*/
+		/*             is not being loaded with the variable name.		*/
+		if (sample_range_token > 0) {
+		    this_plot->sample_var = add_udv(sample_range_token);
+		    this_plot->sample_var->udv_undef = FALSE;
+		} else {
+		    /* FIXME: This has the side effect of creating a named variable x */
+		    /* or overwriting an existing variable x.  Maybe it should save   */
+		    /* and restore the pre-existing variable in this case?            */
+		    this_plot->sample_var = add_udv_by_name(c_dummy_var[0]);
+		    this_plot->sample_var->udv_undef = FALSE;
+		}
 
 		/* for capture to key */
 		this_plot->token = end_token = c_token - 1;
@@ -1464,17 +1499,9 @@ eval_3dplots()
 
 		    if (almost_equals(c_token,"col$umnheader")) {
 			df_set_key_title_columnhead((struct curve_points *)this_plot);
-		    } else 
+		    }
 
-#ifdef BACKWARDS_COMPATIBLE
-		    /* Annoying backwards-compatibility hack - deprecate! */
-		    if (isanumber(c_token)) {
-			c_token--;
-			df_set_key_title_columnhead((struct curve_points *)this_plot);
-		    } else
-#endif
-
-		    if (!(this_plot->title = try_to_get_string()))
+		    else if (!(this_plot->title = try_to_get_string()))
 			int_error(c_token, "expecting \"title\" for plot");
 		    set_title = TRUE;
 		    continue;
@@ -1559,7 +1586,7 @@ eval_3dplots()
 		    int stored_token = c_token;
 		    if (this_plot->labels == NULL) {
 			this_plot->labels = new_text_label(-1);
-			this_plot->labels->pos = JUST_CENTRE;
+			this_plot->labels->pos = CENTRE;
 			this_plot->labels->layer = LAYER_PLOTLABELS;
 		    }
 		    parse_label_options(this_plot->labels);
@@ -1687,18 +1714,6 @@ eval_3dplots()
 		    else
 			this_plot->hidden3d_top_linetype = line_num;
 		}
-
-#ifdef BACKWARDS_COMPATIBLE
-		/* allow old-style syntax - ignore case lt 3 4 for example */
-		if (!END_OF_COMMAND && isanumber(c_token)) {
-		    this_plot->lp_properties.l_type =
-			this_plot->lp_properties.p_type = int_expression() - 1;
-
-		    if (isanumber(c_token))
-			this_plot->lp_properties.p_type = int_expression() - 1;
-		}
-#endif
-
 	    }
 
 	    /* Some low-level routines expect to find the pointflag attribute */
@@ -1962,6 +1977,17 @@ eval_3dplots()
 		char *name_str;
 		was_definition = FALSE;
 
+		/* Forgive trailing comma on a multi-element plot command */
+		if (END_OF_COMMAND || this_plot == NULL) {
+		    int_warn(c_token, "ignoring trailing comma in plot command");
+		    break;
+		}
+
+		/* Check for a sampling range */
+		/* Currently we are supporting only sampling of pseudofile '+' and   */
+		/* this loop is for functions only, so the sampling range is ignored */
+		parse_range(SAMPLE_AXIS);
+
 		dummy_func = &plot_func;
 		name_str = string_or_express(&at_ptr);
 
@@ -2137,8 +2163,7 @@ eval_3dplots()
 	plot_token = -1;
 	fill_gpval_string("GPVAL_LAST_PLOT", replot_line);
     }
-
-    /* record that all went well */
+/* record that all went well */
     plot3d_num=plot_num;
 
     /* perform the plot */
@@ -2156,11 +2181,8 @@ eval_3dplots()
 	/* update GPVAL_ variables available to user */
 	update_gpval_variables(1);
 
-#ifdef VOLATILE_REFRESH
 	/* Mark these plots as safe for quick refresh */
-	refresh_nplots = plot_num;
-	refresh_ok = 3;
-#endif
+	SET_REFRESH_OK(E_REFRESH_OK_3D, plot_num);
     }
 }
 

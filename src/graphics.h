@@ -1,5 +1,5 @@
 /*
- * $Id: graphics.h,v 1.52.2.1 2011/12/29 06:36:05 sfeam Exp $
+ * $Id: graphics.h,v 1.58 2013/02/28 06:43:00 sfeam Exp $
  */
 
 /* GNUPLOT - graphics.h */
@@ -51,6 +51,7 @@ typedef struct curve_points {
     enum PLOT_TYPE plot_type;	/* DATA2D? DATA3D? FUNC2D FUNC3D? NODATA? */
     enum PLOT_STYLE plot_style;	/* style set by "with" or by default */
     char *title;		/* plot title, a.k.a. key entry */
+    int title_position;		/* -1 for beginning; +1 for end */
     TBOOLEAN title_no_enhanced;	/* don't typeset title in enhanced mode */
     TBOOLEAN title_is_filename;	/* TRUE if title was auto-generated from filename */
     TBOOLEAN title_is_suppressed;/* TRUE if 'notitle' was specified */
@@ -60,6 +61,7 @@ typedef struct curve_points {
     struct fill_style_type fill_properties;
     struct text_label *labels;	/* Only used if plot_style == LABELPOINTS */
     struct t_image image_properties;	/* only used if plot_style is IMAGE or RGB_IMAGE */
+    struct udvt_entry *sample_var;	/* Only used if plot has private sampling range */
 
     /* 2D and 3D plot structure fields overlay only to this point */
     filledcurves_opts filledcurves_options;
@@ -67,6 +69,7 @@ typedef struct curve_points {
     struct histogram_style *histogram;	/* Only used if plot_style == HISTOGRAM */
     int histogram_sequence;	/* Ordering of this dataset within the histogram */
     enum PLOT_SMOOTH plot_smooth; /* which "smooth" method to be used? */
+    double smooth_parameter;	/* e.g. optional bandwidth for smooth kdensity */
     int boxplot_factors;	/* Only used if plot_style == BOXPLOT */
     int *boxplot_factor_order;	/* Only used if plot_style == BOXPLOT */
     int p_max;			/* how many points are allocated */
@@ -90,14 +93,9 @@ extern int bar_layer;
 /* function prototypes */
 
 void do_plot __PROTO((struct curve_points *, int));
-int label_width __PROTO((const char *, int *));
 void map_position __PROTO((struct position * pos, int *x, int *y, const char *what));
 void map_position_r __PROTO((struct position* pos, double* x, double* y,
 			     const char* what));
-#if defined(sun386)
-double CheckLog __PROTO((TBOOLEAN, double, double));
-#endif
-void apply_head_properties __PROTO((struct arrow_style_type *arrow_properties));
 
 void init_histogram __PROTO((struct histogram_style *hist, char *title));
 void free_histlist __PROTO((struct histogram_style *hist));

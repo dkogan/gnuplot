@@ -1,5 +1,5 @@
 #
-# $Id: makefile.unx,v 1.19.2.1 2011/12/09 07:05:35 sfeam Exp $
+# $Id: makefile.unx,v 1.25 2013/02/28 05:47:41 sfeam Exp $
 #
 #
 ############################################################
@@ -172,7 +172,6 @@ TERMFLAGS = -I. -Iterm $(PLOTXFLAG)
 # machine-dependent definitions below.
 #
 #  -lsuntool -lsunwindow -lpixrect  if you have -DSUN in TERMFLAGS
-#  -lccgi if -DCGI in TERMFLAGS
 #  -lvga if -DLINUXVGA in TERMFLAGS
 #  -lreadline (or -Lsomewhere libreadline.a) if you use the gnu version
 #  -ltermcap might be necessary after -lreadline
@@ -180,7 +179,7 @@ LIBS = -lm # -lplot is no longer shipped on SUNs
 
 ####################################################################
 # List of object files except version.o
-OBJS = bitmap.o command.o contour.o eval.o graphics.o graph3d.o help.o \
+OBJS = bitmap.o boundary.o command.o contour.o eval.o graphics.o graph3d.o help.o \
        internal.o misc.o parse.o plot.o plot2d.o plot3d.o readline.o \
        scanner.o set.o show.o specfun.o standard.o stdfn.o term.o time.o \
        util.o binary.o interpol.o fit.o matrix.o datafile.o alloc.o \
@@ -265,7 +264,7 @@ SUN_X11_FLAGS = \
 
 CGI_FLAGS = \
            CFLAGS="$(COPTS) $(OPTIONS) -Dunix" \
-           LIBS="-lccgi $(LIBS)" X11FLAGS=" " X11INCLUDES=" " \
+           LIBS="$(LIBS)" X11FLAGS=" " X11INCLUDES=" " \
            X11LIBS=" " PLOTXFLAG=" " GNUPLOT_X11=" " X11INSTALL=x11_noinstall \
            TERMFLAGS="-I. -Iterm -DCGI"
 
@@ -413,11 +412,11 @@ LINUX_FLAGS = \
 DIRS = term demo docs docs/latextut
 
 CSOURCE1 = bf_test.c binary.c command.c set.c show.c
-CSOURCE2 = help.c graphics.c graph3d.c internal.c
+CSOURCE2 = help.c graphics.c graph3d.c internal.c boundary.c
 CSOURCE3 = misc.c eval.c parse.c plot.c plot2d.o plot3d.o readline.c scanner.c standard.c stdfn.c
 CSOURCE4 = bitmap.c term.c time.c util.c version.c fit.c matrix.c variable.c tabulate.c stats.c
 CSOURCE5 = term/ai.trm term/aed.trm \
-	term/cgi.trm term/corel.trm \
+	term/corel.trm \
 	term/djsvga.trm term/dumb.trm \
 	term/dxf.trm term/dxy.trm term/debug.trm \
 	term/emxvga.trm term/eepic.trm term/epson.trm term/excl.trm \
@@ -453,9 +452,9 @@ DEMOS = demo/1.dat demo/2.dat demo/3.dat demo/contours.dem \
 	demo/scatter.dem demo/scatter2.dat demo/singulr.dem demo/klein.dat
 
 ETC = Copyright 0README README.gnu makefile.unx makefile.vms \
-	linkopt.amg makefile.amg linkopt.vms buildvms.com \
+	linkopt.vms buildvms.com \
 	lasergnu makefile.r makefile.nt makefile.g 0FAQ 0BUGS\
-	term/README History gnuplot.el intergra.x11 0INSTALL README.3p1\
+	term/README History gnuplot.el 0INSTALL README.3p1\
 	README.3p2 README.3p3 README.3p4 README.pro README.nex README.x11 \
 	README.3d README.mf README.win README.iso README.3p5 README.pic \
 	README.xli $(CONFIGURE)
@@ -467,10 +466,10 @@ PC = corgraph.asm corplot.c header.mac hrcgraph.asm lineproc.mac \
 	makefile.djg pcgraph.asm makefile.emx term/pc.trm 
 WINDOWS = makefile.win makefile.msw README.win win/wcommon.h \
 	win/wgnuplib.c win/wgnuplib.h win/wgnuplib.rc \
-	win/wgnuplot.hpj win/wgnuplot.mnu win/wgnuplot.rc \
+	win/wgnuplot.mnu win/wgnuplot.rc \
 	win/wgraph.c win/winmain.c win/wmenu.c win/wpause.c \
 	win/wprinter.c win/wresourc.h win/wtext.c win/wtext.h \
-	win/geticon.c docs/doc2rtf.c term/win.trm
+	win/geticon.c term/win.trm
 OS2 = makefile.os2 os2/makefile os2/dialogs.c os2/dialogs.h os2/gclient.c \
 	os2/gnuicon.uue os2/gnupmdrv.c os2/gnupmdrv.def os2/gnupmdrv.h \
 	os2/gnupmdrv.itl os2/gnupmdrv.rc os2/print.c docs/doc2ipf.c \
@@ -480,8 +479,7 @@ OS2 = makefile.os2 os2/makefile os2/dialogs.c os2/dialogs.h os2/gclient.c \
 DOCS1 = docs/makefile docs/README docs/checkdoc.c docs/doc2gih.c \
 	docs/doc2hlp.c docs/doc2hlp.vms docs/doc2ms.c docs/doc2tex.c \
 	docs/gnuplot.1 docs/lasergnu.1 docs/toc_entr.sty docs/doc2info.pl \
-	docs/titlepag.ms docs/titlepag.tex \
-	docs/doc2rtf.c
+	docs/titlepag.ms docs/titlepag.tex
 DOCS2 = docs/gnuplot.doc docs/gpcard.tex
 DOCS3 = docs/latextut/makefile docs/latextut/eg1.plt \
 	docs/latextut/eg2.plt docs/latextut/eg3.dat docs/latextut/eg3.plt \
@@ -600,9 +598,6 @@ sgi:
 sgix11:
 	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(SGIX11_FLAGS)   $(TARGET)
 
-cgi:
-	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(CGI_FLAGS)      $(TARGET)
-
 3b1:
 	$(MAKE) $(MFLAGS) $(MY_FLAGS) $(3B1_FLAGS)      $(TARGET)
 
@@ -676,7 +671,7 @@ install:
 	@echo
 	@echo "Please do a 'make <MACHINE> TARGET=Install' where <MACHINE> is one of the following:"
 	@echo
-	@echo "dec, hp, sun, sun_x11, sgi, sgix11, cgi,"
+	@echo "dec, hp, sun, sun_x11, sgi, sgix11,"
 	@echo "next, next_x11, 3b1, 386ix, 386ix_x11, aix32, aix32o,"
 	@echo "x11, cray, cray_x11, ptx_x11, sequent_x11, convex_x11"
 	@echo

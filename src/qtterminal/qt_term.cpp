@@ -100,6 +100,8 @@ QString qt_currentFontName;
 QString qt_localServerName;
 QTextCodec* qt_codec = QTextCodec::codecForLocale();
 
+QApplication* gnuplot_qt_application;
+
 /* ------------------------------------------------------
  * Helpers
  * ------------------------------------------------------*/
@@ -302,7 +304,7 @@ void qt_init()
 	// A better strategy would be to transfer the font handling to the QtGnuplotWidget, but it would require
 	// some synchronization between the widget and the gnuplot process.
 	int argc = 0;
-	QApplication* application = new QApplication(argc, (char**)( NULL));
+	gnuplot_qt_application = new QApplication(argc, (char**)( NULL));
 
 #ifdef Q_WS_MAC
 	// Don't display this application in the MAC OS X dock
@@ -338,8 +340,8 @@ void qt_graphics()
 
 	// Set plot metrics
 	QFontMetrics metrics(QFont(qt_currentFontName, qt_currentFontSize));
-	term->v_char = qt_oversampling*metrics.ascent() + 1;
-	term->h_char = qt_oversampling*metrics.width("0123456789")/10;
+	term->v_char = qt_oversampling * (metrics.ascent() + metrics.descent());
+	term->h_char = qt_oversampling * metrics.width("0123456789")/10.;
 	term->v_tic = (unsigned int) (term->v_char/2.5);
 	term->h_tic = (unsigned int) (term->v_char/2.5);
 	if (qt_setSize)
@@ -523,6 +525,9 @@ void qt_linetype(int lt)
 
 int qt_set_font (const char* font)
 {
+	int  qt_previousFontSize = qt_currentFontSize;
+	QString qt_previousFontName = qt_currentFontName;
+
 	if (font && (*font))
 	{
 		QStringList list = QString(font).split(',');
@@ -530,6 +535,9 @@ int qt_set_font (const char* font)
 			qt_currentFontName = list[0];
 		if (list.size() > 1)
 			qt_currentFontSize = list[1].toInt();
+	} else {
+		qt_currentFontSize = qt_optionFontSize;
+		qt_currentFontName = qt_optionFontName;
 	}
 
 	if (qt_currentFontName.isEmpty())
@@ -538,7 +546,18 @@ int qt_set_font (const char* font)
 	if (qt_currentFontSize <= 0)
 		qt_currentFontSize = qt_optionFontSize;
 
+	/* Optimize by leaving early if there is no change */
+	if (qt_currentFontSize == qt_previousFontSize
+	&&  qt_currentFontName == qt_currentFontName) {
+		return 1;
+	}
+
 	qt_out << GESetFont << qt_currentFontName << qt_currentFontSize;
+
+	/* Update the font size as seen by the core gnuplot code */
+	QFontMetrics metrics(QFont(qt_currentFontName, qt_currentFontSize));
+	term->v_char = qt_oversampling * (metrics.ascent() + metrics.descent());
+	term->h_char = qt_oversampling * metrics.width("0123456789")/10.;
 
 	return 1;
 }
@@ -600,8 +619,13 @@ void qt_set_color(t_colorspec* colorspec)
 		color.setRgbF(rgb.r, rgb.g, rgb.b);
 		qt_out << GEPenColor << color;
 	}
-	else if (colorspec->type == TC_RGB)
-		qt_out << GEPenColor << QColor(QRgb(colorspec->lt));
+	else if (colorspec->type == TC_RGB) {
+		QColor color = QRgb(colorspec->lt);
+		int alpha = (colorspec->lt >> 24) & 0xff;
+		if (alpha > 0)
+			color.setAlpha(255-alpha);
+		qt_out << GEPenColor << color;
+	}
 }
 
 void qt_filled_polygon(int n, gpiPoint *corners)
@@ -751,7 +775,10 @@ int qt_waitforinput(void)
 void qt_atexit()
 {
 	if (qt_optionPersist || persist_cl)
+	{
+		qt_out << GEDesactivate;
 		qt_out << GEPersist;
+	}
 	else
 		qt_out << GEExit;
 	qt_flushOutBuffer();
@@ -777,6 +804,7 @@ enum QT_id {
 	QT_TITLE,
 	QT_CLOSE,
 	QT_DASH,
+	QT_DASHLENGTH,
 	QT_SOLID,
 	QT_OTHER
 };
@@ -796,6 +824,8 @@ static struct gen_table qt_opts[] = {
 	{"ti$tle",      QT_TITLE},
 	{"cl$ose",      QT_CLOSE},
 	{"dash$ed",	QT_DASH},
+	{"dashl$ength",	QT_DASHLENGTH},
+	{"dl",		QT_DASHLENGTH},
 	{"solid",	QT_SOLID},
 	{NULL,          QT_OTHER}
 };
@@ -912,6 +942,11 @@ void qt_options()
 			SETCHECKDUP(set_dash);
 			qt_optionDash = true;
 			break;
+		case QT_DASHLENGTH:
+			/* FIXME: This should be easy, at least in Qt 4.8 */
+			c_token++;
+			(void) real_expression();
+			break;
 		case QT_SOLID:
 			SETCHECKDUP(set_dash);
 			qt_optionDash = false;
@@ -932,6 +967,9 @@ void qt_options()
 	// Save options back into options string in normalized format
 	QString termOptions = QString::number(qt_optionWindowId);
 
+	/* Initialize user-visible font setting */
+	fontSettings = qt_optionFontName + "," + QString::number(qt_optionFontSize);
+
 	if (set_title)
 	{
 		termOptions += " title \"" + qt_optionTitle + '"';
@@ -949,7 +987,7 @@ void qt_options()
 	}
 
 	if (set_enhanced) termOptions +=  qt_optionEnhanced ? " enhanced" : " noenhanced";
-	if (set_font)     termOptions += " font \"" + fontSettings + '"';
+	                  termOptions += " font \"" + fontSettings + '"';
 	if (set_dash)     termOptions += qt_optionDash ? " dashed" : " solid";
 	if (set_widget)   termOptions += " widget \"" + qt_optionWidget + '"';
 	if (set_persist)  termOptions += qt_optionPersist ? " persist" : " nopersist";
@@ -985,4 +1023,10 @@ void qt_layer( t_termlayer syncpoint )
     	default:
 		break;
     }
+}
+
+void qt_hypertext( int type, const char *text )
+{
+	if (type == TERM_HYPERTEXT_TOOLTIP)
+		qt_out << GEHypertext << qt_codec->toUnicode(text);
 }

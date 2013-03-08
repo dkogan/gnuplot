@@ -1,5 +1,5 @@
 /*
- * $Id: wgnuplib.h,v 1.53.2.1 2012/05/20 21:26:31 markisch Exp $
+ * $Id: wgnuplib.h,v 1.57 2012/06/24 00:39:20 markisch Exp $
  */
 
 /* GNUPLOT - win/wgnuplib.h */
@@ -234,6 +234,13 @@ void WDPROC AboutBox(HWND hwnd, LPSTR str);
 /* maximum number of different colors per palette, used to be hardcoded (256) */
 #define WIN_PAL_COLORS 4096
 
+/* hypertext structure
+*/
+struct tooltips {
+	LPWSTR text;
+	RECT rect;
+};
+
 /* Information about one graphical operation to be stored by the
  * driver for the sake of redraws. Array of GWOP kept in global block */
 struct GWOP {
@@ -289,6 +296,7 @@ struct GWOPBLK {			/* kept in local memory */
 #define W_image 45
 #define W_layer 46
 #define W_text_encoding 47
+#define W_hypertext 48
 
 typedef struct tagGW {
 	GP_LPPRINT	lpr;		/* must be first */
@@ -309,6 +317,8 @@ typedef struct tagGW {
 	HWND	hToolbar;
 	int		ToolbarHeight;
 	HMENU	hPopMenu;	/* popup menu */
+	HBITMAP	hBitmap;	/* bitmap of current graph */
+	BOOL	buffervalid;	/* indicates of hBitmap is valid */
 
 	struct GWOPBLK *gwopblk_head;
 	struct GWOPBLK *gwopblk_tail;
@@ -319,6 +329,7 @@ typedef struct tagGW {
 	BOOL	graphtotop;	/* bring graph window to top after every plot? */
 	BOOL	color;		/* color pens? */
 	BOOL	dashed;		/* dashed lines? */
+	BOOL	rounded;	/* rounded line caps and joins? */
 	BOOL	doublebuffer;	/* double buffering? */
 	BOOL	oversample;	/* oversampling? */
 	BOOL	antialiasing;
@@ -332,6 +343,11 @@ typedef struct tagGW {
 	BOOL	hasgrid;
 	LPRECT	keyboxes;
 	unsigned int maxkeyboxes;
+
+	HWND	hTooltip;	/* tooltip windows for hypertext */
+	struct tooltips * tooltips;
+	unsigned int maxtooltips;
+	unsigned int numtooltips;
 
 	int		htic;		/* horizontal size of point symbol (xmax units) */
 	int 	vtic;		/* vertical size of point symbol (ymax units)*/

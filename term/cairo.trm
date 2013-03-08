@@ -1,5 +1,5 @@
 /* Hello, Emacs: this is -*-C-*- !
- * $Id: cairo.trm,v 1.51.2.3 2012/05/08 04:19:44 sfeam Exp $
+ * $Id: cairo.trm,v 1.58 2013/02/19 05:30:38 sfeam Exp $
  */
 
 /* GNUPLOT - cairo.trm */
@@ -104,7 +104,7 @@ typedef struct cairo_params_t {
     float dash_length;
     rgb_color background;
     TBOOLEAN mono;
-    TBOOLEAN rounded;                 /* rounded linecaps and linejoins */
+    t_linecap linecap;           /* butt/rounded/square linecaps and linejoins */
     TBOOLEAN transparent;
     TBOOLEAN crop;
     char fontname[MAX_ID_LEN + 1];    /* name of font */
@@ -172,6 +172,7 @@ enum CAIROTRM_id {
     CAIROTRM_SIZE,
     CAIROTRM_ROUNDED,
     CAIROTRM_BUTT,
+    CAIROTRM_SQUARE,
     CAIROTRM_LINEWIDTH,
     CAIROTRM_DASHED,
     CAIROTRM_SOLID,
@@ -202,6 +203,7 @@ static struct gen_table cairotrm_opts[] = {
     {"si$ze", CAIROTRM_SIZE},
     {"round$ed", CAIROTRM_ROUNDED},
     {"butt", CAIROTRM_BUTT},
+    {"square", CAIROTRM_SQUARE},
     {"lw", CAIROTRM_LINEWIDTH},
     {"linew$idth", CAIROTRM_LINEWIDTH},
     {"dash$ed", CAIROTRM_DASHED},
@@ -323,13 +325,19 @@ TERM_PUBLIC void cairotrm_options()
 		case CAIROTRM_ROUNDED:
 			c_token++;
 			if (set_capjoin) duplication=TRUE;
-			cairo_params->rounded = TRUE;
+			cairo_params->linecap = ROUNDED;
 			set_capjoin = TRUE;
 			break;
 		case CAIROTRM_BUTT:
 			c_token++;
 			if (set_capjoin) duplication=TRUE;
-			cairo_params->rounded = FALSE;
+			cairo_params->linecap = BUTT;
+			set_capjoin = TRUE;
+			break;
+		case CAIROTRM_SQUARE:
+			c_token++;
+			if (set_capjoin) duplication=TRUE;
+			cairo_params->linecap = SQUARE;
 			set_capjoin = TRUE;
 			break;
 		case CAIROTRM_LINEWIDTH:
@@ -523,7 +531,7 @@ TERM_PUBLIC void cairotrm_options()
 	/* Save options back into options string in normalized format */
 	if (cairo_params->transparent)
 		strncat(term_options, ISCAIROLATEX ? " nobackground" : " transparent", 
-			sizeof(term_options) - strlen(term_options));
+			sizeof(term_options) - strlen(term_options)-1);
 	else {
 		sprintf(tmp_term_options, " background \"#%02x%02x%02x\"", 
 			(int)(255 * cairo_params->background.r), 
@@ -533,28 +541,28 @@ TERM_PUBLIC void cairotrm_options()
 	}
 
 	if (cairo_params->crop)
-		strncat(term_options, " crop", sizeof(term_options)-strlen(term_options));
+		strncat(term_options, " crop", sizeof(term_options)-strlen(term_options)-1);
 
 	if (set_enhanced)
-		strncat(term_options, " enhanced", sizeof(term_options)-strlen(term_options));
+		strncat(term_options, " enhanced", sizeof(term_options)-strlen(term_options)-1);
 
 	if (set_font) {
 		snprintf(tmp_term_options, sizeof(tmp_term_options), " font \"%s\"", font_setting);
 		free(font_setting);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	/* if (set_fontscale) */
 	{
 		snprintf(tmp_term_options, sizeof(tmp_term_options), " fontscale %.1f", cairo_params->fontscale);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	if (cairo_params->mono)
-		strncat(term_options, " monochrome", sizeof(term_options)-strlen(term_options));
+		strncat(term_options, " monochrome", sizeof(term_options)-strlen(term_options)-1);
 
 	if (cairo_params->dashed)
-		strncat(term_options, " dashed", sizeof(term_options)-strlen(term_options));
+		strncat(term_options, " dashed", sizeof(term_options)-strlen(term_options)-1);
 
 	if (1 || set_size) {
 		if (cairo_params->explicit_units == CM)
@@ -572,22 +580,25 @@ TERM_PUBLIC void cairotrm_options()
 				sizeof(tmp_term_options),
 				" size %.2fin, %.2fin ",
 				cairo_params->width/72., cairo_params->height/72.);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	if (set_capjoin) {
-		strncat(term_options, cairo_params->rounded ? " rounded" : " butt",
-			sizeof(term_options)-strlen(term_options));
+		strncat(term_options, 
+			cairo_params->linecap == ROUNDED ? " rounded" 
+			: cairo_params->linecap == BUTT ? " butt"
+			: " square",
+			sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	if (cairo_params->lw != cairo_params_default->lw) {
 		snprintf(tmp_term_options,sizeof(tmp_term_options), " linewidth %g", cairo_params->lw);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	if (cairo_params->dash_length != cairo_params_default->dash_length) {
 		snprintf(tmp_term_options,sizeof(tmp_term_options), " dashlength %g", cairo_params->dash_length);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	/* sync settings with ps_params for latex terminal */
@@ -773,7 +784,7 @@ void cairotrm_graphics()
 	plot.yscale = 1.0;
 
 	/* update graphics state properties */
-	plot.rounded = cairo_params->rounded;
+	plot.linecap = cairo_params->linecap;
 
 	FPRINTF((stderr,"Graphics1\n"));
 
@@ -966,13 +977,13 @@ void cairotrm_put_text(unsigned int x, unsigned int y, const char * string)
 	/* if ignore_enhanced_text is set, draw with the normal routine.
 	 * This is meant to avoid enhanced syntax when the enhanced mode is on */
 	if (ignore_enhanced_text || !cairo_params->enhanced) {
-		gp_cairo_draw_text(&plot, x, term->ymax - y, string);
+		gp_cairo_draw_text(&plot, x, term->ymax - y, string, NULL, NULL);
 		return;
 	}
 
 	/* If there are no mark-up characters we can use the normal routine */
 	if (!strpbrk(string, "{}^_@&~")) {
-		gp_cairo_draw_text(&plot, x, term->ymax - y, string);
+		gp_cairo_draw_text(&plot, x, term->ymax - y, string, NULL, NULL);
 		return;
 	}
 
@@ -1039,9 +1050,9 @@ void cairotrm_linetype(int lt)
 	    gp_cairo_set_linestyle(&plot,  GP_CAIRO_SOLID);
 
 	if (cairo_params->mono && lt >= -1)
-	    gp_cairo_set_color(&plot, gp_cairo_linetype2color( -1 ));
+	    gp_cairo_set_color(&plot, gp_cairo_linetype2color( -1 ), 0.0);
 	else
-	    gp_cairo_set_color(&plot, gp_cairo_linetype2color( lt ));
+	    gp_cairo_set_color(&plot, gp_cairo_linetype2color( lt ), 0.0);
 
 }
 
@@ -1143,6 +1154,7 @@ int cairotrm_make_palette(t_sm_palette * palette)
 void cairotrm_set_color(t_colorspec *colorspec)
 {
 	rgb_color rgb1;
+	double alpha = 0.0;
 
 	if (colorspec->type == TC_LT) {
 		rgb1 = gp_cairo_linetype2color(colorspec->lt);
@@ -1157,9 +1169,10 @@ void cairotrm_set_color(t_colorspec *colorspec)
 		rgb1.r = (double) ((colorspec->lt >> 16) & 0xff)/255;
 		rgb1.g = (double) ((colorspec->lt >> 8) & 0xff)/255;
 		rgb1.b = (double) ((colorspec->lt) & 0xff)/255;
+		alpha = (double) ((colorspec->lt >> 24) & 0xff)/255;
 	} else return;
 
-	gp_cairo_set_color(&plot, rgb1);
+	gp_cairo_set_color(&plot, rgb1, alpha);
 }
 
 
@@ -1369,7 +1382,7 @@ START_HELP(cairolatex)
 "                      {mono|color} {solid|dashed}",
 "                      {{no}transparent} {{no}crop} {background <rgbcolor>}",
 "                      {font <font>} {fontscale <scale>}",
-"                      {linewidth <lw>} {rounded|butt} {dashlength <dl>}",
+"                      {linewidth <lw>} {rounded|butt|square} {dashlength <dl>}",
 "                      {size <XX>{unit},<YY>{unit}}",
 "",
 " The cairolatex terminal prints a plot like `terminal epscairo` or",
@@ -1526,7 +1539,7 @@ START_HELP(pdfcairo)
 "         set term pdfcairo",
 "                      {{no}enhanced} {mono|color} {solid|dashed}",
 "                      {font <font>} {fontscale <scale>}",
-"                      {linewidth <lw>} {rounded|butt} {dashlength <dl>}",
+"                      {linewidth <lw>} {rounded|butt|square} {dashlength <dl>}",
 "                      {size <XX>{unit},<YY>{unit}}",
 "",
 " This terminal supports an enhanced text mode, which allows font and other",
@@ -1538,8 +1551,8 @@ START_HELP(pdfcairo)
 " specified in `linewidth`. The default linewidth is 0.25 points.",
 " (1 \"PostScript\" point = 1/72 inch = 0.353 mm)",
 "",
-" `rounded` sets line caps and line joins to be rounded; `butt` is the",
-" default, butt caps and mitered joins.",
+" `rounded` sets line caps and line joins to be rounded;",
+" `butt` is the default, butt caps and mitered joins.",
 "",
 " The default size for the output is 5 inches x 3 inches. The `size` option",
 " changes this to whatever the user requests. By default the X and Y sizes are",
@@ -1614,7 +1627,7 @@ START_HELP(pngcairo)
 "                      {{no}enhanced} {mono|color} {solid|dashed}",
 "                      {{no}transparent} {{no}crop} {background <rgbcolor>",
 "                      {font <font>} {fontscale <scale>}",
-"                      {linewidth <lw>} {rounded|butt} {dashlength <dl>}",
+"                      {linewidth <lw>} {rounded|butt|square} {dashlength <dl>}",
 "                      {size <XX>{unit},<YY>{unit}}",
 "",
 " This terminal supports an enhanced text mode, which allows font and other",
@@ -1624,8 +1637,8 @@ START_HELP(pngcairo)
 "",
 " The width of all lines in the plot can be modified by the factor <lw>.",
 "",
-" `rounded` sets line caps and line joins to be rounded; `butt` is the",
-" default, butt caps and mitered joins.",
+" `rounded` sets line caps and line joins to be rounded;",
+" `butt` is the default, butt caps and mitered joins.",
 "",
 " The default size for the output is 640 x 480 pixels. The `size` option",
 " changes this to whatever the user requests. By default the X and Y sizes are",

@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_term.h,v 1.16 2011/11/06 04:06:10 sfeam Exp $
+ * $Id: wxt_term.h,v 1.20 2013/02/19 05:30:38 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_term.h */
@@ -91,6 +91,7 @@ void wxt_enhanced_writec(int c);
 void wxt_enhanced_open(char* fontname, double fontsize, double base, TBOOLEAN widthflag, TBOOLEAN showflag, int overprint);
 
 void wxt_layer(t_termlayer layer);
+void wxt_hypertext(int type, const char *text);
 
 void wxt_raise_terminal_window __PROTO((int));
 void wxt_raise_terminal_group __PROTO((void));
@@ -99,12 +100,14 @@ void wxt_lower_terminal_group __PROTO((void));
 void wxt_close_terminal_window __PROTO((int number));
 void wxt_update_title __PROTO((int number));
 void wxt_update_size __PROTO((int number));
+TBOOLEAN wxt_window_opened(void);
 
 /* state variables shared between wxt.trm and wxt_gui.cpp */
 extern int wxt_window_number;
 extern TBOOLEAN wxt_enhanced_enabled;
 extern TBOOLEAN wxt_dashed;
 extern double wxt_dashlength;
+extern double wxt_lw;
 extern int wxt_background;
 extern rgb_color wxt_rgb_background;
 extern int wxt_persist;
@@ -114,7 +117,7 @@ extern int wxt_toggle;
 extern char wxt_set_fontname[MAX_ID_LEN + 1];
 extern int wxt_set_fontsize;
 extern double wxt_set_fontscale;
-extern int wxt_rounded;
+extern t_linecap wxt_linecap;
 extern char wxt_title[MAX_ID_LEN + 1];
 extern int wxt_width;
 extern int wxt_height;

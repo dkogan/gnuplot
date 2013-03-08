@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.261.2.3 2012/03/02 20:00:04 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.279 2013/02/26 23:38:42 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -146,6 +146,7 @@ static void show_tics __PROTO((TBOOLEAN showx, TBOOLEAN showy, TBOOLEAN showz, T
 static void show_mtics __PROTO((AXIS_INDEX));
 static void show_timestamp __PROTO((void));
 static void show_range __PROTO((AXIS_INDEX axis));
+static void show_link __PROTO((void));
 static void show_xyzlabel __PROTO((const char *name, const char *suffix, text_label * label));
 static void show_title __PROTO((void));
 static void show_axislabel __PROTO((AXIS_INDEX));
@@ -306,6 +307,9 @@ show_command()
 	CHECK_TAG_GT_ZERO;
 	show_linetype(tag);
 	break;
+    case S_LINK:
+	show_link();
+	break;
     case S_KEYTITLE:
 	show_keytitle();
 	break;
@@ -393,21 +397,9 @@ show_command()
     case S_VIEW:
 	show_view();
 	break;
-#ifdef BACKWARDS_COMPATIBLE
-    case S_DATA:
-	/* HBB 20010525: re-implement old 'show data style' command */
-	/* FIXME: 'show function style' is gone completely */
-	if (almost_equals(c_token, "st$yle")) {
-	    show_styles("Data", data_style);
-	    c_token++;
-	} else
-	    error_message = "keyword 'style' expected after 'show data'";
-	break;
-#else
     case S_DATA:
 	error_message = "keyword 'data' deprecated, use 'show style data'";
 	break;
-#endif
     case S_STYLE:
 	show_style();
 	break;
@@ -595,38 +587,6 @@ show_command()
     case S_Y2MTICS:
 	show_tics(FALSE, FALSE, FALSE, FALSE, TRUE, FALSE);
 	break;
-
-#ifdef BACKWARDS_COMPATIBLE
-	/* HBB 20010522: avoid triggering the 'default' parse error
-	 * message for these commands --- they don't really exist, and
-	 * shouldn't cause that message to appear */
-    case S_NOMX2TICS:
-    case S_NOMXTICS:
-    case S_NOMY2TICS:
-    case S_NOMYTICS:
-    case S_NOMZTICS:
-    case S_NOCBTICS:
-    case S_NOMCBTICS:
-    case S_NOCBDTICS:
-    case S_NOCBMTICS:
-    case S_NOX2DTICS:
-    case S_NOX2MTICS:
-    case S_NOX2TICS:
-    case S_NOXDTICS:
-    case S_NOXMTICS:
-    case S_NOXTICS:
-    case S_NOY2DTICS:
-    case S_NOY2MTICS:
-    case S_NOY2TICS:
-    case S_NOYDTICS:
-    case S_NOYMTICS:
-    case S_NOYTICS:
-    case S_NOZDTICS:
-    case S_NOZMTICS:
-    case S_NOZTICS:
-	error_message = "'show' does not accept the 'no...' type of 'set' options";
-	break;
-#endif /* BACKWARDS_COMPATIBLE */
 
     case S_MULTIPLOT:
 	fprintf(stderr,"multiplot mode is %s\n", multiplot ? "on" : "off");
@@ -1042,7 +1002,6 @@ show_version(FILE *fp)
 %s\n\
 %s\t%s\n\
 %s\tVersion %s patchlevel %s    last modified %s\n\
-%s\tBuild System: %s %s\n\
 %s\n\
 %s\t%s\n\
 %s\tThomas Williams, Colin Kelley and many others\n\
@@ -1061,7 +1020,6 @@ show_version(FILE *fp)
 	    p,			/* empty line */
 	    p, PROGRAM,
 	    p, gnuplot_version, gnuplot_patchlevel, gnuplot_date,
-	    p, os_name, os_rel,
 	    p,			/* empty line */
 	    p, gnuplot_copyright,
 	    p,			/* authors */
@@ -1077,17 +1035,9 @@ show_version(FILE *fp)
 
     /* show version long */
     if (almost_equals(c_token, "l$ong")) {
-	char *helpfile = NULL;
 
 	c_token++;
 	fprintf(stderr, "Compile options:\n%s\n", compile_options);
-
-#ifndef WIN32
-	if ((helpfile = getenv("GNUHELP")) == NULL)
-	    helpfile = HELPFILE;
-#else
-	helpfile = winhelpname;
-#endif
 
 #ifdef X11
 	{
@@ -1099,13 +1049,28 @@ show_version(FILE *fp)
 	}
 #endif
 
-#ifdef GNUPLOT_PS_DIR
 	{
-	    fprintf(stderr, "GNUPLOT_PS_DIR     = \"%s\"\n", GNUPLOT_PS_DIR);
-	}
-#endif
+	    char *psdir = getenv("GNUPLOT_PS_DIR");
 
+#ifdef GNUPLOT_PS_DIR
+	    if (psdir == NULL)
+		psdir = GNUPLOT_PS_DIR;
+#endif
+	    if (psdir != NULL)
+		fprintf(stderr, "GNUPLOT_PS_DIR     = \"%s\"\n", psdir);
+	}
+
+	{
+	    char *helpfile = NULL;
+
+#ifndef WIN32
+	    if ((helpfile = getenv("GNUHELP")) == NULL)
+		helpfile = HELPFILE;
+#else
+	    helpfile = winhelpname;
+#endif
 	fprintf(stderr, "HELPFILE           = \"%s\"\n", helpfile);
+	}
 
 #if defined(WIN32) && !defined(WGP_CONSOLE)
 	fprintf(stderr, "MENUNAME           = \"%s\"\n", szMenuName);
@@ -1572,6 +1537,7 @@ show_style_circle()
     SHOW_ALL_NL;
     fprintf(stderr, "\tCircle style has default radius ");
     show_position(&default_circle.o.circle.extent);
+    fprintf(stderr, " [%s]", default_circle.o.circle.wedge ? "wedge" : "nowedge");
     fputs("\n", stderr);
 }
 
@@ -1708,6 +1674,8 @@ show_label(int tag)
 		    this_label->tag,
 		    (this_label->text==NULL) ? "" : conv_text(this_label->text));
 	    show_position(&this_label->place);
+	    if (this_label->hypertext)
+		fprintf(stderr, " hypertext");
 	    switch (this_label->pos) {
 	    case LEFT:{
 		    fputs(" left", stderr);
@@ -1738,6 +1706,7 @@ show_label(int tag)
 	    else {
 		fprintf(stderr, " point with color of");
 		save_linetype(stderr, &(this_label->lp_properties), TRUE);
+		fprintf(stderr, " offset ");
 		show_position(&this_label->offset);
 	    }
 
@@ -1771,8 +1740,17 @@ show_arrow(int tag)
 	    save_linetype(stderr, &(this_arrow->arrow_properties.lp_properties), FALSE);
 	    fprintf(stderr, "\n\t  from ");
 	    show_position(&this_arrow->start);
-	    fputs(this_arrow->relative ? " rto " : " to ", stderr);
-	    show_position(&this_arrow->end);
+	    if (this_arrow->type == arrow_end_absolute) {
+		fputs(" to ", stderr);
+		show_position(&this_arrow->end);
+	    } else if (this_arrow->type == arrow_end_relative) {
+		fputs(" rto ", stderr);
+		show_position(&this_arrow->end);
+	    } else { /* arrow_end_oriented */
+		fputs(" length ", stderr);
+		show_position(&this_arrow->end);
+		fprintf(stderr," angle %g deg",this_arrow->angle);
+	    }
 	    if (this_arrow->arrow_properties.head_length > 0) {
 		static char *msg[] =
 		{"(first x axis) ", "(second x axis) ", "(graph units) ", "(screen units) "};
@@ -2465,9 +2443,11 @@ show_pm3d()
     switch (pm3d.which_corner_color) {
 	case PM3D_WHICHCORNER_MEAN: fputs("averaged 4 corners\n", stderr); break;
 	case PM3D_WHICHCORNER_GEOMEAN: fputs("geometrical mean of 4 corners\n", stderr); break;
+	case PM3D_WHICHCORNER_HARMEAN: fputs("harmonic mean of 4 corners\n", stderr); break;
 	case PM3D_WHICHCORNER_MEDIAN: fputs("median of 4 corners\n", stderr); break;
 	case PM3D_WHICHCORNER_MIN: fputs("minimum of 4 corners\n", stderr); break;
 	case PM3D_WHICHCORNER_MAX: fputs("maximum of 4 corners\n", stderr); break;
+	case PM3D_WHICHCORNER_RMS: fputs("root mean square of 4 corners\n", stderr); break;
 	default: fprintf(stderr, "corner %i\n", pm3d.which_corner_color - PM3D_WHICHCORNER_C1 + 1);
     }
 }
@@ -2530,6 +2510,10 @@ show_fit()
     fprintf(stderr, "\
 \tfit will%s place parameter errors in variables\n",
 	    fit_errorvariables ? "" : " not");
+
+    fprintf(stderr, "\
+\tfit will%s scale parameter errors with the reduced chi square\n",
+	    fit_errorscaling ? "" : " not");
 
     if (fitlogfile != NULL) {
         fprintf(stderr, "\
@@ -2614,7 +2598,8 @@ static void
 show_surface()
 {
     SHOW_ALL_NL;
-    fprintf(stderr, "\tsurface is %sdrawn\n", draw_surface ? "" : "not ");
+    fprintf(stderr, "\tsurface is %sdrawn %s\n",
+	draw_surface ? "" : "not ", implicit_surface ? "" : "only if explicitly requested");
 }
 
 
@@ -2795,6 +2780,8 @@ show_range(AXIS_INDEX axis)
     SHOW_ALL_NL;
     if (axis_array[axis].datatype == DT_TIMEDATE)
 	fprintf(stderr, "\tset %sdata time\n", axis_defaults[axis].name);
+    else if (axis_array[axis].datatype == DT_DMS)
+	fprintf(stderr, "\tset %sdata geographic\n", axis_defaults[axis].name);
     fprintf(stderr,"\t");
     save_range(stderr, axis);
 }
@@ -2814,10 +2801,10 @@ show_xyzlabel(const char *name, const char *suffix, text_label *label)
     if (label->font)
 	fprintf(stderr, ", using font \"%s\"", conv_text(label->font));
 
-    if (label->rotate)
-	fprintf(stderr, ", rotated by %d degrees in 2D plots", label->rotate);
     if (label->tag == ROTATE_IN_3D_LABEL_TAG)
 	fprintf(stderr, ", parallel to axis in 3D plots");
+    else if (label->rotate)
+	fprintf(stderr, ", rotated by %d degrees in 2D plots", label->rotate);
 
     if (label->textcolor.type)
 	save_textcolor(stderr, &label->textcolor);
@@ -2854,6 +2841,7 @@ show_data_is_timedate(AXIS_INDEX axis)
     SHOW_ALL_NL;
     fprintf(stderr, "\t%s is set to %s\n", axis_defaults[axis].name,
 	    axis_array[axis].datatype == DT_TIMEDATE ? "time" :
+	    axis_array[axis].datatype == DT_DMS ? "geographic" :
 	    "numerical");
 }
 
@@ -2882,6 +2870,19 @@ show_timefmt()
     }
 }
 
+/* process 'show link' command */
+static void
+show_link()
+{
+    if (END_OF_COMMAND || almost_equals(c_token,"x$2"))
+	if (axis_array[SECOND_X_AXIS].linked_to_primary)
+	    save_range(stderr, SECOND_X_AXIS);
+    if (END_OF_COMMAND || almost_equals(c_token,"y$2"))
+	if (axis_array[SECOND_Y_AXIS].linked_to_primary)
+	    save_range(stderr, SECOND_Y_AXIS);
+    if (!END_OF_COMMAND)
+	c_token++;
+}
 
 /* process 'show locale' command */
 static void
@@ -3326,6 +3327,16 @@ disp_value(FILE *fp, struct value *val, TBOOLEAN need_quotes)
 		fprintf(fp, "%s", val->v.string_val);
 	}
 	break;
+    case DATABLOCK:
+	{
+	char **dataline = val->v.data_array;
+	int nlines = 0;
+	if (dataline)
+	    while (*dataline++)
+		nlines++;
+	fprintf(fp, "<%d line data block>", nlines);
+	break;
+	}
     default:
 	int_error(NO_CARET, "unknown type in disp_value()");
     }

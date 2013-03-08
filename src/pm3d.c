@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.85.2.2 2012/07/05 00:30:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.96 2013/02/28 06:43:00 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - pm3d.c */
@@ -19,9 +19,7 @@ static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.85.2.2 2012/07/05 00:30:07 
 #endif
 #include "pm3d.h"
 #include "alloc.h"
-#include "axis.h"
 #include "graphics.h"
-#include "graph3d.h"
 #include "hidden3d.h"		/* p_vertex & map3d_xyz() */
 #include "plot2d.h"
 #include "plot3d.h"
@@ -68,7 +66,9 @@ static quadrangle* quadrangles = (quadrangle*)0;
 /* Internal prototypes for this module */
 static TBOOLEAN plot_has_palette;
 static double geomean4 __PROTO((double, double, double, double));
+static double harmean4 __PROTO((double, double, double, double));
 static double median4 __PROTO((double, double, double, double));
+static double rms4 __PROTO((double, double, double, double));
 static void pm3d_plot __PROTO((struct surface_points *, int));
 static void pm3d_option_at_error __PROTO((void));
 static void pm3d_rearrange_part __PROTO((struct iso_curve *, const int, struct iso_curve ***, int *));
@@ -80,29 +80,32 @@ static TBOOLEAN color_from_rgbvar = FALSE;
  */
 
 /* Geometrical mean = pow( prod(x_i > 0) x_i, 1/N )
- * Sign of the result: result is positive if 3 or 4 x_i are positive,
- * it is negative if 3 or all 4 x_i are negative. Helps to splot surface
- * with all color coordinates negative.
+ * In order to facilitate plotting surfaces with all color coords negative,
+ * All 4 corners positive - return positive geometric mean
+ * All 4 corners negative - return negative geometric mean
+ * otherwise return 0
+ * EAM Oct 2012: This is a CHANGE
  */
 static double
 geomean4 (double x1, double x2, double x3, double x4)
 {
-    /* honor signess, i.e. sign(geomean) = sign(prod(x_i)) */
     int neg = (x1 < 0) + (x2 < 0) + (x3 < 0) + (x4 < 0);
-    x1 *= x2 * x3 * x4;
-    if (x1 == 0) return 0;
-    /* pow(x, 0.25) is slightly faster than sqrt(sqrt(x)) */
-    x1 = sqrt(sqrt(fabs(x1)));
-#if 0
-    /* such a warning could be helpful, but under normal usage it is just an overhead */
-    if (neg > 1 && interactive && notwarned) {
-	    int notwarned = 1;  ... to be set on every new splot
-	    if (notwarned)
-		int_warn(NO_CARET, "corners2color geomean with negative data points");
-	    notwarned = 0;
-    }
-#endif
-    return (neg <= 2) ? x1 : -x1;
+    double product = x1 * x2 * x3 * x4;
+
+    if (product == 0) return 0;
+    if (neg == 1 || neg == 2 || neg == 3) return 0;
+
+    product = sqrt(sqrt(fabs(product)));
+    return (neg == 0) ? product : -product;
+}
+
+static double
+harmean4 (double x1, double x2, double x3, double x4)
+{
+    if (x1 <= 0 || x2 <= 0 || x3 <= 0 || x4 <= 0)
+	return not_a_number();
+    else
+	return 4 / ((1/x1) + (1/x2) + (1/x3) + (1/x4));
 }
 
 
@@ -144,6 +147,12 @@ maximum4 (double x1, double x2, double x3, double x4)
     return GPMAX(x1, x3);
 }
 
+/* The root mean square of the 4 numbers */
+static double
+rms4 (double x1, double x2, double x3, double x4)
+{
+	return 0.5*sqrt(x1*x1 + x2*x2 + x3*x3 + x4*x4);
+}
 
 /*
 * Now the routines which are really just those for pm3d.c
@@ -364,7 +373,7 @@ void pm3d_depth_queue_flush(void)
 	quadrangle* qe;
 	gpdPoint* gpdPtr;
 #ifdef EXTENDED_COLOR_SPECS
-	gpdPoint* gpiPtr;
+	gpiPoint* gpiPtr;
 	double w = trans_mat[3][3];
 #endif
 	vertex out;
@@ -425,7 +434,7 @@ void pm3d_depth_queue_flush(void)
 static void
 pm3d_plot(struct surface_points *this_plot, int at_which_z)
 {
-    int j, i, i1, ii, ii1, from, curve, scan, up_to, up_to_minus, invert = 0;
+    int j, i, i1, ii, ii1, from, scan, up_to, up_to_minus, invert = 0;
     int go_over_pts, max_pts;
     int are_ftriangles, ftriangles_low_pt = -999, ftriangles_high_pt = -999;
     struct iso_curve *scanA, *scanB;
@@ -443,7 +452,7 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 
     /* just a shortcut */
     TBOOLEAN color_from_column = this_plot->pm3d_color_from_column;
-    
+
     color_from_rgbvar = (this_plot->lp_properties.pm3d_color.type == TC_RGB
 			&&  this_plot->lp_properties.pm3d_color.value == -1);
 
@@ -474,7 +483,6 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
     }
 
     scanA = this_plot->iso_crvs;
-    curve = 0;
 
     pm3d_rearrange_scan_array(this_plot, &scan_array, &scan_array_n, &invert, (struct iso_curve ***) 0, (int *) 0, (int *) 0);
 
@@ -673,8 +681,9 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 
 	    if ((interp_i <= 1 && interp_j <= 1) || pm3d.direction == PM3D_DEPTH) {
 #ifdef EXTENDED_COLOR_SPECS
-	      if (!supply_extended_color_specs) {
+	      if ((term->flags & TERM_EXTENDED_COLOR) == 0)
 #endif
+	      {
 		/* Get the gray as the average of the corner z- or gray-positions
 		   (note: log scale is already included). The average is calculated here
 		   if there is no interpolation (including the "pm3d depthorder" option),
@@ -692,30 +701,49 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		    cb3 = z2cb(pointsB[ii].z);
 		    cb4 = z2cb(pointsB[ii1].z);
 		}
-		switch (pm3d.which_corner_color) {
-		    default:
-		    case PM3D_WHICHCORNER_MEAN:
-			if (color_from_rgbvar) {
-			    int r = (((int)cb1)&0xff0000)+(((int)cb2)&0xff0000)
-			    	  + (((int)cb3)&0xff0000)+(((int)cb4)&0xff0000);
-			    int g = (((int)cb1)&0xff00)+(((int)cb2)&0xff00)
-			    	  + (((int)cb3)&0xff00)+(((int)cb4)&0xff00);
-			    int b = (((int)cb1)&0xff)+(((int)cb2)&0xff)
-			    	  + (((int)cb3)&0xff)+(((int)cb4)&0xff);
+		/* Fancy averages of RGB color make no sense */
+		if (color_from_rgbvar) {
+		    unsigned int r, g, b, a;
+		    unsigned int u1 = cb1;
+		    unsigned int u2 = cb2;
+		    unsigned int u3 = cb3;
+		    unsigned int u4 = cb4;
+		    switch (pm3d.which_corner_color) {
+			default:
+			    r = (u1&0xff0000) + (u2&0xff0000) + (u3&0xff0000) + (u4&0xff0000);
+			    g = (u1&0xff00) + (u2&0xff00) + (u3&0xff00) + (u4&0xff00);
+			    b = (u1&0xff) + (u2&0xff) + (u3&0xff) + (u4&0xff);
 			    avgC = ((r>>2)&0xff0000) + ((g>>2)&0xff00) + ((b>>2)&0xff);
-			} else {
-    			    avgC = (cb1 + cb2 + cb3 + cb4) * 0.25;
-			}
-			break;
-		    case PM3D_WHICHCORNER_GEOMEAN: avgC = geomean4(cb1, cb2, cb3, cb4); break;
-		    case PM3D_WHICHCORNER_MEDIAN: avgC = median4(cb1, cb2, cb3, cb4); break;
-		    case PM3D_WHICHCORNER_MIN: avgC = minimum4(cb1, cb2, cb3, cb4); break;
-		    case PM3D_WHICHCORNER_MAX: avgC = maximum4(cb1, cb2, cb3, cb4); break;
-		    case PM3D_WHICHCORNER_C1: avgC = cb1; break;
-		    case PM3D_WHICHCORNER_C2: avgC = cb2; break;
-		    case PM3D_WHICHCORNER_C3: avgC = cb3; break;
-		    case PM3D_WHICHCORNER_C4: avgC = cb4; break;
+			    a = ((u1>>24)&0xff) + ((u2>>24)&0xff) + ((u3>>24)&0xff) + ((u4>>24)&0xff);
+			    avgC += (a<<22)&0xff000000;
+			    break;
+			case PM3D_WHICHCORNER_C1: avgC = cb1; break;
+			case PM3D_WHICHCORNER_C2: avgC = cb2; break;
+			case PM3D_WHICHCORNER_C3: avgC = cb3; break;
+			case PM3D_WHICHCORNER_C4: avgC = cb4; break;
+		    }
+
+		/* But many different averages are possible for gray values */
+		} else  {
+		    switch (pm3d.which_corner_color) {
+			default:
+			case PM3D_WHICHCORNER_MEAN: avgC = (cb1 + cb2 + cb3 + cb4) * 0.25; break;
+			case PM3D_WHICHCORNER_GEOMEAN: avgC = geomean4(cb1, cb2, cb3, cb4); break;
+			case PM3D_WHICHCORNER_HARMEAN: avgC = harmean4(cb1, cb2, cb3, cb4); break;
+			case PM3D_WHICHCORNER_MEDIAN: avgC = median4(cb1, cb2, cb3, cb4); break;
+			case PM3D_WHICHCORNER_MIN: avgC = minimum4(cb1, cb2, cb3, cb4); break;
+			case PM3D_WHICHCORNER_MAX: avgC = maximum4(cb1, cb2, cb3, cb4); break;
+			case PM3D_WHICHCORNER_RMS: avgC = rms4(cb1, cb2, cb3, cb4); break;
+			case PM3D_WHICHCORNER_C1: avgC = cb1; break;
+			case PM3D_WHICHCORNER_C2: avgC = cb2; break;
+			case PM3D_WHICHCORNER_C3: avgC = cb3; break;
+			case PM3D_WHICHCORNER_C4: avgC = cb4; break;
+		    }
 		}
+
+		/* The value is out of range, but we didn't figure it out until now */
+		if (isnan(avgC))
+		    continue;
 
 		if (color_from_rgbvar) /* we were given an explicit color */
 			gray = avgC;
@@ -734,9 +762,7 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		    else
 			set_color(gray);
 		}
-#ifdef EXTENDED_COLOR_SPECS
 	      }
-#endif
 	    }
 
 	    corners[0].x = pointsA[i].x;
@@ -764,7 +790,7 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		}
 	    }
 #ifdef EXTENDED_COLOR_SPECS
-	    if (supply_extended_color_specs) {
+	    if ((term->flags & TERM_EXTENDED_COLOR)) {
 		if (color_from_column) {
 		    icorners[0].z = pointsA[i].CRD_COLOR;
 		    icorners[1].z = pointsB[ii].CRD_COLOR;
@@ -804,9 +830,9 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		 * defined by corners[3],corners[0] and corners[2],corners[1]. */
 		int j1;
 		for (i1 = 0; i1 <= interp_i; i1++) {
-		    bl_point[i1][0].x = 
+		    bl_point[i1][0].x =
 			((corners[3].x - corners[0].x) / interp_i) * i1 + corners[0].x;
-		    bl_point[i1][interp_j].x = 
+		    bl_point[i1][interp_j].x =
 			((corners[2].x - corners[1].x) / interp_i) * i1 + corners[1].x;
 		    bl_point[i1][0].y =
 			((corners[3].y - corners[0].y) / interp_i) * i1 + corners[0].y;
@@ -884,9 +910,11 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 			switch (pm3d.which_corner_color) {
 			    case PM3D_WHICHCORNER_MEAN: avgC = (cb1 + cb2 + cb3 + cb4) * 0.25; break;
 			    case PM3D_WHICHCORNER_GEOMEAN: avgC = geomean4(cb1, cb2, cb3, cb4); break;
+			    case PM3D_WHICHCORNER_HARMEAN: avgC = harmean4(cb1, cb2, cb3, cb4); break;
 			    case PM3D_WHICHCORNER_MEDIAN: avgC = median4(cb1, cb2, cb3, cb4); break;
 			    case PM3D_WHICHCORNER_MIN: avgC = minimum4(cb1, cb2, cb3, cb4); break;
 			    case PM3D_WHICHCORNER_MAX: avgC = maximum4(cb1, cb2, cb3, cb4); break;
+			    case PM3D_WHICHCORNER_RMS: avgC = rms4(cb1, cb2, cb3, cb4); break;
 			    case PM3D_WHICHCORNER_C1: avgC = cb1; break;
 			    case PM3D_WHICHCORNER_C2: avgC = cb2; break;
 			    case PM3D_WHICHCORNER_C3: avgC = cb3; break;

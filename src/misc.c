@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.138.2.11 2012/08/03 05:24:21 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.152 2012/11/29 00:12:57 broeker Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -170,8 +170,11 @@ expand_call_arg(int c)
 	    return "";
 	else
 	    return call_args[ind];
-    } else
-	int_error(NO_CARET, "Invalid substitution $%c", c);
+    } else {
+	/* pass through unrecognized syntax elements that begin with $, e.g. datablock names */
+	sprintf(numstr, "$%c", c);
+	return numstr;
+    }
     return NULL; /* Avoid compiler warning */
 }
 
@@ -690,7 +693,7 @@ get_style()
 
     c_token++;
 
-    if (ps == -1)
+    if (ps == PLOT_STYLE_NONE)
 	int_error(c_token, "unrecognized plot type");
 
     return ps;
@@ -1162,9 +1165,10 @@ long
 parse_color_name()
 {
     char *string;
-    long color = -1;
+    long color = -2;
 
-    if (almost_equals(c_token,"rgb$color"))
+    /* Terminal drivers call this after seeing a "background" option */
+    if (almost_equals(c_token,"rgb$color") && almost_equals(c_token-1,"back$ground"))
 	c_token++;
     if ((string = try_to_get_string())) {
 	color = lookup_table_nth(pm3d_color_names_tbl, string);
@@ -1173,10 +1177,11 @@ parse_color_name()
 	else
 	    sscanf(string,"#%lx",&color);
 	free(string);
+	if (color == -2)
+	    int_error(c_token, "unrecognized color name and not a string \"#AARRGGBB\"");
+    } else {
+	color = int_expression();
     }
-
-    if (color == -1)
-	int_error(c_token, "not recognized as a color name or a string of form \"#RRGGBB\"");
 
     return (unsigned int)(color);
 }

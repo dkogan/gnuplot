@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: win.trm,v 1.107.2.1 2012/07/18 08:28:42 markisch Exp $
+ * $Id: win.trm,v 1.113 2012/10/08 15:15:05 markisch Exp $
  */
 
 /* GNUPLOT - win.trm */
@@ -95,11 +95,11 @@ TERM_PUBLIC void WIN_filled_polygon __PROTO((int points, gpiPoint *corners));
 TERM_PUBLIC void WIN_boxfill __PROTO((int, unsigned int, unsigned int, unsigned int, unsigned int));
 TERM_PUBLIC int WIN_set_font __PROTO((const char *font));
 TERM_PUBLIC void WIN_enhanced_open __PROTO((char * fontname, double fontsize,
-	    		double base, TBOOLEAN widthflag, TBOOLEAN showflag,
-			int overprint));
+					double base, TBOOLEAN widthflag, TBOOLEAN showflag, int overprint));
 TERM_PUBLIC void WIN_enhanced_flush __PROTO((void));
 TERM_PUBLIC void WIN_image __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
 TERM_PUBLIC void WIN_layer __PROTO((t_termlayer syncpoint));
+TERM_PUBLIC void WIN_hypertext __PROTO((int type, const char * text));
 
 /* Initialization values - guess now, scale later */
 #define WIN_XMAX (24000)
@@ -125,7 +125,8 @@ TERM_PUBLIC void WIN_layer __PROTO((t_termlayer syncpoint));
 enum WIN_id { WIN_DEFAULT, WIN_MONOCHROME, WIN_COLOR, WIN_GTITLE,
 	      WIN_ENHANCED, WIN_NOENHANCED, WIN_FONT, WIN_SIZE,
 	      WIN_POSITION, WIN_CLOSE, WIN_BACKGROUND, WIN_FONTSCALE,
-	      WIN_LINEWIDTH, WIN_SOLID, WIN_DASHED, WIN_OTHER };
+	      WIN_LINEWIDTH, WIN_SOLID, WIN_DASHED, WIN_ROUND, WIN_BUTT,
+	      WIN_OTHER };
 
 static struct gen_table WIN_opts[] =
 {
@@ -136,6 +137,8 @@ static struct gen_table WIN_opts[] =
     { "backg$round", WIN_BACKGROUND },
     { "solid", WIN_SOLID },
     { "dash$ed", WIN_DASHED },
+    { "round$ed", WIN_ROUND },
+    { "butt", WIN_BUTT },
     { "enh$anced", WIN_ENHANCED },
     { "noenh$anced", WIN_NOENHANCED },
     { "font", WIN_FONT },
@@ -164,7 +167,8 @@ WIN_options()
 	TBOOLEAN set_background = FALSE, set_fontscale = FALSE;
 	TBOOLEAN set_linewidth = FALSE, set_size = FALSE;
 	TBOOLEAN set_position = FALSE, set_number = FALSE;
-	TBOOLEAN color, dashed;
+	TBOOLEAN set_rounded = FALSE;
+	TBOOLEAN color, dashed, rounded;
 	COLORREF background;
 	double fontscale, linewidth;
 	int win_x = 0;
@@ -177,16 +181,18 @@ WIN_options()
 	int window_number;
 
 	while (!END_OF_COMMAND) {
-		switch(lookup_table(&WIN_opts[0],c_token)) {
+		switch (lookup_table(&WIN_opts[0], c_token)) {
 		case WIN_DEFAULT:
 			color = TRUE;
 			dashed = FALSE;
+			rounded = FALSE;
 			strcpy(fontname, WIN_inifontname);
 			fontsize = WIN_inifontsize;
 			fontscale = linewidth = 1;
 			set_color = set_dashed = TRUE;
 			set_font = set_fontsize = TRUE;
 			set_fontscale = set_linewidth = TRUE;
+			set_rounded = TRUE;
 			c_token++;
 			break;
 		case WIN_COLOR:
@@ -242,6 +248,16 @@ WIN_options()
 			c_token++;
 			dashed = TRUE;
 			set_dashed = TRUE;
+			break;
+		case WIN_BUTT:
+			c_token++;
+			rounded = FALSE;
+			set_rounded = TRUE;
+			break;
+		case WIN_ROUND:
+			c_token++;
+			rounded = TRUE;
+			set_rounded = TRUE;
 			break;
 		case WIN_SIZE: {
 			c_token++;
@@ -338,15 +354,15 @@ WIN_options()
 	GraphInitStruct(graphwin);
 	if (set_color) {
 		graphwin->color = color;
-		if (color)
-			term->flags &= ~TERM_MONOCHROME;
-		else
-			term->flags |= TERM_MONOCHROME;
+		/* Note: We no longer set TERM_MONOCHROME here, since colors
+		and grayscale conversion are fully handled by drawgraph() */
 		if (!set_dashed)
 			graphwin->dashed = !color;
 	}
 	if (set_dashed)
 		graphwin->dashed = dashed;
+	if (set_rounded)
+		graphwin->rounded = rounded;
 	if (set_background)
 		graphwin->background = background;
 	if (set_fontscale)
@@ -401,6 +417,7 @@ WIN_update_options()
 		graphwin->Id,
 		graphwin->color ? "color" : "monochrome",
 		graphwin->dashed ? "dashed" : "solid",
+		graphwin->rounded ? "rounded" : "butt",
 		term->flags & TERM_ENHANCED_TEXT ? "enhanced" : "noenhanced");
 
 	set_fontsize = (graphwin->deffontsize != WIN_inifontsize);
@@ -732,17 +749,15 @@ WIN_set_color(t_colorspec *colorspec)
 			/* Immediately translate palette index to RGB colour */
 			rgb255_color rgb255;
 			rgb255maxcolors_from_gray(colorspec->value, &rgb255);
-			GraphOp(graphwin, W_setcolor, (rgb255.g << 8) | rgb255.b, 0xff00 | (rgb255.r), NULL);
-			/*
-			GraphOp(graphwin, W_setcolor, (int)(WIN_PAL_COLORS*colorspec->value), 0, NULL);
-			*/
+			GraphOp(graphwin, W_setcolor, (rgb255.g << 8) | rgb255.b, (rgb255.r), NULL);
 			break;
 		}
 		case TC_RGB:
-			GraphOp(graphwin, W_setcolor, (colorspec->lt) & 0xffff, 0xff00 | ((colorspec->lt >> 16) & 0x00ff), NULL);
+			/* highest byte of colorspec->lt contains alpha */
+			GraphOp(graphwin, W_setcolor, (colorspec->lt) & 0xffff, (colorspec->lt >> 16) & 0xffff, NULL);
 			break;
 		case TC_LT:
-			GraphOp(graphwin, W_setcolor, colorspec->lt, TC_LT << 8, NULL);
+			GraphOp(graphwin, W_setcolor, colorspec->lt, 0, (void *) &WIN_set_color);
 			break;
 	}
 	WIN_last_linetype = LT_NODRAW;
@@ -753,11 +768,17 @@ TERM_PUBLIC void
 WIN_filled_polygon(int points, gpiPoint *corners)
 {
 	GraphOp(graphwin, W_fillstyle, corners->style, 0, NULL);
+
+	/* Eliminate duplicate polygon points. */
+	if ((corners[0].x == corners[points - 1].x) &&
+	    (corners[0].y == corners[points - 1].y))
+		points--;
+
 	if ((points == 4) &&
-		(((corners[0].x == corners[3].x) && (corners[0].y == corners[1].y) &&
-		  (corners[2].x == corners[1].x) && (corners[2].y == corners[3].y)) ||
-		 ((corners[0].x == corners[1].x) && (corners[0].y == corners[3].y) &&
-		  (corners[2].x == corners[3].x) && (corners[2].y == corners[1].y)))) {
+	    (((corners[0].x == corners[3].x) && (corners[0].y == corners[1].y) &&
+	      (corners[2].x == corners[1].x) && (corners[2].y == corners[3].y)) ||
+	     ((corners[0].x == corners[1].x) && (corners[0].y == corners[3].y) &&
+	      (corners[2].x == corners[3].x) && (corners[2].y == corners[1].y)))) {
 		/* The polygon describes a rectangle. Thus we use boxfill, which
 		   is more efficient. */
 		GraphOp(graphwin, W_move, corners[0].x, corners[0].y, NULL);
@@ -768,7 +789,6 @@ WIN_filled_polygon(int points, gpiPoint *corners)
 			GraphOp(graphwin, W_filled_polygon_pt, corners[i].x, corners[i].y, NULL);
 		GraphOp(graphwin, W_filled_polygon_draw, points, 0, NULL);
 	}
-
 }
 
 
@@ -846,6 +866,13 @@ WIN_layer (t_termlayer syncpoint)
 	GraphOp(graphwin, W_layer, syncpoint, 0, NULL);
 }
 
+
+TERM_PUBLIC void
+WIN_hypertext(int type, const char * text)
+{
+	GraphOp(graphwin, W_hypertext, type, 0, text);
+}
+
 #endif /* TERM_BODY */
 
 #ifdef TERM_TABLE
@@ -872,7 +899,10 @@ TERM_TABLE_START(win_driver)
     WIN_set_color, WIN_filled_polygon,
     WIN_image,
     WIN_enhanced_open, WIN_enhanced_flush, do_enh_writec,
-    WIN_layer
+    WIN_layer,
+    0, /* no term->path */
+    0.0, /* Scale (unused) */
+    WIN_hypertext
 TERM_TABLE_END(win_driver)
 
 #undef LAST_TERM
@@ -898,6 +928,7 @@ START_HELP(windows)
 "       set terminal windows {<n>}",
 "                            {color | monochrome}",
 "                            {solid | dashed}",
+"                            {rounded | butt}",
 "                            {enhanced | noenhanced}",
 "                            {font <fontspec>}",
 "                            {fontscale <scale>}",
@@ -914,6 +945,8 @@ START_HELP(windows)
 " `color` and `monochrome` select colored or mono output,",
 " `dashed` and `solid` select dashed or solid lines. Note that `color`",
 " defaults to `solid`, whereas `monochrome` defaults to `dashed`.",
+" `rounded` sets line caps and line joins to be rounded; `butt` is the",
+" default, butt caps and mitered joins.",
 " `enhanced` enables enhanced text mode features (subscripts,",
 " superscripts and mixed fonts, see `enhanced text` for more information).",
 " `<fontspec>` is in the format \"<fontface>,<fontsize>\", where \"<fontface>\"",

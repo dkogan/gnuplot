@@ -1,15 +1,16 @@
 dnl Process this file with autoconf to produce a configure script.
 dnl configure.in for gnuplot on Unix.
 dnl
-dnl $Id: configure.in,v 1.297.2.17 2012/09/08 04:51:47 sfeam Exp $
+dnl $Id: configure.in,v 1.324 2013/02/27 00:08:56 sfeam Exp $
 dnl
 dnl this is actually major.minor ...
-dnl note that for a non-beta release, we need to
-dnl remove the letter from VERSION
-AC_INIT(gnuplot, 4.6.1)
+dnl note that for a non-beta release, we need to disable DEVELOPMENT_RELEASE
+dnl
+AC_INIT(gnuplot, 4.7)
 AC_CONFIG_SRCDIR(src/graphics.c)
-AC_PREREQ(2.58)
-AM_CONFIG_HEADER(config.h:config.hin)
+AC_PREREQ(2.60)
+AC_CONFIG_HEADERS(config.h:config.hin)
+AC_DEFINE(DEVELOPMENT_VERSION,1,[Provide contact info for gnuplot develoment])
 AM_INIT_AUTOMAKE(1.7.9)
 
 AM_MAINTAINER_MODE
@@ -35,9 +36,9 @@ AC_PROG_LN_S
 
 if test "${build}" != "${host}"
 then
-  CC=${CC-${host_alias}-gcc}
+  CC=${CC-${host_alias-gcc}}
   CFLAGS=${CFLAGS-"-g -O2"}
-  CXX=${CXX-${host_alias}-c++}
+  CXX=${CXX-${host_alias-c++}}
   CXXFLAGS=${CXXFLAGS-"-g -O2"}
   CC_FOR_BUILD=${CC_FOR_BUILD-gcc}
 else
@@ -71,6 +72,7 @@ else
   CFLAGS=${CFLAGS-"-g -O2"}
   CXXFLAGS=${CXXFLAGS-"-g -O2"}
 fi
+AM_PROG_CC_C_O
 AC_SUBST(CC_FOR_BUILD)
 
 
@@ -80,7 +82,6 @@ dnl X/Emacs for building lisp packages and creating .texi version of docs
 # If you have an Emacs named "t", then use the full path.
 test x"$EMACS" = xt && EMACS=
 AC_CHECK_PROGS(EMACS, emacs xemacs, no)
-AM_PATH_LISPDIR
 
 dnl Allow manual specification of tex
 AC_ARG_WITH(latex,[  --without-latex         disable latex support, (default enable)],[],[with_latex="yes"])
@@ -244,7 +245,7 @@ AC_CHECK_FUNCS(atexit memcpy memmove memset \
   setvbuf strerror strchr strrchr strstr \
   index rindex \
   erf erfc gamma lgamma \
-  getcwd poll pclose popen select sleep stpcpy \
+  getcwd poll pclose popen fdopen select sleep stpcpy \
   strcspn strdup strndup strnlen strcasecmp stricmp strncasecmp strnicmp \
   sysinfo tcgetattr vfprintf doprnt usleep
 )
@@ -299,13 +300,6 @@ AC_FUNC_SELECT_ARGTYPES
 
 dnl On SVR3.
 dnl FIXME AC_DEFINE(CRIPPLED_SELECT)
-
-dnl Deprecated
-dnl Install the lasergnu printer script
-LASERGNU=lasergnu-noinstall
-AC_ARG_WITH(lasergnu,dnl
-[  --with-lasergnu         install lasergnu printer script],
-  test "$withval" = yes && LASERGNU=lasergnu-install)
 
 dnl .gih help file location
 eval gp_datadir=$datadir
@@ -572,11 +566,7 @@ if test "$with_gd" != no; then
      LIBS="$_libs $libgd_LIBS -lfreetype"
      dnl freetype support in libgd
      AC_CHECK_LIB(gd,gdImageStringFT,
-       [have_ttf=yes],
-       [AC_CHECK_LIB(gd,gdImageStringTTF,
-         [AC_DEFINE(gdImageStringFT,gdImageStringTTF,
-                    [ libgd versions < 1.8.4 need gdImageStringTTF rather than gdImageStringFT ])
-          have_ttf=yes])])
+       [have_ttf=yes],)
 
      if test "$have_ttf" = yes; then
        AC_DEFINE(HAVE_GD_TTF,1,
@@ -714,15 +704,6 @@ dnl FIXME AC_DEFINE(ULTRIX_KLUDGE)
 dnl Removed enable options for these
 dnl Just autodetect
 
-dnl SCO cgi
-AC_EGREP_CPP(yes,
-[#ifdef SCO
-yes
-#endif
-],AC_CHECK_LIB(ccgi, v_opnwk,
-    [AC_DEFINE(CGI,1,[ Define if you want to use the CGI terminal under SCO. ])
-     TERMLIBS="-lccgi $TERMLIBS"]))
-
 dnl Sun sunview
 AC_EGREP_CPP(yes,
 [#ifdef sun
@@ -746,10 +727,28 @@ if test "$with_cwdrc" = yes; then
                [ Define if you want to read .gnuplot from current directory (SECURITY RISK!).])
 fi
 
-dnl Whether we want to build the lisp files
-dnl Does nothing here, is passed on to the lisp subdir
+
+dnl Conditional actions based on whether or not we want to build the lisp files
+dnl This replaces a separate configure.in file in the lisp subdirectory
+if test "$EMACS" = no; then
+  LISPFILES=noelcs
+  INSTALL_LISP=install-nolisp
+else
+  LISPFILES=elcs
+  INSTALL_LISP=install-lisp
+fi
 AC_ARG_WITH(lisp-files,dnl
-[  --without-lisp-files    do not build emacs lisp files])
+[  --without-lisp-files    do not build emacs lisp files],
+  [if test "$with_lisp_files" = no; then
+     LISPFILES=noelcs
+     INSTALL_LISP=install-nolisp
+   fi])
+AM_PATH_LISPDIR
+AC_SUBST(lispdir)
+AC_SUBST(LISPFILES)
+AC_SUBST(INSTALL_LISP)
+
+
 
 dnl Sort help/subtopic tables by row or column
 AC_ARG_WITH(row-help,dnl
@@ -1095,14 +1094,6 @@ fi
 
 AM_CONDITIONAL(BUILD_GPCAIRO, test "${build_gpcairo}" = yes)
 
-dnl Enable parsing of deprecated syntax
-AC_ARG_ENABLE(backwards-compatibility,dnl
-[  --enable-backwards-compatibility       enable deprecated syntax ],
-  [if test "$enableval" = yes; then
-    AC_DEFINE(BACKWARDS_COMPATIBLE,1,
-               [ Define to allow use of deprecated syntax and terminal behaviour. ])
-  fi])
-
 dnl Enable subsystem to generate statistical summary of file contents
 AC_ARG_ENABLE(stats,dnl
 [  --enable-stats          Include command to generate statistical summary of data],
@@ -1185,6 +1176,7 @@ if test "${enable_qt_ok}" = yes ; then
   AC_DEFINE(QTTERM,1, [ Define if you want the Qt terminal. ])
 fi
 AM_CONDITIONAL(BUILD_QT, test "${enable_qt_ok}" = yes)
+
 AM_CONDITIONAL(BUILD_ON_APPLE, test "${is_apple}" = yes)
 
 dnl translation tools
@@ -1197,12 +1189,12 @@ fi
 
 dnl build lisp files
 if test "$with_lisp_files" != no; then
-  AC_CONFIG_SUBDIRS(lisp)
   LISPDIR=lisp
 else
   LISPDIR=
 fi
 AC_SUBST(LISPDIR)
+AM_CONDITIONAL(BUILD_LISP, test "${with_lisp_files}" != no)
 
 dnl Substitute variables
 AC_SUBST(PACKAGE)
@@ -1210,7 +1202,6 @@ AC_SUBST(VERSION_MAJOR)
 AC_SUBST(VERSION)
 AC_SUBST(GIHDIR)
 AC_SUBST(TEXDIR)
-AC_SUBST(LASERGNU)
 AC_SUBST(LINUXSUID)
 AC_SUBST(TERMLIBS)
 AC_SUBST(TERMXLIBS)
@@ -1222,6 +1213,7 @@ AC_OUTPUT([Makefile
            config/Makefile
            demo/Makefile
            docs/Makefile
+	   lisp/Makefile
            m4/Makefile
            man/Makefile
            share/Makefile
@@ -1251,9 +1243,9 @@ AC_MSG_RESULT([])
 
 AC_MSG_RESULT([  Standalone terminals: yes (always builtin)])
 AC_MSG_RESULT([    canvas, cgm, context, corel, dumb, dxf, eepic, emf, emtex,])
-AC_MSG_RESULT([    epslatex, fig, gpic, hp2623a, hp2648, hpgl, imagen,])
+AC_MSG_RESULT([    epslatex, fig, gpic, hp2623a, hp2648, hpgl,])
 AC_MSG_RESULT([    latex, metafont, metapost, mif, pcl5, postscript, pslatex,])
-AC_MSG_RESULT([    pstex, pstricks, qms, regis, svg,])
+AC_MSG_RESULT([    pstex, pstricks, qms, svg,])
 AC_MSG_RESULT([    tek40xx, tek410x, texdraw, tgif, tkcanvas, tpic, vttek])
 AC_MSG_RESULT([])
 
@@ -1309,12 +1301,6 @@ else
   AC_MSG_RESULT([  png terminal: no (requires libgd with png support)])
 fi
 
-if test "$have_ttf" = yes; then
-  AC_MSG_RESULT([    (jpeg, gif and png terminals can use TTF fonts)])
-else
-  AC_MSG_RESULT([    (jpeg, gif and png terminals cannot use TTF fonts, requires libgd support)])
-fi
-
 if test "$ac_cv_header_pdflib_h" = yes; then
   AC_MSG_RESULT([  pdf terminal: yes])
   if test "$ac_cv_lib_pdf_PDF_begin_pattern" != yes; then
@@ -1354,26 +1340,20 @@ fi
 
 if test "$is_msdos" = yes; then
   AC_MSG_RESULT([  svga terminal (MSDOS/djgpp): yes])
-else
-  AC_MSG_RESULT([  svga terminal (MSDOS/djgpp): no])
 fi
 
 if test "$build_src_beos_subdir" = yes; then
   AC_MSG_RESULT([  be terminal (BeOS): yes])
-else
-  AC_MSG_RESULT([  be terminal (BeOS): no])
 fi
 
 if test "$is_next" = yes; then
   AC_MSG_RESULT([  next terminal: yes])
-else
-  AC_MSG_RESULT([  next terminal: no])
 fi
 
 if test "$ac_cv_lib_aquaterm_aqtInit" = yes; then
-  AC_MSG_RESULT([  aqua terminal: yes])
+  AC_MSG_RESULT([  aqua terminal (OSX): yes])
 else
-  AC_MSG_RESULT([  aqua terminal: no])
+  AC_MSG_RESULT([  aqua terminal (OSX): no])
 fi
 
 if test "$enable_wxwidgets_ok" = yes; then
@@ -1401,10 +1381,10 @@ else
 fi
 
 AC_MSG_RESULT([])
-AC_MSG_RESULT([  Additional terminals are availaible in platform-specific makefiles:])
-AC_MSG_RESULT([   cgi (makefile.unx), pm (makefile.os2),])
-AC_MSG_RESULT([   sun (makefile.unx), unixpc (makefile.unx), windows (various Windows])
-AC_MSG_RESULT([   makefiles)])
+AC_MSG_RESULT([  Additional platform-specific or older terminals omitted by default:])
+AC_MSG_RESULT([   imagen (edit term.h), kyocera (edit term.h) ])
+AC_MSG_RESULT([   pm (makefile.os2), be (BeOS), svga (MSDOS/djgpp)])
+AC_MSG_RESULT([   sun (makefile.unx), unixpc (makefile.unx), windows (several options)])
 
 AC_MSG_RESULT([])
 AC_MSG_RESULT([gnuplot will be compiled with the following features:])
@@ -1509,26 +1489,16 @@ else
   fi
 fi
 
-if test "$enable_backwards_compatibility" = yes; then
-  AC_MSG_RESULT([  Deprecated syntax and terminal options: yes])
-else
-  AC_MSG_RESULT([  Deprecated syntax and terminal options: no (use --enable-backwards-compatibility)])
-fi
-
 if test "$enable_stats" != no; then
-  AC_MSG_RESULT([  Generate statistical summary of data: yes])
+  AC_MSG_RESULT([  Generate statistical summary of data : yes])
 else
-  AC_MSG_RESULT([  Generate statistical summary of data: no (use --enable-stats to enable)])
+  AC_MSG_RESULT([  Generate statistical summary of data : no (use --enable-stats to enable)])
 fi
 
 
 AC_MSG_RESULT([])
 AC_MSG_RESULT([gnuplot will install the following additional materials:])
 AC_MSG_RESULT([])
-
-if test "$with_lasergnu" = yes; then
-  AC_MSG_RESULT([  lasergnu printer script: yes (Deprecated)])
-fi
 
 if test "$with_lisp_files" != no; then
   AC_MSG_RESULT([  gnuplot-mode for X/Emacs: yes])

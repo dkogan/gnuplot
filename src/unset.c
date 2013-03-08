@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.149.2.1 2012/08/31 17:34:26 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.161 2013/02/19 20:50:51 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -75,7 +75,6 @@ static void unset_dummy __PROTO((void));
 static void unset_encoding __PROTO((void));
 static void unset_decimalsign __PROTO((void));
 static void unset_fit __PROTO((void));
-static void unset_format __PROTO((void));
 static void unset_grid __PROTO((void));
 static void unset_hidden3d __PROTO((void));
 static void unset_histogram __PROTO((void));
@@ -212,7 +211,8 @@ unset_command()
 	unset_fit();
 	break;
     case S_FORMAT:
-	unset_format();
+	c_token--;
+	set_format();
 	break;
     case S_GRID:
 	unset_grid();
@@ -237,6 +237,10 @@ unset_command()
 	break;
     case S_LINETYPE:
 	unset_linetype();
+	break;
+    case S_LINK:
+	c_token--;
+	link_command();
 	break;
     case S_LOADPATH:
 	unset_loadpath();
@@ -286,7 +290,6 @@ unset_command()
 	break;
 #endif
     case S_MULTIPLOT:
-/*	unset_multiplot(); */
 	term_end_multiplot();
 	break;
     case S_OFFSETS:
@@ -537,7 +540,7 @@ unset_command()
     }
 
     update_gpval_variables(0);
-    
+
     set_iterator = cleanup_iteration(set_iterator);
 }
 
@@ -787,41 +790,9 @@ unset_fit()
 	free(fitlogfile);
     fitlogfile = NULL;
     fit_errorvariables = FALSE;
+    fit_errorscaling = TRUE;
+    fit_quiet = FALSE;
 }
-
-
-/* process 'unset format' command */
-/* FIXME: compare and merge with set.c::set_format */
-static void
-unset_format()
-{
-    TBOOLEAN set_for_axis[AXIS_ARRAY_SIZE] = AXIS_ARRAY_INITIALIZER(FALSE);
-    int axis;
-
-    if ((axis = lookup_table(axisname_tbl, c_token)) >= 0) {
-	set_for_axis[axis] = TRUE;
-    } else if (equals(c_token,"xy") || equals(c_token,"yx")) {
-	set_for_axis[FIRST_X_AXIS]
-	    = set_for_axis[FIRST_Y_AXIS]
-	    = TRUE;
-	c_token++;
-    } else if (isstring(c_token) || END_OF_COMMAND) {
-	/* Assume he wants all */
-	for (axis = 0; axis < AXIS_ARRAY_SIZE; axis++)
-	    set_for_axis[axis] = TRUE;
-    }
-
-    if (END_OF_COMMAND) {
-	SET_DEFFORMAT(FIRST_X_AXIS , set_for_axis);
-	SET_DEFFORMAT(FIRST_Y_AXIS , set_for_axis);
-	SET_DEFFORMAT(FIRST_Z_AXIS , set_for_axis);
-	SET_DEFFORMAT(SECOND_X_AXIS, set_for_axis);
-	SET_DEFFORMAT(SECOND_Y_AXIS, set_for_axis);
-	SET_DEFFORMAT(COLOR_AXIS   , set_for_axis);
-	SET_DEFFORMAT(POLAR_AXIS   , set_for_axis);
-    }
-}
-
 
 /* process 'unset grid' command */
 static void
@@ -961,7 +932,7 @@ unset_linestyle(struct linestyle_def **head)
 {
     int tag = int_expression();
     struct linestyle_def *this, *prev;
-    for (this = *head, prev = NULL; this != NULL; 
+    for (this = *head, prev = NULL; this != NULL;
 	 prev = this, this = this->next) {
 	if (this->tag == tag) {
 	    delete_linestyle(head, prev, this);
@@ -1057,7 +1028,10 @@ reset_logscale(AXIS_INDEX axis)
 {
     TBOOLEAN undo_rlog = (axis == POLAR_AXIS && R_AXIS.log);
     axis_array[axis].log = FALSE;
+    /* Do not zero the base because we can still use it for gprintf formats
+     * %L and %l with linear axis scaling.
     axis_array[axis].base = 0.0;
+     */
     if (undo_rlog)
 	rrange_to_xy();
 }
@@ -1091,11 +1065,9 @@ unset_logscale()
 	++c_token;
     }
 
-#ifdef VOLATILE_REFRESH
     /* Because the log scaling is applied during data input, a quick refresh */
     /* using existing stored data will not work if the log setting changes.  */
-    refresh_ok = 0;
-#endif
+    SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);
 }
 
 #ifdef GP_MACROS
@@ -1166,7 +1138,7 @@ unset_tics(AXIS_INDEX axis)
 	istart = axis;
 	iend = axis + 1;
     }
-	
+
     for (i = istart; i < iend; ++i) {
 	axis_array[i].ticmode = NO_TICS;
 
@@ -1455,15 +1427,21 @@ unset_table()
 
 
 /* process 'unset terminal' comamnd */
+/* Aug 2012:  restore original terminal type */
 static void
 unset_terminal()
 {
-    /* This is a problematic case */
-/* FIXME */
-    if (multiplot)
-	int_error(c_token, "You can't change the terminal in multiplot mode");
+    struct udvt_entry *original_terminal = get_udv_by_name("GNUTERM");
 
-    list_terms();
+    if (multiplot)
+	term_end_multiplot();
+
+    term_reset();
+
+    if (original_terminal) {
+	char *termname = original_terminal->udv_value.v.string_val;
+	term = change_term(termname, strlen(termname));
+    }
     screen_ok = FALSE;
 }
 
@@ -1527,7 +1505,6 @@ unset_timestamp()
 static void
 unset_view()
 {
-    splot_map_deactivate();
     splot_map = FALSE;
     aspect_ratio_3D = 0;
     surface_rot_z = 30.0;
@@ -1557,9 +1534,15 @@ unset_timedata(AXIS_INDEX axis)
 static void
 unset_range(AXIS_INDEX axis)
 {
-    /* FIXME HBB 20000506: do we want to reset the axis autoscale and
-     * min/max, too?  */
+    axis_array[axis].set_autoscale = AUTOSCALE_BOTH;
+    axis_array[axis].writeback_min = axis_array[axis].set_min
+	= axis_defaults[axis].min;
+    axis_array[axis].writeback_max = axis_array[axis].set_max
+	= axis_defaults[axis].max;
+    axis_array[axis].min_constraint = CONSTRAINT_NONE;
+    axis_array[axis].max_constraint = CONSTRAINT_NONE;
     axis_array[axis].range_flags = 0;
+    axis_array[axis].range_is_reverted = FALSE;
 }
 
 /* process 'unset {x|y|x2|y2|z}zeroaxis' command */
@@ -1585,7 +1568,7 @@ unset_all_zeroaxes()
 static void
 unset_axislabel_or_title(text_label *label)
 {
-    struct position default_offset = { character, character, character, 
+    struct position default_offset = { character, character, character,
 				       0., 0., 0. };
     if (label) {
 	free(label->text);
@@ -1620,6 +1603,7 @@ reset_command()
 {
     AXIS_INDEX axis;
     TBOOLEAN save_interactive = interactive;
+    TBOOLEAN save_state;
     static TBOOLEAN set_for_axis[AXIS_ARRAY_SIZE] = AXIS_ARRAY_INITIALIZER(TRUE);
 
     c_token++;
@@ -1679,30 +1663,23 @@ reset_command()
     unset_keytitle();
 
     unset_timefmt();
-    unset_view(); /* has to be called in advance to reset reversed yrange if splot_map_active */
+    unset_view();
 
     for (axis=0; axis<AXIS_ARRAY_SIZE; axis++) {
 	SET_DEFFORMAT(axis, set_for_axis);
 	unset_timedata(axis);
 	unset_zeroaxis(axis);
-	unset_range(axis);
 	unset_axislabel(axis);
+	unset_range(axis);
 
-	axis_array[axis].set_autoscale = AUTOSCALE_BOTH;
-	axis_array[axis].writeback_min = axis_array[axis].set_min
-	    = axis_defaults[axis].min;
-	axis_array[axis].writeback_max = axis_array[axis].set_max
-	    = axis_defaults[axis].max;
-
-	axis_array[axis].min_constraint = CONSTRAINT_NONE;
-	axis_array[axis].max_constraint = CONSTRAINT_NONE;
-	
 	/* 'tics' default is on for some, off for the other axes: */
 	unset_tics(axis);
 	axis_array[axis].ticmode = axis_defaults[axis].ticmode;
 	unset_minitics(axis);
 	axis_array[axis].ticdef = default_axis_ticdef;
 	axis_array[axis].minitics = MINI_DEFAULT;
+
+	axis_array[axis].linked_to_primary = FALSE;
 
 	reset_logscale(axis);
     }
@@ -1719,6 +1696,7 @@ reset_command()
     draw_border = 31;
 
     draw_surface = TRUE;
+    implicit_surface = TRUE;
 
     data_style = POINTSTYLE;
     func_style = LINES;
@@ -1736,9 +1714,7 @@ reset_command()
     polar_grid_angle = 0;
     grid_layer = -1;
 
-#ifdef VOLATILE_REFRESH
-    refresh_ok = 0;
-#endif
+    SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);
 
     reset_hidden3doptions();
     hidden3d = FALSE;
@@ -1778,7 +1754,7 @@ reset_command()
     free(df_commentschars);
     df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
 
-    unset_fit();
+    save_state = fit_quiet; unset_fit(); fit_quiet = save_state;
 
     update_gpval_variables(0); /* update GPVAL_ inner variables */
 

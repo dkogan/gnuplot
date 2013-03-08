@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: term.c,v 1.225.2.9 2012/05/14 17:25:48 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: term.c,v 1.250 2013/02/23 01:57:59 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - term.c */
@@ -147,7 +147,7 @@ enum set_encoding_id encoding;
 /* table of encoding names, for output of the setting */
 const char *encoding_names[] = {
     "default", "iso_8859_1", "iso_8859_2", "iso_8859_9", "iso_8859_15",
-    "cp437", "cp850", "cp852", "cp950", "cp1250", "cp1251", "cp1254", 
+    "cp437", "cp850", "cp852", "cp950", "cp1250", "cp1251", "cp1254",
     "koi8r", "koi8u", "sjis", "utf8", NULL };
 /* 'set encoding' options */
 const struct gen_table set_encoding_tbl[] =
@@ -171,14 +171,12 @@ const struct gen_table set_encoding_tbl[] =
     { NULL, S_ENC_INVALID }
 };
 
-const char *arrow_head_names[4] = 
+const char *arrow_head_names[4] =
     {"nohead", "head", "backhead", "heads"};
 
-/* HBB 20020225: moved here, from ipc.h, where it never should have
- * been. */
+enum { IPC_BACK_UNUSABLE = -2, IPC_BACK_CLOSED = -1 };
 #ifdef PIPE_IPC
-/* HBB 20020225: currently not used anywhere outside term.c --> make
- * it static */
+/* HBB 20020225: currently not used anywhere outside term.c */
 static SELECT_TYPE_ARG1 ipc_back_fd = IPC_BACK_CLOSED;
 #endif
 
@@ -219,7 +217,6 @@ static double term_pointsize=1;
 
 static void term_suspend __PROTO((void));
 static void term_close_output __PROTO((void));
-static struct termentry *change_term __PROTO((const char *name, int length));
 
 static void null_linewidth __PROTO((double));
 static void do_point __PROTO((unsigned int x, unsigned int y, int number));
@@ -231,6 +228,7 @@ static int null_text_angle __PROTO((int ang));
 static int null_justify_text __PROTO((enum JUSTIFY just));
 static int null_scale __PROTO((double x, double y));
 static void null_layer __PROTO((t_termlayer layer));
+static int null_set_font __PROTO((const char *font));
 static void options_null __PROTO((void));
 static void UNKNOWN_null __PROTO((void));
 static void MOVE_null __PROTO((unsigned int, unsigned int));
@@ -591,7 +589,7 @@ term_end_plot()
 
     /* Sync point for epslatex text positioning */
     (*term->layer)(TERM_LAYER_END_TEXT);
-    
+
     if (!multiplot) {
 	FPRINTF((stderr, "- calling term->text()\n"));
 	(*term->text) ();
@@ -646,32 +644,41 @@ term_start_multiplot()
     if (multiplot)
 	term_end_multiplot();
 
-    term_start_plot();
-
+    /* FIXME: more options should be reset/initialized each time */
     mp_layout.auto_layout = FALSE;
     mp_layout.current_panel = 0;
+    mp_layout.title.noenhanced = FALSE;
+    free(mp_layout.title.text);
+    mp_layout.title.text = NULL;
+    free(mp_layout.title.font);
+    mp_layout.title.font = NULL;
 
-    /* Parse options (new in version 4.1 */
+    /* Parse options */
     while (!END_OF_COMMAND) {
-	char *s;
 
 	if (almost_equals(c_token, "ti$tle")) {
 	    c_token++;
-	    if ((s = try_to_get_string())) {
-		free(mp_layout.title.text);
-		mp_layout.title.text = s;
- 	    }
+	    mp_layout.title.text = try_to_get_string();
  	    continue;
        }
 
        if (equals(c_token, "font")) {
 	    c_token++;
- 	    if ((s = try_to_get_string())) {
- 		free(mp_layout.title.font);
- 		mp_layout.title.font = s;
-	    }
+	    mp_layout.title.font = try_to_get_string();
 	    continue;
 	}
+
+        if (almost_equals(c_token,"enh$anced")) {
+            mp_layout.title.noenhanced = FALSE;
+            c_token++;
+            continue;
+        }
+
+        if (almost_equals(c_token,"noenh$anced")) {
+            mp_layout.title.noenhanced = TRUE;
+            c_token++;
+            continue;
+        }
 
 	if (almost_equals(c_token, "lay$out")) {
 	    if (mp_layout.auto_layout)
@@ -683,7 +690,7 @@ term_start_multiplot()
 	    if (END_OF_COMMAND) {
 		int_error(c_token,"expecting '<num_cols>,<num_rows>'");
 	    }
-	    
+
 	    /* read row,col */
 	    mp_layout.num_rows = int_expression();
 	    if (END_OF_COMMAND || !equals(c_token,",") )
@@ -693,13 +700,13 @@ term_start_multiplot()
 	    if (END_OF_COMMAND)
 		int_error(c_token, "expecting <num_cols>");
 	    mp_layout.num_cols = int_expression();
-	
+
 	    /* remember current values of the plot size */
 	    mp_layout.prev_xsize = xsize;
 	    mp_layout.prev_ysize = ysize;
 	    mp_layout.prev_xoffset = xoffset;
 	    mp_layout.prev_yoffset = yoffset;
-	
+
 	    mp_layout.act_row = 0;
 	    mp_layout.act_col = 0;
 
@@ -761,6 +768,8 @@ term_start_multiplot()
     multiplot = TRUE;
     fill_gpval_integer("GPVAL_MULTIPLOT", 1);
 
+    term_start_plot();
+
     /* Place overall title before doing anything else */
     if (mp_layout.title.text) {
 	double tmpx, tmpy;
@@ -780,16 +789,23 @@ term_start_multiplot()
 
 	/* Calculate fractional height of title compared to entire page */
 	/* If it would fill the whole page, forget it! */
-	for (y=2; *p; p++)
+	for (y=1; *p; p++)
 	    if (*p == '\n')
 		y++;
+
+	/* Oct 2012 - v_char depends on the font used */
+	if (mp_layout.title.font && *mp_layout.title.font)
+	    term->set_font(mp_layout.title.font);
 	mp_layout.title_height = (double)(y * term->v_char) / (double)term->ymax;
+	if (mp_layout.title.font && *mp_layout.title.font)
+	    term->set_font("");
+
 	if (mp_layout.title_height > 0.9)
 	    mp_layout.title_height = 0.05;
     } else {
 	mp_layout.title_height = 0.0;
     }
-    
+
     mp_layout_size_and_offset();
 
 #ifdef USE_MOUSE
@@ -887,6 +903,7 @@ term_apply_lp_properties(struct lp_style_type *lp)
      *  this function by explicitly issuing additional '(*term)(...)'
      *  commands.
      */
+    t_colorspec colorspec = lp->pm3d_color;
     int lt = lp->l_type;
 
     if (lp->pointflag) {
@@ -912,9 +929,13 @@ term_apply_lp_properties(struct lp_style_type *lp)
 	(*term->linetype) (LT_BLACK);
     else
 	(*term->linetype) (lt);
+
     /* Possibly override the linetype color with a fancier colorspec */
-    if (lp->use_palette)
-	apply_pm3dcolor(&lp->pm3d_color, term);
+    if (!lp->use_palette) {
+	colorspec.type = TC_LT;
+	colorspec.lt = lt;
+    }
+    apply_pm3dcolor(&colorspec, term);
 }
 
 
@@ -973,7 +994,7 @@ write_multiline(
 	return;
 
     /* EAM 9-Feb-2003 - Set font before calculating sizes */
-    if (font && *font && t->set_font)
+    if (font && *font)
 	(*t->set_font) (font);
 
     if (vert != JUST_TOP) {
@@ -998,15 +1019,19 @@ write_multiline(
 	    if (on_page(x, y))
 		(*t->put_text) (x, y, text);
 	} else {
-	    int fix = hor * t->h_char * estimate_strlen(text) / 2;
-	    if (angle) {
-		if (on_page(x, y - fix))
-		    (*t->put_text) (x, y - fix, text);
+	    int len = estimate_strlen(text);
+	    int hfix, vfix;
+
+	    if (angle == 0) {
+		hfix = hor * t->h_char * len / 2;
+		vfix = 0;
+	    } else {
+		/* Attention: This relies on the numeric values of enum JUSTIFY! */
+		hfix = hor * t->h_char * len * cos(angle * DEG2RAD) / 2 + 0.5;
+		vfix = hor * t->v_char * len * sin(angle * DEG2RAD) / 2 + 0.5;
 	    }
-	    else {
-		if (on_page(x - fix, y))
-		    (*t->put_text) (x - fix, y, text);
-	    }
+		if (on_page(x - hfix, y - vfix))
+		    (*t->put_text) (x - hfix, y - vfix, text);
 	}
 	if (angle == 90 || angle == TEXT_VERTICAL)
 	    x += t->v_char;
@@ -1025,7 +1050,7 @@ write_multiline(
 	text = p + 1;
     }                           /* unconditional branch back to the for(;;) - just a goto ! */
 
-    if (font && *font && t->set_font)
+    if (font && *font)
 	(*t->set_font) ("");
 
 }
@@ -1183,8 +1208,8 @@ do_arrow(
     t_arrow_head head = (t_arrow_head)((headstyle < 0) ? -headstyle : headstyle);
 	/* negative headstyle means draw heads only, no shaft */
 
-    /* FIXME: The plan is to migrate calling routines to call via            */
-    /* draw_clip_arrow() in which case we would not need to clip again here. */
+    /* The arrow shaft was clipped already in do_clip_arrow() but we still */
+    /* need to clip the head here. */
     clip_save = clip_area;
     if (term->flags & TERM_CAN_CLIP)
 	clip_area = NULL;
@@ -1274,7 +1299,7 @@ do_arrow(
 	}
 
 	/* backward arrow head */
-	if ((head & BACKHEAD) && !clip_point(sx,sy)) { 
+	if ((head & BACKHEAD) && !clip_point(sx,sy)) {
 	    if (curr_arrow_headfilled==2) {
 		/* draw filled backward arrow head */
 		filledhead[0].x = sx - xm;
@@ -1321,7 +1346,7 @@ do_arrow(
 
     /* Restore previous clipping box */
     clip_area = clip_save;
-	
+
 }
 
 #ifdef EAM_OBJECTS
@@ -1331,16 +1356,16 @@ do_arrow(
 /* a private implemenation or use this generic one.               */
 
 void
-do_arc( 
+do_arc(
     unsigned int cx, unsigned int cy, /* Center */
     double radius, /* Radius */
     double arc_start, double arc_end, /* Limits of arc in degress */
-    int style)
+    int style, TBOOLEAN wedge)
 {
-    gpiPoint vertex[250];  /* changed this - JP */
+    gpiPoint vertex[250];
     int i, segments;
     double aspect;
-    int in, xcen, ycen;
+    TBOOLEAN complete_circle;
 
     /* Protect against out-of-range values */
     while (arc_start < 0)
@@ -1361,35 +1386,50 @@ do_arc(
 
     /* Calculate the vertices */
     aspect = (double)term->v_tic / (double)term->h_tic;
-    vertex[0].style = style;
-    for (i=0, in=0; i<segments; i++) {
-	vertex[in].x = cx + cos(DEG2RAD * (arc_start + i*INC)) * radius;
-	vertex[in].y = cy + sin(DEG2RAD * (arc_start + i*INC)) * radius * aspect;
-	xcen = cx; ycen = cy;
-	if (clip_line(&xcen, &ycen, &vertex[in].x, &vertex[in].y))
-	    in++;
+    for (i=0; i<segments; i++) {
+	vertex[i].x = cx + cos(DEG2RAD * (arc_start + i*INC)) * radius;
+	vertex[i].y = cy + sin(DEG2RAD * (arc_start + i*INC)) * radius * aspect;
     }
 #   undef INC
-    vertex[in].x = cx + cos(DEG2RAD * arc_end) * radius;
-    vertex[in].y = cy + sin(DEG2RAD * arc_end) * radius * aspect;
-    if (!clip_line(&xcen, &ycen, &vertex[in].x, &vertex[in].y))
-	in--;
+    vertex[segments].x = cx + cos(DEG2RAD * arc_end) * radius;
+    vertex[segments].y = cy + sin(DEG2RAD * arc_end) * radius * aspect;
 
-    if (fabs(arc_end - arc_start) > .1 
+    if (fabs(arc_end - arc_start) > .1
     &&  fabs(arc_end - arc_start) < 359.9) {
-	vertex[++in].x = cx;
-	vertex[in].y = cy;
-	vertex[++in].x = vertex[0].x;
-	vertex[in].y = vertex[0].y;
-    }
+	vertex[++segments].x = cx;
+	vertex[segments].y = cy;
+	vertex[++segments].x = vertex[0].x;
+	vertex[segments].y = vertex[0].y;
+	complete_circle = FALSE;
+    } else
+	complete_circle = TRUE;
 
-    if (style) {
-	/* Fill in the center */
+    if (style) { /* Fill in the center */
+	/* EAM DEBUG - Do proper clipping */
+	gpiPoint fillarea[250];
+	int xcent, ycent, in;
+	for (i=0, in=0; i<segments; i++) {
+	    xcent = cx; ycent = cy;
+	    fillarea[in] = vertex[i];
+	    if (clip_line(&xcent, &ycent, &fillarea[in].x, &fillarea[in].y))
+		in++;
+	}
+	if (clip_point(cx,cy))
+	    for (i=segments-1; i>=0; i--) {
+		fillarea[in+1] = vertex[i];
+		fillarea[in].x = cx; fillarea[in].y = cy;
+		if (0 > clip_line(&fillarea[in+1].x, &fillarea[in+1].y,
+				  &fillarea[in].x, &fillarea[in].y))
+		    in++;
+	    }
+	fillarea[0].style = style;
 	if (term->filled_polygon)
-	    term->filled_polygon(in+1, vertex);
-    } else {
-	/* Draw the arc */
-	for (i=0; i<in; i++)
+	    term->filled_polygon(in, fillarea);
+
+    } else { /* Draw the arc */
+	if (!wedge && !complete_circle)
+	    segments -= 2;
+	for (i=0; i<segments; i++)
 	    draw_clip_line( vertex[i].x, vertex[i].y,
 		vertex[i+1].x, vertex[i+1].y );
     }
@@ -1491,6 +1531,12 @@ null_linewidth(double s)
     (void) s;                   /* avoid -Wunused warning */
 }
 
+static int
+null_set_font(const char *font)
+{
+    (void) font;		/* avoid -Wunused warning */
+    return FALSE;		/* Never used!! */
+}
 
 /* setup the magic macros to compile in the right parts of the
  * terminal drivers included by term.h
@@ -1616,7 +1662,7 @@ set_term()
  * returns NULL for unknown or ambiguous, otherwise is terminal
  * driver pointer
  */
-static struct termentry *
+struct termentry *
 change_term(const char *origname, int length)
 {
     int i;
@@ -1679,6 +1725,8 @@ change_term(const char *origname, int length)
 	term->layer = null_layer;
     if (term->tscale <= 0)
 	term->tscale = 1.0;
+    if (term->set_font == 0)
+	term->set_font = null_set_font;
 
     if (interactive)
 	fprintf(stderr, "Terminal type set to '%s'\n", term->name);
@@ -1782,11 +1830,6 @@ init_terminal()
 	}
 #endif /* unixpc */
 
-#ifdef CGI
-	if (getenv("CGIDISP") || getenv("CGIPRNT"))
-	    term_name = "cgi";
-#endif /*CGI */
-
 #ifdef DJGPP
 	term_name = "svga";
 #endif
@@ -1884,11 +1927,13 @@ test_term()
     /* border linetype */
     (*t->linewidth) (1.0);
     (*t->linetype) (LT_BLACK);
+    newpath();
     (*t->move) (0, 0);
     (*t->vector) (xmax_t - 1, 0);
     (*t->vector) (xmax_t - 1, ymax_t - 1);
     (*t->vector) (0, ymax_t - 1);
     (*t->vector) (0, 0);
+    closepath();
     (*t->linetype)(0);
 
     /* Echo back the current terminal type */
@@ -1915,11 +1960,13 @@ test_term()
     (*t->vector) (xmax_t - 1, ymax_t / 2);
     /* test width and height of characters */
     (*t->linetype) (3);
+    newpath();
     (*t->move) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 + t->v_char / 2);
     (*t->vector) (xmax_t / 2 + t->h_char * 10, ymax_t / 2 + t->v_char / 2);
     (*t->vector) (xmax_t / 2 + t->h_char * 10, ymax_t / 2 - t->v_char / 2);
     (*t->vector) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 - t->v_char / 2);
     (*t->vector) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 + t->v_char / 2);
+    closepath();
     (*t->put_text) (xmax_t / 2 - t->h_char * 10, ymax_t / 2,
 		    "12345678901234567890");
     (*t->put_text) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 + t->v_char * 1.4,
@@ -2074,11 +2121,13 @@ test_term()
 	int style = ((i<<4) + FS_PATTERN);
 	if (t->fillbox)
 	    (*t->fillbox) ( style, x, y, xl, yl );
+	newpath();
 	(*t->move)  (x,y);
 	(*t->vector)(x,y+yl);
 	(*t->vector)(x+xl,y+yl);
 	(*t->vector)(x+xl,y);
 	(*t->vector)(x,y);
+	closepath();
 	sprintf(label,"%2d",i);
 	(*t->put_text)(x+xl/2, y+yl+t->v_char*0.5, label);
 	x += xl * 1.5;
@@ -2392,7 +2441,7 @@ enhanced_recursion(
 	/*
 	 * EAM Jun 2009 - treating bytes one at a time does not work for multibyte
 	 * encodings, including utf-8. If we hit a byte with the high bit set, test
-	 * whether it starts a legal UTF-8 sequence and if so copy the whole thing.  
+	 * whether it starts a legal UTF-8 sequence and if so copy the whole thing.
 	 * Other multibyte encodings are still a problem.
 	 * Gnuplot's other defined encodings are all single-byte; for those we
 	 * really do want to treat one byte at a time.
@@ -2562,6 +2611,8 @@ enhanced_recursion(
 	    p = enhanced_recursion(++p, FALSE, fontname, fontsize, base,
 			      widthflag, showflag, 1);
 	    (term->enhanced_flush)();
+	    if (!*p)
+	        break;
 	    p = enhanced_recursion(++p, FALSE, fontname, fontsize, base,
 			      FALSE, showflag, 2);
 
@@ -2744,8 +2795,7 @@ ignore_enhanced(TBOOLEAN flag)
     /* Force a return to the default font */
     if (flag && !ignore_enhanced_text) {
 	ignore_enhanced_text = TRUE;
-	if (term->set_font)
-	    term->set_font("");
+	term->set_font("");
     }
     ignore_enhanced_text = flag;
 }
@@ -2767,7 +2817,7 @@ on_page(int x, int y)
     return FALSE;
 }
 
-/* Utility routine for drivers to accept an explicit size for the 
+/* Utility routine for drivers to accept an explicit size for the
  * output image.
  */
 size_units
@@ -2950,10 +3000,10 @@ recycle:
 
 /*
  * Totally bogus estimate of TeX string lengths.
- * Basically 
+ * Basically
  * - don't count anything inside square braces
  * - count regexp \[a-zA-z]* as a single character
- * - ignore characters {}$^_ 
+ * - ignore characters {}$^_
  */
 int
 strlen_tex(const char *str)

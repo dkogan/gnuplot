@@ -1,5 +1,5 @@
 /*
- * $Id: graph3d.h,v 1.41 2011/07/25 06:51:29 sfeam Exp $
+ * $Id: graph3d.h,v 1.44 2012/12/14 19:39:38 sfeam Exp $
  */
 
 /* GNUPLOT - graph3d.h */
@@ -97,6 +97,7 @@ typedef struct surface_points {
     enum PLOT_TYPE plot_type;	/* DATA2D? DATA3D? FUNC2D FUNC3D? NODATA? */
     enum PLOT_STYLE plot_style;	/* style set by "with" or by default */
     char *title;		/* plot title, a.k.a. key entry */
+    int title_position;		/* -1 for beginning; +1 for end */
     TBOOLEAN title_no_enhanced;	/* don't typeset title in enhanced mode */
     TBOOLEAN title_is_filename;	/* not used in 3D */
     TBOOLEAN title_is_suppressed;/* TRUE if 'notitle' was specified */
@@ -106,6 +107,7 @@ typedef struct surface_points {
     struct fill_style_type fill_properties;	/* FIXME: ignored in 3D */
     struct text_label *labels;	/* Only used if plot_style == LABELPOINTS */
     struct t_image image_properties;	/* only used if plot_style is IMAGE or RGB_IMAGE */
+    struct udvt_entry *sample_var;	/* Only used if plot has private sampling range */
 
     /* 2D and 3D plot structure fields overlay only to this point */
 
@@ -139,6 +141,7 @@ extern t_contour_placement draw_contour;
 extern TBOOLEAN	label_contours;
 
 extern TBOOLEAN	draw_surface;
+extern TBOOLEAN	implicit_surface;
 
 /* is hidden3d display wanted? */
 extern TBOOLEAN	hidden3d;

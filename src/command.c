@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.230.2.4 2012/05/06 22:21:49 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.256 2013/02/28 21:27:45 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -74,9 +74,9 @@ static char *RCSid() { return RCSid("$Id: command.c,v 1.230.2.4 2012/05/06 22:21
 #include "axis.h"
 
 #include "alloc.h"
+#include "datablock.h"
 #include "eval.h"
 #include "fit.h"
-#include "binary.h"
 #include "datafile.h"
 #include "getcolor.h"
 #include "gp_hist.h"
@@ -134,9 +134,7 @@ static int winsystem __PROTO((const char *));
 #   include <dir.h>		/* setdisk() */
 #  endif
 # endif				/* !MSC */
-# ifdef WITH_HTML_HELP
-#   include <htmlhelp.h>
-# endif
+# include <htmlhelp.h>
 # include "win/winmain.h"
 #endif /* _Windows */
 
@@ -341,7 +339,7 @@ do_line()
     /* Expand any string variables in the current input line.
      * Allow up to 3 levels of recursion */
     if (expand_macros)
-    if (string_expand_macros() && string_expand_macros() 
+    if (string_expand_macros() && string_expand_macros()
     &&  string_expand_macros() && string_expand_macros())
 	int_error(NO_CARET, "Too many levels of nested macros");
 #endif
@@ -375,15 +373,10 @@ do_line()
 	return (0);
     }
 
-#if 0
-    /* EAM May 2011 */
-    /* Resetting here prevents handling "else" on a separate line */
-    if_condition = TRUE;
-#endif
     if_depth = 0;
     num_tokens = scanner(&gp_input_line, &gp_input_line_len);
 
-    /* 
+    /*
      * Expand line if necessary to contain a complete bracketed clause {...}
      * Insert a ';' after current line and append the next input line.
      * NB: This may leave an "else" condition on the next line.
@@ -396,7 +389,7 @@ do_line()
 	     * then we want to display a "more>" prompt to get the rest of the block.
 	     * However, there are two more cases that must be dealt here:
 	     * One is when commands are piped to gnuplot - on the command line,
-	     * the other is when commands are piped to gnuplot which is opened 
+	     * the other is when commands are piped to gnuplot which is opened
 	     * as a slave process. The test for noinputfiles is for the latter case.
 	     * If we didn't have that test here, unterminated blocks sent via a pipe
 	     * would trigger the error message in the else branch below. */
@@ -411,7 +404,7 @@ do_line()
 	}
 	else {
 	    /* Non-interactive mode here means that we got a string from -e.
-	     * Having curly_brace_count > 0 means that there are at least one 
+	     * Having curly_brace_count > 0 means that there are at least one
 	     * unterminated blocks in the string.
 	     * Likely user error, so we die with an error message. */
 	    int_error(NO_CARET, "Syntax error: missing block terminator }");
@@ -446,7 +439,7 @@ do_string(const char *s)
     char *cmdline = gp_strdup(s);
     do_string_and_free(cmdline);
 }
- 
+
 void
 do_string_and_free(char *cmdline)
 {
@@ -460,7 +453,7 @@ do_string_and_free(char *cmdline)
 	extend_input_line();
     strcpy(gp_input_line, cmdline);
     screen_ok = FALSE;
-    do_line();
+    command_exit_status = do_line();
 
     /* We don't know if screen_ok is appropriate so leave it FALSE. */
     lf_pop();
@@ -489,12 +482,12 @@ do_string_replot(const char *s)
     do_string(s);
 
 #ifdef VOLATILE_REFRESH
-    if (volatile_data && refresh_ok) {
+    if (volatile_data && (E_REFRESH_NOT_OK != refresh_ok)) {
 	if (display_ipc_commands())
 	    fprintf(stderr, "refresh\n");
 	refresh_request();
     } else
-#endif
+#endif /* VOLATILE_REFRESH */
 
     if (!replot_disabled)
 	replotrequest();
@@ -595,11 +588,15 @@ undefine_command()
         /* copy next var name into key */
         copy_str(key, c_token, MAX_ID_LEN);
 
-	/* Peek ahead - must do this, because a '*' is returned as a 
+	/* Peek ahead - must do this, because a '*' is returned as a
 	   separate token, not as part of the 'key' */
 	wildcard = equals(c_token+1,"*");
 	if (wildcard)
 	    c_token++;
+
+	/* The '$' starting a data block name is a separate token */
+	else if (*key == '$')
+	    copy_str(&key[1], ++c_token, MAX_ID_LEN-1);
 
         /* ignore internal variables */
 	if (strncmp(key, "GPVAL_", 6) && strncmp(key, "MOUSE_", 6))
@@ -750,7 +747,7 @@ bind_command()
 
     /* get left hand side: the key or key sequence */
     if (!END_OF_COMMAND) {
-	char* first = gp_input_line + token[c_token].start_index;
+	char *first = gp_input_line + token[c_token].start_index;
 	int size = (int) (strchr(first, ' ') - first);
 	if (size < 0) {
 	    size = (int) (strchr(first, '\0') - first);
@@ -759,11 +756,9 @@ bind_command()
 	    fprintf(stderr, "(bind_command) %s:%d\n", __FILE__, __LINE__);
 	    return;
 	}
-	lhs = (char*) gp_alloc(size + 1, "bind_command->lhs");
-	if (isstring(c_token)) {
-	    quote_str(lhs, c_token, token_len(c_token));
-	} else {
-	    char* ptr = lhs;
+	if (!(isstring(c_token)) || !((lhs = try_to_get_string()))) {
+	    char *ptr = gp_alloc(size + 1, "bind_command->lhs");
+	    lhs = ptr;
 	    while (!END_OF_COMMAND) {
 		copy_str(ptr, c_token, token_len(c_token) + 1);
 		ptr += token_len(c_token);
@@ -772,20 +767,16 @@ bind_command()
 		}
 		++c_token;
 	    }
+	    ++c_token;
 	}
-	++c_token;
     }
 
     /* get right hand side: the command. allocating the size
      * of gp_input_line is too big, but shouldn't hurt too much. */
     if (!END_OF_COMMAND) {
-	rhs = (char*) gp_alloc(strlen(gp_input_line) + 1, "bind_command->rhs");
-	if (isstring(c_token)) {
-	    /* bind <lhs> "..." */
-	    quote_str(rhs, c_token, token_len(c_token));
-	    c_token++;
-	} else {
-	    char* ptr = rhs;
+	if (!(isstringvalue(c_token)) || !((rhs = try_to_get_string()))) {
+	    char *ptr = gp_alloc(strlen(gp_input_line) + 1, "bind_command->rhs");
+	    rhs = ptr;
 	    while (!END_OF_COMMAND) {
 		/* bind <lhs> ... ... ... */
 		copy_str(ptr, c_token, token_len(c_token) + 1);
@@ -1197,6 +1188,61 @@ while_command()
     c_token = end_token;
 }
 
+/*
+ * set link [x2|y2] {via <expression1> {inverse <expression2>}}
+ * unset link [x2|y2]
+ */
+void
+link_command()
+{
+    AXIS_INDEX primary_axis, secondary_axis;
+    TBOOLEAN linked = TRUE;
+
+    if (equals(c_token - 1,"unset"))
+	linked = FALSE;
+
+    /* Flag the axes as being linked, and copy the range settings */
+    /* from the primary axis into the linked secondary axis       */
+    c_token++;
+    if (almost_equals(c_token,"x$2")) {
+	primary_axis = FIRST_X_AXIS;
+	secondary_axis = SECOND_X_AXIS;
+    } else if (almost_equals(c_token,"y$2")) {
+	primary_axis = FIRST_Y_AXIS;
+	secondary_axis = SECOND_Y_AXIS;
+    } else {
+	int_error(c_token,"expecting x2 or y2");
+    }
+    axis_array[secondary_axis].linked_to_primary = linked;
+    c_token++;
+
+    /* Initialize the action tables for the mapping function[s] */
+    if (!axis_array[primary_axis].link_udf) {
+	axis_array[primary_axis].link_udf = gp_alloc(sizeof(udft_entry),"link_at");
+	memset(axis_array[primary_axis].link_udf, 0, sizeof(udft_entry));
+    }
+    if (!axis_array[secondary_axis].link_udf) {
+	axis_array[secondary_axis].link_udf = gp_alloc(sizeof(udft_entry),"link_at");
+	memset(axis_array[secondary_axis].link_udf, 0, sizeof(udft_entry));
+    }
+
+    if (!equals(c_token,"via")) {
+	free_at(axis_array[secondary_axis].link_udf->at);
+	axis_array[secondary_axis].link_udf->at = NULL;
+	free_at(axis_array[primary_axis].link_udf->at);
+	axis_array[primary_axis].link_udf->at = NULL;
+    } else {
+	parse_link_via(axis_array[secondary_axis].link_udf,
+		    (secondary_axis==SECOND_X_AXIS) ? "x" : "y");
+	if (!almost_equals(c_token,"inv$erse"))
+	    int_error(c_token,"inverse mapping function required");
+	parse_link_via(axis_array[primary_axis].link_udf,
+		    (secondary_axis==SECOND_X_AXIS) ? "x" : "y");
+    }
+    /* Clone the range information */
+    clone_linked_axes(secondary_axis, primary_axis);
+}
+
 /* process the 'load' command */
 void
 load_command()
@@ -1285,6 +1331,7 @@ clause_reset_after_error()
 
 
 /* process the 'pause' command */
+#define EAT_INPUT_WITH(slurp) do {int junk=0; do {junk=slurp;} while (junk != EOF && junk != '\n');} while (0)
 void
 pause_command()
 {
@@ -1375,16 +1422,16 @@ pause_command()
 	if (!strcmp(term->name, "wxt")) {
 	    /* copy of the code below:  !(_Windows || OS2 || _Macintosh) */
 	    if (term && term->waitforinput && paused_for_mouse){
-		fprintf(stderr,"%s\n", buf);
+		fprintf(stderr, "%s\n", buf);
 		term->waitforinput();
 	    } else {
 #  if defined(WGP_CONSOLE)
-		fprintf(stderr,"%s\n", buf);
+		fprintf(stderr, "%s\n", buf);
 		if (term && term->waitforinput)
-		  while (term->waitforinput() != (int)'\r') {}; /* waiting for Enter*/
+		    while (term->waitforinput() != (int)'\r') {}; /* waiting for Enter*/
 #  else /* !WGP_CONSOLE */
-		if (!Pause(buf)) 
-		bail_to_command_line();
+		if (!Pause(buf))
+		    bail_to_command_line();
 #  endif
 	    }
 	} else
@@ -1392,25 +1439,26 @@ pause_command()
 	{
 	    if (paused_for_mouse && !GraphHasWindow(graphwin)) {
 		if (interactive) { /* cannot wait for Enter in a non-interactive session without the graph window */
-		    if (buf) fprintf(stderr,"%s\n", buf);
-		    fgets(buf, sizeof(buf), stdin); /* graphical window not yet initialized, wait for any key here */
+		    if (buf) fprintf(stderr, "%s\n", buf);
+		    EAT_INPUT_WITH(fgetc(stdin));
 		}
 	    } else { /* pausing via graphical windows */
-		int tmp = paused_for_mouse;
-		if (buf && paused_for_mouse) fprintf(stderr,"%s\n", buf);
-		if (!tmp) {
+		if (!paused_for_mouse) {
 #  if defined(WGP_CONSOLE)
-		    fprintf(stderr,"%s\n", buf);
-			if (term && term->waitforinput)
-		      while (term->waitforinput() != (int)'\r') {}; /* waiting for Enter*/
+		    if (buf) fprintf(stderr,"%s\n", buf);
+		    if (term && term->waitforinput) {
+			while (term->waitforinput() != (int)'\r') {}; /* waiting for Enter*/
+		    } else {
+			EAT_INPUT_WITH(fgetc(stdin));
+		    }
 #  else
-		    if (!Pause(buf)) 
-		       bail_to_command_line();
+		    if (!Pause(buf))
+			bail_to_command_line();
 #  endif
 		} else {
-		    if (!Pause(buf)) 
-		      if (!GraphHasWindow(graphwin)) 
-		        bail_to_command_line();
+		    if (buf) fprintf(stderr,"%s\n", buf);
+		    if (!Pause(buf) && !GraphHasWindow(graphwin))
+			bail_to_command_line();
 		}
 	    }
 	}
@@ -1426,7 +1474,7 @@ pause_command()
 	    } else if (rc == 2) {
 		fputs(buf, stderr);
 		text = 1;
-		(void) fgets(buf, strlen(buf), stdin);
+		EAT_INPUT_WITH(fgetc(stdin));
 	    }
 	}
 #elif defined(_Macintosh)
@@ -1435,12 +1483,11 @@ pause_command()
 #else /* !(_Windows || OS2 || _Macintosh) */
 #ifdef USE_MOUSE
 	if (term && term->waitforinput) {
-	    /* term->waitforinput() will return,
-	     * if CR was hit */
+	    /* It does _not_ work to do EAT_INPUT_WITH(term->waitforinput()) */
 	    term->waitforinput();
 	} else
 #endif /* USE_MOUSE */
-	(void) fgets(buf, sizeof(buf), stdin);
+	    EAT_INPUT_WITH(fgetc(stdin));
 
 #endif /* !(_Windows || OS2 || _Macintosh) */
     }
@@ -1551,6 +1598,14 @@ print_command()
     screen_ok = FALSE;
     do {
 	++c_token;
+	if (equals(c_token,"$") && isletter(c_token+1)) {
+	    char **line = get_datablock(parse_datablock_name());
+	    while (line && *line) {
+		fputs(*line, print_out);
+		line++;
+	    }
+	    continue;
+	}
 	const_express(&a);
 	if (a.type == STRING) {
 	    fputs(a.v.string_val, print_out);
@@ -1603,11 +1658,12 @@ refresh_request()
 {
     FPRINTF((stderr,"refresh_request\n"));
 
-    if ((first_plot == NULL && refresh_ok == 2)
-    ||  (first_3dplot == NULL && refresh_ok == 3))
+    if (   ((first_plot == NULL) && (refresh_ok == E_REFRESH_OK_2D))
+        || ((first_3dplot == NULL) && (refresh_ok == E_REFRESH_OK_3D))
+       )
 	int_error(NO_CARET, "no active plot; cannot refresh");
 
-    if (refresh_ok == 0) {
+    if (refresh_ok == E_REFRESH_NOT_OK) {
 	int_warn(NO_CARET, "cannot refresh from this state. trying full replot");
 	replotrequest();
 	return;
@@ -1627,47 +1683,35 @@ refresh_request()
     AXIS_UPDATE2D_REFRESH(FIRST_Z_AXIS);
     AXIS_UPDATE2D_REFRESH(COLOR_AXIS);
 
-    if (refresh_ok == 2)
-	refresh_bounds(first_plot, refresh_nplots);
-    else if (refresh_ok == 3)
-	refresh_3dbounds(first_3dplot, refresh_nplots);
-
-/* FIXME EAM
- * The existing mechanism defined in axis.h does not work here for some reason.
- * The following defined check works empirically.  Most of the time.  Maybe.
- */
-#undef CHECK_REVERSE
-#define CHECK_REVERSE(axis) do {		\
-    AXIS *ax = axis_array + axis;		\
-    if ((ax->range_flags & RANGE_REVERSE)) {	\
-	double temp = ax->max;			\
-	ax->max = ax->min; ax->min = temp;	\
-    } } while (0)
-
-
-    CHECK_REVERSE(FIRST_X_AXIS);
-    CHECK_REVERSE(FIRST_Y_AXIS);
-    CHECK_REVERSE(SECOND_X_AXIS);
-    CHECK_REVERSE(SECOND_Y_AXIS);
-#undef CHECK_REVERSE
-
-    if (refresh_ok == 2)
+    if (refresh_ok == E_REFRESH_OK_2D) {
+	refresh_bounds(first_plot, refresh_nplots); 
 	do_plot(first_plot, refresh_nplots);
-    else if (refresh_ok == 3)
+    } else if (refresh_ok == E_REFRESH_OK_3D) {
+	refresh_3dbounds(first_3dplot, refresh_nplots);
 	do_3dplot(first_3dplot, refresh_nplots, 0);
-    else
+    } else
 	int_error(NO_CARET, "Internal error - refresh of unknown plot type");
 
 }
+#endif /* VOLATILE_REFRESH */
 
 
-#endif
 /* process the 'replot' command */
 void
 replot_command()
 {
     if (!*replot_line)
 	int_error(c_token, "no previous plot");
+
+#ifdef VOLATILE_REFRESH
+    if (volatile_data && (refresh_ok != E_REFRESH_NOT_OK) && !replot_disabled) {
+	FPRINTF((stderr,"volatile_data %d refresh_ok %d plotted_data_from_stdin %d\n",
+		volatile_data, refresh_ok, plotted_data_from_stdin));
+	refresh_command();
+	return;
+    }
+#endif
+
     /* Disable replot for some reason; currently used by the mouse/hotkey
        capable terminals to avoid replotting when some data come from stdin,
        i.e. when  plotted_data_from_stdin==1  after plot "-".
@@ -1952,7 +1996,7 @@ title 'R,G,B profiles of the current color palette';";
     fputs("e\n", f);
     fputs(post, f);
 
-    /* save current gnuplot 'set' status because of the tricky sets 
+    /* save current gnuplot 'set' status because of the tricky sets
      * for our temporary testing plot.
      */
     save_set(f);
@@ -2065,8 +2109,9 @@ update_command()
 void
 invalid_command()
 {
+    int save_token = c_token;
 #ifdef OS2
-   if (token[c_token].is_token) {
+    if (token[c_token].is_token) {
       int rc;
       rc = ExecuteMacro(gp_input_line + token[c_token].start_index,
 	      token[c_token].length);
@@ -2076,7 +2121,11 @@ invalid_command()
       }
     }
 #endif
-    int_error(c_token, "invalid command");
+    /* Skip the rest of the command; otherwise we're left pointing to */
+    /* the middle of a command we already know is not valid.          */
+    while (!END_OF_COMMAND)
+	c_token++;
+    int_error(save_token, "invalid command");
 }
 
 
@@ -2154,8 +2203,8 @@ replotrequest()
 	int last_token = num_tokens - 1;
 
 	/* length = length of old part + length of new part + ", " + \0 */
-	size_t newlen = strlen(replot_line) + token[last_token].start_index +
-	token[last_token].length - token[c_token].start_index + 3;
+	size_t newlen = strlen(replot_line) + token[last_token].start_index
+		      + token[last_token].length - token[c_token].start_index + 3;
 
 	m_capture(&replot_args, c_token, last_token);	/* might be empty */
 	while (gp_input_line_len < newlen)
@@ -2166,7 +2215,7 @@ replotrequest()
 	free(replot_args);
     }
     plot_token = 0;		/* whole line to be saved as replot line */
-    refresh_ok = 0;		/* start of replot will destory existing data */
+    SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);		/* start of replot will destory existing data */
 
     screen_ok = FALSE;
     num_tokens = scanner(&gp_input_line, &gp_input_line_len);
@@ -2199,6 +2248,7 @@ static float splot_map_surface_scale;
 void
 splot_map_activate()
 {
+    double temp;
     if (splot_map_active)
 	return;
     splot_map_active = 1;
@@ -2210,19 +2260,20 @@ splot_map_activate()
     surface_rot_x = 180;
     surface_rot_z = 0;
     surface_scale = 1.3;
-    axis_array[FIRST_Y_AXIS].range_flags  ^= RANGE_REVERSE;
-    axis_array[SECOND_Y_AXIS].range_flags ^= RANGE_REVERSE;
-	/* note: ^ is xor */
+    /* The Y axis runs backwards from a normal 2D plot */
+    temp = axis_array[FIRST_Y_AXIS].min;
+    axis_array[FIRST_Y_AXIS].min = axis_array[FIRST_Y_AXIS].max;
+    axis_array[FIRST_Y_AXIS].max = temp;
 }
 
 
-/* This routine is called when the current 'set view map' is no more needed,
- * i.e., when calling "plot" --- the reversed y-axis et al must still be
- * available for mousing.
+/* This routine is called at the end of 3D plot evaluation to undo the
+ * changes needed for 'set view map'.
  */
 void
 splot_map_deactivate()
 {
+    double temp;
     if (!splot_map_active)
 	return;
     splot_map_active = 0;
@@ -2230,9 +2281,10 @@ splot_map_deactivate()
     surface_rot_x = splot_map_surface_rot_x;
     surface_rot_z = splot_map_surface_rot_z;
     surface_scale = splot_map_surface_scale;
-    axis_array[FIRST_Y_AXIS].range_flags  ^= RANGE_REVERSE;
-    axis_array[SECOND_Y_AXIS].range_flags ^= RANGE_REVERSE;
-	/* note: ^ is xor */
+    /* The Y axis runs backwards from a normal 2D plot */
+    temp = axis_array[FIRST_Y_AXIS].min;
+    axis_array[FIRST_Y_AXIS].min = axis_array[FIRST_Y_AXIS].max;
+    axis_array[FIRST_Y_AXIS].max = temp;
 }
 
 
@@ -2289,7 +2341,7 @@ read_line(const char *prompt, int start)
     prompt_desc.dsc$w_length = strlen(prompt);
     prompt_desc.dsc$a_pointer = (char *) prompt;
     strcpy(expand_prompt, "_");
-    strncat(expand_prompt, prompt, 38);
+    strncat(expand_prompt, prompt, sizeof(expand_prompt) - 2);
     do {
 	line_desc.dsc$w_length = MAX_LINE_LEN - start;
 	line_desc.dsc$a_pointer = &gp_input_line[start];
@@ -2391,7 +2443,7 @@ help_command()
 
     c_token++;
     parent = GetDesktopWindow();
-#ifdef WITH_HTML_HELP
+
     /* open help file if necessary */
     help_window = HtmlHelp(parent, winhelpname, HH_GET_WIN_HANDLE, (DWORD_PTR)NULL);
     if (help_window == NULL) {
@@ -2414,26 +2466,14 @@ help_command()
         capture(buf, start, c_token - 1, 128);
         link.cbStruct =     sizeof(HH_AKLINK) ;
         link.fReserved =    FALSE;
-        link.pszKeywords =  buf; 
-        link.pszUrl =       NULL; 
-        link.pszMsgText =   NULL; 
-        link.pszMsgTitle =  NULL; 
+        link.pszKeywords =  buf;
+        link.pszUrl =       NULL;
+        link.pszMsgText =   NULL;
+        link.pszMsgTitle =  NULL;
         link.pszWindow =    NULL;
         link.fIndexOnFail = TRUE;
         HtmlHelp(parent, winhelpname, HH_KEYWORD_LOOKUP, (DWORD_PTR)&link);
     }
-#else
-    if (END_OF_COMMAND)
-	WinHelp(parent, (LPSTR) winhelpname, HELP_INDEX, (DWORD) NULL);
-    else {
-	char buf[128];
-	int start = c_token;
-	while (!(END_OF_COMMAND))
-	    c_token++;
-	capture(buf, start, c_token - 1, 128);
-	WinHelp(parent, (LPSTR) winhelpname, HELP_PARTIALKEY, (DWORD) buf);
-    }
-#endif
 }
 #else  /* !_Windows */
 void
@@ -2689,9 +2729,9 @@ rlgets(char *s, size_t n, const char *prompt)
 	    }
 	    add_history(line);
 #  elif defined(HAVE_LIBEDITLINE)
-	    /* deleting history entries does not work, so suppress adjacent 
+	    /* deleting history entries does not work, so suppress adjacent
 	    duplicates only */
-      
+
 	    int found;
 	    using_history();
 
@@ -2878,7 +2918,17 @@ read_line(const char *prompt, int start)
     TBOOLEAN more = FALSE;
     int last = 0;
 
-    current_prompt = prompt;	/* HBB NEW 20040727 */
+    current_prompt = prompt;
+
+    /* Once we start to read a new line, the tokens pointing into the old */
+    /* line are no longer valid.  We used to _not_ clear things here, but */
+    /* that lead to errors when a mouse-triggered replot request came in  */
+    /* while a new line was being read.   Bug 3602388 Feb 2013.           */
+    /* FIXME: If this causes problems, push it down into fgets_ipc().     */
+    if (start == 0) {
+	c_token = num_tokens = 0;
+	gp_input_line[0] = '\0';
+    }
 
     do {
 	/* grab some input */
@@ -3045,11 +3095,11 @@ string_expand_macros()
 		    COPY_CHAR;
 		break;
 
-	case '"':	
+	case '"':
                 if (!after_backslash)
 		    in_dquote = !in_dquote;
 		COPY_CHAR; break;
-	case '\'':	
+	case '\'':
 		in_squote = !in_squote;
 		COPY_CHAR; break;
         case '\\':
@@ -3059,7 +3109,7 @@ string_expand_macros()
 	case '#':
 		if (!in_squote && !in_dquote)
 		    in_comment = TRUE;
-	default :	
+	default :
 	        COPY_CHAR; break;
 	}
     }
@@ -3085,7 +3135,6 @@ do_system_func(const char *cmd, char **output)
 #if defined(VMS) || defined(PIPES)
     int c;
     FILE *f;
-    size_t cmd_len;
     int result_allocated, result_pos;
     char* result;
     int ierr = 0;
@@ -3095,12 +3144,10 @@ do_system_func(const char *cmd, char **output)
     static $DESCRIPTOR(lognamedsc, "PLOT$MAILBOX");
 # endif /* VMS */
 
-    cmd_len = strlen(cmd);
-
     /* open stream */
 # ifdef VMS
     pgmdsc.dsc$a_pointer = cmd;
-    pgmdsc.dsc$w_length = cmd_len;
+    pgmdsc.dsc$w_length = strlen(cmd);
     if (!((vaxc$errno = sys$crembx(0, &chan, 0, 0, 0, 0, &lognamedsc)) & 1))
 	os_error(NO_CARET, "sys$crembx failed");
 
@@ -3149,7 +3196,7 @@ do_system_func(const char *cmd, char **output)
 
 #else /* VMS || PIPES */
 
-    int_warn(NO_CARET, "system evaluation not supported by %s", OS);
+    int_warn(NO_CARET, "system() requires support for pipes");
     *output = gp_strdup("");
     return 0;
 

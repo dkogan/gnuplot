@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: canvas.trm,v 1.56.2.3 2012/08/03 05:15:11 sfeam Exp $
+ * $Id: canvas.trm,v 1.72 2013/02/19 05:30:38 sfeam Exp $
  *
  */
 
@@ -39,6 +39,8 @@
  *	Optional explicit background
  *	Wrap each plot in a test for gnuplot.hide_plot_N
  *	Handle image data by storing it in a parallel PNG file
+ *   Ethan A Merritt, Mar 2012
+ *	Hypertext
  *
  * send your comments or suggestions to (gnuplot-info@lists.sourceforge.net).
  *
@@ -72,6 +74,8 @@ TERM_PUBLIC void CANVAS_set_color __PROTO((t_colorspec *colorspec));
 TERM_PUBLIC int CANVAS_make_palette __PROTO((t_sm_palette *palette));
 TERM_PUBLIC void CANVAS_layer __PROTO((t_termlayer));
 TERM_PUBLIC void CANVAS_path __PROTO((int));
+TERM_PUBLIC void CANVAS_hypertext __PROTO((int, const char *));
+TERM_PUBLIC int CANVAS_set_font __PROTO((const char *));
 
 TERM_PUBLIC void ENHCANVAS_OPEN __PROTO((char *, double, double, TBOOLEAN, TBOOLEAN, int));
 TERM_PUBLIC void ENHCANVAS_FLUSH __PROTO((void));
@@ -100,6 +104,7 @@ static int canvas_line_type = LT_UNDEFINED;
 static double canvas_linewidth = 1.0;
 static double canvas_dashlength_factor = 1.0;
 static double CANVAS_ps = 1;	/* pointsize multiplier */
+static double CANVAS_default_fsize = 10;
 static double canvas_font_size = 10;
 static double canvas_fontscale = 1.0;
 static char * canvas_font_name = NULL;
@@ -108,13 +113,14 @@ static int canvas_text_angle = 0;
 static int canvas_in_a_path = FALSE;
 static int already_closed = FALSE;
 static TBOOLEAN canvas_dashed = FALSE;
-static TBOOLEAN canvas_rounded = FALSE;
+static t_linecap canvas_linecap = ROUNDED;
 static TBOOLEAN CANVAS_mouseable = FALSE;
 static TBOOLEAN CANVAS_standalone = TRUE;
 static char CANVAS_background[18] = {'\0'};
 static char *CANVAS_name = NULL;
 static char *CANVAS_scriptdir = NULL;
 static char *CANVAS_title = NULL;
+static char *CANVAS_hypertext_text = NULL;
 
 /*
  * Stuff for tracking images stored in separate files
@@ -130,6 +136,7 @@ static canvas_imagefile *imagelist = NULL;
 
 static struct {
     int  previous_linewidth;
+    double alpha;		/* alpha channel */
     char color[18];		/* rgb(rrr,ggg,bbb) */
     char previous_color[18];	/* rgb(rrr,ggg,bbb) */
     char previous_fill[24];	/* rgba(rrr,ggg,bbb,aaaa) */
@@ -141,7 +148,7 @@ enum CANVAS_case {
     CANVAS_NAME, CANVAS_STANDALONE, CANVAS_TITLE,
     CANVAS_LINEWIDTH, CANVAS_MOUSING, CANVAS_JSDIR, CANVAS_ENH, CANVAS_NOENH,
     CANVAS_FONTSCALE, CANVAS_SOLID, CANVAS_DASHED, CANVAS_DASHLENGTH,
-    CANVAS_ROUNDED, CANVAS_BUTT, CANVAS_BACKGROUND, CANVAS_OTHER
+    CANVAS_ROUNDED, CANVAS_BUTT, CANVAS_SQUARE, CANVAS_BACKGROUND, CANVAS_OTHER
 };
 
 static struct gen_table CANVAS_opts[] =
@@ -166,6 +173,7 @@ static struct gen_table CANVAS_opts[] =
     { "dl", CANVAS_DASHLENGTH },
     { "round$ed", CANVAS_ROUNDED },
     { "butt", CANVAS_BUTT },
+    { "square", CANVAS_SQUARE },
     { "backg$round", CANVAS_BACKGROUND },
     { NULL, CANVAS_OTHER }
 };
@@ -197,13 +205,10 @@ TERM_PUBLIC void
 CANVAS_options()
 {
     int canvas_background = 0;
-    int sep;
 
-    /* (c_token == 2) only in the case of 'set termoption'	*/
-    /* which is after we have already initialized everything.	*/
-    if (c_token != 2) {
+    if (!almost_equals(c_token-1, "termopt$ion")) {
 	/* Re-initialize a few things */
-	canvas_font_size = 10;
+	canvas_font_size = CANVAS_default_fsize = 10;
 	canvas_fontscale = 1.0;
 	CANVAS_standalone = TRUE;
 	CANVAS_mouseable = FALSE;
@@ -261,30 +266,18 @@ CANVAS_options()
 	    break;
 
 	case CANVAS_FONT:
-	/* FIXME: The HTML5 canvas element did not originally provide any	*/
-	/* support for text output, let alone fonts.There are now text routines	*/
-	/* in the HTML5 draft spec, but they are not yet widely supported.	*/
-	/* So for now we will accept a font request, but ignore it.		*/
-	/* Eventually the text calls will look something like			*/
-	/*	ctx.font = "12pt Times";					*/
-	/*	ctx.textAlign = "center";					*/
-	/*	ctx.fillText( "Oh goody, text support.", x, y );		*/
-	/*									*/
+	/* FIXME: See note at CANVAS_set_font() */ 
 	    free(canvas_font_name);
 	    if (!(canvas_font_name = try_to_get_string()))
 		int_error(c_token,"font: expecting string");
-	    sep = strcspn(canvas_font_name,",");
-	    if (canvas_font_name[sep] == ',') {
-		sscanf(&(canvas_font_name[sep+1]), "%lf", &canvas_font_size);
-		if (canvas_font_size <= 0)
-		    canvas_font_size = 10;
-	    }
+	    CANVAS_set_font(canvas_font_name);
 	    break;
 
 	case CANVAS_FSIZE:
-	    canvas_font_size = real_expression();
-	    if (canvas_font_size <= 0)
-		canvas_font_size = 10;
+	    CANVAS_default_fsize = real_expression();
+	    if (CANVAS_default_fsize <= 0)
+		CANVAS_default_fsize = 10;
+	    canvas_font_size = CANVAS_default_fsize;
 	    break;
 
 	case CANVAS_MOUSING:
@@ -332,11 +325,15 @@ CANVAS_options()
 	    break;
 
 	case CANVAS_ROUNDED:
-	    canvas_rounded = TRUE;
+	    canvas_linecap = ROUNDED;
 	    break;
 
 	case CANVAS_BUTT:
-	    canvas_rounded = FALSE;
+	    canvas_linecap = BUTT;
+	    break;
+
+	case CANVAS_SQUARE:
+	    canvas_linecap = SQUARE;
 	    break;
 
 	case CANVAS_BACKGROUND:
@@ -359,7 +356,9 @@ CANVAS_options()
     sprintf(term_options, canvas_dashed ? " dashed" : " solid");
     if (canvas_dashed && canvas_dashlength_factor != 1.0)
 	sprintf(term_options + strlen(term_options), " dashlength %3.1f", canvas_dashlength_factor);
-    sprintf(term_options + strlen(term_options), canvas_rounded ? " rounded" : " butt");
+    sprintf(term_options + strlen(term_options), 
+	canvas_linecap == ROUNDED ? " rounded" : 
+	canvas_linecap == SQUARE ? " square" : " butt");
     sprintf(term_options + strlen(term_options), " size %d,%d", (int)(term->xmax/CANVAS_OVERSAMPLE), (int)(term->ymax/CANVAS_OVERSAMPLE));
     sprintf(term_options + strlen(term_options), "%s fsize %g lw %g", 
 	term->put_text == ENHCANVAS_put_text ? " enhanced" : "",
@@ -543,6 +542,14 @@ CANVAS_graphics()
 	"function cfsp() {gnuplot.cfsp();};\n"
 	"\n"
     );
+    fprintf(gpoutfile,
+	"gnuplot.hypertext_list = [];\n"
+	"gnuplot.on_hypertext = -1;\n"
+	"function Hypertext(x,y,w,text) {\n"
+	"    newtext = {x:x, y:y, w:w, text:text};\n"
+	"    gnuplot.hypertext_list.push(newtext);\n"
+	"}\n"
+    );
     if (canvas_dashed)
 	fprintf(gpoutfile,
 	    "gnuplot.dashlength = %d;\n",
@@ -551,8 +558,8 @@ CANVAS_graphics()
 
     fprintf(gpoutfile,
 	"ctx.lineCap = \"%s\"; ctx.lineJoin = \"%s\";\n",
-	canvas_rounded ? "round" : "butt",
-	canvas_rounded ? "round" : "miter"
+	canvas_linecap == ROUNDED ? "round" : canvas_linecap == SQUARE ? "square" : "butt",
+	canvas_linecap == ROUNDED ? "round" : "miter"
     );
 
     if (*CANVAS_background) {
@@ -607,8 +614,14 @@ CANVAS_text()
 	    MOUSE_PARAM("GPVAL_X_MIN", "gnuplot.plot_axis_xmin");
 	    MOUSE_PARAM("GPVAL_X_MAX", "gnuplot.plot_axis_xmax");
 	}
-	MOUSE_PARAM("GPVAL_Y_MIN", "gnuplot.plot_axis_ymin");
-	MOUSE_PARAM("GPVAL_Y_MAX", "gnuplot.plot_axis_ymax");
+	/* FIXME: Should this inversion be done at a higher level? */
+	if (is_3d_plot && splot_map) { 
+	    MOUSE_PARAM("GPVAL_Y_MAX", "gnuplot.plot_axis_ymin");
+	    MOUSE_PARAM("GPVAL_Y_MIN", "gnuplot.plot_axis_ymax");
+	} else {
+	    MOUSE_PARAM("GPVAL_Y_MIN", "gnuplot.plot_axis_ymin");
+	    MOUSE_PARAM("GPVAL_Y_MAX", "gnuplot.plot_axis_ymax");
+	}
 
 	if (polar)
 	    fprintf(gpoutfile, "gnuplot.plot_axis_rmin = %g;\n",
@@ -619,11 +632,23 @@ CANVAS_text()
 	    MOUSE_PARAM("GPVAL_X2_MAX", "gnuplot.plot_axis_x2max");
 	} else
 	    fprintf(gpoutfile, "gnuplot.plot_axis_x2min = \"none\"\n");
+	if (axis_array[SECOND_X_AXIS].linked_to_primary 
+	&&  axis_array[FIRST_X_AXIS].link_udf->at) {
+	    fprintf(gpoutfile, "gnuplot.x2_mapping = function(x) { return x; };");
+	    fprintf(gpoutfile, "  // replace returned value with %s\n",
+			axis_array[FIRST_X_AXIS].link_udf->definition);
+	}
 	if ((axis_array[SECOND_Y_AXIS].ticmode & TICS_MASK) != NO_TICS) {
 	    MOUSE_PARAM("GPVAL_Y2_MIN", "gnuplot.plot_axis_y2min");
 	    MOUSE_PARAM("GPVAL_Y2_MAX", "gnuplot.plot_axis_y2max");
 	} else
 	    fprintf(gpoutfile, "gnuplot.plot_axis_y2min = \"none\"\n");
+	if (axis_array[SECOND_Y_AXIS].linked_to_primary 
+	&&  axis_array[FIRST_Y_AXIS].link_udf->at) {
+	    fprintf(gpoutfile, "gnuplot.y2_mapping = function(y) { return y; };");
+	    fprintf(gpoutfile, "  // replace returned value with %s\n",
+			axis_array[FIRST_Y_AXIS].link_udf->definition);
+	}
 #undef MOUSE_PARAM
 
 	fprintf(gpoutfile, "gnuplot.plot_logaxis_x = %d;\n",
@@ -655,8 +680,16 @@ CANVAS_text()
 		: (mouse_mode == 5) ? "Time"
 		: "DateTime"
 		);
+	} else if (axis_array[FIRST_X_AXIS].datatype == DT_DMS) {
+	    fprintf(gpoutfile, "gnuplot.plot_timeaxis_x = \"%s\";\n",
+		(mouse_alt_string) ? mouse_alt_string : "DMS");
 	} else
 	    fprintf(gpoutfile, "gnuplot.plot_timeaxis_x = \"\";\n");
+	if (axis_array[FIRST_Y_AXIS].datatype == DT_DMS) {
+	    fprintf(gpoutfile, "gnuplot.plot_timeaxis_y = \"%s\";\n",
+		(mouse_alt_string) ? mouse_alt_string : "DMS");
+	} else
+	    fprintf(gpoutfile, "gnuplot.plot_timeaxis_y = \"\";\n");
 
     } /* End of section writing out variables for mousing */
 
@@ -848,6 +881,8 @@ CANVAS_linetype(int linetype)
     if (canvas_dashed) {
 	if (0 < linetype && linetype < 5)
 	    fprintf(gpoutfile, "DT(gnuplot.dashpattern%1d);\n",linetype+1);
+	else if (linetype == -1)	/* Axis */
+	    fprintf(gpoutfile, "DT(gnuplot.dashpattern3);\n");
 	else
 	    fprintf(gpoutfile, "DT(gnuplot.solid);\n");
     }
@@ -941,6 +976,17 @@ CANVAS_point(unsigned int x, unsigned int y, int number)
 		x, (canvas_ymax-y), width);
 	break;
     }
+
+    /* Hypertext support */
+    if (CANVAS_hypertext_text) {
+	/* EAM DEBUG: embedded \n produce illegal javascript output */
+	while (strchr(CANVAS_hypertext_text,'\n'))
+		*strchr(CANVAS_hypertext_text,'\n') = '\v';
+	fprintf(gpoutfile, "Hypertext(%d,%d,%.1f,\"%s\");\n",
+		x, (canvas_ymax-y), width, CANVAS_hypertext_text);
+	free(CANVAS_hypertext_text);
+	CANVAS_hypertext_text = NULL;
+    }
 }
 
 TERM_PUBLIC void
@@ -968,6 +1014,13 @@ CANVAS_put_text(unsigned int x, unsigned int y, const char *str)
 	return;
 
     CANVAS_finish();
+
+    /* ctx.fillText uses fillStyle rather than strokeStyle */
+    if (strcmp(canvas_state.previous_fill, canvas_state.color)) {
+	fprintf(gpoutfile, "ctx.fillStyle = \"%s\";\n", canvas_state.color);
+	strcpy(canvas_state.previous_fill, canvas_state.color);
+    }
+
     if (0 != canvas_text_angle) {
 	fprintf(gpoutfile,
 		"TR(%d,%d,%d,%.1f,\"%s\",\"",
@@ -1004,6 +1057,7 @@ TERM_PUBLIC void
 CANVAS_set_color(t_colorspec *colorspec)
 {
     rgb255_color rgb255;
+    canvas_state.alpha = 0.0;
 
     if (colorspec->type == TC_LT) {
 	CANVAS_linetype(colorspec->lt);
@@ -1012,6 +1066,7 @@ CANVAS_set_color(t_colorspec *colorspec)
 	rgb255.r = (colorspec->lt >> 16) & 0xff;
 	rgb255.g = (colorspec->lt >> 8) & 0xff;
 	rgb255.b = colorspec->lt & 0xff;
+	canvas_state.alpha = (double)((colorspec->lt >> 24) & 0xff)/255.;
     } else if (colorspec->type == TC_FRAC) {
 	rgb255maxcolors_from_gray(colorspec->value, &rgb255);
     } else
@@ -1022,7 +1077,11 @@ CANVAS_set_color(t_colorspec *colorspec)
 
     sprintf(canvas_state.color,"rgb(%03d,%03d,%03d)", rgb255.r, rgb255.g, rgb255.b);
     if (strcmp(canvas_state.color, canvas_state.previous_color)) {
-	fprintf(gpoutfile, "ctx.strokeStyle = \"%s\";\n", canvas_state.color);
+	if (canvas_state.alpha > 0)
+	    fprintf(gpoutfile, "ctx.strokeStyle = \"rgba(%11.11s,%4.2f)\";\n",
+			&canvas_state.color[4], 1.0 - canvas_state.alpha);
+	else
+	    fprintf(gpoutfile, "ctx.strokeStyle = \"%s\";\n", canvas_state.color);
 	strcpy(canvas_state.previous_color, canvas_state.color);
     }
     canvas_line_type = LT_UNDEFINED;
@@ -1060,7 +1119,10 @@ CANVAS_fillstyle(int style)
 			case 4: density = 0.50; break;
 		}	/* fall through */
 	case FS_SOLID:
-		if (density == 1) {
+		if (canvas_state.alpha > 0) {
+		    sprintf(fillcolor,"rgba(%11.11s,%4.2f)%c",
+			&canvas_state.color[4], 1.0 - canvas_state.alpha, '\0');
+		} else if (density == 1) {
 		    strcpy(fillcolor,canvas_state.color);
 		} else {
 		    int r = atoi(&canvas_state.color[4]);
@@ -1086,6 +1148,13 @@ CANVAS_filled_polygon(int points, gpiPoint *corners)
     int		i;
 
     CANVAS_finish();
+
+    /* FIXME: I do not understand why this is necessary, but without it */
+    /*        a dashed line followed by a filled area fails to fill.    */
+    if (canvas_dashed) {
+	fprintf(gpoutfile, "DT(gnuplot.solid);\n");
+	canvas_line_type = LT_UNDEFINED;
+    }
 
     if (corners->style != FS_OPAQUE && corners->style != FS_DEFAULT) {
 	char *fillcolor = CANVAS_fillstyle(corners->style);
@@ -1117,6 +1186,13 @@ TERM_PUBLIC void
 CANVAS_fillbox(int style, unsigned int x1, unsigned int y1, unsigned int width, unsigned int height)
 {
     char *fillcolor = CANVAS_fillstyle(style);
+
+    /* FIXME: I do not understand why this is necessary, but without it */
+    /*        a dashed line followed by a filled area fails to fill.    */
+	if (canvas_dashed) {
+	    fprintf(gpoutfile, "DT(gnuplot.solid);\n");
+	    canvas_line_type = LT_UNDEFINED;
+	}
 
     /* Since filled-rectangle is a primitive operation for the canvas element */
     /* it's worth making this a special case rather than using filled_polygon */
@@ -1188,6 +1264,52 @@ CANVAS_path(int p)
 		break;
     }
 }
+
+TERM_PUBLIC void
+CANVAS_hypertext(int type, const char *hypertext)
+{
+    if (type != TERM_HYPERTEXT_TOOLTIP)
+	return;
+
+    free(CANVAS_hypertext_text);
+    if (hypertext)
+	CANVAS_hypertext_text = gp_strdup(hypertext);
+    else
+	CANVAS_hypertext_text = NULL;
+}
+
+/* FIXME: The HTML5 canvas element did not originally provide any	*/
+/* support for text output, let alone fonts.There are now text routines	*/
+/* in the HTML5 draft spec, but they are not yet widely supported.	*/
+/* So for now we will accept a font request, but ignore it except for	*/
+/* the size.								*/
+/* Eventually the text calls will look something like			*/
+/*	ctx.font = "12pt Times";					*/
+/*	ctx.textAlign = "center";					*/
+/*	ctx.fillText( "Oh goody, text support.", x, y );		*/
+/*									*/
+TERM_PUBLIC int
+CANVAS_set_font(const char *newfont)
+{
+    int sep;
+
+	if (!newfont || !(*newfont))
+	    canvas_font_size = CANVAS_default_fsize;
+	else {
+	    sep = strcspn(newfont,",");
+	    if (newfont[sep] == ',') {
+		sscanf(&(newfont[sep+1]), "%lf", &canvas_font_size);
+		if (canvas_font_size <= 0)
+		    canvas_font_size = CANVAS_default_fsize;
+	    }
+	}
+
+	term->v_char = canvas_font_size * canvas_fontscale * CANVAS_OVERSAMPLE;
+	term->h_char = canvas_font_size * canvas_fontscale * 0.8 * CANVAS_OVERSAMPLE;
+
+    return 1;
+}
+
 
 /* Enhanced text mode support starts here */
 
@@ -1318,6 +1440,12 @@ ENHCANVAS_put_text(unsigned int x, unsigned int y, const char *str)
 	return;
     }
 
+    /* ctx.fillText uses fillStyle rather than strokeStyle */
+    if (strcmp(canvas_state.previous_fill, canvas_state.color)) {
+	fprintf(gpoutfile, "ctx.fillStyle = \"%s\";\n", canvas_state.color);
+	strcpy(canvas_state.previous_fill, canvas_state.color);
+    }
+
     CANVAS_move(x,y);
 
     /* Set up global variables needed by enhanced_recursion() */
@@ -1403,7 +1531,7 @@ TERM_TABLE_START(canvas_driver)
     CANVAS_text, null_scale, CANVAS_graphics, CANVAS_move, CANVAS_vector,
     CANVAS_linetype, CANVAS_put_text, CANVAS_text_angle,
     CANVAS_justify_text, CANVAS_point, do_arrow, 
-    set_font_null,
+    CANVAS_set_font,
     CANVAS_pointsize,
     TERM_CAN_MULTIPLOT|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH|TERM_CAN_DASH,
     NULL, NULL, CANVAS_fillbox, CANVAS_linewidth
@@ -1420,6 +1548,8 @@ TERM_TABLE_START(canvas_driver)
     , ENHCANVAS_OPEN, ENHCANVAS_FLUSH, do_enh_writec
     , CANVAS_layer
     , CANVAS_path		/* path */
+    , 1.0			/* Should this be CANVAS_OVERSAMPLE? */
+    , CANVAS_hypertext
 TERM_TABLE_END(canvas_driver)
 
 #undef LAST_TERM
@@ -1442,7 +1572,7 @@ START_HELP(canvas)
 "       set terminal canvas {size <xsize>, <ysize>} {background <rgb_color>}",
 "                           {font {<fontname>}{,<fontsize>}} | {fsize <fontsize>}",
 "                           {{no}enhanced} {linewidth <lw>}",
-"                           {rounded | butt}",
+"                           {rounded | butt | square}",
 "                           {solid | dashed {dashlength <dl>}}",
 "                           {standalone {mousing} | name '<funcname>'}",
 "                           {jsdir 'URL/for/javascripts'}",

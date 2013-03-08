@@ -1,5 +1,5 @@
 /*
- * $Id: scanner.h,v 1.7.2.1 2011/11/28 19:51:08 sfeam Exp $
+ * $Id: scanner.h,v 1.8 2011/11/28 19:49:53 sfeam Exp $
  */
 
 /* GNUPLOT - scanner.h */

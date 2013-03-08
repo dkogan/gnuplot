@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: color.c,v 1.98.2.2 2012/06/06 22:13:40 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: color.c,v 1.105 2013/02/28 05:30:40 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - color.c */
@@ -30,7 +30,6 @@ static char *RCSid() { return RCSid("$Id: color.c,v 1.98.2.2 2012/06/06 22:13:40
 #include "plot.h"
 #include "graph3d.h"
 #include "pm3d.h"
-#include "graphics.h"
 #include "term_api.h"
 #include "util3d.h"
 #include "alloc.h"
@@ -47,11 +46,6 @@ static t_sm_palette prev_palette = {
 	-1, -1, -1, -1, -1, -1, -1, -1,
 	(rgb_color *) 0, -1
     };
-
-
-#ifdef EXTENDED_COLOR_SPECS
-int supply_extended_color_specs = 0;
-#endif
 
 /* Internal prototype declarations: */
 
@@ -193,18 +187,19 @@ set_color(double gray)
 }
 
 void
-set_rgbcolor(int rgblt)
+set_rgbcolor(unsigned int rgbvalue)
 {
     t_colorspec color;
     if (!(term->set_color))
 	return;
     color.type = TC_RGB;
-    color.lt = rgblt;
+    *(unsigned int *)(&color.lt) = rgbvalue;
     color.value = 0;
     term->set_color(&color);
 }
 
-void ifilled_quadrangle(gpiPoint* icorners)
+void
+ifilled_quadrangle(gpiPoint* icorners)
 {
     if (default_fillstyle.fillstyle == FS_EMPTY)
 	icorners->style = FS_OPAQUE;
@@ -271,7 +266,7 @@ filled_polygon_3dcoords(int points, struct coordinate GPHUGE * coords)
 	icorners[i].y = y;
     }
 #ifdef EXTENDED_COLOR_SPECS
-    if (supply_extended_color_specs) {
+    if ((term->flags & TERM_EXTENDED_COLOR)) {
 	icorners[0].spec.gray = -1;	/* force solid color */
     }
 #endif
@@ -301,7 +296,7 @@ filled_polygon_3dcoords_zfixed(int points, struct coordinate GPHUGE * coords, do
 	icorners[i].y = y;
     }
 #ifdef EXTENDED_COLOR_SPECS
-    if (supply_extended_color_specs) {
+    if ((term->flags & TERM_EXTENDED_COLOR)) {
 	icorners[0].spec.gray = -1;	/* force solid color */
     }
 #endif
@@ -425,7 +420,7 @@ draw_inside_color_smooth_box_bitmap(FILE * out)
 	    corners[1].x = corners[2].x = GPMIN(xy_to,xy2+1);
 	}
 #ifdef EXTENDED_COLOR_SPECS
-	if (supply_extended_color_specs)
+	if ((term->flags & TERM_EXTENDED_COLOR))
 	    corners[0].spec.gray = -1;	/* force solid color */
 #endif
 	/* print the rectangle with the given colour */
@@ -517,7 +512,7 @@ cbtick_callback(
 	    if (axis_array[axis].manual_justify)
 		just = axis_array[axis].label.pos;
 	    write_multiline(x2+offsetx, y3+offsety, text,
-			    just, CENTRE, hrotate,
+			    just, JUST_CENTRE, hrotate,
 			    axis_array[axis].ticdef.font);
 	    if (hrotate)
 		(*term->text_angle)(0);
@@ -528,7 +523,7 @@ cbtick_callback(
 	    if (axis_array[axis].manual_justify)
 		just = axis_array[axis].label.pos;	    
 	    write_multiline(x3+offsetx, y2+offsety, text,
-			    just, CENTRE, 0.0,
+			    just, JUST_CENTRE, 0.0,
 			    axis_array[axis].ticdef.font);
 	}
 	term_apply_lp_properties(&border_lp);	/* border linetype */
@@ -731,3 +726,46 @@ draw_color_smooth_box(int plot_mode)
 
 }
 
+/*
+ * User-callable builtin color conversion 
+ */
+void
+f_hsv2rgb(union argument *arg)
+{
+    struct value h, s, v, result;
+    rgb_color color = {0., 0., 0.};
+
+    (void) arg;
+    (void) pop(&v);
+    (void) pop(&s);
+    (void) pop(&h);
+
+    if (h.type == INTGR)
+	color.r = h.v.int_val;
+    else if (h.type == CMPLX)
+	color.r = h.v.cmplx_val.real;
+    if (s.type == INTGR)
+	color.g = s.v.int_val;
+    else if (s.type == CMPLX)
+	color.g = s.v.cmplx_val.real;
+    if (v.type == INTGR)
+	color.b = v.v.int_val;
+    else if (v.type == CMPLX)
+	color.b = v.v.cmplx_val.real;
+
+    if (color.r < 0)
+	color.r = 0;
+    if (color.g < 0)
+	color.g = 0;
+    if (color.b < 0)
+	color.b = 0;
+    if (color.r > 1.)
+	color.r = 1.;
+    if (color.g > 1.)
+	color.g = 1.;
+    if (color.b > 1.)
+	color.b = 1.;
+
+    (void) Ginteger(&result, hsv2rgb(&color));
+    push(&result);
+}

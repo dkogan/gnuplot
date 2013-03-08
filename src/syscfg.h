@@ -1,5 +1,5 @@
 /*
- * $Id: syscfg.h,v 1.47.2.1 2011/12/11 11:41:03 markisch Exp $
+ * $Id: syscfg.h,v 1.48 2011/11/26 13:48:44 markisch Exp $
  */
 
 /* GNUPLOT - syscfg.h */

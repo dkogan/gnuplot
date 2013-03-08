@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util.c,v 1.99.2.3 2012/09/26 23:05:56 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util.c,v 1.109 2013/02/08 23:01:02 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util.c */
@@ -72,6 +72,8 @@ const char *current_prompt = NULL; /* to be set by read_line() */
 
 static void mant_exp __PROTO((double, double, TBOOLEAN, double *, int *, const char *));
 static void parse_sq __PROTO((char *));
+static TBOOLEAN utf8_getmore __PROTO((unsigned long * wch, const char **str, int nbytes));
+static char *utf8_strchrn __PROTO((const char *s, int N));
 
 /*
  * equals() compares string value of token number t_num with str[], and
@@ -214,9 +216,16 @@ is_definition(int t_num)
 void
 copy_str(char *str, int t_num, int max)
 {
-    int i = 0;
-    int start = token[t_num].start_index;
-    int count = token[t_num].length;
+    int i, start, count;
+
+    if (t_num >= num_tokens) {
+	*str = NUL;
+	return;
+    }
+
+    i = 0;
+    start = token[t_num].start_index;
+    count = token[t_num].length;
 
     if (count >= max) {
 	count = max - 1;
@@ -236,6 +245,12 @@ token_len(int t_num)
 {
     return (size_t)(token[t_num].length);
 }
+
+#ifdef NEXT
+/*
+ * quote_str() no longer has any callers in the core code.
+ * However, it is called by the next/openstep terminal.
+ */
 
 /*
  * quote_str() does the same thing as copy_str, except it ignores the
@@ -265,7 +280,7 @@ quote_str(char *str, int t_num, int max)
     else
 	parse_sq(str);
 }
-
+#endif
 
 /*
  * capture() copies into str[] the part of gp_input_line[] which lies between
@@ -499,17 +514,6 @@ mant_exp(
 
 /*}}} */
 
-/*
- * Kludge alert!!
- * Workaround until we have a better solution ...
- * Note: this assumes that all calls to sprintf in gprintf have
- * exactly three args. Lars
- */
-#ifdef HAVE_SNPRINTF
-# define sprintf(str,fmt,arg) \
-    if (snprintf((str),count,(fmt),(arg)) > count) \
-      fprintf (stderr,"%s:%d: Warning: too many digits for format\n",__FILE__,__LINE__)
-#endif
 
 /*{{{  gprintf */
 /* extended s(n)printf */
@@ -519,27 +523,40 @@ mant_exp(
  * '1.0*10^1'.  This causes problems for people using the %T part,
  * only, with logscaled axes, in combination with the occasional
  * round-off error. */
+/* EAM Nov 2012:
+ * Unbelievably, the count parameter has been silently ignored or
+ * improperly applied ever since this routine was introduced back
+ * in version 3.7.  Now fixed to prevent buffer overflow.
+ */
 void
 gprintf(
-    char *dest,
+    char *outstring,
     size_t count,
     char *format,
     double log10_base,
     double x)
 {
+    char tempdest[MAX_LINE_LEN + 1];
     char temp[MAX_LINE_LEN + 1];
     char *t;
     TBOOLEAN seen_mantissa = FALSE; /* remember if mantissa was already output */
     double stored_power_base = 0;   /* base for the last mantissa output*/
     int stored_power = 0;	/* power matching the mantissa output earlier */
-    TBOOLEAN got_hash = FALSE;				   
+    TBOOLEAN got_hash = FALSE;
+
+    char *dest  = &tempdest[0];
+    char *limit = &tempdest[MAX_LINE_LEN];
+#define remaining_space (size_t)(limit-dest)
+
+    *dest = '\0';
 
     set_numeric_locale();
 
     for (;;) {
 	/*{{{  copy to dest until % */
 	while (*format != '%')
-	    if (!(*dest++ = *format++)) {
+	    if (!(*dest++ = *format++) || (remaining_space == 0)) {
+		safe_strncpy(outstring,tempdest,count);
 		reset_numeric_locale();
 		return;		/* end of format */
 	    }
@@ -561,7 +578,7 @@ gprintf(
 	    format++;
 	    got_hash = TRUE;
 	}
-	/* dont put isdigit first since sideeffect in macro is bad */
+	/* dont put isdigit first since side effect in macro is bad */
 	while (*++format == '.' || isdigit((unsigned char) *format)
 	       || *format == '-' || *format == '+' || *format == ' '
 	       || *format == '\'')
@@ -580,11 +597,11 @@ gprintf(
 		t[1] = 'l';
 		t[2] = *format;
 		t[3] = '\0';
-		sprintf(dest, temp, (long long) x);
+		snprintf(dest, remaining_space, temp, (long long) x);
 	    } else {
 		t[0] = *format;
 		t[1] = '\0';
-		sprintf(dest, temp, (int) x);
+		snprintf(dest, remaining_space, temp, (int) x);
 	    }
 	    break;
 	    /*}}} */
@@ -597,7 +614,7 @@ gprintf(
 	case 'G':
 	    t[0] = *format;
 	    t[1] = 0;
-	    sprintf(dest, temp, x);
+	    snprintf(dest, remaining_space, temp, x);
 	    break;
 	    /*}}} */
 	    /*{{{  l --- mantissa to current log base */
@@ -611,7 +628,7 @@ gprintf(
 		mant_exp(stored_power_base, x, FALSE, &mantissa,
 				&stored_power, temp);
 		seen_mantissa = TRUE;
-		sprintf(dest, temp, mantissa);
+		snprintf(dest, remaining_space, temp, mantissa);
 		break;
 	    }
 	    /*}}} */
@@ -626,7 +643,7 @@ gprintf(
 		mant_exp(stored_power_base, x, FALSE, &mantissa,
 				&stored_power, temp);
 		seen_mantissa = TRUE;
-		sprintf(dest, temp, mantissa);
+		snprintf(dest, remaining_space, temp, mantissa);
 		break;
 	    }
 	    /*}}} */
@@ -641,7 +658,7 @@ gprintf(
 		mant_exp(stored_power_base, x, TRUE, &mantissa,
 				&stored_power, temp);
 		seen_mantissa = TRUE;
-		sprintf(dest, temp, mantissa);
+		snprintf(dest, remaining_space, temp, mantissa);
 		break;
 	    }
 	    /*}}} */
@@ -656,7 +673,7 @@ gprintf(
 		mant_exp(stored_power_base, x, FALSE, &mantissa,
 				&stored_power, temp);
 		seen_mantissa = TRUE;
-		sprintf(dest, temp, mantissa);
+		snprintf(dest, remaining_space, temp, mantissa);
 		break;
 	    }
 	    /*}}} */
@@ -675,7 +692,7 @@ gprintf(
 		else
 		    stored_power_base = log10_base;
 		    mant_exp(log10_base, x, FALSE, NULL, &power, "%.0f");
-		sprintf(dest, temp, power);
+		snprintf(dest, remaining_space, temp, power);
 		break;
 	    }
 	    /*}}} */
@@ -693,7 +710,7 @@ gprintf(
 			int_error(NO_CARET, "Format character mismatch: %%T is only valid with %%t");
 		else
 		    mant_exp(1.0, x, FALSE, NULL, &power, "%.0f");
-		sprintf(dest, temp, power);
+		snprintf(dest, remaining_space, temp, power);
 		break;
 	    }
 	    /*}}} */
@@ -711,7 +728,7 @@ gprintf(
 			int_error(NO_CARET, "Format character mismatch: %%S is only valid with %%s");
 		else
 		    mant_exp(1.0, x, TRUE, NULL, &power, "%.0f");
-		sprintf(dest, temp, power);
+		snprintf(dest, remaining_space, temp, power);
 		break;
 	    }
 	    /*}}} */
@@ -734,7 +751,7 @@ gprintf(
 		    /* -18 -> 0, 0 -> 6, +18 -> 12, ... */
 		    /* HBB 20010121: avoid division of -ve ints! */
 		    power = (power + 24) / 3;
-		    sprintf(dest, temp, "yzafpnum kMGTPEZY"[power]);
+		    snprintf(dest, remaining_space, temp, "yzafpnum kMGTPEZY"[power]);
 		} else {
 		    /* please extend the range ! */
 		    /* name  power   name  power
@@ -749,7 +766,7 @@ gprintf(
 		       milli   -3    kilo    3   */
 
 		    /* fall back to simple exponential */
-		    sprintf(dest, "e%+02d", power);
+		    snprintf(dest, remaining_space, "e%+02d", power);
 		}
 		break;
 	    }
@@ -781,12 +798,12 @@ gprintf(
 		       Gibi   3
 		       Mebi   2
 		       kibi   1   */
-		    sprintf(dest, temp, " kMGTPEZY"[power]);
+		    snprintf(dest, remaining_space, temp, " kMGTPEZY"[power]);
 		} else if (power > 8) {
 		    /* for the larger values, print x2^{10}Gi for example */
-		    sprintf(dest, "x2^{%d}Yi", power-8);
+		    snprintf(dest, remaining_space, "x2^{%d}Yi", power-8);
 		} else if (power < 0) {
-		    sprintf(dest, "x2^{%d}", power*10);
+		    snprintf(dest, remaining_space, "x2^{%d}", power*10);
 		}
 
 		break;
@@ -797,7 +814,7 @@ gprintf(
 	    {
 		t[0] = 'f';
 		t[1] = 0;
-		sprintf(dest, temp, x / M_PI);
+		snprintf(dest, remaining_space, temp, x / M_PI);
 		break;
 	    }
 	    /*}}} */
@@ -806,38 +823,38 @@ gprintf(
 	   int_error(NO_CARET, "Bad format character");
 	} /* switch */
 	/*}}} */
-	
+
 	if (got_hash && (format != strpbrk(format,"oeEfFgG"))) {
 	   reset_numeric_locale();
 	   int_error(NO_CARET, "Bad format character");
 	}
 
-    /* change decimal `.' to the actual entry in decimalsign */
+    /* change decimal '.' to the actual entry in decimalsign */
 	if (decimalsign != NULL) {
-	    char *dotpos1 = dest, *dotpos2;
+	    char *dotpos1 = dest;
+	    char *dotpos2;
 	    size_t newlength = strlen(decimalsign);
-	    int dot;
 
 	    /* dot is the default decimalsign we will be replacing */
-	    dot = *get_decimal_locale();
+	    int dot = *get_decimal_locale();
 
 	    /* replace every dot by the contents of decimalsign */
 	    while ((dotpos2 = strchr(dotpos1,dot)) != NULL) {
-		size_t taillength = strlen(dotpos2);
-
-		dotpos1 = dotpos2 + newlength;
-		/* test if the new value for dest would be too long */
-		if (dotpos1 - dest + taillength > count)
-		    int_error(NO_CARET,
-			      "format too long due to long decimalsign string");
-		/* move tail end of string out of the way */
-		memmove(dotpos1, dotpos2 + 1, taillength);
-		/* insert decimalsign */
-		memcpy(dotpos2, decimalsign, newlength);
+		if (newlength == 1) {	/* The normal case */
+		    *dotpos2 = *decimalsign;
+		    dotpos1++;
+		} else {		/* Some multi-byte decimal marker */
+		    size_t taillength = strlen(dotpos2);
+		    dotpos1 = dotpos2 + newlength;
+		    if (dotpos1 + taillength > limit)
+			int_error(NO_CARET,
+				  "format too long due to decimalsign string");
+		    /* move tail end of string out of the way */
+		    memmove(dotpos1, dotpos2 + 1, taillength);
+		    /* insert decimalsign */
+		    memcpy(dotpos2, decimalsign, newlength);
+		}
 	    }
-	    /* clear temporary variables for safety */
-	    dotpos1=NULL;
-	    dotpos2=NULL;
 	}
 
 	/* this was at the end of every single case, before: */
@@ -845,13 +862,13 @@ gprintf(
 	++format;
     } /* for ever */
 
+    /* Copy as much as fits */
+    safe_strncpy(outstring, tempdest, count);
+
     reset_numeric_locale();
 }
 
 /*}}} */
-#ifdef HAVE_SNPRINTF
-# undef sprintf
-#endif
 
 /* some macros for the error and warning functions below
  * may turn this into a utility function later
@@ -862,7 +879,7 @@ do {							\
 	    current_prompt ? current_prompt : "",	\
 	    gp_input_line);				\
 } while (0)
-    
+
 #define PRINT_SPACES_UNDER_PROMPT		\
 do {						\
     const char *p;				\
@@ -996,11 +1013,7 @@ int_error(int t_num, const char str[], va_dcl)
     va_end(args);
 #else
     fprintf(stderr, str, a1, a2, a3, a4, a5, a6, a7, a8);
-#ifdef HAVE_SNPRINTF
     snprintf(error_message, sizeof(error_message), str, a1, a2, a3, a4, a5, a6, a7, a8);
-#else
-    sprintf(error_message, str, a1, a2, a3, a4, a5, a6, a7, a8);
-#endif
 #endif
 
     fputs("\n\n", stderr);
@@ -1010,6 +1023,7 @@ int_error(int t_num, const char str[], va_dcl)
     df_reset_after_error();
     eval_reset_after_error();
     clause_reset_after_error();
+    parse_reset_after_error();
     scanning_range_in_progress = FALSE;
     inside_zoom = FALSE;
 
@@ -1237,7 +1251,7 @@ existdir (const char *name)
 }
 
 char *
-getusername ()
+getusername()
 {
     char *username = NULL;
 
@@ -1261,7 +1275,7 @@ TBOOLEAN contains8bit(const char *s)
 
 /* Read from second byte to end of UTF-8 sequence.
    used by utf8toulong() */
-TBOOLEAN
+static TBOOLEAN
 utf8_getmore (unsigned long * wch, const char **str, int nbytes)
 {
   int i;
@@ -1270,7 +1284,7 @@ utf8_getmore (unsigned long * wch, const char **str, int nbytes)
 
   for (i = 0; i < nbytes; i++) {
     c = (unsigned char) **str;
-  
+
     if ((c & 0xc0) != 0x80) {
       *wch = INVALID_UTF8;
       return FALSE;
@@ -1357,7 +1371,7 @@ gp_strlen(const char *s)
  * Returns a pointer to the Nth character of s
  * or a pointer to the trailing \0 if N is too large
  */
-char *
+static char *
 utf8_strchrn(const char *s, int N)
 {
     int i = 0, j = 0;

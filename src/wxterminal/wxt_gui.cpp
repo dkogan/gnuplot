@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.91.2.7 2012/09/08 04:50:55 sfeam Exp $
+ * $Id: wxt_gui.cpp,v 1.109 2013/02/20 05:25:11 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -132,8 +132,23 @@ typedef struct {
 } wxtBoundingBox;
 wxtBoundingBox *wxt_key_boxes = NULL;
 int wxt_max_key_boxes = 0;
+
+/* Hypertext tracking variables */
+typedef struct {
+	unsigned int x;
+	unsigned int y;
+	unsigned int size;
+} wxtAnchorPoint;
+wxtAnchorPoint *wxt_anchors = NULL;
+int wxt_n_anchors = 0;
+int wxt_max_anchors = 0;
+TBOOLEAN pending_href = FALSE;
+const char *wxt_display_hypertext = NULL;
+wxtAnchorPoint wxt_display_anchor = {0,0,0};
+
 #else
 #define wxt_update_key_box(x,y)
+#define wxt_update_anchors(x,y,size)
 #endif
 
 #ifdef __WXMAC__
@@ -358,7 +373,7 @@ void wxtApp::OnCreateWindow( wxCommandEvent& event )
 	 * Note : the frame must be shown for this to succeed */
 	if (!window->frame->panel->plot.success)
 		window->frame->panel->wxt_cairo_create_context();
-	
+
 	/* tell the other thread we have finished */
 	wxMutexLocker lock(*(window->mutex));
 	window->condition->Broadcast();
@@ -446,6 +461,21 @@ wxtFrame::wxtFrame( const wxString& title, wxWindowID id )
 	SetSizeHints(100, 100);
 
 	FPRINTF((stderr,"wxtFrame constructor 3\n"));
+}
+
+
+wxtFrame::~wxtFrame()
+{
+	/* Automatically remove frame from window list. */
+	std::vector<wxt_window_t>::iterator wxt_iter;
+
+	for(wxt_iter = wxt_window_list.begin();
+		wxt_iter != wxt_window_list.end(); wxt_iter++) {
+		if (this == wxt_iter->frame) {
+			wxt_window_list.erase(wxt_iter);
+			break;
+		}
+	}
 }
 
 
@@ -569,6 +599,11 @@ void wxtFrame::OnClose( wxCloseEvent& event )
 		}
 		this->Destroy();
 	}
+
+#if defined(_Windows) && !defined(WGP_CONSOLE)
+	/* Close text window if this was the last plot window. */
+	WinPersistTextClose();
+#endif
 }
 
 /* when the window is resized,
@@ -703,6 +738,7 @@ void wxtPanel::ClearCommandlist()
 	for(iter = command_list.begin(); iter != command_list.end(); ++iter) {
 		if (iter->command == command_enhanced_put_text ||
 			iter->command == command_put_text ||
+			iter->command == command_hypertext ||
 			iter->command == command_set_font)
 			delete[] iter->string;
 		if (iter->command == command_filled_polygon)
@@ -749,7 +785,7 @@ void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 		vY = upd.GetY();
 		vW = upd.GetW();
 		vH = upd.GetH();
-	
+
 		FPRINTF((stderr,"OnPaint %d,%d,%d,%d\n",vX,vY,vW,vH));
 		/* Repaint this rectangle */
 		if (gdkpixmap)
@@ -872,7 +908,7 @@ void wxtPanel::OnSize( wxSizeEvent& event )
 	GetSize(&(plot.device_xmax),&(plot.device_ymax));
 
 	double new_xscale, new_yscale;
-	
+
 	new_xscale = ((double) plot.device_xmax)*plot.oversampling_scale/((double) plot.xmax);
 	new_yscale = ((double) plot.device_ymax)*plot.oversampling_scale/((double) plot.ymax);
 
@@ -900,6 +936,9 @@ void wxtPanel::OnMotion( wxMouseEvent& event )
 	/* Get and store mouse position for _put_tmp_text() and key events (ruler) */
 	mouse_x = event.GetX();
 	mouse_y = event.GetY();
+	int xnow = (int)gnuplot_x( &plot, mouse_x );
+	int ynow = (int)gnuplot_y( &plot, mouse_y );
+	bool buttondown = event.LeftIsDown() || event.RightIsDown() || event.MiddleIsDown();
 
 	UpdateModifiers(event);
 
@@ -909,9 +948,12 @@ void wxtPanel::OnMotion( wxMouseEvent& event )
 
 	/* informs gnuplot */
 	wxt_exec_event(GE_motion,
-		(int)gnuplot_x( &plot, mouse_x ),
-		(int)gnuplot_y( &plot, mouse_y ),
+		xnow, ynow,
 		0, 0, this->GetId());
+
+	/* Check to see if the mouse is over a hypertext anchor point */
+	if (wxt_n_anchors > 0 && !buttondown)
+		wxt_check_for_anchors(xnow, ynow);
 }
 
 /* mouse "click" event */
@@ -1119,7 +1161,7 @@ void wxtPanel::OnKeyDownChar( wxKeyEvent &event )
 		WXK_GPKEYCODE(WXK_NUMPAD_F2,GP_KP_F2);
 		WXK_GPKEYCODE(WXK_NUMPAD_F3,GP_KP_F3);
 		WXK_GPKEYCODE(WXK_NUMPAD_F4,GP_KP_F4);
-		
+
 		WXK_GPKEYCODE(WXK_NUMPAD_INSERT,GP_KP_Insert);
 		WXK_GPKEYCODE(WXK_NUMPAD_END,GP_KP_End);
 		WXK_GPKEYCODE(WXK_NUMPAD_DOWN,GP_KP_Down);
@@ -1130,7 +1172,7 @@ void wxtPanel::OnKeyDownChar( wxKeyEvent &event )
 		WXK_GPKEYCODE(WXK_NUMPAD_HOME,GP_KP_Home);
 		WXK_GPKEYCODE(WXK_NUMPAD_UP,GP_KP_Up);
 		WXK_GPKEYCODE(WXK_NUMPAD_PAGEUP,GP_KP_Page_Up);
-		
+
 		WXK_GPKEYCODE(WXK_NUMPAD_DELETE,GP_KP_Delete);
 		WXK_GPKEYCODE(WXK_NUMPAD_EQUAL,GP_KP_Equal);
 		WXK_GPKEYCODE(WXK_NUMPAD_MULTIPLY,GP_KP_Multiply);
@@ -1188,7 +1230,7 @@ void wxtPanel::OnKeyDownChar( wxKeyEvent &event )
 }
 
 /* --------------------------------------------------------
- * Bookkeeping for clickable hot spots
+ * Bookkeeping for clickable hot spots and hypertext anchors
  * --------------------------------------------------------*/
 
 /* Initialize boxes starting from i */
@@ -1211,9 +1253,9 @@ static void wxt_initialize_hidden(int i)
  */
 static void wxt_update_key_box( unsigned int x, unsigned int y )
 {
-	if (wxt_cur_plotno >= wxt_max_key_boxes) {
-		wxt_max_key_boxes += 10;
-		wxt_key_boxes = (wxtBoundingBox *)realloc(wxt_key_boxes, 
+	if (wxt_max_key_boxes <= wxt_cur_plotno) {
+		wxt_max_key_boxes = wxt_cur_plotno + 10;
+		wxt_key_boxes = (wxtBoundingBox *)realloc(wxt_key_boxes,
 				wxt_max_key_boxes * sizeof(wxtBoundingBox));
 		wxt_initialize_key_boxes(wxt_cur_plotno);
 		wxt_initialize_hidden(wxt_cur_plotno);
@@ -1224,6 +1266,23 @@ static void wxt_update_key_box( unsigned int x, unsigned int y )
 	if (x > bb->right) bb->right = x;
 	if (y < bb->ybot)  bb->ybot = y;
 	if (y > bb->ytop)  bb->ytop = y;
+}
+
+/* Keep a list of hypertext anchor points so that we can
+ * detect if the mouse is hovering over one of them.
+ * Called when we build the display list, not when we execute it.
+ */
+static void wxt_update_anchors( unsigned int x, unsigned int y, unsigned int size )
+{
+	if (wxt_n_anchors >= wxt_max_anchors) {
+		wxt_max_anchors += 10;
+		wxt_anchors = (wxtAnchorPoint *)realloc(wxt_anchors,
+				wxt_max_anchors * sizeof(wxtAnchorPoint));
+	}
+	wxt_anchors[wxt_n_anchors].x = x;
+	wxt_anchors[wxt_n_anchors].y = y;
+	wxt_anchors[wxt_n_anchors].size = size;
+	wxt_n_anchors++;
 }
 
 /* Called from wxtPanel::OnLeftDown
@@ -1250,6 +1309,24 @@ static void wxt_check_for_toggle(unsigned int x, unsigned int y)
 	}
 }
 
+/* Called from wxtPanel::OnMotion
+ * If the mouse is hovering over a hypertext anchor point,
+ * trigger a refresh so that the text box will be drawn.
+ */
+static void wxt_check_for_anchors(unsigned int x, unsigned int y)
+{
+	int i;
+	TBOOLEAN refresh = FALSE;
+	for (i=0; i<wxt_n_anchors; i++) {
+		if ((abs((int)x - (int)wxt_anchors[i].x) < wxt_anchors[i].size)
+		&&  (abs((int)y - (int)wxt_anchors[i].y) < wxt_anchors[i].size)) {
+			refresh = TRUE;
+		}
+	}
+	/* FIXME: Surely we can be more clever than refreshing every time! */
+	if (refresh)
+		wxt_current_panel->wxt_cairo_refresh();
+}
 
 #endif /*USE_MOUSE*/
 
@@ -1332,7 +1409,7 @@ void wxtPanel::RaiseConsoleWindow()
 	/* now test for GNOME multitab console */
 	/* ... if somebody bothers to implement it ... */
 	/* we are not running in any known (implemented) multitab console */
-	
+
 	if (windowid) {
 		gdk_window_raise(gdk_window_foreign_new(windowid));
 		gdk_window_focus(gdk_window_foreign_new(windowid), GDK_CURRENT_TIME);
@@ -1593,7 +1670,6 @@ void wxt_init()
 
 # ifdef USE_MOUSE
 		int filedes[2];
-		char buf;
 
 	       if (pipe(filedes) == -1) {
 			fprintf(stderr, "Pipe error, mousing will not work\n");
@@ -1724,7 +1800,7 @@ void wxt_init()
 	wxt_current_plot->hinting = hinting_setting;
 
 #ifdef HAVE_LOCALE_H
-	/* when wxGTK was initialised above, GTK+ also set the locale of the 
+	/* when wxGTK was initialised above, GTK+ also set the locale of the
 	 * program itself;  we must revert it */
 	if (wxt_status == STATUS_UNINITIALIZED) {
 		extern char *current_locale;
@@ -1766,7 +1842,7 @@ void wxt_graphics()
 
 	/* set the line properties */
 	/* FIXME: should this be in wxt_settings_apply() ? */
-	wxt_current_plot->rounded = wxt_rounded;
+	wxt_current_plot->linecap = wxt_linecap;
 
 	/* background as given by set term */
 	wxt_current_plot->background = wxt_rgb_background;
@@ -1808,6 +1884,9 @@ void wxt_graphics()
 	else
 		wxt_initialize_hidden(0);
 
+	/* Clear the count of hypertext anchor points */
+	wxt_n_anchors = 0;
+
 	wxt_sigint_check();
 	wxt_sigint_restore();
 
@@ -1831,7 +1910,7 @@ void wxt_text()
 	/* Save a snapshot of the axis state so that we can continue
 	 * to update mouse cursor coordinates even though the plot is not active */
 	wxt_current_window->axis_mask = wxt_axis_mask;
-	memcpy( wxt_current_window->axis_state, 
+	memcpy( wxt_current_window->axis_state,
 	 	wxt_axis_state, sizeof(wxt_axis_state) );
 #endif
 
@@ -1985,7 +2064,7 @@ void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 		* we get stuck in an infinite loop) and try again. */
 
 		while (*(string = enhanced_recursion((char*)string, TRUE, wxt_current_plot->fontname,
-				wxt_current_plot->fontsize * wxt_set_fontscale, 
+				wxt_current_plot->fontsize * wxt_set_fontscale,
 				0.0, TRUE, TRUE, 0))) {
 			wxt_enhanced_flush();
 
@@ -2040,6 +2119,7 @@ void wxt_linetype(int lt)
 
 	temp_command.command = command_color;
 	temp_command.color = gp_cairo_linetype2color( lt );
+	temp_command.double_value = 0.0; // alpha
 	wxt_command_push(temp_command);
 }
 
@@ -2109,7 +2189,7 @@ int wxt_set_font (const char *font)
 	/* the returned int is not used anywhere */
 	return 1;
 }
-	
+
 
 int wxt_justify_text(enum JUSTIFY mode)
 {
@@ -2138,6 +2218,13 @@ void wxt_point(unsigned int x, unsigned int y, int pointstyle)
 	temp_command.integer_value = pointstyle;
 
 	wxt_command_push(temp_command);
+
+	if (pending_href) {
+		/* FIXME:  How to convert current pointsize to term coords? */
+		int size = 400;
+		wxt_update_anchors(x, y, size);
+		pending_href = FALSE;
+	}
 }
 
 void wxt_pointsize(double ptsize)
@@ -2163,7 +2250,7 @@ void wxt_linewidth(double lw)
 	gp_command temp_command;
 
 	temp_command.command = command_linewidth;
-	temp_command.double_value = lw;
+	temp_command.double_value = lw * wxt_lw;
 
 	wxt_command_push(temp_command);
 }
@@ -2213,6 +2300,7 @@ void wxt_set_color(t_colorspec *colorspec)
 
 	rgb_color rgb1;
 	gp_command temp_command;
+	double alpha = 0.0;
 
 	if (colorspec->type == TC_LT) {
 		rgb1 = gp_cairo_linetype2color(colorspec->lt);
@@ -2222,10 +2310,12 @@ void wxt_set_color(t_colorspec *colorspec)
 		rgb1.r = (double) ((colorspec->lt >> 16) & 0xff)/255;
 		rgb1.g = (double) ((colorspec->lt >> 8) & 0xff)/255;
 		rgb1.b = (double) ((colorspec->lt) & 0xff)/255;
+		alpha = (double) ((colorspec->lt >> 24) & 0xff)/255;
 	} else return;
 
 	temp_command.command = command_color;
 	temp_command.color = rgb1;
+	temp_command.double_value = alpha;
 
 	wxt_command_push(temp_command);
 }
@@ -2333,6 +2423,26 @@ void wxt_layer(t_termlayer layer)
 	temp_command.integer_value = layer;
 	wxt_command_push(temp_command);
 }
+
+void wxt_hypertext(int type, const char * text)
+{
+	if (wxt_status != STATUS_OK)
+		return;
+
+	if (type != TERM_HYPERTEXT_TOOLTIP)
+		return;
+
+	gp_command temp_command;
+
+	temp_command.command = command_hypertext;
+	temp_command.integer_value = type;
+	temp_command.string = new char[strlen(text)+1];
+	strcpy(temp_command.string, text);
+
+	wxt_command_push(temp_command);
+	pending_href = TRUE;
+}
+
 
 #ifdef USE_MOUSE
 /* Display temporary text, after
@@ -2512,6 +2622,11 @@ void wxtPanel::wxt_cairo_refresh()
 	wxt_initialize_key_boxes(0);
 #endif
 
+	/* Initialize the hypertext tracking mechanism */
+	wxt_display_hypertext = NULL;
+	wxt_display_anchor.x = 0;
+	wxt_display_anchor.y = 0;
+
 	command_list_mutex.Lock();
 	command_list_t::iterator wxt_iter; /*declare the iterator*/
 	for(wxt_iter = command_list.begin(); wxt_iter != command_list.end(); ++wxt_iter) {
@@ -2543,6 +2658,10 @@ void wxtPanel::wxt_cairo_refresh()
 	gp_cairo_stroke(&plot);
 	/* and don't forget to draw the polygons if draw_polygon was the last command */
 	gp_cairo_end_polygon(&plot);
+
+	/* If we detected the mouse over a hypertext anchor, draw it now. */
+	if (wxt_display_hypertext)
+		wxt_cairo_draw_hypertext();
 
 /* the following is a test for a bug in cairo when drawing to a gdkpixmap */
 #if 0
@@ -2645,15 +2764,14 @@ void wxtPanel::wxt_cairo_refresh()
 void wxtPanel::wxt_cairo_exec_command(gp_command command)
 {
 	static JUSTIFY text_justification_mode = LEFT;
+	static char *current_href = NULL;
 
 	switch ( command.command ) {
 	case command_color :
-		gp_cairo_set_color(&plot,command.color);
+		gp_cairo_set_color(&plot,command.color,command.double_value);
 		return;
 	case command_filled_polygon :
 		if (wxt_in_key_sample) {
-			int x1 = command.corners[0].x;
-			int y1 = command.corners[0].y;
 			wxt_update_key_box(command.x1 - term->h_tic, command.y1 - term->v_tic);
 			wxt_update_key_box(command.x1 + term->h_tic, command.y1 + term->v_tic);
 		}
@@ -2680,25 +2798,44 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 	case command_pointsize :
 		gp_cairo_set_pointsize(&plot, command.double_value);
 		return;
+	case command_hypertext :
+		current_href = command.string;
+		return;
 	case command_point :
 		if (wxt_in_key_sample) {
 			wxt_update_key_box(command.x1 - term->h_tic, command.y1 - term->v_tic);
 			wxt_update_key_box(command.x1 + term->h_tic, command.y1 + term->v_tic);
 		}
 		gp_cairo_draw_point(&plot, command.x1, command.y1, command.integer_value);
+		/*
+		 * If we detect that we have just drawn a point with active hypertext,
+		 * save the position and the text to draw after everything else.
+		 */
+		if (current_href && !wxt_in_key_sample) {
+			int xnow = gnuplot_x(&plot, mouse_x);
+			int ynow = term->ymax - gnuplot_y(&plot, mouse_y);
+			int size = 3 * plot.pointsize * plot.oversampling_scale;
+			if (abs(xnow - (int)command.x1) < size && abs(ynow - (int)command.y1) < size) {
+				wxt_display_hypertext = current_href;
+				wxt_display_anchor.x = command.x1;
+				wxt_display_anchor.y = command.y1;
+			}
+			current_href = NULL;
+		}
 		return;
 	case command_justify :
 		gp_cairo_set_justify(&plot,command.mode);
 		text_justification_mode = command.mode;
 		return;
 	case command_put_text :
+	case command_enhanced_put_text :
 		if (wxt_in_key_sample) {
 			int slen = strlen(command.string) * term->h_char * 0.75;
 			if (text_justification_mode == RIGHT) slen = -slen;
 			wxt_update_key_box(command.x1, command.y1);
 			wxt_update_key_box(command.x1 + slen, command.y1 - term->v_tic);
 		}
-		gp_cairo_draw_text(&plot, command.x1, command.y1, command.string);
+		gp_cairo_draw_text(&plot, command.x1, command.y1, command.string, NULL, NULL);
 		return;
 	case command_enhanced_init :
 		gp_cairo_enhanced_init(&plot, command.integer_value);
@@ -2752,6 +2889,7 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 		case TERM_LAYER_BEFORE_PLOT:
 				wxt_cur_plotno++;
 				wxt_in_plot = TRUE;
+				current_href = NULL;
 				break;
 		case TERM_LAYER_AFTER_PLOT:
 				wxt_in_plot = FALSE;
@@ -2769,6 +2907,32 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 	}
 }
 
+void wxtPanel::wxt_cairo_draw_hypertext()
+{
+	/* FIXME: Properly, we should save and restore the plot properties, */
+	/* but since this box is the very last thing in the plot....        */
+	rgb_color grey = {.9, .9, .9};
+	int width = 0;
+	int height = 0;
+
+	plot.justify_mode = LEFT;
+	gp_cairo_draw_text(&plot,
+		wxt_display_anchor.x + term->h_char,
+		wxt_display_anchor.y + term->v_char / 2,
+		wxt_display_hypertext, &width, &height);
+
+	gp_cairo_set_color(&plot, grey, 0.3);
+	gp_cairo_draw_fillbox(&plot,
+		wxt_display_anchor.x + term->h_char,
+		wxt_display_anchor.y + height,
+		width, height, FS_OPAQUE);
+
+	gp_cairo_set_color(&plot, gp_cairo_linetype2color(-1), 0.0);
+	gp_cairo_draw_text(&plot,
+		wxt_display_anchor.x + term->h_char,
+		wxt_display_anchor.y + term->v_char / 2,
+		wxt_display_hypertext, NULL, NULL);
+}
 
 /* given a plot number (id), return the associated plot structure */
 wxt_window_t* wxt_findwindowbyid(wxWindowID id)
@@ -2854,7 +3018,7 @@ void wxt_raise_terminal_group()
 	for(wxt_iter = wxt_window_list.begin(); wxt_iter != wxt_window_list.end(); wxt_iter++) {
 		FPRINTF((stderr,"wxt : raise window %d\n",wxt_iter->id));
 		wxt_iter->frame->Show(true);
-		/* FIXME Why does wxt_iter doesn't work directly ? */
+		/* FIXME Why does wxt_iter not work directly? */
 		wxt_raise_window(&(*wxt_iter),true);
 	}
 	wxt_MutexGuiLeave();
@@ -2932,7 +3096,7 @@ void wxt_close_terminal_window(int number)
 }
 
 
-/* The following two routines allow us to update the cursor position 
+/* The following two routines allow us to update the cursor position
  * in the specified window even if the window is not active
  */
 
@@ -2942,7 +3106,7 @@ static double mouse_to_axis(int mouse_coord, wxt_axis_state_t *axis)
 
 	if (axis->term_scale == 0.0)
 	    return 0;
-	axis_coord = axis->min 
+	axis_coord = axis->min
 	           + ((double)mouse_coord - axis->term_lower) / axis->term_scale;
 	if (axis->logbase > 0)
 		axis_coord = exp(axis_coord * axis->logbase);
@@ -2958,7 +3122,7 @@ static void wxt_update_mousecoords_in_window(int number, int mx, int my)
 		return;
 
 	if ((window = wxt_findwindowbyid(number))) {
-		
+
 		/* TODO: rescale mx and my using stored per-plot scale info */
 		char mouse_format[66];
 		char *m = mouse_format;
@@ -3097,7 +3261,7 @@ int wxtPanel::wxt_cairo_create_platform_context()
 
 	/* free gdkpixmap */
 	wxt_cairo_free_platform_context();
-	
+
 	/* GetWindow is a wxGTK specific wxDC method that returns
 	 * the GdkWindow on which painting should be done */
 
@@ -3391,7 +3555,7 @@ int wxt_waitforinput()
 			/* terminal event coming */
 			struct gp_event_t wxt_event;
 			int n_bytes_read = read(wxt_event_fd, (void*) &wxt_event, sizeof(wxt_event));
-			if (n_bytes_read < sizeof(wxt_event)) {
+			if (n_bytes_read < (int)sizeof(wxt_event)) {
 				if (paused_for_mouse)
 					int_error(NO_CARET, "wxt communication error, not enough bytes read");
 				FPRINTF((stderr, "wxt communication error, not enough bytes read\n"));
@@ -3459,20 +3623,21 @@ int wxt_waitforinput()
 
 /* returns true if at least one plot window is opened.
  * Used to handle 'persist' */
-bool wxt_window_opened()
+TBOOLEAN wxt_window_opened(void)
 {
 	std::vector<wxt_window_t>::iterator wxt_iter; /*declare the iterator*/
 
 	wxt_MutexGuiEnter();
-	for(wxt_iter = wxt_window_list.begin(); wxt_iter != wxt_window_list.end(); wxt_iter++) {
-		if ( wxt_iter->frame->IsShown() ) {
+	for (wxt_iter = wxt_window_list.begin(); wxt_iter != wxt_window_list.end(); wxt_iter++) {
+		if (wxt_iter->frame->IsShown()) {
 			wxt_MutexGuiLeave();
-			return true;
+			return TRUE;
 		}
 	}
 	wxt_MutexGuiLeave();
-	return false;
+	return FALSE;
 }
+
 
 /* Called when gnuplot exits.
  * Handle the 'persist' setting, ie will continue
@@ -3483,9 +3648,6 @@ void wxt_atexit()
 	int i;
 	int openwindows = 0;
 	int persist_setting;
-#ifdef _Windows
-	MSG msg;
-#endif /*_Windows*/
 
 	if (wxt_status == STATUS_UNINITIALIZED)
 		return;
@@ -3539,12 +3701,8 @@ void wxt_atexit()
 	FPRINTF((stderr,"wxt_atexit: handling \"persist\" setting\n"));
 
 #ifdef _Windows
-	if (!interactive) {
+	if (!persist_cl) {
 		interactive = TRUE;
-		/* be sure to show the text window */
-#ifndef WGP_CONSOLE
-		ShowWindow(textwin.hWndParent, textwin.nCmdShow);
-#endif
 		while (!com_line());
 	}
 #else /*_Windows*/
@@ -3555,7 +3713,7 @@ void wxt_atexit()
 	/* if fork() is available, use it so that the initial gnuplot process
 	 * exits and the child process continues in the background.
 	 */
-	/* NB: 
+	/* NB:
 	 * If there are no plot windows open, then once the parent process
 	 * exits the child can receive no input and will become a zombie.
 	 * So destroy any closed window first, and only fork if some remain open.
@@ -3577,7 +3735,7 @@ void wxt_atexit()
 # ifdef HAVE_WORKING_FORK
 	/* fork */
 	pid_t pid;
-	
+
 	if (openwindows > 0)
 		pid = fork();
 	else
@@ -3685,7 +3843,7 @@ void wxt_sigint_handler(int WXUNUSED(sig))
 {
 	FPRINTF((stderr,"custom interrupt handler called\n"));
 	signal(SIGINT, wxt_sigint_handler);
-	/* routines must check regularly for wxt_status, 
+	/* routines must check regularly for wxt_status,
 	 * and abort cleanly on STATUS_INTERRUPT_ON_NEXT_CHECK */
 	wxt_status = STATUS_INTERRUPT_ON_NEXT_CHECK;
 	if (wxt_current_plot)

@@ -1,6 +1,6 @@
-#ifndef lint
-static char *RCSid() { return RCSid("$Id: winmain.c,v 1.52.2.1 2011/12/11 11:39:29 markisch Exp $"); }
-#endif
+/*
+ * $Id: winmain.c,v 1.60 2012/11/29 00:33:47 broeker Exp $
+ */
 
 /* GNUPLOT - win/winmain.c */
 /*[
@@ -60,9 +60,7 @@ static char *RCSid() { return RCSid("$Id: winmain.c,v 1.52.2.1 2011/12/11 11:39:
 #include <commctrl.h>
 #include <shlobj.h>
 #include <shlwapi.h>
-#ifdef WITH_HTML_HELP
 #include <htmlhelp.h>
-#endif
 #include <dos.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,6 +86,10 @@ static char *RCSid() { return RCSid("$Id: winmain.c,v 1.52.2.1 2011/12/11 11:39:
 #ifdef HAVE_GDIPLUS
 #include "wgdiplus.h"
 #endif
+#ifdef WXWIDGETS
+#include "wxterminal/wxt_term.h"
+#endif
+
 
 /* workaround for old header files */
 #ifndef CSIDL_APPDATA
@@ -117,9 +119,7 @@ BOOL cp_changed = FALSE;
 UINT cp_input;  /* save previous codepage settings */
 UINT cp_output;
 #endif
-#ifdef WITH_HTML_HELP
 HWND help_window = NULL;
-#endif
 
 char *authors[]={
                  "Colin Kelley",
@@ -127,7 +127,6 @@ char *authors[]={
                 };
 
 void WinExit(void);
-int gnu_main(int argc, char *argv[], char *env[]);
 static void WinCloseHelp(void);
 int CALLBACK ShutDown();
 
@@ -181,14 +180,7 @@ WinExit(void)
 
 #ifndef WGP_CONSOLE
     TextMessage();  /* process messages */
-#ifndef WITH_HTML_HELP
-    WinHelp(textwin.hWndText,(LPSTR)winhelpname,HELP_QUIT,(DWORD)NULL);
-#endif
-    TextMessage();  /* process messages */
 #else
-#ifndef WITH_HTML_HELP
-    WinHelp(GetDesktopWindow(), (LPSTR)winhelpname, HELP_QUIT, (DWORD)NULL);
-#endif
 #ifdef CONSOLE_SWITCH_CP
     /* restore console codepages */
     if (cp_changed) {
@@ -306,7 +298,6 @@ appdata_directory(void)
 static void
 WinCloseHelp(void)
 {
-#ifdef WITH_HTML_HELP
 	/* Due to a known bug in the HTML help system we have to
 	 * call this as soon as possible before the end of the program.
 	 * See e.g. http://helpware.net/FAR/far_faq.htm#HH_CLOSE_ALL
@@ -314,11 +305,10 @@ WinCloseHelp(void)
 	if (IsWindow(help_window))
 		SendMessage(help_window, WM_CLOSE, 0, 0);
 	Sleep(0);
-#endif
 }
 
 
-static char * 
+static char *
 GetLanguageCode()
 {
 	static char lang[6] = "";
@@ -379,11 +369,7 @@ static void
 ReadMainIni(LPSTR file, LPSTR section)
 {
     char profile[81] = "";
-#ifdef WITH_HTML_HELP
 	const char hlpext[] = ".chm";
-#else
-	const char hlpext[] = ".hlp";
-#endif
 	const char name[] = "wgnuplot-";
 
 	/* Language code override */
@@ -428,7 +414,6 @@ int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 int main(int argc, char **argv)
 #endif
 {
-        /*WNDCLASS wndclass;*/
         LPSTR tail;
 
 #ifdef WGP_CONSOLE
@@ -436,7 +421,7 @@ int main(int argc, char **argv)
 # define _argc argc
         HINSTANCE hInstance = GetModuleHandle(NULL), hPrevInstance = NULL;
 #else
-#if defined(__MSC__) || defined(__WATCOMC__)
+#if defined(__MSC__) || defined(__WATCOMC__) || defined(__MINGW32__)
 #  define _argv __argv
 #  define _argc __argc
 #endif
@@ -550,17 +535,12 @@ int main(int argc, char **argv)
                 exit(1);
         textwin.hIcon = LoadIcon(hInstance, "TEXTICON");
         SetClassLong(textwin.hWndParent, GCL_HICON, (DWORD)textwin.hIcon);
-        if (_argc>1) {
-                int i,noend=FALSE;
-                for (i=0; i<_argc; ++i)
-                        if (!stricmp(_argv[i],"-noend") || !stricmp(_argv[i],"/noend")
-                            || !stricmp(_argv[i],"-persist"))
-                                noend = TRUE;
-                if (noend)
-                        ShowWindow(textwin.hWndParent, textwin.nCmdShow);
-        }
-        else
-                ShowWindow(textwin.hWndParent, textwin.nCmdShow);
+	if (_argc > 1) {
+		if (persist_cl)
+			ShowWindow(textwin.hWndParent, textwin.nCmdShow);
+	} else {
+		ShowWindow(textwin.hWndParent, textwin.nCmdShow);
+	}
         if (IsIconic(textwin.hWndParent)) { /* update icon */
                 RECT rect;
                 GetClientRect(textwin.hWndParent, (LPRECT) &rect);
@@ -590,7 +570,7 @@ int main(int argc, char **argv)
         if (!isatty(fileno(stdin)))
             setmode(fileno(stdin), O_BINARY);
 
-        gnu_main(_argc, _argv, environ);
+        gnu_main(_argc, _argv);
 
         /* First chance to close help system for console gnuplot,
         second for wgnuplot */
@@ -829,6 +809,107 @@ MyFRead(void *ptr, size_t size, size_t n, FILE *file)
     return fread(ptr, size, n, file);
 }
 
+
+#ifdef USE_FAKEPIPES
+
+static char pipe_type = NUL;
+static char * pipe_filename = NULL;
+static char * pipe_command = NULL;
+
+FILE *
+fake_popen(const char * command, const char * type)
+{
+	FILE * f = NULL;
+	char tmppath[MAX_PATH];
+	char tmpfile[MAX_PATH];
+	DWORD ret;
+
+	if (type == NULL) return NULL;
+
+	pipe_type = NUL;
+	if (pipe_filename != NULL)
+		free(pipe_filename);
+
+	/* Random temp file name in %TEMP% */
+	ret = GetTempPath(sizeof(tmppath), tmppath);
+	if ((ret == 0) || (ret > sizeof(tmppath)))
+		return NULL;
+	ret = GetTempFileName(tmppath, "gpp", 0, tmpfile);
+	if (ret == 0)
+		return NULL;
+	pipe_filename = strdup(tmpfile);
+
+	if (*type == 'r') {
+		char * cmd;
+		int rc;
+		pipe_type = *type;
+		/* Execute command with redirection of stdout to temporary file. */
+		cmd = (char *) malloc(strlen(command) + strlen(pipe_filename) + 5);
+		sprintf(cmd, "%s > %s", command, pipe_filename);
+		rc = system(cmd);
+		free(cmd);
+		/* Now open temporary file. */
+		/* system() returns 1 if the command could not be executed. */
+		if (rc != 1)
+			f = fopen(pipe_filename, "r");
+		else {
+			remove(pipe_filename);
+			free(pipe_filename);
+			pipe_filename = NULL;
+			errno = EINVAL;
+		}
+	} else if (*type == 'w') {
+		pipe_type = *type;
+		/* Write output to temporary file and handle the rest in fake_pclose. */
+		if (type[1] == 'b')
+			int_error(NO_CARET, "Could not execute pipe '%s'. Writing to binary pipes is not supported.", command);
+		else
+			f = fopen(pipe_filename, "w");
+		pipe_command = strdup(command);
+	}
+
+	return f;
+}
+
+
+int fake_pclose(FILE *stream)
+{
+	int rc = 0;
+	if (!stream) return ECHILD;
+
+	/* Close temporary file */
+	fclose(stream);
+
+	/* Finally, execute command with redirected stdin. */
+	if (pipe_type == 'w') {
+		char * cmd;
+		cmd = (char *) malloc(strlen(pipe_command) + strlen(pipe_filename) + 10);
+		/* FIXME: this won't work for binary data. We need a proper `cat` replacement. */
+		sprintf(cmd, "type %s | %s", pipe_filename, pipe_command);
+		rc = system(cmd);
+		free(cmd);
+	}
+
+	/* Delete temp file again. */
+	if (pipe_filename) {
+		remove(pipe_filename);
+		errno = 0;
+		free(pipe_filename);
+		pipe_filename = NULL;
+	}
+
+	if (pipe_command) {
+		/* system() returns 255 if the command could not be executed.
+		   The real popen would have returned an error already. */
+		if (rc == 255)
+			int_error(NO_CARET, "Could not execute pipe '%s'.", pipe_command);
+		free(pipe_command);
+	}
+
+	return rc;
+}
+#endif
+
 #else /* WGP_CONSOLE */
 
 DWORD WINAPI stdin_pipe_reader(LPVOID param)
@@ -986,7 +1067,7 @@ win_lower_terminal_window(int id)
 	while ((lpgw != NULL) && (lpgw->Id != id))
 		lpgw = lpgw->next;
 	if (lpgw != NULL)
-	    SetWindowPos(lpgw->hWndGraph, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+		SetWindowPos(lpgw->hWndGraph, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
 }
 
 void
@@ -994,8 +1075,53 @@ win_lower_terminal_group(void)
 {
 	LPGW lpgw = listgraphs;
 	while (lpgw != NULL) {
-	    SetWindowPos(lpgw->hWndGraph, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+		SetWindowPos(lpgw->hWndGraph, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
 		lpgw = lpgw->next;
 	}
 }
 
+
+/* return the number of graph windows (win terminal)*/
+TBOOLEAN
+WinWindowOpened(void)
+{
+	LPGW lpgw;
+
+	lpgw = listgraphs;
+	while (lpgw != NULL) {
+		if (GraphHasWindow(lpgw))
+			return TRUE;
+		lpgw = lpgw->next;
+	}
+	return FALSE;
+}
+
+
+#ifndef WGP_CONSOLE
+void
+WinPersistTextClose(void)
+{
+	TBOOLEAN window_opened = WinWindowOpened();
+#ifdef WXWIDGETS
+	window_opened |= wxt_window_opened();
+#endif
+	if (!window_opened &&
+		(textwin.hWndParent != NULL) && !IsWindowVisible(textwin.hWndParent))
+		PostMessage(textwin.hWndParent, WM_CLOSE, 0, 0);
+}
+#endif
+
+
+void
+WinMessageLoop(void)
+{
+	MSG msg;
+
+	while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+		/* HBB 19990505: Petzold says we should check this: */
+		if (msg.message == WM_QUIT)
+			return;
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+}

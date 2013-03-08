@@ -1,5 +1,5 @@
 /*
- * $Id: term.h,v 1.54 2011/11/06 09:31:00 markisch Exp $
+ * $Id: term.h,v 1.58 2013/02/27 00:08:56 sfeam Exp $
  */
 
 /* GNUPLOT - term.h */
@@ -97,13 +97,6 @@
 /* Platform dependent part                                                  */
 /****************************************************************************/
 
-
-/* Apple Macintosh */
-#ifdef _Macintosh
-# include "mac.trm"
-#endif
-
-
 /* BeOS */
 #ifdef __BEOS__
 # include "be.trm"
@@ -188,11 +181,6 @@
 # endif
 #endif /* LINUXVGA */
 
-/* SCO CGI drivers */
-#ifdef SCO
-# include "cgi.trm"
-#endif
-
 /* SunView */
 #ifdef SUN
 # include "sun.trm"
@@ -220,7 +208,7 @@
 # include "gpic.trm"
 
 /* REGIS graphics language */
-# include "regis.trm"
+/* # include "regis.trm" */
 
 /* Tektronix 4106, 4107, 4109 and 420x terminals */
 # include "t410x.trm"
@@ -304,7 +292,7 @@
 #endif /* NO_BITMAP_SUPPORT */
 
 /* Imagen laser printers */
-#include "imagen.trm"
+/* #include "imagen.trm" */
 
 /* Kyocera Prescribe printer */
 /* #include "kyo.trm" */

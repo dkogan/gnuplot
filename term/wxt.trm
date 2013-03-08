@@ -1,5 +1,5 @@
 /*
- * $Id: wxt.trm,v 1.29.2.1 2012/02/10 06:52:22 sfeam Exp $
+ * $Id: wxt.trm,v 1.34 2013/02/19 05:30:38 sfeam Exp $
  */
 
 /* GNUPLOT - wxt.trm */
@@ -61,13 +61,14 @@ int wxt_window_number = 0;
 TBOOLEAN wxt_enhanced_enabled = FALSE;
 TBOOLEAN wxt_dashed = FALSE;
 double wxt_dashlength = 1.0;
+double wxt_lw = 1.0;
 int wxt_background = 0xffffff;
 rgb_color wxt_rgb_background = {1.,1.,1.};
 int wxt_persist = UNSET;
 int wxt_raise = UNSET;
 int wxt_ctrl = UNSET;
 int wxt_toggle = UNSET;
-int wxt_rounded = no;
+t_linecap wxt_linecap = SQUARE;
 /* default text font family: */
 char wxt_set_fontname[MAX_ID_LEN + 1] = "";
 /* default text size*/
@@ -100,9 +101,11 @@ enum WXT_id {
     WXT_CLOSE,
     WXT_ROUNDED,
     WXT_BUTT,
+    WXT_SQUARE,
     WXT_SOLID,
     WXT_DASHED,
     WXT_DASHLENGTH,
+    WXT_LINEWIDTH,
     WXT_BACKGROUND,
     WXT_OTHER
 };
@@ -123,10 +126,13 @@ static struct gen_table wxt_opts[] = {
     {"cl$ose", WXT_CLOSE},
     {"round$ed", WXT_ROUNDED},
     {"butt", WXT_BUTT},
+    {"square", WXT_SQUARE},
     {"solid", WXT_SOLID},
     {"dash$ed", WXT_DASHED},
     {"dashl$ength", WXT_DASHLENGTH},
     {"dl", WXT_DASHLENGTH},
+    {"line$width", WXT_LINEWIDTH},
+    {"lw", WXT_LINEWIDTH},
     {"backg$round", WXT_BACKGROUND},
     {NULL, WXT_OTHER}
 };
@@ -265,13 +271,19 @@ TERM_PUBLIC void wxt_options()
 		case WXT_ROUNDED:
 			c_token++;
 			if (set_capjoin) duplication=TRUE;
-			wxt_rounded = yes;
+			wxt_linecap = ROUNDED;
 			set_capjoin = TRUE;
 			break;
 		case WXT_BUTT:
 			c_token++;
 			if (set_capjoin) duplication=TRUE;
-			wxt_rounded = no;
+			wxt_linecap = BUTT;
+			set_capjoin = TRUE;
+			break;
+		case WXT_SQUARE:
+			c_token++;
+			if (set_capjoin) duplication=TRUE;
+			wxt_linecap = SQUARE;
 			set_capjoin = TRUE;
 			break;
 		case WXT_DASHED:
@@ -287,6 +299,12 @@ TERM_PUBLIC void wxt_options()
 		case WXT_SOLID:
 			c_token++;
 			wxt_dashed = FALSE;
+			break;
+		case WXT_LINEWIDTH:
+			c_token++;
+			wxt_lw = real_expression();
+			if (wxt_lw <= 0)
+			    wxt_lw = 1.0;
 			break;
 		case WXT_BACKGROUND:
 			{
@@ -315,71 +333,80 @@ TERM_PUBLIC void wxt_options()
 		"%d", wxt_window_number);
 
 	if (set_title) {
-		strncat(term_options, " title \"", sizeof(term_options)-strlen(term_options));
-		strncat(term_options, wxt_title, sizeof(term_options)-strlen(term_options));
-		strncat(term_options, "\"", sizeof(term_options)-strlen(term_options));
+		strncat(term_options, " title \"", sizeof(term_options)-strlen(term_options)-1);
+		strncat(term_options, wxt_title, sizeof(term_options)-strlen(term_options)-1);
+		strncat(term_options, "\"", sizeof(term_options)-strlen(term_options)-1);
 		wxt_update_title(wxt_window_number);
 	}
 
 	if (wxt_dashed)
-		strncat(term_options, " dashed",  sizeof(term_options)-strlen(term_options));
+		strncat(term_options, " dashed",  sizeof(term_options)-strlen(term_options)-1);
 
 	if (wxt_dashlength != 1.0) {
 		char tmp_term_options[MAX_LINE_LEN+1] = "";
 		snprintf(tmp_term_options,sizeof(tmp_term_options), " dashlength %g", wxt_dashlength);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
+	}
+
+	if (wxt_lw != 1.0) {
+		char tmp_term_options[MAX_LINE_LEN+1] = "";
+		snprintf(tmp_term_options,sizeof(tmp_term_options), " lw %g", wxt_lw);
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	if (wxt_background != 0xffffff) {
 		char tmp_term_options[MAX_LINE_LEN+1] = "";
 		snprintf(tmp_term_options,sizeof(tmp_term_options), " background '#%06x'", wxt_background);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	if (set_size) {
 		char tmp_term_options[MAX_LINE_LEN+1] = "";
 		snprintf(tmp_term_options, sizeof(tmp_term_options),
 			  " size %d, %d", wxt_width, wxt_height);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 		wxt_update_size(wxt_window_number);
 	}
 
 	if (set_enhanced)
 		strncat(term_options,
 			wxt_enhanced_enabled ? " enhanced" : " noenhanced",
-			sizeof(term_options)-strlen(term_options));
+			sizeof(term_options)-strlen(term_options)-1);
 
 	if (set_font) {
-		strncat(term_options, " font \"", sizeof(term_options)-strlen(term_options));
-		strncat(term_options, font_setting, sizeof(term_options)-strlen(term_options));
-		strncat(term_options, "\"", sizeof(term_options)-strlen(term_options));
+		strncat(term_options, " font \"", sizeof(term_options)-strlen(term_options)-1);
+		strncat(term_options, font_setting, sizeof(term_options)-strlen(term_options)-1);
+		strncat(term_options, "\"", sizeof(term_options)-strlen(term_options)-1);
 		free(font_setting);
 	}
 
 	if (wxt_set_fontscale != 1.0) {
 		char tmp_term_options[MAX_LINE_LEN+1] = "";
 		snprintf(tmp_term_options,sizeof(tmp_term_options), " fontscale %.1f", wxt_set_fontscale);
-		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options));
+		strncat(term_options, tmp_term_options, sizeof(term_options)-strlen(term_options)-1);
 	}
 
 	if (set_capjoin)
-		strncat(term_options, wxt_rounded ? " rounded" : " butt",
-			sizeof(term_options)-strlen(term_options));
+		strncat(term_options, 
+			wxt_linecap == ROUNDED ? " rounded"
+			: wxt_linecap == SQUARE ? " square"
+			: " butt",
+			sizeof(term_options)-strlen(term_options)-1);
 
 	if (set_persist)
 		strncat(term_options,
 			(wxt_persist==yes) ? " persist" : " nopersist",
-			sizeof(term_options)-strlen(term_options));
+			sizeof(term_options)-strlen(term_options)-1);
 
 	if (set_raise)
 		strncat(term_options,
 			(wxt_raise==yes) ? " raise" : " noraise",
-			sizeof(term_options)-strlen(term_options));
+			sizeof(term_options)-strlen(term_options)-1);
 
 	if (set_ctrl)
 		strncat(term_options,
 			(wxt_ctrl==yes) ? " ctrl" : " noctrl",
-			sizeof(term_options)-strlen(term_options));
+			sizeof(term_options)-strlen(term_options)-1);
 
 	if (set_close)
 		wxt_close_terminal_window(wxt_window_number);
@@ -437,6 +464,9 @@ TERM_TABLE_START (wxt_driver)
     , wxt_image
     , wxt_enhanced_open, wxt_enhanced_flush, wxt_enhanced_writec
     , wxt_layer
+    , NULL /* no term->path */
+    , 0.0 /* Scale (unused) */
+    , wxt_hypertext
 TERM_TABLE_END (wxt_driver)
 
 #undef LAST_TERM
@@ -464,6 +494,7 @@ START_HELP(wxt)
 "                      {{no}enhanced}",
 "                      {font <font>} {fontscale <scale>}",
 "                      {title \"title\"}",
+"                      {linewidth <lw>}",
 "                      {dashed|solid} {dashlength <dl>}",
 "                      {{no}persist}",
 "                      {{no}raise}",

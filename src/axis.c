@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.97.2.2 2012/09/26 23:05:56 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.112 2013/02/28 05:29:37 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -42,8 +42,6 @@ static char *RCSid() { return RCSid("$Id: axis.c,v 1.97.2.2 2012/09/26 23:05:56 
 #include "command.h"
 #include "gadgets.h"
 #include "gp_time.h"
-#include "graphics.h"	/* For label_width() */
-/*  #include "setshow.h" */
 #include "term_api.h"
 #include "variable.h"
 
@@ -165,6 +163,7 @@ static double quantize_time_tics __PROTO((AXIS_INDEX, double, double, int));
 static double time_tic_just __PROTO((t_timelevel, double));
 static double round_outward __PROTO((AXIS_INDEX, TBOOLEAN, double));
 static TBOOLEAN axis_position_zeroaxis __PROTO((AXIS_INDEX));
+static void load_one_range __PROTO((AXIS_INDEX axis, double *a, t_autoscale *autoscale, t_autoscale which ));
 static double quantize_duodecimal_tics __PROTO((double, int));
 static void get_position_type __PROTO((enum position_type * type, int *axes));
 
@@ -200,7 +199,9 @@ axis_unlog_interval(AXIS_INDEX axis, double *min, double *max, TBOOLEAN checkran
 void
 axis_revert_and_unlog_range(AXIS_INDEX axis)
 {
-  if (axis_array[axis].range_is_reverted) {
+  if ((axis_array[axis].range_is_reverted)
+  &&  (axis_array[axis].autoscale != 0)
+  &&  (axis_array[axis].max > axis_array[axis].min) ) {
     double temp = axis_array[axis].min;
     axis_array[axis].min = axis_array[axis].max;
     axis_array[axis].max = temp;
@@ -552,7 +553,7 @@ quantize_normal_tics(double arg, int guide)
     /* with guide=20, we expect 2 <= posns <= 20 */
     double tics;
 
-    /* FIXME HBB 20020220: Looking at these, I would normally expect
+    /* HBB 20020220: Looking at these, I would normally expect
      * to see posns*tics to be always about the same size. But we
      * rather suddenly drop from 2.0 to 1.0 at tic step 0.5. Why? */
     /* JRV 20021117: fixed this by changing next to last threshold
@@ -818,6 +819,14 @@ setup_tics(AXIS_INDEX axis, int max)
 	else                           timelevel[axis] = TIMELEVEL_SECONDS;
     }
 
+    /* Note: setup_tics is always called on the primary axis first, so we can
+     * clone that rather than trying to reproduce it for the secondary axis.
+     */
+    if (this->linked_to_primary) {
+	clone_linked_axes(axis, axis - SECOND_AXES);
+	autoextend_min = autoextend_max = FALSE;
+    }
+
     if (autoextend_min) {
 	this->min = round_outward(axis, ! (this->min < this->max), this->min);
 	if (this->min_constraint & CONSTRAINT_LOWER && this->min < this->min_lb)
@@ -840,7 +849,7 @@ setup_tics(AXIS_INDEX axis, int max)
 /* }}} */
 
 /* {{{  gen_tics */
-/* uses global arrays ticstep[], ticfmt[], axis_array[], 
+/* uses global arrays ticstep[], ticfmt[], axis_array[],
  * we use any of GRID_X/Y/X2/Y2 and  _MX/_MX2/etc - caller is expected
  * to clear the irrelevent fields from global grid bitmask
  * note this is also called from graph3d, so we need GRID_Z too
@@ -866,7 +875,11 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	double uncertain = (axis_array[axis].max - axis_array[axis].min) / 10;
 	double internal_min = axis_array[axis].min - SIGNIF * uncertain;
 	double internal_max = axis_array[axis].max + SIGNIF * uncertain;
+#if 0
 	double log10_base = axis_array[axis].log ? log10(axis_array[axis].base) : 1.0;
+#else	/* This allows gprintf formats %L %l to work even when log scaling is off */
+	double log10_base = axis_array[axis].base > 0.0 ? log10(axis_array[axis].base) : 1.0;
+#endif
 	double polar_shift = 0;
 
 	/* polar labels always +ve, and if rmin has been set, they are
@@ -880,7 +893,8 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	}
 
 	for (mark = def->def.user; mark; mark = mark->next) {
-	    char label[MAX_ID_LEN];
+	    char label[MAX_ID_LEN];	/* Scratch space to construct a label */
+	    char *ticlabel;		/* Points either to ^^ or to some existing text */
 	    double internal;
 
 	    /* This condition is only possible if we are in polar mode */
@@ -893,16 +907,26 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	    if (!inrange(internal, internal_min, internal_max))
 		continue;
 
-	    if (mark->level < 0) /* label read from data file */
-		strncpy(label, mark->label, sizeof(label));
-	    else if (axis_array[axis].datatype == DT_TIMEDATE)
+	    if (mark->level < 0) {
+		/* label read from data file */
+		ticlabel = mark->label;
+	    } else if (mark->label && !strchr(mark->label, '%')) {
+		/* string constant that contains no format keys */
+		ticlabel = mark->label;
+	    } else if (axis_array[axis].datatype == DT_TIMEDATE) {
 		gstrftime(label, MAX_ID_LEN-1, mark->label ? mark->label : ticfmt[axis], mark->position);
-	    else
+		ticlabel = label;
+	    } else if (axis_array[axis].datatype == DT_DMS) {
+		gstrdms(label, mark->label ? mark->label : ticfmt[axis], mark->position);
+		ticlabel = label;
+	    } else {
 		gprintf(label, sizeof(label), mark->label ? mark->label : ticfmt[axis], log10_base, mark->position);
+		ticlabel = label;
+	    }
 
 	    /* use NULL instead of label for minitic */
 	    (*callback) (axis, internal,
-	    		(mark->level>0)?NULL:label,
+	    		(mark->level>0)?NULL:ticlabel,
 	    		(mark->level>0)?mgrd:lgrd, NULL);
 
 	    /* Polar axis tics are mirrored across the origin */
@@ -910,7 +934,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 		int save_gridline = lgrd.l_type;
 		lgrd.l_type = LT_NODRAW;
 		(*callback) (axis, -internal,
-			(mark->level>0)?NULL:label,
+			(mark->level>0)?NULL:ticlabel,
 	    		(mark->level>0)?mgrd:lgrd, NULL);
 		lgrd.l_type = save_gridline;
 	    }
@@ -937,13 +961,17 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	double internal;	/* in internal co-ords */
 	double user;		/* in user co-ords */
 	double start, step, end;
+	int    nsteps;
 	double lmin = axis_array[axis].min, lmax = axis_array[axis].max;
 	double internal_min, internal_max;	/* to allow for rounding errors */
 	double ministart = 0, ministep = 1, miniend = 1;	/* internal or user - depends on step */
 
 	/* gprintf uses log10() of base - log_base_array is log() */
+#if 0
 	double log10_base = axis_array[axis].log ? log10(axis_array[axis].base) : 1.0;
-
+#else	/* This allows gprintf formats %L %l to work even when log scaling is off */
+	double log10_base = axis_array[axis].base > 0.0 ? log10(axis_array[axis].base) : 1.0;
+#endif
 	if (lmax < lmin) {
 	    /* hmm - they have set reversed range for some reason */
 	    double temp = lmin;
@@ -1029,7 +1057,7 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 		if (step > 1.5) {	/* beware rounding errors */
 		    /* {{{  10,100,1000 case */
 		    /* no more than five minitics */
-		    if (step < 65535) /* should be MAXINT */
+		    if (step < 65535) /* could be INT_MAX but 54K is already ridiculous */
 			ministart = ministep = (int)(0.2 * step);
 		    else
 			ministart = ministep = 0.2 * step;
@@ -1094,24 +1122,25 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 	    return;
 	}
 
-	/* This protects against infinite loops if the separation between   */
-	/* two ticks is less than the precision of the control variables.   */
-	/* The for(...) loop here must be identical to the true loop below. */
-	/* Furthermore, compiler optimization can muck up this test, so we  */
-	/* tell the compiler that the control variables are volatile.       */
-	if (1) /* (some-test-for-range-and-or-step-size) */ {
-	    vol_previous_tic = start-step;
-	    for (vol_this_tic = start; vol_this_tic <= end; vol_this_tic += step) {
-		if (fabs(vol_this_tic - vol_previous_tic) < (step/4.)) {
-		    step = end - start;
-		    int_warn(NO_CARET, "tick interval too small for machine precision");
-		    break;
-		}
-		vol_previous_tic = vol_this_tic;
+	/* This protects against infinite loops if the separation between 	*/
+	/* two ticks is less than the precision of the control variables. 	*/
+	/* The for(...) loop here must exactly describe the true loop below. 	*/
+	/* Furthermore, compiler optimization can muck up this test, so we	*/
+	/* tell the compiler that the control variables are volatile.     	*/
+	nsteps = 0;
+	vol_previous_tic = start-step;
+	for (vol_this_tic = start; vol_this_tic <= end; vol_this_tic += step) {
+	    if (fabs(vol_this_tic - vol_previous_tic) < (step/4.)) {
+		step = end - start;
+		nsteps = 2;
+		int_warn(NO_CARET, "tick interval too small for machine precision");
+		break;
 	    }
+	    vol_previous_tic = vol_this_tic;
+	    nsteps++;
 	}
 
-	for (tic = start; tic <= end; tic += step) {
+	for (tic = start; nsteps > 0; tic += step, nsteps--) {
 
 	    /* {{{  calc internal and user co-ords */
 	    if (axis == POLAR_AXIS) {
@@ -1154,6 +1183,8 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			if (axis_array[axis].datatype == DT_TIMEDATE) {
 			    /* If they are doing polar time plot, good luck to them */
 			    gstrftime(label, MAX_ID_LEN-1, ticfmt[axis], (double) user);
+			} else if (axis_array[axis].datatype == DT_DMS) {
+			    gstrdms(label, ticfmt[axis], (double)user);
 			} else if (polar) {
 			    double min = (R_AXIS.autoscale & AUTOSCALE_MIN) ? 0 : R_AXIS.min;
 			    double r = fabs(user) + min;
@@ -1184,7 +1215,6 @@ gen_tics(AXIS_INDEX axis, tic_callback callback)
 			    (*callback) (axis, -internal, label, lgrd, def->def.user);
 			    lgrd.l_type = save_gridline;
 			}
-	    		
 		    }
 		}
 		/* }}} */
@@ -1386,7 +1416,7 @@ axis_output_tics(
 }
 
 /* }}} */
-		 
+
 /* {{{ axis_set_graphical_range() */
 
 void
@@ -1444,10 +1474,11 @@ axis_draw_2d_zeroaxis(AXIS_INDEX axis, AXIS_INDEX crossaxis)
 }
 /* }}} */
 
-void load_one_range(AXIS_INDEX axis, double *a, t_autoscale *autoscale, t_autoscale which )
+static void
+load_one_range(AXIS_INDEX axis, double *a, t_autoscale *autoscale, t_autoscale which )
 {
     double number;
-    
+
     assert( which==AUTOSCALE_MIN || which==AUTOSCALE_MAX );
 
     if (equals(c_token, "*")) {
@@ -1496,7 +1527,7 @@ void load_one_range(AXIS_INDEX axis, double *a, t_autoscale *autoscale, t_autosc
             }
         } else if (equals(c_token, ">")) {
 	    int_error(c_token, "malformed range with constraint (use '<' only)");
-	} else { 
+	} else {
 	    /*  no autoscaling-with-lower-bound but simple fixed value only  */
 	    *autoscale &= ~which;
 	    if (which==AUTOSCALE_MIN) {
@@ -1509,7 +1540,7 @@ void load_one_range(AXIS_INDEX axis, double *a, t_autoscale *autoscale, t_autosc
 	    *a = number;
         }
     }
-    
+
     if (*autoscale & which) {
 	/*  check for upper bound only if autoscaling is on  */
 	if (END_OF_COMMAND)  int_error(c_token, "unfinished range");
@@ -1592,17 +1623,6 @@ load_range(AXIS_INDEX axis, double *a, double *b, t_autoscale autoscale)
 	load_one_range(axis, b, &autoscale, AUTOSCALE_MAX );
     }
 
-    /* HBB 20030127: If range input backwards, automatically turn on
-       the "reverse" option, too. */
-    if ((autoscale & AUTOSCALE_BOTH) == AUTOSCALE_NONE) {
-      if (*b < *a) {
-	double temp = *a;
-
-	*a = *b; *b = temp;
-	axis_array[axis].range_flags |= RANGE_REVERSE;
-      }
-    }
-
     return (autoscale);
 }
 
@@ -1681,13 +1701,9 @@ check_axis_reversed( AXIS_INDEX axis )
 {
     AXIS *this = axis_array + axis;
     if (((this->autoscale & AUTOSCALE_BOTH) == AUTOSCALE_NONE)
-    &&  (this->max < this->min)) {
-	double temp = this->min;
-	this->min = this->max;
-	this->max = temp;
-	this->range_is_reverted = 1;
-    } else {
-	this->range_is_reverted = (this->range_flags & RANGE_REVERSE);
+    &&  (this->set_max < this->set_min)) {
+	this->min = this->set_min;
+	this->max = this->set_max;
     }
 }
 
@@ -1772,7 +1788,7 @@ get_position(struct position *pos)
     get_position_default(pos,first_axes);
 }
 
-/* get_position() - reads a position for label,arrow,key,... 
+/* get_position() - reads a position for label,arrow,key,...
  * with given default coordinate system
  */
 void
@@ -1874,53 +1890,141 @@ add_tic_user(AXIS_INDEX axis, char *label, double position, int level)
 }
 
 /*
- * EAM Oct 2011
- * These routines used to be macros PARSE_RANGE, PARSE_NAMED_RANGE
- * Since they take only normal parameters, it saves code/space to make
- * them subroutines instead.
+ * Degrees/minutes/seconds geographic coordinate format
+ * ------------------------------------------------------------
+ *  %D 			= integer degrees, truncate toward zero
+ *  %<width.precision>d	= floating point degrees
+ *  %M 			= integer minutes, truncate toward zero
+ *  %<width.precision>m	= floating point minutes
+ *  %S 			= integer seconds, truncate toward zero
+ *  %<width.precision>s	= floating point seconds
+ *  %E                  = E/W instead of +/-
+ *  %N                  = N/S instead of +/-
+ */
+void
+gstrdms (char *label, char *format, double value)
+{
+double Degrees, Minutes, Seconds;
+double degrees, minutes, seconds;
+int dtype = 0, mtype = 0, stype = 0;
+TBOOLEAN EWflag = FALSE;
+TBOOLEAN NSflag = FALSE;
+char compass = ' ';
+char *c, *cfmt;
+
+    /* Limit the range to +/- 180 degrees */
+    if (value > 180.)
+	value -= 360.;
+    if (value < -180.)
+	value += 360.;
+
+    degrees = fabs(value);
+    Degrees = floor(degrees);
+    minutes = (degrees - (double)Degrees) * 60.;
+    Minutes = floor(minutes);
+    seconds = (degrees - (double)Degrees) * 3600. -  (double)Minutes*60.;
+    Seconds = floor(seconds);
+
+    for (c = cfmt = gp_strdup(format); *c; ) {
+	if (*c++ == '%') {
+	    while (*c && !strchr("DdMmSsEN%",*c))
+		c++;
+	    switch (*c) {
+	    case 'D':	*c = 'g'; dtype = 1; degrees = Degrees; break;
+	    case 'd':	*c = 'f'; dtype = 2; break;
+	    case 'M':	*c = 'g'; mtype = 1; minutes = Minutes; break;
+	    case 'm':	*c = 'f'; mtype = 2; break;
+	    case 'S':	*c = 'g'; stype = 1; seconds = Seconds; break;
+	    case 's':	*c = 'f'; stype = 2; break;
+	    case 'E':	*c = 'c'; EWflag = TRUE; break;
+	    case 'N':	*c = 'c'; NSflag = TRUE; break;
+	    case '%':	int_error(NO_CARET,"unrecognized format: \"%s\"",format);
+	    }
+	}
+    }
+
+    /* By convention the minus sign goes only in front of the degrees */
+    /* Watch out for round-off errors! */
+    if (value < 0 && !EWflag && !NSflag) {
+	if (dtype > 0)  degrees = -fabs(degrees);
+	else if (mtype > 0)  minutes = -fabs(minutes);
+	else if (stype > 0)  seconds = -fabs(seconds);
+    }
+    if (EWflag)
+	compass = (value == 0) ? ' ' : (value < 0) ? 'W' : 'E';
+    if (NSflag)
+	compass = (value == 0) ? ' ' : (value < 0) ? 'S' : 'N';
+
+    /* This is tricky because we have to deal with the possibility that
+     * the user may not have specified all the possible format components
+     */
+    if (dtype == 0) {	/* No degrees */
+	if (mtype == 0) {
+	    if (stype == 0) /* Must be some non-DMS format */
+		snprintf(label, MAX_ID_LEN, cfmt, value);
+	    else
+		snprintf(label, MAX_ID_LEN, cfmt,
+		    seconds, compass);
+	} else {
+	    if (stype == 0)
+		snprintf(label, MAX_ID_LEN, cfmt,
+		    minutes, compass);
+	    else
+		snprintf(label, MAX_ID_LEN, cfmt,
+		    minutes, seconds, compass);
+	}
+    } else {	/* Some form of degrees in first field */
+	if (mtype == 0) {
+	    if (stype == 0)
+		snprintf(label, MAX_ID_LEN, cfmt,
+		    degrees, compass);
+	    else
+		snprintf(label, MAX_ID_LEN, cfmt,
+		    degrees, seconds, compass);
+	} else {
+	    if (stype == 0)
+		snprintf(label, MAX_ID_LEN, cfmt,
+		    degrees, minutes, compass);
+	    else
+		snprintf(label, MAX_ID_LEN, cfmt,
+		    degrees, minutes, seconds, compass);
+	}
+    }
+
+    free(cfmt);
+}
+
+/*
+ * EAM Nov 2012
+ * This routine used to be macros PARSE_RANGE, PARSE_NAMED_RANGE
  */
 
-/* get optional [min:max] */
-void
+/* Accepts a range of the form [MIN:MAX] or [var=MIN:MAX]
+ * Returns
+ *	 0 = no range spec present
+ *	-1 = range spec with no attached variable name
+ *	>0 = token indexing the attached variable name
+ */
+int
 parse_range(AXIS_INDEX axis)
 {
     if (equals(c_token, "[")) {
+	int dummy_token = -1;
 	c_token++;
-	axis_array[axis].autoscale =
-	    load_range(axis, &axis_array[axis].min, &axis_array[axis].max,
-		       axis_array[axis].autoscale);
-	if (!equals(c_token, "]"))
-	    int_error(c_token, "']' expected");
-	c_token++;
-    }
-}
-
-/* like parse_range, but for named ranges as in 'plot [phi=3.5:7] sin(phi)' */
-int
-parse_named_range(AXIS_INDEX axis, int dummy)
-{
-    int dummy_token = dummy;
-
-    if (equals(c_token, "[")) {
-	c_token++;
-	if (isletter(c_token)) {
-	    if (equals(c_token + 1, "=")) {
+	/* If the range starts with "[var=" return the token of the named variable. */
+	if (isletter(c_token) && equals(c_token + 1, "=")) {
 		dummy_token = c_token;
 		c_token += 2;
-	    }
-		/* oops; probably an expression with a variable: act
-		 * as if no variable name had been seen, by
-		 * fallthrough */
 	}
-	axis_array[axis].autoscale = load_range(axis, &axis_array[axis].min,
-				      &axis_array[axis].max,
-				      axis_array[axis].autoscale);
+	axis_array[axis].autoscale =
+		load_range(axis, &axis_array[axis].min, &axis_array[axis].max,
+			   axis_array[axis].autoscale);
 	if (!equals(c_token, "]"))
 	    int_error(c_token, "']' expected");
 	c_token++;
-    }				/* first '[' */
-
-    return dummy_token;
+	return dummy_token;
+    } else
+	return 0;
 }
 
 /* Called if an in-line range is encountered while inside a zoom command */
@@ -1933,3 +2037,69 @@ parse_skip_range()
     return;
 }
 
+/*
+ * When a secondary axis is linked to the corresponding primary axis,
+ * this routine copies the relevant range/scale data
+ */
+void
+clone_linked_axes(AXIS_INDEX axis2, AXIS_INDEX axis1)
+{
+    double testmin, testmax;
+
+    memcpy(&axis_array[axis2], &axis_array[axis1], AXIS_CLONE_SIZE);
+    if (axis_array[axis2].link_udf == NULL || axis_array[axis2].link_udf->at == NULL)
+	return;
+
+    /* Transform the min/max limits of linked secondary axis */
+	axis_array[axis2].set_min = eval_link_function(axis2, axis_array[axis1].set_min);
+	axis_array[axis2].set_max = eval_link_function(axis2, axis_array[axis1].set_max);
+	axis_array[axis2].min = eval_link_function(axis2, axis_array[axis1].min);
+	axis_array[axis2].max = eval_link_function(axis2, axis_array[axis1].max);
+
+	if (isnan(axis_array[axis2].min) || isnan(axis_array[axis2].set_min)
+	||  isnan(axis_array[axis2].max) || isnan(axis_array[axis2].set_max))
+	    int_warn(NO_CARET, "axis mapping function must return a real value");
+
+    /* Confirm that the inverse mapping actually works */
+	testmin = eval_link_function(axis1, axis_array[axis2].set_min);
+	testmax = eval_link_function(axis1, axis_array[axis2].set_max);
+	if (fabs(testmin - axis_array[axis1].set_min) / testmin > 1.e-6
+	||  fabs(testmax - axis_array[axis1].set_max) / testmax > 1.e-6) {
+	    int_warn(NO_CARET, "could not confirm linked axis inverse mapping function");
+	    fprintf(stderr,"\tmin: %g inv(via(min)): %g", axis_array[axis1].set_min, testmin);
+	    fprintf(stderr,"  max: %g inv(via(max)): %g\n", axis_array[axis1].set_max, testmax);
+	}
+}
+
+/*
+ * Check for linked-axis coordinate transformation given by command
+ *     set {x|y}2r link via <expr1> inverse <expr2>
+ * If we are plotting on the secondary axis in this case, apply the inverse
+ * transform to get back to the primary coordinate system before mapping.
+ */
+
+int map_x(double value)
+{
+    if ((x_axis == SECOND_X_AXIS) 
+    &&  axis_array[SECOND_X_AXIS].linked_to_primary
+    &&  axis_array[SECOND_X_AXIS].link_udf->at != NULL) {
+	if (axis_array[FIRST_X_AXIS].link_udf->at == NULL)
+	    int_error(NO_CARET, "No inverse mapping function available for x2 data");
+	value = eval_link_function(FIRST_X_AXIS, value);
+	return AXIS_MAP(FIRST_X_AXIS, value);
+    }
+    return AXIS_MAP(x_axis, value);
+}
+
+int map_y(double value)
+{
+    if ((y_axis == SECOND_Y_AXIS)
+    &&  axis_array[SECOND_Y_AXIS].linked_to_primary
+    &&  axis_array[SECOND_Y_AXIS].link_udf->at != NULL) {
+	if (axis_array[FIRST_Y_AXIS].link_udf->at == NULL)
+	    int_error(NO_CARET, "No inverse mapping function available for y2 data");
+	value = eval_link_function(FIRST_Y_AXIS, value);
+	return AXIS_MAP(FIRST_Y_AXIS, value);
+    }
+    return AXIS_MAP(y_axis, value);
+}

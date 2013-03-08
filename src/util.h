@@ -1,5 +1,5 @@
 /*
- * $Id: util.h,v 1.36.2.2 2012/09/26 23:03:15 sfeam Exp $
+ * $Id: util.h,v 1.39 2013/01/26 00:40:26 sfeam Exp $
  */
 
 /* GNUPLOT - util.h */
@@ -75,7 +75,6 @@ int isletter __PROTO((int));
 int is_definition __PROTO((int));
 void copy_str __PROTO((char *, int, int));
 size_t token_len __PROTO((int));
-void quote_str __PROTO((char *, int, int));
 void capture __PROTO((char *, int, int, int));
 void m_capture __PROTO((char **, int, int));
 void m_quote_capture __PROTO((char **, int, int));

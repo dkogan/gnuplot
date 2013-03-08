@@ -35,6 +35,7 @@ static char *RCSid() { return RCSid("gadgets.c,v 1.1.3.1 2000/05/03 21:47:15 hbb
 ]*/
 
 #include "gadgets.h"
+#include "alloc.h"
 #include "command.h"
 #include "graph3d.h" /* for map3d_position_r() */
 #include "graphics.h"
@@ -160,10 +161,10 @@ TBOOLEAN is_3d_plot = FALSE;
 
 #ifdef VOLATILE_REFRESH
 /* Flag to signal that the existing data is valid for a quick refresh */
-int refresh_ok = 0;		/* 0 = no;  2 = 2D ok;  3 = 3D ok */
+TRefresh_Allowed refresh_ok = E_REFRESH_NOT_OK;
 /* FIXME: do_plot should be able to figure this out on its own! */
 int refresh_nplots = 0;
-#endif
+#endif /* VOLATILE_REFRESH */
 /* Flag to show that volatile input data is present */
 TBOOLEAN volatile_data = FALSE;
 
@@ -460,6 +461,27 @@ default_arrow_style(struct arrow_style_type *arrow)
 }
 
 void
+apply_head_properties(struct arrow_style_type *arrow_properties)
+{
+    curr_arrow_headfilled = arrow_properties->head_filled;
+    curr_arrow_headlength = 0;
+    if (arrow_properties->head_length > 0) {
+	/* set head length+angle for term->arrow */
+	double xtmp, ytmp;
+	struct position headsize = {first_axes,graph,graph,0.,0.,0.};
+
+	headsize.x = arrow_properties->head_length;
+	headsize.scalex = arrow_properties->head_lengthunit;
+
+	map_position_r(&headsize, &xtmp, &ytmp, "arrow");
+
+	curr_arrow_headangle = arrow_properties->head_angle;
+	curr_arrow_headbackangle = arrow_properties->head_backangle;
+	curr_arrow_headlength = xtmp;
+    }
+}
+
+void
 free_labels(struct text_label *label)
 {
 struct text_label *temp;
@@ -521,16 +543,31 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 	apply_pm3dcolor(&(this_label->textcolor),term);
 	ignore_enhanced(this_label->noenhanced);
 
-	get_offsets(this_label, term, &htic, &vtic);
-	if (this_label->rotate && (*term->text_angle) (this_label->rotate)) {
-	    write_multiline(x + htic, y + vtic, this_label->text,
-			    this_label->pos, justify, this_label->rotate,
-			    this_label->font);
-	    (*term->text_angle) (0);
+	/* The text itself */
+	if (this_label->hypertext) {
+	    /* Treat text as hypertext */
+	    char *font = this_label->font;
+	    if (font)
+		term->set_font(font);
+	    if (term->hypertext)
+	        term->hypertext(TERM_HYPERTEXT_TOOLTIP, this_label->text);
+	    if (font)
+		term->set_font("");
 	} else {
-	    write_multiline(x + htic, y + vtic, this_label->text,
-			    this_label->pos, justify, 0, this_label->font);
+	    /* A normal label (always print text) */
+	    get_offsets(this_label, term, &htic, &vtic);
+	    if (this_label->rotate && (*term->text_angle) (this_label->rotate)) {
+		write_multiline(x + htic, y + vtic, this_label->text,
+				this_label->pos, justify, this_label->rotate,
+				this_label->font);
+		(*term->text_angle) (0);
+	    } else {
+		write_multiline(x + htic, y + vtic, this_label->text,
+				this_label->pos, justify, 0, this_label->font);
+	    }
 	}
+
+	/* The associated point, if any */
 	/* write_multiline() clips text to on_page; do the same for any point */
 	if (this_label->lp_properties.pointflag && on_page(x,y)) {
 	    term_apply_lp_properties(&this_label->lp_properties);
@@ -541,3 +578,43 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 
 	ignore_enhanced(FALSE);
 }
+
+
+/* STR points to a label string, possibly with several lines separated
+   by \n.  Return the number of characters in the longest line.  If
+   LINES is not NULL, set *LINES to the number of lines in the
+   label. */
+int
+label_width(const char *str, int *lines)
+{
+    char *lab = NULL, *s, *e;
+    int mlen, len, l;
+
+    if (!str || *str == '\0') {
+	if (lines)
+	    *lines = 0;
+	return (0);
+    }
+
+    l = mlen = len = 0;
+    lab = gp_alloc(strlen(str) + 2, "in label_width");
+    strcpy(lab, str);
+    strcat(lab, "\n");
+    s = lab;
+    while ((e = (char *) strchr(s, '\n')) != NULL) {
+	*e = '\0';
+	len = estimate_strlen(s);	/* = e-s ? */
+	if (len > mlen)
+	    mlen = len;
+	if (len || l || *str == '\n')
+	    l++;
+	s = ++e;
+    }
+    /* lines = NULL => not interested - div */
+    if (lines)
+	*lines = l;
+
+    free(lab);
+    return (mlen);
+}
+

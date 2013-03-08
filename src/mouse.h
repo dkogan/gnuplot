@@ -1,5 +1,5 @@
 /*
- * $Id: mouse.h,v 1.21 2008/10/02 21:30:16 sfeam Exp $
+ * $Id: mouse.h,v 1.23 2012/10/27 02:23:39 sfeam Exp $
  */
 
 /* GNUPLOT - mouse.h */
@@ -54,7 +54,6 @@
 struct t_zoom {
   double xmin, ymin, xmax, ymax;
   double x2min, y2min, x2max, y2max;
-  int was_splot_map;
   struct t_zoom *prev, *next;
 };
 
@@ -149,6 +148,7 @@ static char* special_keys[] = {
     "F11",
     "F12",
     "Close",
+    "Button1",
     "GP_LAST_KEY",
     (char*) 0 /* must be the last line */
 };

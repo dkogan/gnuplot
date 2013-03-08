@@ -1,6 +1,6 @@
 /*
- *  $Id: lua.trm,v 1.17.2.2 2012/04/01 21:05:05 sfeam Exp $
- *  $Date: 2012/04/01 21:05:05 $
+ *  $Id: lua.trm,v 1.21 2012/10/17 04:32:13 sfeam Exp $
+ *  $Date: 2012/10/17 04:32:13 $
  *  $Rev: 99 $
  */
 
@@ -872,7 +872,7 @@ LUA_init()
 {
   fseek(gpoutfile, 0, SEEK_SET);
   /* ignore compiler warnings here, because `gpoutfile' is already open */
-  if (ftruncate(fileno(gpoutfile), 0));
+  (void)ftruncate(fileno(gpoutfile), 0);
 
   /* reset image counter */
   image_cnt = 0;
@@ -1070,7 +1070,15 @@ LUA_set_font(const char *font)
     LUA_call_report(lua_pcall(L, 1, 1, tb));
     lua_term_result = (int)lua_tointeger(L, -1);
     lua_pop(L, 1);
-    return((lua_term_result ? TRUE : FALSE));
+    if (lua_term_result) {
+	lua_getfield(L, luaterm, "v_char");
+	term->v_char = (lua_isnumber(L, -1)) ? (unsigned int)lua_tointeger(L, -1) : LUA_VCHAR;
+	lua_pop(L, 1);
+	lua_getfield(L, luaterm, "h_char");
+	term->h_char = (lua_isnumber(L, -1)) ? (unsigned int)lua_tointeger(L, -1) : LUA_HCHAR;
+	lua_pop(L, 1);
+	return TRUE;
+    }
   }
   return(FALSE);
 }

@@ -1,5 +1,5 @@
 /*
- * $Id: datafile.h,v 1.35.2.2 2012/09/05 23:35:46 sfeam Exp $
+ * $Id: datafile.h,v 1.40 2012/12/21 23:07:20 sfeam Exp $
  */
 
 /* GNUPLOT - datafile.h */
@@ -45,24 +45,20 @@
 
 /* returns from DF_READLINE in datafile.c */
 /* +ve is number of columns read */
-#define DF_EOF          (-1)
-#define DF_UNDEFINED    (-2)
-#define DF_FIRST_BLANK  (-3)
-#define DF_SECOND_BLANK (-4)
-#define DF_MISSING      (-5)
-#define DF_FOUND_KEY_TITLE   (-6)
-#define DF_KEY_TITLE_MISSING (-7)
-#define DF_STRINGDATA	(-8)
-#define DF_COLUMN_HEADERS (-9)
+enum DF_STATUS {
+    DF_BAD = 0,
+    DF_GOOD = 1,
+    DF_EOF = -1,
+    DF_UNDEFINED = -2,
+    DF_FIRST_BLANK = -3,
+    DF_SECOND_BLANK = -4,
+    DF_MISSING = -5,
+    DF_FOUND_KEY_TITLE = -6,
+    DF_KEY_TITLE_MISSING = -7,
+    DF_STRINGDATA = -8,
+    DF_COLUMN_HEADERS = -9
+};
 
-
-#ifndef MAXINT			/* should there be one already defined ? */
-# ifdef INT_MAX			/* in limits.h ? */
-#  define MAXINT INT_MAX
-# else
-#  define MAXINT ((~0)>>1)
-# endif
-#endif
 
 /* Variables of datafile.c needed by other modules: */
 
@@ -86,6 +82,9 @@ extern struct udft_entry ydata_func; /* HBB 990829: moved from command.h */
 
 /* Returned to caller by df_readline() */
 extern char *df_tokens[];
+
+/* number of columns in first row of data return to user in STATS_columns */
+extern int df_last_col;
 
 /* string representing missing values, ascii datafiles */
 extern char *missing_val;
