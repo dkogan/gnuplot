@@ -1,3 +1,9 @@
+gnuplot (4.7~2-1) experimental; urgency=low
+
+  * x11 terminal is now less zealous about replotting
+
+ -- Dima Kogan <dima@secretsauce.net>  Fri, 08 Mar 2013 12:37:49 -1000
+
 gnuplot (4.7~1-1) UNRELEASED; urgency=low
 
   * Version bump
