@@ -45,7 +45,7 @@ conf_opts += \
 
 override_dh_auto_configure:
 	echo $(conf_opts)
-	autoreconf
+	./prepare
 	mkdir -p $(BUILDDIR_NOX)
 	cd $(BUILDDIR_NOX);  ./../../configure $(conf_opts) --without-x --disable-wxwidgets
 	mkdir -p $(BUILDDIR_X11)
