@@ -1,3 +1,9 @@
+gnuplot (4.7~1-1) UNRELEASED; urgency=low
+
+  * Version bump
+
+ -- Dima Kogan <dima@secretsauce.net>  Thu, 07 Mar 2013 14:12:42 -1000
+
 gnuplot (4.6.1-1~exp1) experimental; urgency=low
 
   * [b6d2e38] Remove Bradley Smith <bradsmith@debian.org> from uploaders. 
