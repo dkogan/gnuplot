@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graphics.c,v 1.416 2013/02/28 06:43:00 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graphics.c,v 1.418 2013/03/30 00:21:39 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graphics.c */
@@ -589,6 +589,8 @@ do_plot(struct curve_points *plots, int pcount)
 	TBOOLEAN localkey = key->visible;	/* a local copy */
 
 	/* Sync point for start of new curve (used by svg, post, ...) */
+	if (term->hypertext)
+	    (term->hypertext)(TERM_HYPERTEXT_TITLE, this_plot->title);
 	(term->layer)(TERM_LAYER_BEFORE_PLOT);
 
 	/* set scaling for this plot's axes */

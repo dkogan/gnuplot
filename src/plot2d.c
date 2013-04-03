@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.288 2013/03/04 01:15:20 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.292 2013/03/22 03:48:55 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -318,9 +318,14 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 	}
     }
 
-    /* Make sure the bounds are reasonable, and tweak them if they aren't */
     this_plot = first_plot;
     for (iplot = 0;  iplot < nplots; iplot++, this_plot = this_plot->next) {
+
+	/* handle 'reverse' ranges */
+	axis_revert_range( this_plot->x_axis );
+	axis_revert_range( this_plot->y_axis );
+
+	/* Make sure the bounds are reasonable, and tweak them if they aren't */
 	axis_checked_extend_empty_range(this_plot->x_axis, NULL);
 	axis_checked_extend_empty_range(this_plot->y_axis, NULL);
     }
@@ -554,6 +559,9 @@ get_data(struct curve_points *current_plot)
     /* If the user has set an explicit locale for numeric input, apply it */
     /* here so that it affects data fields read from the input file.      */
     set_numeric_locale();
+
+    /* Initial state */
+    df_warn_on_missing_columnheader = TRUE;
 
     while ((j = df_readline(v, max_cols)) != DF_EOF) {
 	/* j <= max_cols */
@@ -2266,7 +2274,6 @@ eval_plots()
 		    }
 		    if (equals(c_token,"fc") || almost_equals(c_token,"fillc$olor")) {
 			struct lp_style_type lptmp;
-			c_token++;
 			lp_parse(&lptmp, FALSE, FALSE);
 			this_plot->lp_properties.pm3d_color = lptmp.pm3d_color;
 			this_plot->lp_properties.use_palette = TRUE;
@@ -2522,8 +2529,7 @@ eval_plots()
 	    if (this_plot->plot_type == DATA) {
 		/* actually get the data now */
 		if (get_data(this_plot) == 0) {
-		    /* EAM 2005 - warn, but keep going */
-		    int_warn(c_token-1,"Skipping data file with no valid points");
+		    int_warn(NO_CARET,"Skipping data file with no valid points");
 		    this_plot->plot_type = NODATA;
 		    goto SKIPPED_EMPTY_FILE;
 		}

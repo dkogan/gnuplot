@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.204 2013/02/17 17:51:25 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.207 2013/03/14 19:40:18 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -367,9 +367,14 @@ refresh_3dbounds(struct surface_points *first_plot, int nplots)
 		continue;
 	    }
 	}	/* End of this curve */
-	}	/* End of this plot */
+	}
 
-    }
+    }	/* End of this plot */
+
+    /* handle 'reverse' ranges */
+    axis_revert_range(FIRST_X_AXIS);
+    axis_revert_range(FIRST_Y_AXIS);
+    axis_revert_range(FIRST_Z_AXIS);
 
     /* Make sure the bounds are reasonable, and tweak them if they aren't */
     axis_checked_extend_empty_range(FIRST_X_AXIS, NULL);
@@ -781,6 +786,9 @@ get_3ddata(struct surface_points *this_plot)
 	/* If the user has set an explicit locale for numeric input, apply it */
 	/* here so that it affects data fields read from the input file.      */
 	set_numeric_locale();
+
+	/* Initial state */
+	df_warn_on_missing_columnheader = TRUE;
 
 	while ((retval = df_readline(v,MAXDATACOLS)) != DF_EOF) {
 	    j = retval;

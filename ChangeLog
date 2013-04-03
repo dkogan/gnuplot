@@ -1,3 +1,67 @@
+2013-03-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c src/term_api.h term/svg.trm:
+	Use actual plot title as the <title> attribute of svg plot elements.
+	If there is no plot title, use name_plotno_panelno as before.
+
+	* src/qtterminal/QtGnuplotScene.cpp (processEvent):  Fix off-by-one
+	iteration over visibility of plots after a zoom or other replot.
+
+2013-03-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c src/misc.c (lp_parse):  The "fillcolor|fc" keyword
+	in a plot command was not correctly parsed.
+
+	* src/term.c (term_apply_lp_properties): A patch of 2013-01-08
+	switched to always applying linetype color even if the use_palette
+	flag was not set.  This broke the TERM_MONOCHROME setting on terminals
+	that have it, as seen in the "test" command.
+	Handle monochrome terminals as a special case.
+	Bug #1225
+
+2013-03-17  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/mouse.c:
+	Combined mousing revisions from Michael Madsen, Petr Mikulik, and
+	Mojca Miklavec.
+	Zoom in/out around current mouse position rather than center of plot.
+
+	+/- keys             zoom in/out on mouse position
+	<wheel-up>           scroll up (in +Y direction)
+	<wheel-down>         scroll down.
+	<shift-wheel-up>     scroll left (in -X direction)
+	<shift-wheel-down>   scroll right.
+	<Control-WheelUp>    zoom in on mouse position
+	<Control-WheelDown>  zoom out on mouse position
+	<Shift-Control-WheelUp>    pinch on x
+	<Shift-Control-WheelDown>  expand on x
+
+2013-03-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c src/datafile.h src/plot2d.c src/plot3d.c:
+	Issue a warning if a requested column header is not found in the
+	data file being plotted.  Document that an exact match is required.
+
+2013-03-12  Carl Michal <michal@phas.ubc.ca>
+
+	* src/fit.c src/fit.h src/save.c src/set.c src/show.c src/unset.c:
+	"set fit [no]prescale" optionally normalizes fit parameters before
+	starting M-L refinement.
+
+2013-03-09  Dima Kogan  <dima@secretsauce.net>
+
+	* src/gplt_x11.c:  Some window managers produce multiple ConfigureNotify
+	events when a window is created. Some of these were mis-interpreted by
+	gnuplot_x11 as a refusal to resize, which then issued additional
+	unneeded replot actions. Now we wait for 0.1 second for extra
+	ConfigureNotify events before deciding that a resize was rejected.
+
+	* src/plot3d.c (refresh_3dbounds):  Partial axis ranges, e.g. [*:MAX] or
+	[MIN:*] were not being handled correctly when refreshing volatile data.
+
+	* src/plot2d.c (refresh_bounds) src/plot3d.c (refresh_3dbounds):
+	Extend degenerate range when refreshing.
+
 2013-03-03  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* src/plot2d.c:  Allow a 2 columns only variant of "with yerrorbars".
@@ -221,7 +285,7 @@
 	start of each layer's block of TeX output.  Bug #3599916
 
 	* src/term.c (term_apply_lp_properties):  Always apply linetype color,
-	even if the flag use_palette in not set.  Many terminals cope with this
+	even if the flag use_palette is not set.  Many terminals cope with this
 	on their own, but not all of them (e.g. cairolatex).
 	Bug #3599916
 
