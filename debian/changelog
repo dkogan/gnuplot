@@ -1,3 +1,9 @@
+gnuplot (4.7~2-2) experimental; urgency=low
+
+  * lots of stuff. 'reverse' ranges work
+
+ -- Dima Kogan <dima@secretsauce.net>  Wed, 03 Apr 2013 03:01:43 -0700
+
 gnuplot (4.7~2-1) experimental; urgency=low
 
   * x11 terminal is now less zealous about replotting
