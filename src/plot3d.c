@@ -367,9 +367,14 @@ refresh_3dbounds(struct surface_points *first_plot, int nplots)
 		continue;
 	    }
 	}	/* End of this curve */
-	}	/* End of this plot */
+	}
 
-    }
+    }	/* End of this plot */
+
+    /* handle 'reverse' ranges */
+    axis_revert_range(FIRST_X_AXIS);
+    axis_revert_range(FIRST_Y_AXIS);
+    axis_revert_range(FIRST_Z_AXIS);
 
     /* Make sure the bounds are reasonable, and tweak them if they aren't */
     axis_checked_extend_empty_range(FIRST_X_AXIS, NULL);
