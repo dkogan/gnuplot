@@ -494,25 +494,47 @@ void          rewinddir __PROTO((DIR *));
  * we use floats for memory considerations and thus use FLT_MAX.
  */
 
+/* why a factor of 1e-3:
+
+   An earlier bug fix introduced this factor in some narrow circumstances
+   (AXIS_INIT2D_REFRESH macro) to get around some overflow issues. However, this
+   broke some autoscaling functionality (specifically 2d image autoscaling when
+   refreshing volatile data) because the STORE_WITH_LOG_AND_UPDATE_RANGE() macro
+   has == comparisons with VERYLARGE. Here, I apply the factor to VERYLARGE
+   always. The bug fix in question is in the commit titled
+
+    Date: Sun Mar 23 21:39:26 2008 +0000
+    Fix macros AXIS_INIT2D_REFRESH and AXIS_UPDATE2D_REFRESH so that the refresh
+    command for volatile data works correctly for log axes (SF 1916494).
+
+   The bug it refers to is http://sourceforge.net/p/gnuplot/bugs/636/
+
+   The comment in that commit was
+
+   if an already VERYLARGE x2 and y2 ranges are
+   calculated after zoom-out by mouse, then they would become even larger
+*/
+#define VERYLARGE_SCALE 1e-3
+
 #ifndef COORDVAL_FLOAT
 # ifdef DBL_MAX
-#  define VERYLARGE (DBL_MAX/2-1)
+#  define VERYLARGE (VERYLARGE_SCALE * (DBL_MAX/2-1))
 # endif
 #else /* COORDVAL_FLOAT */
 # ifdef FLT_MAX
-#  define VERYLARGE (FLT_MAX/2-1)
+#  define VERYLARGE (VERYLARGE_SCALE * (FLT_MAX/2-1))
 # endif
 #endif /* COORDVAL_FLOAT */
 
 
 #ifndef VERYLARGE
 # ifdef HUGE
-#  define VERYLARGE (HUGE/2-1)
+#  define VERYLARGE (VERYLARGE_SCALE * (HUGE/2-1))
 # elif defined(HUGE_VAL)
-#  define VERYLARGE (HUGE_VAL/2-1)
+#  define VERYLARGE (VERYLARGE_SCALE * (HUGE_VAL/2-1))
 # else
 /* as a last resort */
-#  define VERYLARGE (1e37)
+#  define VERYLARGE (VERYLARGE_SCALE * (1e37))
 /* #  warning "using last resort 1e37 as VERYLARGE define, please check your headers" */
 /* Maybe add a note somewhere in the install docs instead */
 # endif /* HUGE */
