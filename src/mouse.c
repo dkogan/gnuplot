@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.147 2013/03/17 18:19:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.149 2013/04/08 04:18:20 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -502,9 +502,6 @@ GetAnnotateString(char *s, double x, double y, int mode, char *fmt)
 static char *
 xDateTimeFormat(double x, char *b, int mode)
 {
-# ifndef SEC_OFFS_SYS
-#  define SEC_OFFS_SYS 946684800
-# endif
     time_t xtime_position = SEC_OFFS_SYS + x;
     struct tm *pxtime_position = gmtime(&xtime_position);
     switch (mode) {
@@ -682,9 +679,16 @@ apply_zoom(struct t_zoom *z)
 	       zoom_now->xmin, zoom_now->xmax, 
 	       zoom_now->ymin, zoom_now->ymax);
 
-    if (!is_3d_plot) {
-	sprintf(s + strlen(s), "; set x2r[% #g:% #g]; set y2r[% #g:% #g]",
-		zoom_now->x2min, zoom_now->x2max,
+    /* EAM Apr 2013 - The tests on VERYLARGE protect against trying to   */
+    /* interpret the autoscaling initial state as an actual limit value. */
+    if (!is_3d_plot
+    && (zoom_now->x2min < VERYLARGE && zoom_now->x2max > -VERYLARGE)) {
+	sprintf(s + strlen(s), "; set x2r[% #g:% #g]",
+		zoom_now->x2min, zoom_now->x2max);
+    }
+    if (!is_3d_plot
+    && (zoom_now->y2min < VERYLARGE && zoom_now->y2max > -VERYLARGE)) {
+	sprintf(s + strlen(s), "; set y2r[% #g:% #g]",
 		zoom_now->y2min, zoom_now->y2max);
     }
 

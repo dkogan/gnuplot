@@ -1,3 +1,93 @@
+2013-04-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c (make_tics):  Test for an autoscaled axis that is enabled
+	but has no corresponding data (e.g. "set x2tics; plot ... axes x1y1").
+	In this case warn and skip tick generation rather than stopping with an
+	error.
+
+	* src/graphics.c (plot_image_or_update_axes)
+	src/plot2d.c (refresh_bounds):
+	Refresh of image plots tested only for autoscaling on x; now we also
+	test for autoscaling on y.
+
+	* src/axis.h: Do not add an extraneous factor of 1e-3 to the axis
+	limits of a refreshed plot.  Yes it prevents log-scale axes from
+	overflowing when zoomed out, but also it prevents the endpoint
+	values from being recognized as autoscaled.  A different fix is
+	needed for the overflowing log-scale axes.
+
+	* src/mouse.c (apply_zoom): Partial fix for the above problem.
+	If the x2 or y2 axis limits contain the magic value VERYLARGE,
+	the initial state of autoscaling, then don't try to interpret it
+	as an actual numerical value passed to "set x2range".
+	Bug #636.
+
+2013-04-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c (set_range): Add a loop to parse axis range options
+	so that there is no order dependence.  Add "noextend" option.
+
+2013-04-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gp_time.h term/js/gnuplot_mouse.js term/js/gnuplot_svg.js:
+	Change zero point of time coordinates to the unix epoch boundary
+	1-Jan-1970.  Previous to this change gnuplot used a zero point of
+	1-Jan-2000, which caused various user-visible problems when times
+	were input or manipulated as raw seconds.
+	Reversion to the previous choice of epoch boundary can be done by
+	replacing a single #if (0) in gp_time.h and reverting the
+	corresponding time calculation in the javascript files.
+
+	* src/mouse.c src/time.c docs/gnuplot.doc:  Remove unused code
+	and comments specific to the older use of a private epoch 
+	boundary.
+
+2013-04-04  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/wxterminal/wxt_gui.cpp (wxtPanel::RaiseConsoleWindow),
+	src/wxterminal/wxt_gui.h: Implement space-raises-console for 
+	Windows console mode gnuplot.
+
+2013-04-04  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/gnuplot-ja.doc, docs/term-ja.diff:
+	Sync with English documentation (rev.1.774)
+
+2013-04-04  Dima Kogan  <dima@secretsauce.net>
+
+	* src/axis.h src/axis.c src/plot2d.c src/plot3d.c:
+	Restore the original state of the "reverse" autoscaling flag when
+	refreshing (as opposed to replotting).
+
+2013-04-04  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/plot.c (main): Restore a code snippet for the Windows platform
+	which got removed by accident on Feb 3rd. Fixes -persist mode on
+	Windows.
+
+2013-04-02  Christoph Bersch  <cbersch@users.sf.net>
+
+	* term/post.trm term/PostScript/prologue.ps: Revise the code embedded
+	to skip Level2 PostScript features if /Level1 is set to true in the
+	header records at the top of an output *.ps or *.eps file.  The old
+	version failed if a level 2 image > 64kBytes was encountered.
+
+2013-04-01  Christoph Bersch  <cbersch@users.sf.net>
+
+	* term/post.trm: Add support for /FlateDecode compression of images.
+	The image is created as a PNG image using either the libgd or libcairo
+	library depending on which (if either) is present in the current build
+	of gnuplot.  The /FlateDecode method is only used if the terminal option
+	"level3" is given to "set term post".
+
+2013-04-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot3d.c:  Incomplete initialization of sample range variable.
+
+	* src/plot2d.c docs/gnuplot.doc:  Provide an indexed example of using 
+	"smooth frequency" to generate a histogram.  Do not let this plot mode 
+	override the user's data style.
+
 2013-03-29  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* src/graphics.c src/term_api.h term/svg.trm:

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.292 2013/03/22 03:48:55 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.295 2013/04/07 17:20:32 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -274,7 +274,7 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 	 * checks.  
 	 */
 	if (this_plot->plot_style == IMAGE || this_plot->plot_style == RGBIMAGE) {
-	    if (x_axis->set_autoscale)
+	    if (x_axis->set_autoscale || y_axis->set_autoscale)
 		plot_image_or_update_axes(this_plot,TRUE);
 	    continue;
 	}
@@ -1981,6 +1981,9 @@ eval_plots()
 		    c_token++;
 
 		    switch(found_token) {
+		    case SMOOTH_FREQUENCY:
+			this_plot->plot_smooth = found_token;
+			break;
 		    case SMOOTH_KDENSITY:
 			this_plot->smooth_parameter = -1; /* Default */
 			if (almost_equals(c_token,"band$width")) {
@@ -1993,17 +1996,16 @@ eval_plots()
 		    case SMOOTH_CSPLINES:
 		    case SMOOTH_SBEZIER:
 		    case SMOOTH_UNIQUE:
-		    case SMOOTH_FREQUENCY:
 		    case SMOOTH_CUMULATIVE:
 		    case SMOOTH_CUMULATIVE_NORMALISED:
 			this_plot->plot_smooth = found_token;
+			this_plot->plot_style = LINES;
 			break;
 		    case SMOOTH_NONE:
 		    default:
-			int_error(c_token, "expecting 'unique', 'frequency', 'cumulative', 'cnormal', 'kdensity', 'acsplines', 'csplines', 'bezier' or 'sbezier'");
+			int_error(c_token, "unrecognized 'smooth' option");
 			break;
 		    }
-		    this_plot->plot_style = LINES;
 		    set_smooth = TRUE;
 		    continue;
 		}
