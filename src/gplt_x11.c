@@ -662,6 +662,10 @@ static XPoint *polyline = NULL;
 static int polyline_space = 0;
 static int polyline_size = 0;
 
+/* whether we're in the middle of receiving image chunks. If so, don't try to
+   display() */
+static TBOOLEAN currently_receiving_gr_image = FALSE;
+
 static void gpXStoreName __PROTO((Display *, Window, char *));
 
 
@@ -1813,8 +1817,16 @@ record()
 	    /* fall through */
 #endif
 	default:
-	    if (plot)
-		store_command(buf, plot);
+	    if (plot) {
+		/* set up the currently_receiving_gr_image variable.
+		   X11_GR_IMAGE_END exists only for
+		   currently_receiving_gr_image, so we don't store it */
+		if     ( *buf == X11_GR_IMAGE     ) currently_receiving_gr_image = TRUE;
+		else if( *buf == X11_GR_IMAGE_END ) currently_receiving_gr_image = FALSE;
+
+		if( *buf != X11_GR_IMAGE_END )
+		    store_command(buf, plot);
+            }
 	    continue;
 	}
     }
@@ -3189,6 +3201,9 @@ display(plot_struct *plot)
     FPRINTF((stderr, "Display %d ; %d commands\n", plot->plot_number, plot->ncommands));
 
     if (plot->ncommands == 0)
+	return;
+
+    if (currently_receiving_gr_image)
 	return;
 
     /* make the plot as large as possible, while preserving the aspect ratio and

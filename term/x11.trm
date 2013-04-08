@@ -2185,7 +2185,13 @@ X11_image(unsigned int M, unsigned int N, coordval *image, gpiPoint *corner, t_i
     }
 
     /* Check if some characters were put in the buffer that need to be flushed. */
-    if (i_buffer != BINARY_MAX_CHAR_PER_TRANSFER) {fputc('\n', X11_ipc);  FFLUSH();}
+    if (i_buffer != BINARY_MAX_CHAR_PER_TRANSFER)
+	fputc('\n', X11_ipc);
+
+    /* indicate the end of the image chunk sequence */
+    fputc( X11_GR_IMAGE_END, X11_ipc);
+    fputc( '\n', X11_ipc);
+    FFLUSH();
 
     X11_INVALIDATE_CURRENT_POSITION;
     return;
