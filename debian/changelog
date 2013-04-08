@@ -1,3 +1,38 @@
+gnuplot (4.7~2-4) experimental; urgency=low
+
+  [ sfeam ]
+  * use /FlateDecode to reduce the size of embedded images
+  * Incomplete initiailization of sample range variable
+  * document use of "smooth frequency" to generate and plot a histogram
+  * Allow level 1 PostScript interpreters to skip large (>64kB) embedded images
+
+  [ markisch ]
+  * Fix -persist mode on Windows.
+
+  [ sfeam ]
+  * Restore the original state of the "reverse" autoscaling flag when refreshing
+  * Sync with English documentation
+
+  [ markisch ]
+  * Space-raises-console for Windows console mode
+
+  [ sfeam ]
+  * Change zero point of time coordinates to the unix epoch boundary 1-Jan-1970. Previous to this change gnuplot used a zero point of 1-Jan-2000.
+  * remove order dependence of axis range option parsing
+  * *** empty log message ***
+  * warning rather than error if an autoscaled axis has no data
+  * handle refresh of images with y axis autoscaling
+  * refresh/unzoom bugs
+  * do not add an extraneous factor of 1e-3 to axis limits during refresh/zoom
+  * VERYLARGE as an axis limit indicates the initial state of autoscaling. Do not misinterpret this as a numerical value passed to 'set ?range'.
+
+  [ Dima Kogan ]
+  * x11 terminal: corrected some sizing inconsistencies
+  * gplt_x11.c: renamed some variables to clarify code and to reduce statefulness
+  * gplt_x11.c: not trying to display() incomplete images
+
+ -- Dima Kogan <dima@secretsauce.net>  Mon, 08 Apr 2013 04:10:46 -0700
+
 gnuplot (4.7~2-3) experimental; urgency=low
 
   * The autoscaling of images during volatile data refresh works again
