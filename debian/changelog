@@ -1,3 +1,9 @@
+gnuplot (4.7~3-1) experimental; urgency=low
+
+  * Lots more patches
+
+ -- Dima Kogan <dima@secretsauce.net>  Tue, 08 Apr 2014 21:19:34 -0700
+
 gnuplot (4.7~2-4) experimental; urgency=low
 
   [ sfeam ]
