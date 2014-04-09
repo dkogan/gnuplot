@@ -1,5 +1,5 @@
 /*
- * $Id: fit.h,v 1.17 2013/03/12 18:06:58 sfeam Exp $
+ * $Id: fit.h,v 1.28 2014/03/15 04:27:37 markisch Exp $
  */
 
 /* GNUPLOT - fit.h */
@@ -40,42 +40,56 @@
 
 #include "syscfg.h"
 #include "stdfn.h"
-
-/* compatible with gnuplot philosophy */
-#define STANDARD stderr
-
-/* Suffix of a backup file */
-#define BACKUP_SUFFIX ".old"
+#include "gp_types.h"
 
 /* defaults */
 #define DEF_FIT_LIMIT 1e-5
 
-/*****************************************************************
-    Useful macros
-    We avoid any use of varargs/stdargs (not good style but portable)
-*****************************************************************/
-#define Eex(a)	    {sprintf (fitbuf+9, (a));         error_ex ();}
-#define Eex2(a,b)   {sprintf (fitbuf+9, (a),(b));     error_ex ();}
-#define Eex3(a,b,c) {sprintf (fitbuf+9, (a),(b),(c)); error_ex ();}
+/* error interrupt for fitting routines */
+#define Eex(a)       { error_ex(NO_CARET, (a)); }
+#define Eex2(a,b)    { error_ex(NO_CARET, (a), (b)); }
+#define Eex3(a,b,c)  { error_ex(NO_CARET, (a), (b), (c)); }
+#define Eexc(c,a)    { error_ex((c), (a)); }
+#define Eexc2(c,a,b) { error_ex((c), (a), (b)); }
 
 /* Type definitions */
 
+typedef enum e_verbosity_level {
+    QUIET, RESULTS, BRIEF, VERBOSE
+} verbosity_level;
+
+typedef char fixstr[MAX_ID_LEN+1];
+
 /* Exported Variables of fit.c */
 
-extern char fitbuf[];
+extern const char *FITLIMIT;
+extern const char *FITSTARTLAMBDA;
+extern const char *FITLAMBDAFACTOR;
+extern const char *FITMAXITER;
+
 extern char *fitlogfile;
 extern TBOOLEAN fit_errorvariables;
-extern TBOOLEAN fit_quiet;
+extern TBOOLEAN fit_covarvariables;
+extern verbosity_level fit_verbosity;
 extern TBOOLEAN fit_errorscaling;
 extern TBOOLEAN fit_prescale;
+extern char *fit_script;
+extern double epsilon_abs;  /* absolute convergence criterion */
+extern int maxiter;
+extern int fit_wrap;
 
 /* Prototypes of functions exported by fit.c */
 
-void error_ex __PROTO((void));
+void error_ex(int t_num, const char *str, ...);
 void init_fit __PROTO((void));
 void update __PROTO((char *pfile, char *npfile));
 void fit_command __PROTO((void));
 size_t wri_to_fil_last_fit_cmd __PROTO((FILE *fp));
 char *getfitlogfile __PROTO((void));
+char *getfitscript __PROTO((void));
+
+void call_gnuplot(const double *par, double *data);
+TBOOLEAN regress_check_stop(int iter, double chisq, double last_chisq, double lambda);
+void fit_progress(int i, double chisq, double last_chisq, double* a, double lambda, FILE *device);
 
 #endif /* GNUPLOT_FIT_H */

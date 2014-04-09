@@ -1,6 +1,14 @@
 New features, changes and fixes since gnuplot version 4.6
 =========================================================
 
+* NEW bold/italic text markup in enhanced text mode
+* NEW bit-shifing binary operators << and >>
+* NEW stat calculates skewness, kurtosis, and standard errors
+* NEW function plugins, e.g. 'import f(x) from "plugins.so"'
+* NEW option to tabulate all input columns "set table; plot ... with table" 
+* NEW smoothing option "mcsplines" for piecewise monotonic cubic splines
+* NEW 'history !N' reexecutes the command at history entry N.
+* NEW 'set history {size <N>} {quiet|numbers} {full|trim} {default}'
 * NEW piecewise functions via separate sampling ranges for each plot element
 * NEW function hsv2rgb(H,S,V) creates a 24-bit RGB value
 * NEW plot title can be placed next to the plot line in the graph proper
@@ -8,13 +16,36 @@ New features, changes and fixes since gnuplot version 4.6
 * NEW hypertext labels can be displayed on mouse-over
 * NEW geographic (Degrees Minutes Seconds) data axes
 * NEW set arrow <tag> from <start> length <len> angle <ang>
+* NEW arrow style keywords "noborder" and "fixed"
 * NEW the high bits of RGB colors are treated as an alpha channel
 * NEW 'set surface explicit' disables automatic generation of a surface mesh 
 * NEW 'set link [x2|y2]' ties secondary axis range to the primary axis
 * NEW 'set link x2 via f(x) inverse g(x)' introduces generic nonlinear axes
+* NEW linked axes can be used to place x2 and y2 labels on 3D plots in map mode
 * NEW 'set key opaque' works for 3D plots also
 * NEW x11 terminal is aware of current and requested plot aspect ratio
+* NEW x11 support for toggling plots on/off with left mouseclick on the key
 * NEW post term can use /FlateDecode to reduce the size of embedded images
+* NEW 'set fit quiet|results|brief|verbose' changes fit's verbosity
+* NEW fit optionally stores final covariances to user variables
+* NEW fit command takes errors of independent variables into account
+* NEW 'set multiplot next/previous'
+* NEW 'set contours; splot FOO with labels' places labels on the contour lines
+* NEW Additional levels of user-specified axis tics
+* NEW complex math routines cerf, cdawson, erfi, faddeeva from libcerf if present
+* NEW i/v/V hotkeys to toggle all plots on the screen on/off
+* NEW 'set mrtics'   (minor tics on polar axis)
+* NEW 'reset session'
+* NEW call argument convention ARGC, ARG0 ARG1 ... ARG<ARGC>
+* NEW shell invocation gnuplot -c scriptfile ARG1 ARG2 ARG3
+* NEW format %h is like %g but uses LaTeX or enhanced markup for the exponent
+* NEW LaTeX terminals use math mode for axis tic labels
+* NEW Interrupt scripts or fits by pressing Ctrl-C in Windows console mode
+      gnuplot or Ctrl-Break in wgnuplot.
+* NEW optional faster windows terminal variant using GDI+
+* NEW plot option to "skip N" lines at start of an ascii data file
+* NEW interactive color character art terminal "caca"
+* CHANGE mouse events are handled even when the program is not waiting on stdin
 * CHANGE mouse wheel and +/- keys zoom centered on current mouse position
 * CHANGE Provide kdensity bandwidth via a keyword rather than a data column
 * CHANGE Pipe (popen/pclose) emulation within wgnuplot
@@ -27,7 +58,20 @@ New features, changes and fixes since gnuplot version 4.6
 * CHANGE binary plot options are less order-dependent, but may be persistent
 * CHANGE leave axis log base non-zero so gprintf format %L works on linear axes
 * CHANGE time calcs use the standard epoch date 01-jan-1970 rather than 2000
-
+* CHANGE fit options are controlled via `set fit` instead of FIT_ variables
+* CHANGE fit defaults to brief one-line progress reports
+* CHANGE fit 'prescale's parameters by default
+* CHANGE new fit syntax to specify errors in dependent and independent variables
+* CHANGE treat empty field in a csv file as "missing" rather than "bad"
+* CHANGE strip \r from data lines on input so that DOS format *.csv can be read
+* CHANGE Use Sutherland-Hodgman algorithm for clipping polygons and filled curves
+* CHANGE Maximum number of fit dimensions increased to 12 (was 5).
+* CHANGE pgnuplot no longer included in binary distribution
+* CHANGE new implementation of Airy function (much higher precision)
+* CHANGE 'call' arguments are evaluated to yield a string if at all possible
+* CHANGE reworked qt driver for use with qt5, much faster rendering
+* CHANGE gnuplot-mode (emacs plugin) now maintained as a separate project
+* FIX Hitting ^C twice will forcibly terminate wxt if server connection is lost
 
 New features, changes and fixes in gnuplot version 4.6
 ======================================================

@@ -1,5 +1,5 @@
 /*
- * $Id: datablock.c,v 1.1 2012/06/19 18:11:05 sfeam Exp $
+ * $Id: datablock.c,v 1.4 2014/03/23 13:27:27 markisch Exp $
  */
 /* GNUPLOT - datablock.c */
 
@@ -69,6 +69,9 @@
 #include "misc.h"
 #include "util.h"
 
+static int enlarge_datablock(struct value *datablock_value, int extra);
+
+
 /*
  * In-line data blocks are implemented as a here-document:
  * $FOO << EOD
@@ -108,7 +111,7 @@ datablock_command()
     if (!equals(c_token, "<<") || !isletter(c_token+1))
 	int_error(c_token, "data block name must be followed by << EODmarker");
     c_token++;
-    eod = gp_alloc(token[c_token].length +2, "datablock");
+    eod = (char *) gp_alloc(token[c_token].length +2, "datablock");
     copy_str(&eod[0], c_token, token[c_token].length + 2);
     c_token++;
 
@@ -117,24 +120,34 @@ datablock_command()
     if (!fin)
 	int_error(NO_CARET,"attempt to define data block from invalid context");
     for (nlines = 0; fgets(dataline, MAX_LINE_LEN, fin); nlines++) {
+	int n;
+
 	if (!strncmp(eod, dataline, strlen(eod)))
 	    break;
 	/* Allocate space for data lines plus at least 2 empty lines at the end. */
 	if (nlines >= nsize-4) {
 	    nsize *= 2;
-	    datablock->udv_value.v.data_array = 
-		gp_realloc( datablock->udv_value.v.data_array, 
+	    datablock->udv_value.v.data_array =
+		(char **) gp_realloc(datablock->udv_value.v.data_array,
 			nsize * sizeof(char *), "datablock");
 	    memset(&datablock->udv_value.v.data_array[nlines], 0,
 		    (nsize - nlines) * sizeof(char *));
 	}
+	/* Strip trailing newline character */
+	n = strlen(dataline);
+	if (n > 0 && dataline[n - 1] == '\n')
+	    dataline[n - 1] = NUL;
 	datablock->udv_value.v.data_array[nlines] = gp_strdup(dataline);
     }
     inline_num += nlines + 1;	/* Update position in input file */
 
+    /* make sure that we can safely add lines to this datablock later on */
+    enlarge_datablock(&datablock->udv_value, 0);
+
     free(eod);
     return;
 }
+
 
 char *
 parse_datablock_name()
@@ -146,7 +159,7 @@ parse_datablock_name()
 
     free(name);
     c_token++;
-    name = gp_alloc(token[c_token].length + 2, "datablock");
+    name = (char *) gp_alloc(token[c_token].length + 2, "datablock");
     name[0] = '$';
     copy_str(&name[1], c_token, token[c_token].length + 2);
     c_token++;
@@ -160,12 +173,13 @@ get_datablock(char *name)
     struct udvt_entry *datablock;
 
     datablock = get_udv_by_name(name);
-    if (!datablock || datablock->udv_undef 
+    if (!datablock || datablock->udv_undef
     ||  datablock->udv_value.v.data_array == NULL)
 	int_error(NO_CARET,"no datablock named %s",name);
 
     return datablock->udv_value.v.data_array;
 }
+
 
 void
 gpfree_datablock(struct value *datablock_value)
@@ -180,4 +194,43 @@ gpfree_datablock(struct value *datablock_value)
 	    free(stored_data[i]);
     free(stored_data);
     datablock_value->v.data_array = NULL;
+}
+
+
+/* resize or allocate a datablock; allocate memory in chuncks */
+static int
+enlarge_datablock(struct value *datablock_value, int extra)
+{
+    char **dataline;
+    int nlines = 0;
+    int osize, nsize;
+    const int blocksize = 512;
+
+    /* count number of lines in datablock */
+    dataline = datablock_value->v.data_array;
+    if (dataline) {
+	while (*dataline++)
+	    nlines++;
+    }
+
+    /* reserve space in multiples of blocksize */
+    osize = ((nlines+1 + blocksize-1) / blocksize) * blocksize; 
+    nsize = ((nlines+1 + extra + blocksize-1) / blocksize) * blocksize;
+
+    /* only resize if necessary */
+    if ((osize != nsize) || (extra == 0) || (nlines == 0))
+	datablock_value->v.data_array =
+	    (char **) gp_realloc(datablock_value->v.data_array,  nsize * sizeof(char *), "resize_datablock");
+
+    return nlines;
+}
+
+
+/* append a single line to a datablock */
+void
+append_to_datablock(struct value *datablock_value, char *line)
+{
+    int nlines = enlarge_datablock(datablock_value, 1);
+    datablock_value->v.data_array[nlines] = line;
+    datablock_value->v.data_array[nlines + 1] = NULL;
 }

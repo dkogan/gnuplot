@@ -71,7 +71,7 @@ void qt_text(void);
 void qt_fillbox(int style, unsigned int x1, unsigned int y1, unsigned int width, unsigned int height);
 void qt_linewidth(double linewidth);
 # ifdef USE_MOUSE
-int  qt_waitforinput(void);
+int  qt_waitforinput(int);
 void qt_put_tmptext(int, const char str[]);
 void qt_set_ruler(int x, int y);
 void qt_set_cursor(int, int, int);
@@ -86,6 +86,10 @@ void qt_enhanced_flush();
 void qt_enhanced_writec(int c);
 void qt_layer(t_termlayer layer);
 void qt_hypertext(int type, const char *text);
+#ifdef EAM_BOXED_TEXT
+void qt_boxed_text(unsigned int x, unsigned int y, int option);
+#endif
+void qt_modify_plots(unsigned int ops);
 
 #ifdef __cplusplus
 }

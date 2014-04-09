@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: internal.c,v 1.68 2012/05/06 02:58:54 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: internal.c,v 1.77 2014/03/20 00:58:35 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - internal.c */
@@ -39,13 +39,20 @@ static char *RCSid() { return RCSid("$Id: internal.c,v 1.68 2012/05/06 02:58:54 
 
 #include "stdfn.h"
 #include "alloc.h"
-#include "util.h"		/* for int_error() */
-#include "gp_time.h"           /* for str(p|f)time */
-#include "command.h"            /* for do_system_func */
-#include "variable.h" /* For locale handling */
+#include "util.h"	/* for int_error() */
+#include "gp_time.h"	/* for str(p|f)time */
+#include "command.h"	/* for do_system_func */
+#include "variable.h"	/* for locale handling */
+#include "parse.h"	/* for string_result_only */
 
 #include <math.h>
 
+#ifndef _WIN64
+/*
+ * FIXME: This is almost certainly out of date on linux, since the matherr
+ * mechanism has been replaced by math_error() and supposedly is only 
+ * enabled via an explicit declaration #define _SVID_SOURCE.
+ */
 /*
  * Excerpt from the Solaris man page for matherr():
  *
@@ -56,16 +63,17 @@ static char *RCSid() { return RCSid("$Id: internal.c,v 1.68 2012/05/06 02:58:54 
  *   matherr() in their programs.
  */
 
-static enum DATA_TYPES sprintf_specifier __PROTO((const char *format));
-
-
 int
 GP_MATHERR( STRUCT_EXCEPTION_P_X )
 {
     return (undefined = TRUE);	/* don't print error message */
 }
+#endif
+
+static enum DATA_TYPES sprintf_specifier __PROTO((const char *format));
 
 #define BAD_DEFAULT default: int_error(NO_CARET, "internal error : type neither INT or CMPLX"); return;
+#define BADINT_DEFAULT default: int_error(NO_CARET, "error: bit shift applied to non-INT"); return;
 
 static int recursion_depth = 0;
 void
@@ -80,8 +88,12 @@ f_push(union argument *x)
     struct udvt_entry *udv;
 
     udv = x->udv_arg;
-    if (udv->udv_undef) {	/* undefined */
-	int_error(NO_CARET, "undefined variable: %s", udv->udv_name);
+    if (udv->udv_undef) {
+	if (string_result_only)
+	/* We're only here to check whether this is a string. It isn't. */
+	    udv = udv_NaN;
+	else
+	    int_error(NO_CARET, "undefined variable: %s", udv->udv_name);
     }
     push(&(udv->udv_value));
 }
@@ -131,8 +143,15 @@ f_call(union argument *x)
     struct value save_dummy;
 
     udf = x->udf_arg;
-    if (!udf->at)
+    if (!udf->at) {
+	if (string_result_only) {
+	    /* We're only here to check whether this is a string. It isn't. */
+	    f_pop(x);
+	    push(&(udv_NaN->udv_value));
+	    return;
+	}
 	int_error(NO_CARET, "undefined function: %s", udf->udf_name);
+    }
 
     save_dummy = udf->dummy_values[0];
     (void) pop(&(udf->dummy_values[0]));
@@ -625,6 +644,54 @@ f_le(union argument *arg)
 
 
 void
+f_leftshift(union argument *arg)
+{
+    struct value a, b, result;
+
+    (void) arg;			/* avoid -Wunused warning */
+    (void) pop(&b);
+    (void) pop(&a);
+    switch (a.type) {
+    case INTGR:
+	switch (b.type) {
+	case INTGR:
+	    (void) Ginteger(&result, (unsigned)(a.v.int_val) << b.v.int_val);
+	    break;
+	BADINT_DEFAULT
+	}
+	break;
+    BADINT_DEFAULT
+    }
+    push(&result);
+}
+
+
+
+void
+f_rightshift(union argument *arg)
+{
+    struct value a, b, result;
+
+    (void) arg;			/* avoid -Wunused warning */
+    (void) pop(&b);
+    (void) pop(&a);
+    switch (a.type) {
+    case INTGR:
+	switch (b.type) {
+	case INTGR:
+	    (void) Ginteger(&result, (unsigned)(a.v.int_val) >> b.v.int_val);
+	    break;
+	BADINT_DEFAULT
+	}
+	break;
+    BADINT_DEFAULT
+    }
+    push(&result);
+}
+
+
+
+void
 f_plus(union argument *arg)
 {
     struct value a, b, result;
@@ -862,7 +929,7 @@ f_mod(union argument *arg)
     (void) pop(&a);		/* now do a%b */
 
     if (a.type != INTGR || b.type != INTGR)
-	int_error(NO_CARET, "can only mod ints");
+	int_error(NO_CARET, "non-integer operand for %%");
     if (b.v.int_val)
 	push(Ginteger(&a, a.v.int_val % b.v.int_val));
     else {
@@ -1130,30 +1197,41 @@ f_range(union argument *arg)
 {
     struct value beg, end, full;
     struct value substr;
+    int ibeg, iend;
 
     (void) arg;			/* avoid -Wunused warning */
     (void) pop(&end);
     (void) pop(&beg);
     (void) pop(&full);
 
-    if (end.type != INTGR || beg.type != INTGR)
-	int_error(NO_CARET, "internal error: substring range specifiers must have integer values");
-
+    if (beg.type == INTGR)
+	ibeg = beg.v.int_val;
+    else if (beg.type == CMPLX)
+	ibeg = floor(beg.v.cmplx_val.real);
+    else
+	int_error(NO_CARET, "internal error: non-numeric substring range specifier");
+    if (end.type == INTGR)
+	iend = end.v.int_val;
+    else if (end.type == CMPLX)
+	iend = floor(end.v.cmplx_val.real);
+    else
+	int_error(NO_CARET, "internal error: non-numeric substring range specifier");
+	
     if (full.type != STRING)
 	int_error(NO_CARET, "internal error: substring range operator applied to non-STRING type");
 
     FPRINTF((stderr,"f_range( \"%s\", %d, %d)\n", full.v.string_val, beg.v.int_val, end.v.int_val));
 
-    if (end.v.int_val > gp_strlen(full.v.string_val))
-	end.v.int_val = gp_strlen(full.v.string_val);
-    if (beg.v.int_val < 1)
-	beg.v.int_val = 1;
+    if (iend > gp_strlen(full.v.string_val))
+	iend = gp_strlen(full.v.string_val);
+    if (ibeg < 1)
+	ibeg = 1;
 
-    if (beg.v.int_val > end.v.int_val) {
+    if (ibeg > iend) {
 	push(Gstring(&substr, ""));
     } else {
-	char *begp = gp_strchrn(full.v.string_val,beg.v.int_val-1);
-	char *endp = gp_strchrn(full.v.string_val,end.v.int_val);
+	char *begp = gp_strchrn(full.v.string_val,ibeg-1);
+	char *endp = gp_strchrn(full.v.string_val,iend);
 	*endp = '\0';
 	push(Gstring(&substr, begp));
     }
@@ -1222,10 +1300,10 @@ f_sprintf(union argument *arg)
     int prev_pos;
     int i, remaining;
     int nargs = 0;
-    int save_errno;
     enum DATA_TYPES spec_type;
 
     /* Retrieve number of parameters from top of stack */
+    (void) arg;
     pop(&num_params);
     nargs = num_params.v.int_val;
     if (nargs > 10) {	/* Fall back to slow but sure allocation */
@@ -1291,7 +1369,6 @@ f_sprintf(union argument *arg)
 
 #ifdef HAVE_SNPRINTF
 	/* Use the format to print next arg */
-	save_errno = errno;
 	switch(spec_type) {
 	case INTGR:
 	    snprintf(outpos,bufsize-(outpos-buffer),
@@ -1308,11 +1385,6 @@ f_sprintf(union argument *arg)
 	default:
 	    int_error(NO_CARET,"internal error: invalid spec_type");
 	}
-#if _MSC_VER
-       buffer[bufsize-1] = '\0';	/* VC++ is not ANSI-compliant */
-       if (errno == ERANGE) errno = save_errno;
-#endif 
-
 #else
 	/* FIXME - this is bad; we should dummy up an snprintf equivalent */
 	switch(spec_type) {
@@ -1390,6 +1462,7 @@ f_gprintf(union argument *arg)
     double base = 10.;
  
     /* Retrieve parameters from top of stack */
+    (void) arg;
     pop(&val);
     pop(&fmt);
 
@@ -1605,6 +1678,7 @@ f_system(union argument *arg)
     int output_len, ierr;
 
     /* Retrieve parameters from top of stack */
+    (void) arg;
     pop(&val);
 
     /* Make sure parameters are of the correct type */

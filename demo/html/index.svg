@@ -1,6 +1,6 @@
 <!DOCTYPE HTML>
 <html>
-<head><title>Gnuplot Version 4.7 SVG terminal demos</title>
+<head><title>Gnuplot Version 5 SVG terminal demos</title>
 <link type="text/css" href="gnuplot_demo.css" rel="stylesheet">
 <meta charset="UTF-8">
 </head>
@@ -8,20 +8,19 @@
 <body>
 
 <h2 align=center>
-    Gnuplot Version 4.7 SVG terminal demos<br>
+    Gnuplot Version 5 SVG terminal demos<br>
     See also the demo output for the 
-       <a href="../demo_4.7/">PNG</a> and
-       <a href="../demo_canvas_4.7/">canvas</a> terminals.
+       <a href="../demo_5.0/">PNG</a> and
+       <a href="../demo_canvas_5.0/">canvas</a> terminals.
 </h2>
 
 <p>
 Here are samples of SVG output from demos included with the gnuplot
-distribution. They were generated using the <i>May 2012</i>
-CVS version of gnuplot.
+distribution. They were generated using a pre-release copy of
+gnuplot version 5.
 Note that individual plots can be toggled on/off by clicking on
 the corresponding key entry.  Clicking in the plot area should turn
 on mouse-coordinate tracking.
-The mousing code is new. You may see some browser-dependent glitches.
 </p>
 
 <table width="100%">
@@ -35,11 +34,12 @@ The mousing code is new. You may see some browser-dependent glitches.
     <li><a href="fillbetween.html">fill&nbsp;between&nbsp;curves</a></li>
     <li><a href="candlesticks.html">candlesticks</a></li>
     <li><a href="mgr.html">error bars</a></li>
-    <li><a href="histograms.html">histograms</a></li>
+    <li><a href="histograms.html">histograms</a> (<a href="histograms2.html">more</a>)</li>
     <li><a href="steps.html">step functions</a></li>
     <li><a href="multiaxis.html">multiple axis scales</a></li>
     <li><a href="using.html">mixing styles</a></li>
     <li><a href="pointsize.html">variable size points</a></li>
+    <li><a href="parallel.html">parallel axis plots</a></li>
     <li><a href="param.html">parametric&nbsp;functions</a></li>
     <li><a href="piecewise.html">piecewise&nbsp;functions</a></li>
     <li><a href="vector.html">vector fields</a></li>
@@ -53,17 +53,13 @@ The mousing code is new. You may see some browser-dependent glitches.
     <li><a href="approximate.html">approximation</a></li>
     <li><a href="spline.html">B-splines</a></li>
     <li><a href="airfoil.html">Bezier splines</a></li>
-    <li><font color=gray>>complex functions</font></li>
+    <li><font color=gray>complex trig functions</font></li>
+    <li><a href="cerf.html">complex error function</font></li>
     <li><a href="prob2.html">probability</a></li>
     <li><a href="prob.html">probability (more)</a></li>
     <li><a href="random.html">random numbers</a></li>
     <li><a href="bivariat.html">recursion, etc...</a></li>
     <li><a href="stats.html">data statistics</a></li>
-    </ul>
-
-    <h4>Animation</h4>
-    <ul>
-    <li><font color=gray>not supported</font></li>
     </ul>
 
 </td>
@@ -134,6 +130,7 @@ The mousing code is new. You may see some browser-dependent glitches.
     <li><a href="margins.html">aligned plots</a></li>
     <li><a href="ellipse.html">axis location</a></li>
     <li><a href="rectangle.html">rectangles</a></li>
+    <li><a href="nokey.html">end-labeled plots</a></li>
     </ul>
 
     <h4>Styles</h4>
@@ -142,6 +139,11 @@ The mousing code is new. You may see some browser-dependent glitches.
     <li><a href="fillstyle.html">fill styles</a></li>
     <li><a href="transparent.html">transparency</a></li>
     <li><a href="transparent_solids.html">transparent solids</a></li>
+    </ul>
+
+    <h4>Animation</h4>
+    <ul>
+    <li><font color=gray>not supported</font></li>
     </ul>
 </td>
 
@@ -175,7 +177,7 @@ The mousing code is new. You may see some browser-dependent glitches.
 <tbody><tr valign="top">
 
     <td>
-    <i>This page created by Ethan Merritt<br>April 2012</i>
+    <i>This page created by Ethan Merritt<br>March 2014</i>
     </td>
 
     <td>

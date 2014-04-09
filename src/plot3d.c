@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.209 2013/04/04 20:34:20 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.224 2014/03/15 23:42:01 juhaszp Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -61,6 +61,21 @@ static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.209 2013/04/04 20:34:20 s
 # include "help.h"
 #endif
 
+/* Sep 2013 - moved from axis.h in the process of doing away with it altogether */
+#if (1)	/* FIXME:  I'm 99% sure TRUE is fine, i.e. NEED_PALETTE is unnecessary. */
+	/* In any event, the alternative breaks splot with rgb variable */
+#define NEED_PALETTE(plot) TRUE
+#else
+#define NEED_PALETTE(plot) \
+    (  (pm3d.implicit == PM3D_IMPLICIT) \
+    || ((plot)->plot_style == PM3DSURFACE) \
+    || ((plot)->plot_style == IMAGE) \
+    || (plot)->lp_properties.pm3d_color.type == TC_CB \
+    || (plot)->lp_properties.pm3d_color.type == TC_FRAC \
+    || (plot)->lp_properties.pm3d_color.type == TC_Z \
+    )
+#endif
+
 /* global variables exported by this module */
 
 t_data_mapping mapping3d = MAP3D_CARTESIAN;
@@ -92,6 +107,9 @@ static double splines_kernel __PROTO((double h));
 static void thin_plate_splines_setup __PROTO(( struct iso_curve *old_iso_crvs, double **p_xx, int *p_numpoints ));
 static double qnorm __PROTO(( double dist_x, double dist_y, int q ));
 static double pythag __PROTO(( double dx, double dy ));
+
+/* helper functions for parsing */
+static void load_contour_label_options __PROTO((struct text_label *contour_label));
 
 /* the curves/surfaces of the plot */
 struct surface_points *first_3dplot = NULL;
@@ -283,11 +301,19 @@ plot3drequest()
     else
 	strcpy(c_dummy_var[1], set_dummy_var[1]);
 
+    /* In "set view map" mode the x2 and y2 axes are legal */
+    /* but must be linked to the respective primary axis. */
+    if (splot_map) {
+	if ((axis_array[SECOND_X_AXIS].ticmode && !axis_array[SECOND_X_AXIS].linked_to_primary)
+	||  (axis_array[SECOND_Y_AXIS].ticmode && !axis_array[SECOND_Y_AXIS].linked_to_primary))
+	    int_error(NO_CARET,
+		"Secondary axis must be linked to primary axis in order to draw tics");
+    }
+
     eval_3dplots();
 }
 
 
-#ifdef VOLATILE_REFRESH
 /* Helper function for refresh command.  Reexamine each data point and update the
  * flags for INRANGE/OUTRANGE/UNDEFINED based on the current limits for that axis.
  * Normally the axis limits are already known at this point. But if the user has
@@ -381,7 +407,6 @@ refresh_3dbounds(struct surface_points *first_plot, int nplots)
     axis_checked_extend_empty_range(FIRST_Y_AXIS, NULL);
     axis_checked_extend_empty_range(FIRST_Z_AXIS, NULL);
 }
-#endif /* VOLATILE_REFRESH */
 
 
 static double
@@ -1060,7 +1085,7 @@ get_3ddata(struct surface_points *this_plot)
 		/* EAM Sep 2008 - Otherwise z=Nan or z=Inf or DF_MISSING fails */
 		/* to set CRD_COLOR at all, since the z test bails to a goto.  */
 		if (this_plot->plot_style == IMAGE) {
-			cp->CRD_COLOR = z;
+			cp->CRD_COLOR = (pm3d_color_from_column) ? color : z;
 	        }
 
 		STORE_WITH_LOG_AND_UPDATE_RANGE(cp->z, z, cp->type, z_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
@@ -1268,7 +1293,7 @@ eval_3dplots()
     TBOOLEAN some_data_files = FALSE, some_functions = FALSE;
     TBOOLEAN was_definition = FALSE;
     int df_return = 0;
-    int plot_num, line_num, point_num;
+    int plot_num, line_num;
     /* part number of parametric function triplet: 0 = z, 1 = y, 2 = x */
     int crnt_param = 0;
     char *xtitle;
@@ -1291,7 +1316,6 @@ eval_3dplots()
     tp_3d_ptr = &(first_3dplot);
     plot_num = 0;
     line_num = 0;		/* default line type */
-    point_num = 0;		/* default point type */
 
     /* Assume that the input data can be re-read later */
     volatile_data = FALSE;
@@ -1473,10 +1497,10 @@ eval_3dplots()
 		this_plot->title = NULL;
 	    }
 
-	    /* default line and point types, no palette */
-	    this_plot->lp_properties.use_palette = 0;
+	    /* default line and point types */
 	    this_plot->lp_properties.l_type = line_num;
-	    this_plot->lp_properties.p_type = point_num;
+	    this_plot->lp_properties.p_type = line_num;
+		this_plot->lp_properties.d_type = line_num;
 
 	    /* user may prefer explicit line styles */
 	    this_plot->hidden3d_top_linetype = line_num;
@@ -1489,49 +1513,46 @@ eval_3dplots()
 	    while (!END_OF_COMMAND || !checked_once) {
 
 		/* deal with title */
-		if (almost_equals(c_token, "t$itle")) {
+		if (almost_equals(c_token, "t$itle") || almost_equals(c_token, "not$itle")) {
 		    if (set_title) {
 			duplication=TRUE;
 			break;
 		    }
-		    this_plot->title_no_enhanced = !key->enhanced;
-			/* title can be enhanced if not explicitly disabled */
-		    if (parametric) {
-			if (crnt_param != 0)
-			    int_error(c_token, "\"title\" allowed only after parametric function fully specified");
-			else {
-			    if (xtitle != NULL)
-				xtitle[0] = NUL;	/* Remove default title . */
-			    if (ytitle != NULL)
-				ytitle[0] = NUL;	/* Remove default title . */
-			}
+		    set_title = TRUE;
+		    if (almost_equals(c_token++, "not$itle")) {
+			this_plot->title_is_suppressed = TRUE;
+			if (equals(c_token,","))
+			    continue;
 		    }
-		    c_token++;
+
+		    if (parametric || this_plot->title_is_suppressed) {
+			if (xtitle != NULL)
+			    xtitle[0] = NUL;	/* Remove default title . */
+			if (ytitle != NULL)
+			    ytitle[0] = NUL;	/* Remove default title . */
+		    }
+
+		    /* title can be enhanced if not explicitly disabled */
+		    this_plot->title_no_enhanced = !key->enhanced;
 
 		    if (almost_equals(c_token,"col$umnheader")) {
 			df_set_key_title_columnhead((struct curve_points *)this_plot);
+		    } else {
+			char *temp;
+			temp = try_to_get_string();
+			if (!this_plot->title_is_suppressed && !(this_plot->title = temp))
+			    int_error(c_token, "expecting \"title\" for plot");
 		    }
-
-		    else if (!(this_plot->title = try_to_get_string()))
-			int_error(c_token, "expecting \"title\" for plot");
-		    set_title = TRUE;
 		    continue;
 		}
 
-		if (almost_equals(c_token, "not$itle")) {
-		    if (set_title) {
-			duplication=TRUE;
-			break;
-		    }
+		if (almost_equals(c_token, "enh$anced")) {
 		    c_token++;
-		    if (isstringvalue(c_token))
-			try_to_get_string(); /* ignore optionally given title string */
-		    this_plot->title_is_suppressed = TRUE;
-		    if (xtitle != NULL)
-			xtitle[0] = '\0';
-		    if (ytitle != NULL)
-			ytitle[0] = '\0';
-		    set_title = TRUE;
+		    this_plot->title_no_enhanced = FALSE;
+		    continue;
+		} else if (almost_equals(c_token, "noenh$anced")) {
+		    c_token++;
+		    this_plot->title_no_enhanced = TRUE;
 		    continue;
 		}
 
@@ -1544,10 +1565,14 @@ eval_3dplots()
 		    this_plot->plot_style = get_style();
 		    if ((this_plot->plot_type == FUNC3D) &&
 			((this_plot->plot_style & PLOT_STYLE_HAS_ERRORBAR)
-			|| (this_plot->plot_style == LABELPOINTS))) {
-			int_warn(c_token, "This plot style is only for datafiles , reverting to \"points\"");
+			|| (this_plot->plot_style == LABELPOINTS && !draw_contour)
+			)) {
+			int_warn(c_token-1, "This style cannot be used to plot a surface defined by a function");
 			this_plot->plot_style = POINTSTYLE;
+			this_plot->plot_type = NODATA;
 		    }
+		    if (this_plot->plot_style == TABLESTYLE)
+			int_error(NO_CARET, "use `plot with table` rather than `splot with table`"); 
 
 		    if ((this_plot->plot_style | data_style) & PM3DSURFACE) {
 			if (equals(c_token, "at")) {
@@ -1600,7 +1625,9 @@ eval_3dplots()
 			this_plot->labels->pos = CENTRE;
 			this_plot->labels->layer = LAYER_PLOTLABELS;
 		    }
-		    parse_label_options(this_plot->labels);
+		    parse_label_options(this_plot->labels, TRUE);
+		    if (draw_contour)
+			load_contour_label_options(this_plot->labels);
 		    checked_once = TRUE;
 		    if (stored_token != c_token) {
 			if (set_labelstyle) {
@@ -1643,7 +1670,8 @@ eval_3dplots()
 		    int new_lt = 0;
 
 		    lp.l_type = line_num;
-		    lp.p_type = point_num;
+		    lp.p_type = line_num;
+			lp.d_type = line_num;
 
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles)
@@ -1708,9 +1736,9 @@ eval_3dplots()
 		    int new_lt = 0;
 		    this_plot->lp_properties.l_type = line_num;
 		    this_plot->lp_properties.l_width = 1.0;
-		    this_plot->lp_properties.p_type = point_num;
+		    this_plot->lp_properties.p_type = line_num;
+			this_plot->lp_properties.d_type = line_num;
 		    this_plot->lp_properties.p_size = pointsize;
-		    this_plot->lp_properties.use_palette = 0;
 
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles)
@@ -1751,13 +1779,9 @@ eval_3dplots()
 		&& this_plot->plot_style != RGBA_IMAGE
 		/* same as above, for an (rgb)image plot */
 		) {
-		if (this_plot->plot_style & PLOT_STYLE_HAS_POINT)
-		    point_num += 1 + (draw_contour != 0) + (hidden3d != 0);
 		line_num += 1 + (draw_contour != 0) + (hidden3d != 0);
 	    }
 
-	    if (this_plot->plot_style == IMAGE)
-		this_plot->lp_properties.use_palette = 1;
 	    if (this_plot->plot_style == RGBIMAGE || this_plot->plot_style == RGBA_IMAGE) {
 		if (CB_AXIS.autoscale & AUTOSCALE_MIN)
 		    CB_AXIS.min = 0;
@@ -1953,12 +1977,6 @@ eval_3dplots()
 	c_token = begin_token;
 	plot_iterator = check_for_iteration();
 
-	/* why do attributes of this_plot matter ? */
-	/* FIXME HBB 20000501: I think they don't, actually. I'm
-	 * taking out references to has_grid_topology in this part of
-	 * the code.  It only deals with function, which always is
-	 * gridded */
-
 	if (hidden3d) {
 	    u_step = (u_max - u_min) / (iso_samples_1 - 1);
 	    v_step = (v_max - v_min) / (iso_samples_2 - 1);
@@ -2101,6 +2119,10 @@ eval_3dplots()
     setup_tics(FIRST_X_AXIS, 20);
     setup_tics(FIRST_Y_AXIS, 20);
     setup_tics(FIRST_Z_AXIS, 20);
+    if (splot_map) {
+	setup_tics(SECOND_X_AXIS, 20);
+	setup_tics(SECOND_Y_AXIS, 20);
+    }
 
     set_plot_with_palette(plot_num, MODE_SPLOT);
     if (is_plot_with_palette()) {
@@ -2137,8 +2159,7 @@ eval_3dplots()
 	    }
 
 	    /* Make sure this one can be contoured. */
-	    if (this_plot->plot_style == LABELPOINTS
-	    ||  this_plot->plot_style == VECTOR
+	    if (this_plot->plot_style == VECTOR
 	    ||  this_plot->plot_style == IMAGE
 	    ||  this_plot->plot_style == RGBIMAGE
 	    ||  this_plot->plot_style == RGBA_IMAGE)
@@ -2289,3 +2310,12 @@ parametric_3dfixup(struct surface_points *start_plot, int *plot_num)
     first_3dplot = new_list;
 }
 
+static void load_contour_label_options (struct text_label *contour_label)
+{
+    struct lp_style_type *lp = &(contour_label->lp_properties);
+    if (!contour_label->font)
+	contour_label->font = gp_strdup(clabel_font);
+    lp->p_interval = clabel_interval;
+    lp->pointflag = TRUE;
+    lp_parse(lp, TRUE, TRUE);
+}

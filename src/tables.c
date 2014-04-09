@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tables.c,v 1.116 2012/11/29 00:12:57 broeker Exp $"); }
+static char *RCSid() { return RCSid("$Id: tables.c,v 1.130 2014/03/22 23:09:06 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tables.c */
@@ -67,6 +67,7 @@ const struct gen_ftable command_ftbl[] =
     { "?", help_command },
     { "hi$story", history_command },
     { "if", if_command },
+    { "import", import_command },
     { "else", else_command },
     { "l$oad", load_command },
     { "pa$use", pause_command },
@@ -74,9 +75,7 @@ const struct gen_ftable command_ftbl[] =
     { "pr$int", print_command },
     { "pwd", pwd_command },
     { "q$uit", exit_command },
-#ifdef VOLATILE_REFRESH
     { "ref$resh", refresh_command },
-#endif
     { "rep$lot", replot_command },
     { "re$read", reread_command },
     { "res$et", reset_command },
@@ -119,10 +118,12 @@ const struct gen_table plot_smooth_tbl[] =
     { "c$splines", SMOOTH_CSPLINES },
     { "s$bezier", SMOOTH_SBEZIER },
     { "u$nique", SMOOTH_UNIQUE },
+    { "unwrap", SMOOTH_UNWRAP },
     { "f$requency", SMOOTH_FREQUENCY },
     { "cum$ulative", SMOOTH_CUMULATIVE },
     { "k$density", SMOOTH_KDENSITY },
     { "cn$ormal", SMOOTH_CUMULATIVE_NORMALISED },
+    { "mcs$plines", SMOOTH_MONOTONE_CSPLINE },
     { NULL, SMOOTH_NONE }
 };
 
@@ -164,8 +165,11 @@ const struct gen_table set_tbl[] =
     { "box$width", S_BOXWIDTH },
     { "cl$abel", S_CLABEL },
     { "c$lip", S_CLIP },
-    { "cn$trparam", S_CNTRPARAM },
-    { "co$ntours", S_CONTOUR },
+    { "cntrp$aram", S_CNTRPARAM },
+    { "cntrl$abel", S_CNTRLABEL },
+    { "cont$ours", S_CONTOUR },
+    { "dasht$ype", S_DASHTYPE },
+    { "dt", S_DASHTYPE },
     { "da$ta", S_DATA },
 
     { "data$file", S_DATAFILE },
@@ -181,10 +185,11 @@ const struct gen_table set_tbl[] =
     { "fu$nctions", S_FUNCTIONS },
     { "g$rid", S_GRID },
     { "hid$den3d", S_HIDDEN3D },
-    { "his$torysize", S_HISTORYSIZE },
+    { "historysize", S_HISTORYSIZE },	/* Deprecated */
+    { "his$tory", S_HISTORY },
     { "is$osamples", S_ISOSAMPLES },
     { "k$ey", S_KEY },
-    { "keyt$itle", S_KEYTITLE },
+    { "keyt$itle", S_KEY },
     { "la$bel", S_LABEL },
     { "link", S_LINK },
     { "lines$tyle", S_LINESTYLE },
@@ -194,9 +199,7 @@ const struct gen_table set_tbl[] =
     { "loa$dpath", S_LOADPATH },
     { "loc$ale", S_LOCALE },
     { "log$scale", S_LOGSCALE },
-#ifdef GP_MACROS
     { "mac$ros", S_MACROS },
-#endif
     { "map$ping", S_MAPPING },
     { "map$ping3d", S_MAPPING },
 
@@ -221,6 +224,8 @@ const struct gen_table set_tbl[] =
     { "nomy2t$ics", S_NOMY2TICS },
     { "mzt$ics", S_MZTICS },
     { "nomzt$ics", S_NOMZTICS },
+    { "mrt$ics", S_MRTICS },
+    { "nomrt$ics", S_NOMRTICS },
     { "mcbt$ics", S_MCBTICS },
     { "nomcbt$ics", S_NOMCBTICS },
     { "of$fsets", S_OFFSETS },
@@ -231,7 +236,7 @@ const struct gen_table set_tbl[] =
     { "pal$ette", S_PALETTE },
     { "colorb$ox", S_COLORBOX },
     { "colorn$ames", S_COLORNAMES },
-    { "colors", S_COLORNAMES },
+    { "colors$equence", S_COLORSEQUENCE },
     { "p$lot", S_PLOT },
     { "pointint$ervalbox", S_POINTINTERVALBOX },
     { "poi$ntsize", S_POINTSIZE },
@@ -330,6 +335,7 @@ const struct gen_table set_tbl[] =
     { "zzeroa$xis", S_ZZEROAXIS },
     { "zeroa$xis", S_ZEROAXIS },
     { "rax$is", S_RAXIS },
+    { "paxis", S_PAXIS },
 
     { "z$ero", S_ZERO },
     { NULL, S_INVALID }
@@ -644,6 +650,10 @@ const struct gen_table show_style_tbl[] =
     { "ell$ipse", SHOW_STYLE_ELLIPSE },
     { "rect$angle", SHOW_STYLE_RECTANGLE },
     { "boxplot", SHOW_STYLE_BOXPLOT },
+    { "parallel$axis", SHOW_STYLE_PARALLEL },
+#ifdef EAM_BOXED_TEXT
+    { "textbox", SHOW_STYLE_TEXTBOX },
+#endif
     { NULL, SHOW_STYLE_INVALID }
 };
 
@@ -686,6 +696,8 @@ const struct gen_table plotstyle_tbl[] =
     { "ell$ipses", ELLIPSES },
 #endif
     { "sur$face", SURFACEGRID },
+    { "parallel$axes", PARALLELPLOT },
+    { "table", TABLESTYLE },
     { NULL, PLOT_STYLE_NONE }
 };
 

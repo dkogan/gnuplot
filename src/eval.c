@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.105 2012/10/30 04:43:42 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.116 2014/03/10 01:28:37 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -44,7 +44,9 @@ static char *RCSid() { return RCSid("$Id: eval.c,v 1.105 2012/10/30 04:43:42 sfe
 #include "alloc.h"
 #include "datafile.h"
 #include "datablock.h"
+#include "external.h"	/* for f_calle */
 #include "internal.h"
+#include "libcerf.h"
 #include "specfun.h"
 #include "standard.h"
 #include "util.h"
@@ -63,6 +65,8 @@ struct udvt_entry *udv_NaN;
 /* first in linked list */
 struct udvt_entry *first_udv = &udv_pi;
 struct udft_entry *first_udf = NULL;
+/* pointer to first udv users can delete */
+struct udvt_entry **udv_user_head;
 
 TBOOLEAN undefined;
 
@@ -101,6 +105,8 @@ const struct ft_entry GPFAR ft[] =
     {"lt",  f_lt},
     {"ge",  f_ge},
     {"le",  f_le},
+    {"leftshift", f_leftshift},
+    {"rightshift", f_rightshift},
     {"plus",  f_plus},
     {"minus",  f_minus},
     {"mult",  f_mult},
@@ -120,8 +126,12 @@ const struct ft_entry GPFAR ft[] =
     {"jumpnz",  f_jumpnz},
     {"jtern",  f_jtern},
 
-/* Placeholder for FS_START */
+/* Placeholder for SF_START */
     {"", NULL},
+
+#ifdef HAVE_EXTERNAL_FUNCTIONS
+    {"", f_calle},
+#endif
 
 /* legal in using spec only */
     {"column",  f_column},
@@ -170,6 +180,7 @@ const struct ft_entry GPFAR ft[] =
     {"rand",  f_rand},
     {"floor",  f_floor},
     {"ceil",  f_ceil},
+    {"defined", f_exists},	/* DEPRECATED syntax defined(foo) */
 
     {"norm",  f_normal},	/* XXX-JG */
     {"inverf",  f_inverse_erf},	/* XXX-JG */
@@ -180,6 +191,14 @@ const struct ft_entry GPFAR ft[] =
     {"lambertw",  f_lambertw}, /* HBB, from G.Kuhnle 20001107 */
     {"airy",  f_airy},         /* janert, 20090905 */
     {"expint",  f_expint},     /* Jim Van Zandt, 20101010 */
+
+#ifdef HAVE_LIBCERF
+    {"cerf", f_cerf},		/* complex error function */
+    {"cdawson", f_cdawson},	/* complex Dawson's integral */
+    {"erfi", f_erfi},		/* imaginary error function */
+    {"VP", f_voigtp},		/* Voigt profile */
+    {"faddeeva", f_faddeeva},	/* Faddeeva rescaled complex error function "w_of_z" */
+#endif
 
     {"tm_sec",  f_tmsec},	/* for timeseries */
     {"tm_min",  f_tmmin},	/* for timeseries */
@@ -465,14 +484,21 @@ pop_or_convert_from_string(struct value *v)
     (void) pop(v);
     if (v->type == STRING) {
 	char *eov;
-	double d = strtod(v->v.string_val,&eov);
-	if (v->v.string_val == eov) {
+
+	if (strspn(v->v.string_val,"0123456789 ") == strlen(v->v.string_val)) {
+	    int i = atoi(v->v.string_val);
 	    gpfree_string(v);
-	    int_error(NO_CARET,"Non-numeric string found where a numeric expression was expected");
+	    Ginteger(v, i);
+	} else {
+	    double d = strtod(v->v.string_val,&eov);
+	    if (v->v.string_val == eov) {
+		gpfree_string(v);
+		int_error(NO_CARET,"Non-numeric string found where a numeric expression was expected");
+	    }
+	    gpfree_string(v);
+	    Gcomplex(v, d, 0.);
+	    FPRINTF((stderr,"converted string to CMPLX value %g\n",real(v)));
 	}
-	gpfree_string(v);
-	Gcomplex(v, d, 0.);
-	FPRINTF((stderr,"converted string to CMPLX value %g\n",real(v)));
     }
     return(v);
 }
@@ -595,12 +621,12 @@ execute_at(struct at_type *at_ptr)
     jump_offset = saved_jump_offset;
 }
 
-/* 20010724: moved here from parse.c, where it didn't belong */
+/* May 2013: Old hackery #ifdef'ed out so that input of Inf/NaN */
+/* values through evaluation is treated equivalently to direct  */
+/* input of a formated value.  See revised imageNaN demo.       */
 void
 evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
 {
-    double temp = 0;
-
     undefined = FALSE;
     errno = 0;
     reset_stack();
@@ -613,20 +639,26 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
 
     execute_at(at_ptr);
 
-    if (!evaluate_inside_using || !df_nofpe_trap) {
+    if (!evaluate_inside_using || !df_nofpe_trap)
 	(void) signal(SIGFPE, SIG_DFL);
+
+    if (errno == EDOM || errno == ERANGE)
+	undefined = TRUE;
+#if (1)	/* New code */
+    else if (!undefined) {
+	(void) pop(val_ptr);
+	check_stack();
     }
 
-    if (errno == EDOM || errno == ERANGE) {
-	undefined = TRUE;
-    } else if (!undefined) {	/* undefined (but not errno) may have been set by matherr */
+#else /* Old hackery */
+    else if (!undefined) { /* undefined (but not errno) may have been set by matherr */
 	(void) pop(val_ptr);
 	check_stack();
 	/* At least one machine (ATT 3b1) computes Inf without a SIGFPE */
-	if (val_ptr->type != STRING)
-	temp = real(val_ptr);
-	if (temp > VERYLARGE || temp < -VERYLARGE) {
-	    undefined = TRUE;
+	if (val_ptr->type != STRING) {
+	    double temp = real(val_ptr);
+	    if (temp > VERYLARGE || temp < -VERYLARGE)
+		undefined = TRUE;
 	}
     }
 #if defined(NeXT) || defined(ultrix)
@@ -641,7 +673,7 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
 	Gcomplex(val_ptr, 0.0 / 0.0, 0.0 / 0.0);
     }
 #endif /* NeXT || ultrix */
-
+#endif /* old hackery */
 }
 
 void
@@ -662,6 +694,11 @@ free_at(struct at_type *at_ptr)
 	    free_at(a->arg.udf_arg->at);
 	    free(a->arg.udf_arg);
 	}
+#ifdef HAVE_EXTERNAL_FUNCTIONS
+	/* external function calls contain a parameter list */
+	if (a->index == CALLE)
+	    free(a->arg.exf_arg);
+#endif
     }
     free(at_ptr);
 }
@@ -706,14 +743,19 @@ get_udv_by_name(char *key)
     return NULL;
 }
 
+/* This doesn't really delete, it just marks the udv as undefined */
 void
 del_udv_by_name(char *key, TBOOLEAN wildcard)
 {
-    struct udvt_entry *udv_ptr = first_udv;
+    struct udvt_entry *udv_ptr = *udv_user_head;
 
     while (udv_ptr) {
+	/* Forbidden to delete GPVAL_* */
+	if (!strncmp(udv_ptr->udv_name,"GPVAL",5))
+	    ;
+
  	/* exact match */
-	if (!wildcard && !strcmp(key, udv_ptr->udv_name)) {
+	else if (!wildcard && !strcmp(key, udv_ptr->udv_name)) {
 	    udv_ptr->udv_undef = TRUE;
 	    gpfree_string(&(udv_ptr->udv_value));
 	    gpfree_datablock(&(udv_ptr->udv_value));
@@ -721,7 +763,7 @@ del_udv_by_name(char *key, TBOOLEAN wildcard)
 	}
 
 	/* wildcard match: prefix matches */
-	if ( wildcard && !strncmp(key, udv_ptr->udv_name, strlen(key)) ) {
+	else if ( wildcard && !strncmp(key, udv_ptr->udv_name, strlen(key)) ) {
 	    udv_ptr->udv_undef = TRUE;
 	    gpfree_string(&(udv_ptr->udv_value));
 	    gpfree_datablock(&(udv_ptr->udv_value));
@@ -730,6 +772,24 @@ del_udv_by_name(char *key, TBOOLEAN wildcard)
 
 	udv_ptr = udv_ptr->next_udv;
     }
+}
+
+/* Clear (delete) all user defined functions */
+void
+clear_udf_list()
+{
+    struct udft_entry *udf_ptr = first_udf;
+    struct udft_entry *udf_next;
+
+    while (udf_ptr) {
+	free(udf_ptr->udf_name);
+	free(udf_ptr->definition);
+	free_at(udf_ptr->at);
+	udf_next = udf_ptr->next_udf;
+	free(udf_ptr);
+	udf_ptr = udf_next;
+    }
+    first_udf = NULL;
 }
 
 static void update_plot_bounds __PROTO((void));
@@ -741,7 +801,7 @@ set_gpval_axis_sth_double(const char *prefix, AXIS_INDEX axis, const char *suffi
 {
     struct udvt_entry *v;
     char *cc, s[24];
-    sprintf(s, "%s_%s_%s", prefix, axis_defaults[axis].name, suffix);
+    sprintf(s, "%s_%s_%s", prefix, axis_name(axis), suffix);
     for (cc=s; *cc; cc++) *cc = toupper(*cc); /* make the name uppercase */
     v = add_udv_by_name(s);
     if (!v) return; /* should not happen */
@@ -858,6 +918,7 @@ update_gpval_variables(int context)
 	fill_gpval_axis(U_AXIS);
 	fill_gpval_axis(V_AXIS);
 	fill_gpval_float("GPVAL_R_MIN", R_AXIS.min);
+	fill_gpval_float("GPVAL_R_MAX", R_AXIS.max);
 	fill_gpval_float("GPVAL_R_LOG", R_AXIS.base);
 	update_plot_bounds();
 	fill_gpval_integer("GPVAL_PLOT", is_3d_plot ? 0:1);

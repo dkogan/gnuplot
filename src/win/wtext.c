@@ -1,5 +1,5 @@
 /*
- * $Id: wtext.c,v 1.40 2012/11/26 08:18:23 markisch Exp $
+ * $Id: wtext.c,v 1.50 2014/02/12 20:49:09 markisch Exp $
  */
 
 /* GNUPLOT - win/wtext.c */
@@ -42,12 +42,7 @@
 /* WARNING: Do not write to stdout/stderr with functions not listed
    in win/wtext.h */
 
-#ifdef HAVE_CONFIG_H
-# include "config.h"
-#endif
-
-#define STRICT
-
+#include "syscfg.h"
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -57,9 +52,7 @@
 #endif
 #include <sys/stat.h>
 
-/* needed for mouse scroll wheel support */
-#define _WIN32_WINNT 0x0400
-#define _WIN32_IE 0x0501
+#define STRICT
 #include <windows.h>
 #include <windowsx.h>
 #include <commdlg.h>
@@ -70,6 +63,7 @@
 #include "wresourc.h"
 #include "wcommon.h"
 #include "stdfn.h"
+#include "plot.h"
 
 /* font stuff */
 #define TEXTFONTSIZE 9
@@ -84,7 +78,7 @@
 /* limits */
 static POINT ScreenMinSize = {16,4};
 
-BOOL CALLBACK AboutDlgProc(HWND hDlg, UINT wMsg, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK AboutDlgProc(HWND hDlg, UINT wMsg, WPARAM wParam, LPARAM lParam);
 static LRESULT CALLBACK WndParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 static LRESULT CALLBACK WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
@@ -286,7 +280,7 @@ TextInit(LPTW lptw)
 
     sysmenu = GetSystemMenu(lptw->hWndParent,0);	/* get the sysmenu */
     AppendMenu(sysmenu, MF_SEPARATOR, 0, NULL);
-    AppendMenu(sysmenu, MF_POPUP, (UINT)lptw->hPopMenu, "&Options");
+    AppendMenu(sysmenu, MF_POPUP, (UINT_PTR)lptw->hPopMenu, "&Options");
     AppendMenu(sysmenu, MF_STRING, M_ABOUT, "&About");
 
     if (lptw->lpmw)
@@ -530,6 +524,9 @@ TextPutCh(LPTW lptw, BYTE ch)
 	case '\t': {
 	    uint tab = 8 - (lptw->CursorPos.x  % 8);
 	    sb_last_insert_str(&(lptw->ScreenBuffer), lptw->CursorPos.x, "        ", tab);
+	    UpdateText(lptw, tab);
+	    UpdateScrollBars(lptw);
+	    TextToCursor(lptw);
 	    break;
 	}
 	case 0x08:
@@ -892,7 +889,9 @@ TextCopyClip(LPTW lptw)
     if (count > 0) {
 	lb = sb_get(&(lptw->ScreenBuffer), pt.y);
 	if (lb->len > pt.x) {
-	    memcpy(cp, lb->str + pt.x, GPMIN(count, lb->len - pt.x));
+	    if (end.x > lb->len)
+		count = lb->len - pt.x;
+	    memcpy(cp, lb->str + pt.x, count);
 	    cp += count;
 	}
     }
@@ -959,6 +958,7 @@ TextMakeFont(LPTW lptw)
     return;
 }
 
+
 static void
 TextSelectFont(LPTW lptw) {
     LOGFONT lf;
@@ -1017,7 +1017,7 @@ WndParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     HDC hdc;
     LPTW lptw;
 
-    lptw = (LPTW)GetWindowLong(hwnd, 0);
+    lptw = (LPTW)GetWindowLongPtr(hwnd, 0);
 
     switch(message) {
     case WM_SYSCOMMAND:
@@ -1095,7 +1095,7 @@ WndParentProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 	TEXTMETRIC tm;
 
 	lptw = ((CREATESTRUCT *)lParam)->lpCreateParams;
-	SetWindowLong(hwnd, 0, (LONG)lptw);
+	SetWindowLongPtr(hwnd, 0, (LONG_PTR)lptw);
 	lptw->hWndParent = hwnd;
 	/* get character size */
 	TextMakeFont(lptw);
@@ -1192,7 +1192,7 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     int nYinc, nXinc;
     LPTW lptw;
 
-    lptw = (LPTW)GetWindowLong(hwnd, 0);
+    lptw = (LPTW)GetWindowLongPtr(hwnd, 0);
 
     switch(message) {
     case WM_SETFOCUS:
@@ -1416,6 +1416,10 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			lptw->KeyBufIn = lptw->KeyBuf;	/* wrap around */
 		}
 	    }
+		break;
+	    case VK_CANCEL:
+		ctrlc_flag = TRUE;
+		break;
 	    } /* switch(wparam) */
 	} /* else(shift) */
 	break;
@@ -1431,6 +1435,7 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 	if (GetKeyState(VK_CONTROL) < 0) {
 	    switch(wParam) {
 	    case VK_INSERT:
+	    case 'C':
 		/* Ctrl-Insert: copy to clipboard */
 		SendMessage(lptw->hWndText, WM_COMMAND, M_COPY_CLIP, (LPARAM)0);
 		break;
@@ -1550,7 +1555,6 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 	    } /* moved inside viewport */
 	} /* if(dragging) */
 	break;
-#if _WIN32_WINNT >= 0x0400
     case WM_MOUSEWHEEL: {
 	    WORD fwKeys;
 	    short int zDelta;
@@ -1559,30 +1563,34 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 	    zDelta = HIWORD(wParam);
 	    switch (fwKeys) {
 	    case 0:
-	        if (zDelta < 0)
+		if (zDelta < 0)
 		    SendMessage(hwnd, WM_VSCROLL, SB_LINEDOWN, (LPARAM)0);
 		else
 		    SendMessage(hwnd, WM_VSCROLL, SB_LINEUP, (LPARAM)0);
 		return 0;
 	    case MK_SHIFT:
-	        if (zDelta < 0)
-	    	    SendMessage(hwnd, WM_VSCROLL, SB_PAGEDOWN, (LPARAM)0);
-	        else
+		if (zDelta < 0)
+		    SendMessage(hwnd, WM_VSCROLL, SB_PAGEDOWN, (LPARAM)0);
+		else
 		    SendMessage(hwnd, WM_VSCROLL, SB_PAGEUP, (LPARAM)0);
 		return 0;
 	    case MK_CONTROL:
-	        if (zDelta < 0)
-	    	    SendMessage(hwnd, WM_CHAR, 0x0e, (LPARAM)0); // CTRL-N
-	        else
+		if (zDelta < 0)
+		    SendMessage(hwnd, WM_CHAR, 0x0e, (LPARAM)0); // CTRL-N
+		else
 		    SendMessage(hwnd, WM_CHAR, 0x10, (LPARAM)0); // CTRL-P
 		return 0;
 	    }
 	}
 	break;
-#endif
     case WM_CHAR: {
 	/* store key in circular buffer */
 	long count = lptw->KeyBufIn - lptw->KeyBufOut;
+	WPARAM key = wParam;
+
+	/* Remap Shift-Tab to FS */
+	if ((GetKeyState(VK_SHIFT) < 0) && (key == 0x09))
+		key = 034;
 
 	if (count < 0)
 	    count += lptw->KeyBufSize;
@@ -1595,7 +1603,7 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		return 0; /* not enough memory */
 	}
 	if (count < lptw->KeyBufSize-1) {
-	    *lptw->KeyBufIn++ = wParam;
+	    *lptw->KeyBufIn++ = key;
 	    if (lptw->KeyBufIn - lptw->KeyBuf >= lptw->KeyBufSize)
 		lptw->KeyBufIn = lptw->KeyBuf;	/* wrap around */
 	}
@@ -1632,7 +1640,7 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		    cbuf = (BYTE *) GlobalLock(hGMem);
 		    while (*cbuf) {
 			if (*cbuf != '\n')
-			    SendMessage(lptw->hWndText,WM_CHAR,*cbuf,1L);
+			    SendMessage(lptw->hWndText, WM_CHAR, *cbuf, 1L);
 			cbuf++;
 		    }
 		    GlobalUnlock(hGMem);
@@ -1858,7 +1866,7 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     }
     case WM_CREATE:
 	lptw = ((CREATESTRUCT *)lParam)->lpCreateParams;
-	SetWindowLong(hwnd, 0, (LONG)lptw);
+	SetWindowLongPtr(hwnd, 0, (LONG_PTR)lptw);
 	lptw->hWndText = hwnd;
 	break;
     case WM_DESTROY:
@@ -1868,6 +1876,26 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, message, wParam, lParam);
 }
 
+
+void
+TextStartEditing(LPTW lptw)
+{
+    TextToCursor(lptw);
+    if (lptw->bFocus && !lptw->bGetCh) {
+	UpdateCaretPos(lptw);
+	ShowCaret(lptw->hWndText);
+    }
+    lptw->bGetCh = TRUE;
+}
+
+
+void
+TextStopEditing(LPTW lptw)
+{
+    if (lptw->bFocus && lptw->bGetCh)
+	HideCaret(lptw->hWndText);
+    lptw->bGetCh = FALSE;
+}
 
 /* ================================== */
 /* replacement stdio routines */
@@ -1879,19 +1907,16 @@ TextKBHit(LPTW lptw)
     return (lptw->KeyBufIn != lptw->KeyBufOut);
 }
 
+
 /* get character from keyboard, no echo */
 /* need to add extended codes */
 int WDPROC
 TextGetCh(LPTW lptw)
 {
     int ch;
-    TextToCursor(lptw);
-    lptw->bGetCh = TRUE;
-    if (lptw->bFocus) {
-	UpdateCaretPos(lptw);
-	ShowCaret(lptw->hWndText);
-    }
-    while (!TextKBHit(lptw)) {
+
+    TextStartEditing(lptw);
+	while (!TextKBHit(lptw)) {
 	/* CMW: can't use TextMessage here as it does not idle properly */
 	MSG msg;
 	GetMessage(&msg, 0, 0, 0);
@@ -1903,9 +1928,7 @@ TextGetCh(LPTW lptw)
 	ch = '\n';
     if (lptw->KeyBufOut - lptw->KeyBuf >= lptw->KeyBufSize)
 	lptw->KeyBufOut = lptw->KeyBuf;	/* wrap around */
-    if (lptw->bFocus)
-	HideCaret(lptw->hWndText);
-    lptw->bGetCh = FALSE;
+	TextStopEditing(lptw);
     return ch;
 }
 
@@ -1919,6 +1942,7 @@ TextGetChE(LPTW lptw)
     TextPutCh(lptw, (BYTE)ch);
     return ch;
 }
+
 
 LPSTR WDPROC
 TextGetS(LPTW lptw, LPSTR str, unsigned int size)
@@ -1947,6 +1971,7 @@ TextGetS(LPTW lptw, LPSTR str, unsigned int size)
     *next = 0;
     return str;
 }
+
 
 int WDPROC
 TextPutS(LPTW lptw, LPSTR str)
@@ -2127,7 +2152,7 @@ ReadTextIni(LPTW lptw)
 
 
 /* About Box */
-BOOL CALLBACK
+INT_PTR CALLBACK
 AboutDlgProc(HWND hDlg, UINT wMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (wMsg) {
@@ -2143,7 +2168,7 @@ AboutDlgProc(HWND hDlg, UINT wMsg, WPARAM wParam, LPARAM lParam)
     case WM_DRAWITEM:
     {
 	LPDRAWITEMSTRUCT lpdis = (LPDRAWITEMSTRUCT)lParam;
-	DrawIcon(lpdis->hDC, 0, 0, (HICON)GetClassLong(GetParent(hDlg), GCL_HICON));
+	DrawIcon(lpdis->hDC, 0, 0, (HICON)GetClassLongPtr(GetParent(hDlg), GCLP_HICON));
 	return FALSE;
     }
     case WM_COMMAND:

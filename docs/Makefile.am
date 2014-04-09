@@ -10,10 +10,9 @@
 #       make gnuplot.dvi
 #     or
 #       make pdf
-#	(requires pdflatex)
+#	(requires pdflatex and also graphicx and picins packages) 
 #     or
-#	make pdffigures
-#	(requires also graphicx and picins packages) 
+#	make nofigures pdf
 #     or
 #       make ps
 #
@@ -62,7 +61,7 @@ $(T)svg.trm $(T)t410x.trm $(T)tek.trm $(T)texdraw.trm $(T)tgif.trm \
 $(T)tkcanvas.trm $(T)tpic.trm $(T)v384.trm $(T)vgagl.trm \
 $(T)vws.trm $(T)win.trm $(T)wxt.trm $(T)x11.trm $(T)xlib.trm 
 
-DIST_COMMON = README
+# DIST_COMMON = README
 
 SOURCES = checkdoc.c doc2gih.c doc2hlp.c doc2ipf.c doc2ms.c doc2rnh.c	\
 doc2rtf.c doc2tex.c windows/doc2html.c termdoc.c xref.c
@@ -71,10 +70,13 @@ TERM_H = $(top_srcdir)/src/term.h
 
 DOCHEADERS = doc2x.h xref.h
 
-EXTRA_DIST = Makefile.in doc2texi.el gnuplot.doc gpcard.tex	\
-makefile.dst titlepag.ipf titlepag.ms titlepag.tex	\
+EXTRA_DIST = Makefile.in doc2texi.el figure_missing.pdf gnuplot.doc \
+gpcard.tex makefile.dst titlepag.ipf titlepag.ms titlepag.tex	\
 toc_entr.sty psdoc faq-ja.tex gnuplot-ja.doc README.ja	\
-term-ja.diff plotstyles.gnu pdffigures.tex gnuplot.pdf windows
+term-ja.diff plotstyles.gnu gnuplot.pdf windows
+
+
+ELCS = gnuplot-eldoc.elc
 
 CLEANFILES = allterm.h gnuplot.tex gnuplot.dvi gnuplot.aux gnuplot.log	\
 gnuplot.toc gnuplot.ps gpcard.dvi gpcard.log gpcard.ps alldoc2gih	\
@@ -82,9 +84,9 @@ doc2gih gnuplot.gih doc2hlp gnuplot.hlp gnuplot.idx gnuplot.ilg		\
 gnuplot.ind gnuplot.info* gnuplot.out doc2ipf gnuplot.ipf doc2ms	\
 gnuplot.ms doc2rnh gnuplot.rnh doc2rtf gnuplot.rtf gnuplot.nroff	\
 checkdoc gnuplot.txt gnuplot.tmp VERSION gnuplot.4tc gnuplot.4ct	\
-gnuplot.idv gnuplot.xref gnuplot.lg figure*.pdf pdffigures.*		\
+gnuplot.idv gnuplot.xref gnuplot.lg figures pdffigures.*		\
 wxhelp/*.html wxhelp/wgnuplot.htc windows/wgnuplot.htk gnuplot.pdf	\
-gnuplot.htb gnuplot.texi gnuplot-eldoc.el gnuplot-eldoc.elc
+gnuplot.htb gnuplot.texi gnuplot-eldoc.el $(ELCS)
 
 DISTFILES = $(DIST_COMMON) $(SOURCES) $(DOCHEADERS) $(EXTRA_DIST)
 
@@ -99,7 +101,7 @@ allterm.h: $(CORETERM)
 	done >$@
 
 # for debugging
-alldoc: check dvi gih hlp html info ipf ms nroff pdffigures ps rnh rtf htb
+alldoc: check dvi gih hlp html info ipf ms nroff pdf ps rnh rtf htb
 
 ### [tn]roff documentation
 troff: gnuplot.ms titlepag.ms
@@ -167,22 +169,31 @@ htmldocs/gnuplot.html: gnuplot.tex
 
 ### PDF documentation
 pdffigures: pdffigures.tex $(top_srcdir)/src/gnuplot $(top_srcdir)/docs/plotstyles.gnu
+	rm -f figures
 
-pdffigures.tex:	figures gnuplot.pdf
-	rm -f gnuplot.tex
-	echo "" > pdffigures.tex
+pdffigures.tex:	figures
+	echo "\usepackage{graphicx}" > pdffigures.tex ; \
+	echo "\usepackage{picins}" >> pdffigures.tex
 
 figures: allterm.h doc2tex$(EXEEXT) $(srcdir)/gnuplot.doc
 	@if [ -a $(top_srcdir)/src/gnuplot ] ; then \
 	  GNUPLOT_LIB=$(top_srcdir)/demo ../src/gnuplot $(srcdir)/plotstyles.gnu ; \
 	  ./doc2tex$(EXEEXT) -figures $(srcdir)/gnuplot.doc gnuplot.tex ; \
-	  echo "\usepackage{graphicx}" > pdffigures.tex ; \
-	  echo "\usepackage{picins}" >> pdffigures.tex ; \
 	else \
 	  echo gnuplot executable not found - cannot regenerate manual figures ; \
 	fi
 
-pdf: gnuplot.pdf
+nofigures:
+	echo "" > pdffigures.tex
+	touch figures
+	@if [ -a $(top_srcdir)/src/gnuplot ] ; then \
+	  GNUPLOT_LIB=$(top_srcdir)/demo ../src/gnuplot $(srcdir)/plotstyles.gnu ; \
+	  ./doc2tex$(EXEEXT) $(srcdir)/gnuplot.doc gnuplot.tex ; \
+	else \
+	  echo gnuplot executable not found - cannot regenerate manual figures ; \
+	fi
+
+pdf: pdffigures.tex gnuplot.pdf
 
 gnuplot.pdf: gnuplot.tex
 	@if test $(PDFLATEX) != no ; then \
@@ -200,7 +211,7 @@ gnuplot.pdf: gnuplot.tex
 ### LaTeX documentation
 tex: gnuplot.tex
 
-gnuplot.tex: doc2tex$(EXEEXT) $(srcdir)/gnuplot.doc
+gnuplot.tex: allterm.h doc2tex$(EXEEXT) $(srcdir)/gnuplot.doc
 	./doc2tex$(EXEEXT) $(srcdir)/gnuplot.doc gnuplot.tex
 
 doc2tex_SOURCES = doc2tex.c termdoc.c
@@ -292,34 +303,37 @@ wxhelp/doc2html: wxhelp/doc2html.o termdoc.o xref.o ../src/version.o
 info: gnuplot.info
 
 # Thanks to Bruce Ravel for doc2texi.el!
-gnuplot.texi: $(srcdir)/doc2texi.el $(srcdir)/gnuplot.doc
+gnuplot.texi gnuplot-eldoc.el: $(srcdir)/doc2texi.el $(srcdir)/gnuplot.doc
 	@echo "Creating texinfo and eldoc strings file"
 	@if test "$(EMACS)" != no; then \
 	   test "$(top_srcdir)" = "$(top_builddir)" || cp $(srcdir)/gnuplot.doc . ; \
-	   $(EMACS) -batch -l $(srcdir)/doc2texi.el -f d2t-doc-to-texi ; \
+	   $(EMACS) -batch -q --no-site-file -l $(srcdir)/doc2texi.el -f d2t-doc-to-texi ; \
 	   echo "Compiling gnuplot-eldoc.el" ; \
-	   $(EMACS) -batch --eval='(byte-compile-file "gnuplot-eldoc.el")' ; \
-	   test "$(top_srcdir)" = "$(top_builddir)" || cp gnuplot.texi $(srcdir) ; \
+	   $(EMACS) -batch -q --no-site-file -f batch-byte-compile gnuplot-eldoc.el ; \
+	   test "$(top_srcdir)" = "$(top_builddir)" || rm -f ./gnuplot.doc ; \
 	else \
 	   echo "No emacs found - cannot create texinfo file" ; \
 	fi
 
-if BUILD_LISP
+${ELCS}: gnuplot-eldoc.el
+	@if test "$(EMACS)" != no; then \
+	   echo "Compiling gnuplot-eldoc.el" ; \
+	   $(EMACS) -batch -q --no-site-file -f batch-byte-compile gnuplot-eldoc.el ; \
+	else \
+	   echo "No emacs found - cannot create gnuplot-eldoc.elc file" ; \
+	fi
+
 gnuplot.info: gnuplot.texi
 	$(MAKEINFO) -I$(srcdir) $(srcdir)/gnuplot.texi --no-split --output=$@
-endif
 
-install-info: gnuplot.info gnuplot-eldoc.el gnuplot-eldoc.elc
-	$(top_srcdir)/mkinstalldirs $(DESTDIR)$(infodir) $(DESTDIR)$(lispdir)
+install-info: gnuplot.info
+	$(top_srcdir)/mkinstalldirs $(DESTDIR)$(infodir)
 	$(INSTALL_DATA) gnuplot.info $(DESTDIR)$(infodir)/gnuplot.info
-	$(INSTALL_DATA) gnuplot-eldoc.el $(DESTDIR)$(lispdir)/gnuplot-eldoc.el
-	$(INSTALL_DATA) gnuplot-eldoc.elc $(DESTDIR)$(lispdir)/gnuplot-eldoc.elc
 	@if (install-info --version && \
 	     install-info --version | fgrep -i -v debian) >/dev/null 2>&1; then \
 	  echo "install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot.info";\
 	  install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot.info || :;\
 	else : ; fi
-
 
 # this is how to make OS/2 ipfc documentation
 ipf: gnuplot.ipf
@@ -353,6 +367,15 @@ check-local: checkdoc$(EXEEXT)
 	else \
 	  :; \
 	fi
+
+clean-local:
+	@for f in figure*.pdf ; do \
+	   if [ "$$f" != "figure_missing.pdf" ]; then \
+	     rm -f $$f ; \
+	   else \
+	     :; \
+	   fi \
+	 done
 
 checkdoc_SOURCES = checkdoc.c termdoc.c gnuplot.doc
 

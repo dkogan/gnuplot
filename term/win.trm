@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: win.trm,v 1.113 2012/10/08 15:15:05 markisch Exp $
+ * $Id: win.trm,v 1.123 2014/01/04 15:46:38 markisch Exp $
  */
 
 /* GNUPLOT - win.trm */
@@ -86,7 +86,7 @@ TERM_PUBLIC void WIN_set_cursor __PROTO((int, int, int));
 TERM_PUBLIC void WIN_put_tmptext __PROTO((int, const char str[]));
 TERM_PUBLIC void WIN_set_clipboard __PROTO((const char[]));
 # ifdef WGP_CONSOLE
-TERM_PUBLIC int WIN_waitforinput __PROTO((void));
+TERM_PUBLIC int WIN_waitforinput __PROTO((int));
 # endif
 #endif
 TERM_PUBLIC int WIN_make_palette __PROTO((t_sm_palette *palette));
@@ -100,6 +100,7 @@ TERM_PUBLIC void WIN_enhanced_flush __PROTO((void));
 TERM_PUBLIC void WIN_image __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
 TERM_PUBLIC void WIN_layer __PROTO((t_termlayer syncpoint));
 TERM_PUBLIC void WIN_hypertext __PROTO((int type, const char * text));
+TERM_PUBLIC void WIN_modify_plots __PROTO((unsigned int operations));
 
 /* Initialization values - guess now, scale later */
 #define WIN_XMAX (24000)
@@ -288,6 +289,10 @@ WIN_options()
 		case WIN_GTITLE:
 			c_token++;
 			title = try_to_get_string();
+			if (title == NULL)
+				int_error(c_token, "expecting string argument");
+			if (strcmp(title, "") == 0)
+				title = NULL;
 			set_title = TRUE;
 			break;
 		case WIN_CLOSE:
@@ -342,11 +347,13 @@ WIN_options()
 			lpgw = lpgw->next;
 			lpgw->Id = window_number;
 		}
+#ifdef USE_MOUSE
 		/* set status line of previous graph window */
 		sprintf(status, "(inactive, window number %i)", graphwin->Id);
 		Graph_put_tmptext(graphwin, 0, status);
 		/* reset status text */
 		Graph_put_tmptext(lpgw, 0, "");
+#endif
 		graphwin = lpgw;
 	}
 
@@ -614,7 +621,7 @@ WIN_set_cursor(int c, int x, int y)
 
 
 TERM_PUBLIC void
-WIN_set_clipboard (const char s[])
+WIN_set_clipboard(const char s[])
 {
 	Graph_set_clipboard(graphwin, s);
 }
@@ -623,9 +630,13 @@ WIN_set_clipboard (const char s[])
 #ifdef WGP_CONSOLE
 
 TERM_PUBLIC int
-WIN_waitforinput()
+WIN_waitforinput(int options)
 {
-    return ConsoleGetch();
+	/* Not required: message handling already done elsewhere. */
+	if (options == TERM_ONLY_CHECK_MOUSING)
+		return NUL;
+
+	return ConsoleGetch();
 }
 
 #endif /* WGP_CONSOLE */
@@ -774,16 +785,7 @@ WIN_filled_polygon(int points, gpiPoint *corners)
 	    (corners[0].y == corners[points - 1].y))
 		points--;
 
-	if ((points == 4) &&
-	    (((corners[0].x == corners[3].x) && (corners[0].y == corners[1].y) &&
-	      (corners[2].x == corners[1].x) && (corners[2].y == corners[3].y)) ||
-	     ((corners[0].x == corners[1].x) && (corners[0].y == corners[3].y) &&
-	      (corners[2].x == corners[3].x) && (corners[2].y == corners[1].y)))) {
-		/* The polygon describes a rectangle. Thus we use boxfill, which
-		   is more efficient. */
-		GraphOp(graphwin, W_move, corners[0].x, corners[0].y, NULL);
-		GraphOp(graphwin, W_boxfill, corners[2].x, corners[2].y, NULL);
-	} else {
+	{
 		int i;
 		for (i = 0; i < points; i++)
 			GraphOp(graphwin, W_filled_polygon_pt, corners[i].x, corners[i].y, NULL);
@@ -861,8 +863,13 @@ WIN_enhanced_flush()
 
 
 TERM_PUBLIC void
-WIN_layer (t_termlayer syncpoint)
+WIN_layer(t_termlayer syncpoint)
 {
+	/* ignore LAYER_RESET in multiplot mode */
+    if (((syncpoint == TERM_LAYER_RESET) || 
+	     (syncpoint == TERM_LAYER_RESET_PLOTNO)) && 
+		multiplot)
+				return;
 	GraphOp(graphwin, W_layer, syncpoint, 0, NULL);
 }
 
@@ -871,6 +878,23 @@ TERM_PUBLIC void
 WIN_hypertext(int type, const char * text)
 {
 	GraphOp(graphwin, W_hypertext, type, 0, text);
+}
+
+
+#ifdef EAM_BOXED_TEXT
+TERM_PUBLIC void
+WIN_boxed_text(unsigned int x, unsigned int y, int option)
+{
+	GraphOp(graphwin, W_boxedtext, option, 0, NULL);
+	GraphOp(graphwin, W_boxedtext, x, y, NULL);
+}
+#endif
+
+
+TERM_PUBLIC void 
+WIN_modify_plots(unsigned int operations)
+{
+	GraphModifyPlots(graphwin, operations);
 }
 
 #endif /* TERM_BODY */
@@ -884,7 +908,9 @@ TERM_TABLE_START(win_driver)
     WIN_text, null_scale, WIN_graphics, WIN_move, WIN_vector,
     WIN_linetype, WIN_put_text, WIN_text_angle,
     WIN_justify_text, WIN_point, do_arrow, WIN_set_font,
-    WIN_set_pointsize, TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH|TERM_LINEWIDTH|TERM_FONTSCALE,
+    WIN_set_pointsize, 
+    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH
+        |TERM_LINEWIDTH|TERM_FONTSCALE | TERM_ENHANCED_TEXT,
     WIN_text /* suspend */ , WIN_resume,
     WIN_boxfill, WIN_linewidth,
 #ifdef USE_MOUSE
@@ -903,6 +929,10 @@ TERM_TABLE_START(win_driver)
     0, /* no term->path */
     0.0, /* Scale (unused) */
     WIN_hypertext
+#ifdef EAM_BOXED_TEXT
+    , WIN_boxed_text
+#endif
+	, WIN_modify_plots
 TERM_TABLE_END(win_driver)
 
 #undef LAST_TERM
@@ -1017,6 +1047,10 @@ START_HELP(windows)
 "",
 " `Antialiasing` selects smoothing of lines and edges. Note that this slows",
 " down drawing.",
+"",
+" `Fast rotation` switches antialiasing temporarily off while rotating the",
+" graph with the mouse. This speeds up drawing considerably at the expense",
+" of an additional redraw after releasing the mouse button.",
 "",
 " `Background...` sets the window background color.",
 "",
@@ -1143,6 +1177,7 @@ START_HELP(windows)
 "       GraphDoublebuffer=1",
 "       GraphOversampling=0",
 "       GraphAntialiasing=1",
+"       GraphFastRotation=1",
 "       GraphBackground=255 255 255",
 "       Border=0 0 0 0 0",
 "       Axis=192 192 192 2 2",

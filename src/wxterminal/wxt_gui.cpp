@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.110 2013/04/05 10:09:04 markisch Exp $
+ * $Id: wxt_gui.cpp,v 1.122 2013/12/12 19:18:19 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -88,7 +88,8 @@
  * When compiling for Windows (wxMSW), the text window already implements it, so we
  * don't have to do it, but wxWidgets still have to be initialized correctly.
  * When compiling for Unix (wxGTK), we don't have one, so we launch it in a separate thread.
- * For new platforms, it is necessary to figure out what is necessary.
+ * For new platforms, it is necessary to figure out whether to configure for single
+ * or multi-threaded operation.
  */
 
 
@@ -209,7 +210,6 @@ BEGIN_EVENT_TABLE( wxtConfigDialog, wxDialog )
 	EVT_COMMAND_RANGE( Config_OK, Config_CANCEL,
 		wxEVT_COMMAND_BUTTON_CLICKED, wxtConfigDialog::OnButton )
 END_EVENT_TABLE()
-
 
 #ifdef WXT_MULTITHREADED
 /* ----------------------------------------------------------------------------
@@ -736,8 +736,7 @@ void wxtPanel::ClearCommandlist()
 
 	/* run through the list, and free allocated memory */
 	for(iter = command_list.begin(); iter != command_list.end(); ++iter) {
-		if (iter->command == command_enhanced_put_text ||
-			iter->command == command_put_text ||
+		if ( iter->command == command_put_text ||
 			iter->command == command_hypertext ||
 			iter->command == command_set_font)
 			delete[] iter->string;
@@ -1416,20 +1415,9 @@ void wxtPanel::RaiseConsoleWindow()
 	}
 #endif /* USE_GTK */
 
-#ifdef _Windows
-	HWND console = NULL;
-#ifdef WGP_CONSOLE
-	console = GetConsoleWindow();
-#else
-	console = textwin.hWndParent;
+#ifdef WIN32
+	WinRaiseConsole();
 #endif
-	if (console != NULL) {
-		/* Make sure the text window is visible: */
-		ShowWindow(console, SW_SHOW);
-		/* and activate it --> Keyboard focus goes there */
-		BringWindowToTop(console);
-	}
-#endif /* _Windows */
 
 #ifdef OS2
 	/* we assume that the console window is managed by PM, not by a X server */
@@ -1660,7 +1648,11 @@ void wxt_init()
 		if (!wxInitialize()) {
 			fprintf(stderr,"Failed to initialize wxWidgets.\n");
 			wxt_abort_init = true;
-			return;
+			if (interactive) {
+				change_term("unknown",7);
+				int_error(NO_CARET,"wxt init failure");
+			} else
+				gp_exit(EXIT_FAILURE);
 		}
 
 		/* app initialization */
@@ -1693,7 +1685,7 @@ void wxt_init()
 		term_interlock = (void *)wxt_init;
 
 		/* register call for "persist" effect and cleanup */
-		GP_ATEXIT(wxt_atexit);
+		gp_atexit(wxt_atexit);
 	}
 
 	wxt_sigint_check();
@@ -2058,6 +2050,8 @@ void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 		/* init */
 		temp_command.command = command_enhanced_init;
 		temp_command.integer_value = strlen(string);
+		temp_command.x1 = x;
+		temp_command.y1 = term->ymax - y;
 		wxt_command_push(temp_command);
 
 		/* set up the global variables needed by enhanced_recursion() */
@@ -2601,6 +2595,37 @@ void wxt_set_clipboard(const char s[])
 }
 #endif /*USE_MOUSE*/
 
+#ifdef EAM_BOXED_TEXT
+/* Pass through the boxed text options to cairo */
+void wxt_boxed_text(unsigned int x, unsigned int y, int option)
+{
+	gp_command temp_command;
+	if (option != 3)
+	    y = term->ymax - y;
+	temp_command.command = command_boxed_text;
+	temp_command.x1 = x;
+	temp_command.y1 = y;
+	temp_command.integer_value = option;
+	wxt_command_push(temp_command);
+}
+#endif
+
+void wxt_modify_plots(unsigned int ops)
+{
+	int i;
+	for (i=1; i<=wxt_cur_plotno && i<wxt_max_key_boxes; i++) {
+		if ((ops & MODPLOTS_INVERT_VISIBILITIES) == MODPLOTS_INVERT_VISIBILITIES) {
+			wxt_key_boxes[i].hidden = !wxt_key_boxes[i].hidden;
+		} else if (ops & MODPLOTS_SET_VISIBLE) {
+			wxt_key_boxes[i].hidden = FALSE;
+		} else if (ops & MODPLOTS_SET_INVISIBLE) {
+			wxt_key_boxes[i].hidden = TRUE;
+		}
+	}
+	wxt_MutexGuiEnter();
+	wxt_current_panel->wxt_cairo_refresh();
+	wxt_MutexGuiLeave();
+}
 
 /* ===================================================================
  * Command list processing
@@ -2836,9 +2861,8 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 		text_justification_mode = command.mode;
 		return;
 	case command_put_text :
-	case command_enhanced_put_text :
 		if (wxt_in_key_sample) {
-			int slen = strlen(command.string) * term->h_char * 0.75;
+			int slen = gp_strlen(command.string) * term->h_char * 0.75;
 			if (text_justification_mode == RIGHT) slen = -slen;
 			wxt_update_key_box(command.x1, command.y1);
 			wxt_update_key_box(command.x1 + slen, command.y1 - term->v_tic);
@@ -2846,6 +2870,12 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 		gp_cairo_draw_text(&plot, command.x1, command.y1, command.string, NULL, NULL);
 		return;
 	case command_enhanced_init :
+		if (wxt_in_key_sample) {
+			int slen = command.integer_value * term->h_char * 0.75;
+			if (text_justification_mode == RIGHT) slen = -slen;
+			wxt_update_key_box(command.x1, command.y1);
+			wxt_update_key_box(command.x1 + slen, command.y1 - term->v_tic);
+		}
 		gp_cairo_enhanced_init(&plot, command.integer_value);
 		return;
 	case command_enhanced_finish :
@@ -2887,6 +2917,11 @@ void wxtPanel::wxt_cairo_exec_command(gp_command command)
 				command.x4, command.y4,
 				command.integer_value, command.integer_value2);
 		return;
+#ifdef EAM_BOXED_TEXT
+	case command_boxed_text :
+		gp_cairo_boxed_text(&plot, command.x1, command.y1, command.integer_value);
+		return;
+#endif /*EAM_BOXED_TEXT */
 	case command_layer :
 		switch (command.integer_value)
 		{
@@ -3519,7 +3554,7 @@ bool wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id)
 #ifdef WXT_MULTITHREADED
 /* Implements waitforinput used in wxt.trm
  * Returns the next input charachter, meanwhile treats terminal events */
-int wxt_waitforinput()
+int wxt_waitforinput(int options)
 {
 	/* wxt_waitforinput *is* launched immediately after the wxWidgets terminal
 	 * is set using 'set term wxt' whereas wxt_init has not been called.
@@ -3529,30 +3564,42 @@ int wxt_waitforinput()
 	 * we must process window events, so the check is not
 	 * wxt_status != STATUS_OK */
 	if (wxt_status == STATUS_UNINITIALIZED)
-		return getc(stdin);
+		return (options == TERM_ONLY_CHECK_MOUSING) ? '\0' : getc(stdin);
 
 	if (wxt_event_fd<0) {
 		if (paused_for_mouse)
 			int_error(NO_CARET, "wxt communication error, wxt_event_fd<0");
 		FPRINTF((stderr,"wxt communication error, wxt_event_fd<0\n"));
-		return getc(stdin);
+		return (options == TERM_ONLY_CHECK_MOUSING) ? '\0' : getc(stdin);
 	}
 
 	int stdin_fd = fileno(stdin);
 	fd_set read_fds;
+	struct timeval one_msec;
 
 	do {
+		struct timeval *timeout = NULL;
 		FD_ZERO(&read_fds);
 		FD_SET(wxt_event_fd, &read_fds);
 		if (!paused_for_mouse)
 			FD_SET(stdin_fd, &read_fds);
 
+		/* When taking input from the console, we are willing to wait	*/
+		/* here until the next character is typed. But if input is from	*/
+		/* a script we just want to check for hotkeys or mouse input	*/
+		/* and then leave again without waiting for stdin.		*/
+		if (options == TERM_ONLY_CHECK_MOUSING) {
+			timeout = &one_msec;
+			one_msec.tv_sec = 0;
+			one_msec.tv_usec = TERM_EVENT_POLL_TIMEOUT;
+		}
+
 		int n_changed_fds = select(wxt_event_fd+1, &read_fds,
 					      NULL /* not watching for write-ready */,
 					      NULL /* not watching for exceptions */,
-					      NULL /* no timeout */);
+					      timeout );
 
-		if (n_changed_fds<0) {
+		if (n_changed_fds < 0) {
 			if (paused_for_mouse)
 				int_error(NO_CARET, "wxt communication error: select() error");
 			FPRINTF((stderr, "wxt communication error: select() error\n"));
@@ -3573,19 +3620,23 @@ int wxt_waitforinput()
 				/* exit from paused_for_mouse */
 				return '\0';
 			}
+		} else if (options == TERM_ONLY_CHECK_MOUSING) {
+			return '\0';
 		}
-	} while ( paused_for_mouse
-		   || (!paused_for_mouse && !FD_ISSET(stdin_fd, &read_fds)) );
+	} while ( paused_for_mouse || !FD_ISSET(stdin_fd, &read_fds) );
+
+	if (options == TERM_ONLY_CHECK_MOUSING)
+		return '\0';
 
 	return getchar();
 }
 #else /* WXT_MONOTHREADED */
 /* Implements waitforinput used in wxt.trm
  * the terminal events are directly processed when they are received */
-int wxt_waitforinput()
+int wxt_waitforinput(int options)
 {
 #ifdef _Windows
-	if (paused_for_mouse) {
+	if (paused_for_mouse || options==TERM_ONLY_CHECK_MOUSING) {
 		MSG msg;
 		BOOL ret;
 		while ((ret = GetMessage(&msg, NULL, 0, 0)) != 0) {
@@ -3603,20 +3654,38 @@ int wxt_waitforinput()
 
 #else /* !_Windows */
 	/* Generic hybrid GUI & console message loop */
+	/* (used mainly on MacOSX - still single threaded) */
 	static int yield = 0;
-	if(yield) return '\0';
-	while(wxTheApp) {
-		yield = 1;
-		wxTheApp->Yield();
-		yield = 0;
+	if (yield)
+		return '\0';
+	
+	if (wxt_status == STATUS_UNINITIALIZED)
+		return (options == TERM_ONLY_CHECK_MOUSING) ? '\0' : getc(stdin);
 
-		struct timeval tv;
-		fd_set read_fd;
-		tv.tv_sec = 0;
-		tv.tv_usec = 10000;
-		FD_ZERO(&read_fd);
-		FD_SET(0, &read_fd);
-		if(select(1, &read_fd, NULL, NULL, &tv) != -1 && FD_ISSET(0, &read_fd)) break;
+	if (options==TERM_ONLY_CHECK_MOUSING) {
+		// If we're just checking mouse status, yield to the app for a while
+		if (wxTheApp) {
+			wxTheApp->Yield();
+			yield = 0;
+		}
+		return '\0'; // gets dropped on floor
+	}
+	
+	while(wxTheApp) {
+	  // Loop with timeout of 10ms until stdin is ready to read, 
+          // while also handling window events.  
+	  yield = 1;
+	  wxTheApp->Yield();
+	  yield = 0;
+	  
+	  struct timeval tv;
+	  fd_set read_fd;
+	  tv.tv_sec = 0;
+	  tv.tv_usec = 10000;
+	  FD_ZERO(&read_fd);
+	  FD_SET(0, &read_fd);
+	  if (select(1, &read_fd, NULL, NULL, &tv) != -1 && FD_ISSET(0, &read_fd))
+		break;
 	}
 	return getchar();
 #endif
@@ -3851,6 +3920,16 @@ void wxt_sigint_handler(int WXUNUSED(sig))
 {
 	FPRINTF((stderr,"custom interrupt handler called\n"));
 	signal(SIGINT, wxt_sigint_handler);
+
+	/* If this happens, it's bad.  We already flagged that we want	*/
+	/* to quit but nobody acted on it.  This can happen if the 	*/
+	/* connection to the X-server is lost, which can be forced by	*/
+	/* using xkill on the display window.  See bug #991.		*/
+	if (wxt_status == STATUS_INTERRUPT_ON_NEXT_CHECK) {
+		fprintf(stderr,"wxt display server shutting down - no response\n");
+		exit(-1);
+	}
+
 	/* routines must check regularly for wxt_status,
 	 * and abort cleanly on STATUS_INTERRUPT_ON_NEXT_CHECK */
 	wxt_status = STATUS_INTERRUPT_ON_NEXT_CHECK;

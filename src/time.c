@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: time.c,v 1.25 2013/04/05 18:36:54 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: time.c,v 1.28 2014/01/27 21:53:16 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - time.c */
@@ -230,9 +230,14 @@ gstrptime(char *s, char *fmt, struct tm *tm, double *usec)
 	     * EPOCH is the std. unix timeformat seconds since 01.01.1970 UTC
 	     */
 	    {
-		double when;
-		when = strtod (s, &s) - SEC_OFFS_SYS;
+		char  *fraction = strchr(s, decimalsign ? *decimalsign : '.');
+		double ufraction = 0;
+		double when = strtod (s, &s) - SEC_OFFS_SYS;
 		ggmtime(tm, when);
+		if (fraction)
+		    ufraction = atof(fraction);
+		if (ufraction < 1.)		/* Filter out e.g. 123.456e7 */
+		    *usec = ufraction;
 		break;
 	    }
 
@@ -498,7 +503,7 @@ xstrftime(
 
 		/* EAM FIXME - need to implement an actual format specifier */
 		if (p > 0) {
-		    double base = pow(10.,p);
+		    double base = pow(10., (double)p);
 		    int msec = floor(0.5 + base * usec);
 		    char *f = &s[strlen(s)];
 		    CHECK_SPACE(p+1);

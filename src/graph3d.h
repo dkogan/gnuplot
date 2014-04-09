@@ -1,5 +1,5 @@
 /*
- * $Id: graph3d.h,v 1.44 2012/12/14 19:39:38 sfeam Exp $
+ * $Id: graph3d.h,v 1.46 2013/05/15 20:52:45 sfeam Exp $
  */
 
 /* GNUPLOT - graph3d.h */
@@ -138,7 +138,10 @@ extern double xscale3d, yscale3d, zscale3d;
 extern double xcenter3d, ycenter3d, zcenter3d;
 
 extern t_contour_placement draw_contour;
-extern TBOOLEAN	label_contours;
+extern TBOOLEAN	clabel_onecolor;
+extern int clabel_start;
+extern int clabel_interval;
+extern char *clabel_font;
 
 extern TBOOLEAN	draw_surface;
 extern TBOOLEAN	implicit_surface;

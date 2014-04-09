@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: pdf.trm,v 1.90 2012/11/25 22:01:22 sfeam Exp $
+ * $Id: pdf.trm,v 1.93 2014/03/20 20:50:10 markisch Exp $
  */
 
 /*------------------------------
@@ -198,6 +198,8 @@ PDF_SetFont ()
         pdfenc = "iso8859-15";
     } else if (encoding == S_ENC_CP1250) {
         pdfenc = "cp1250";
+    } else if (encoding == S_ENC_CP1252) {
+        pdfenc = "cp1252";
     }
         
     font_handle = PDF_findfont(myPDF, PDF_fontNameCur, pdfenc, 0);
@@ -329,8 +331,12 @@ PDF_options ()
 {
     /* Annoying hack to handle the case of 'set termoption' after */
     /* we have already initialized the terminal.                  */
-    if (!almost_equals(c_token-1, "termopt$ion"))
+    if (!almost_equals(c_token-1, "termopt$ion")) {
 	pdf_explicit_size = FALSE;
+	/* Default to enhanced text */
+	term->put_text = ENHPDF_put_text;
+	term->flags |= TERM_ENHANCED_TEXT;
+    }
 
     while (!END_OF_COMMAND) {
 
@@ -736,7 +742,7 @@ PDF_point (unsigned int x, unsigned int y, int number)
     PDF_PathClose ();
     PDF_save(myPDF);
 
-    if (number < 0) {
+    if (number < 0 || term_pointsize <= 0) {
 	/* Treat all negative point sizes as  dots */
 	PDF_dot(x, y);
     } else {

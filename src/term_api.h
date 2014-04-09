@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.108 2013/03/29 19:49:39 sfeam Exp $
+ * $Id: term_api.h,v 1.129 2014/03/22 23:09:06 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -58,6 +58,15 @@
 #define LT_DEFAULT    (-7)
 #define LT_SINGLECOLOR  (-8)		/* Used by hidden3d code */
 
+/* Pre-defined dash types */
+#define DASHTYPE_CUSTOM (-3)
+#define DASHTYPE_AXIS   (-2)
+#define DASHTYPE_SOLID  (-1)
+/* more...? */
+
+/* magic point type that indicates a character rather than a predefined symbol */
+#define PT_CHARACTER  (-9)
+
 /* Constant value passed to (term->text_angle)(ang) to generate vertical
  * text corresponding to old keyword "rotate", which produced the equivalent
  * of "rotate by 90 right-justified".
@@ -89,19 +98,37 @@ typedef enum t_linecap {
     SQUARE
 } t_linecap;
 
+/* custom dash pattern definition modeled after SVG terminal,
+ * but string specifications like "--.. " are also allowed and stored */
+#define DASHPATTERN_LENGTH 8
+
+typedef struct t_dashtype {
+	float pattern[DASHPATTERN_LENGTH];
+	char* str;
+} t_dashtype;
+
+#define DEFAULT_DASHPATTERN {{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f}, NULL}
+
 typedef struct lp_style_type {	/* contains all Line and Point properties */
     int     pointflag;		/* 0 if points not used, otherwise 1 */
     int     l_type;
     int	    p_type;
+    int     d_type;		/* Dashtype */
     int     p_interval;		/* Every Nth point in style LINESPOINTS */
     double  l_width;
     double  p_size;
-    TBOOLEAN use_palette;
+    unsigned long p_char;	/* char used if p_type = PT_CHARACTER */
     struct t_colorspec pm3d_color;
+    t_dashtype custom_dash_pattern;	/* per-line, user defined dashtype */
     /* ... more to come ? */
 } lp_style_type;
 
-#define DEFAULT_LP_STYLE_TYPE {0, LT_BLACK, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
+#define DEFAULT_LP_STYLE_TYPE {0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, PTSZ_DEFAULT, 0, DEFAULT_COLORSPEC, DEFAULT_DASHPATTERN}
+
+#define DEFAULT_COLOR_SEQUENCE { 0x9400d3, 0x009e73, 0x56b4e9, 0xe69f00, \
+                                 0xf0e442, 0x0072b2, 0xe51e10, 0x000000 }
+#define PODO_COLOR_SEQUENCE { 0x000000, 0xe69f00, 0x56b4e9, 0x009e73, \
+                              0xf0e442, 0x0072b2, 0xd55e00, 0xcc79a7 }
 
 typedef enum e_arrow_head {
 	NOHEAD = 0,
@@ -111,6 +138,13 @@ typedef enum e_arrow_head {
 } t_arrow_head;
 
 extern const char *arrow_head_names[4];
+
+typedef enum arrowheadfill {
+	AS_NOFILL = 0,
+	AS_EMPTY,
+	AS_FILLED,
+	AS_NOBORDER
+} arrowheadfill;
 
 typedef struct arrow_style_type {    /* contains all Arrow properties */
     int tag;                         /* -1 (local), AS_VARIABLE, or style index */
@@ -123,7 +157,8 @@ typedef struct arrow_style_type {    /* contains all Arrow properties */
     int head_lengthunit;             /* unit (x1, x2, screen, graph) */
     double head_angle;               /* front angle / deg */
     double head_backangle;           /* back angle / deg */
-    unsigned int head_filled;        /* filled heads: 0=not, 1=empty, 2=filled */
+    arrowheadfill headfill;	     /* AS_FILLED etc */
+    TBOOLEAN head_fixedsize;         /* Adapt the head size for short arrow shafts? */
     /* ... more to come ? */
 } arrow_style_type;
 
@@ -142,8 +177,14 @@ typedef enum termlayer {
 	TERM_LAYER_RESET_PLOTNO,
 	TERM_LAYER_BEFORE_ZOOM,
 	TERM_LAYER_BEGIN_PM3D_MAP,
-	TERM_LAYER_END_PM3D_MAP
+	TERM_LAYER_END_PM3D_MAP,
+	TERM_LAYER_BEGIN_IMAGE,
+	TERM_LAYER_END_IMAGE
 } t_termlayer;
+
+/* Options used by the terminal entry point term->waitforinput(). */
+#define TERM_ONLY_CHECK_MOUSING	1
+#define TERM_EVENT_POLL_TIMEOUT 0	/* select() timeout in usec */
 
 /* Options used by the terminal entry point term->hypertext(). */
 #define TERM_HYPERTEXT_TOOLTIP 0
@@ -156,7 +197,18 @@ typedef struct fill_style_type {
     t_colorspec border_color;
 } fill_style_type;
 
-typedef enum t_fillstyle { FS_EMPTY, FS_SOLID, FS_PATTERN, FS_DEFAULT, 
+#ifdef EAM_BOXED_TEXT
+/* Options used by the terminal entry point term->boxed_text() */
+typedef enum t_textbox_options {
+	TEXTBOX_INIT = 0,
+	TEXTBOX_OUTLINE,
+	TEXTBOX_BACKGROUNDFILL,
+	TEXTBOX_MARGINS,
+	TEXTBOX_FINISH
+} t_textbox_options;
+#endif
+
+typedef enum t_fillstyle { FS_EMPTY, FS_SOLID, FS_PATTERN, FS_DEFAULT,
 			   FS_TRANSPARENT_SOLID, FS_TRANSPARENT_PATTERN }
 	     t_fillstyle;
 #define FS_OPAQUE (FS_SOLID + (100<<4))
@@ -169,6 +221,11 @@ typedef struct t_image {
     t_imagecolor type; /* See above */
     TBOOLEAN fallback; /* true == don't use terminal-specific code */
 } t_image;
+
+/* Operations possible with term->modify_plots() */
+#define MODPLOTS_SET_VISIBLE         (1<<0)
+#define MODPLOTS_SET_INVISIBLE       (1<<1)
+#define MODPLOTS_INVERT_VISIBILITIES (MODPLOTS_SET_VISIBLE|MODPLOTS_SET_INVISIBLE)
 
 /* Values for the flags field of TERMENTRY
  */
@@ -187,6 +244,7 @@ typedef struct t_image {
 #define TERM_FONTSCALE       (1<<12)	/* terminal supports fontscale     */
 #define TERM_IS_LATEX        (1<<13)	/* text uses TeX markup            */
 #define TERM_EXTENDED_COLOR  (1<<14)	/* uses EXTENDED_COLOR_SPECS       */
+#define TERM_NULL_SET_COLOR  (1<<15)	/* no support for RGB color        */
 
 /* The terminal interface structure --- heart of the terminal layer.
  *
@@ -225,7 +283,7 @@ typedef struct TERMENTRY {
     void (*fillbox) __PROTO((int, unsigned int, unsigned int, unsigned int, unsigned int)); /* clear in multiplot mode */
     void (*linewidth) __PROTO((double linewidth));
 #ifdef USE_MOUSE
-    int (*waitforinput) __PROTO((void));     /* used for mouse input */
+    int (*waitforinput) __PROTO((int));     /* used for mouse and hotkey input */
     void (*put_tmptext) __PROTO((int, const char []));   /* draws temporary text; int determines where: 0=statusline, 1,2: at corners of zoom box, with \r separating text above and below the point */
     void (*set_ruler) __PROTO((int, int));    /* set ruler location; x<0 switches ruler off */
     void (*set_cursor) __PROTO((int, int, int));   /* set cursor style and corner of rubber band */
@@ -270,7 +328,7 @@ typedef struct TERMENTRY {
  */
     void (*layer) __PROTO((t_termlayer));
 
-/* Begin/End path control. 
+/* Begin/End path control.
  * Needed by PostScript-like devices in order to join the endpoints of
  * a polygon cleanly.
  */
@@ -284,14 +342,22 @@ typedef struct TERMENTRY {
 /* Pass hypertext for inclusion in the output plot */
     void (*hypertext) __PROTO((int type, const char *text));
 
+#ifdef EAM_BOXED_TEXT
+    void (*boxed_text) __PROTO((unsigned int, unsigned int, int));
+#endif
+
+    void (*modify_plots) __PROTO((unsigned int operations));
+
+    void (*dashtype) __PROTO((int type, t_dashtype *custom_dash_pattern));
+
 } TERMENTRY;
 
 # define termentry TERMENTRY
 
 enum set_encoding_id {
    S_ENC_DEFAULT, S_ENC_ISO8859_1, S_ENC_ISO8859_2, S_ENC_ISO8859_9, S_ENC_ISO8859_15,
-   S_ENC_CP437, S_ENC_CP850, S_ENC_CP852, S_ENC_CP950, 
-   S_ENC_CP1250, S_ENC_CP1251, S_ENC_CP1254, 
+   S_ENC_CP437, S_ENC_CP850, S_ENC_CP852, S_ENC_CP950,
+   S_ENC_CP1250, S_ENC_CP1251, S_ENC_CP1252, S_ENC_CP1254,
    S_ENC_KOI8_R, S_ENC_KOI8_U, S_ENC_SJIS,
    S_ENC_UTF8,
    S_ENC_INVALID
@@ -328,8 +394,8 @@ extern int curr_arrow_headlength;
 /* angle in degrees */
 extern double curr_arrow_headangle;
 extern double curr_arrow_headbackangle;
-/* arrow head filled or not */
-extern int curr_arrow_headfilled;
+extern arrowheadfill curr_arrow_headfilled;
+extern TBOOLEAN curr_arrow_headfixedsize;
 
 /* Recycle count for user-defined linetypes */
 extern int linetype_recycle_count;
@@ -398,7 +464,7 @@ void init_terminal __PROTO((void));
 void test_term __PROTO((void));
 
 /* Support for enhanced text mode. */
-char *enhanced_recursion __PROTO((char *p, TBOOLEAN brace,
+const char *enhanced_recursion __PROTO((const char *p, TBOOLEAN brace,
                                          char *fontname, double fontsize,
                                          double base, TBOOLEAN widthflag,
                                          TBOOLEAN showflag, int overprint));
@@ -418,7 +484,7 @@ int style_from_fill __PROTO((struct fill_style_type *));
 #ifdef EAM_OBJECTS
 /* Terminal-independent routine to draw a circle or arc */
 void do_arc __PROTO(( unsigned int cx, unsigned int cy, double radius,
-                      double arc_start, double arc_end, 
+                      double arc_start, double arc_end,
 		      int style, TBOOLEAN wedge));
 #endif
 
@@ -443,11 +509,17 @@ void PM_set_gpPMmenu __PROTO((struct t_gpPMmenu * gpPMmenu));
 # endif
 #endif
 
+int load_dashtype __PROTO((struct t_dashtype *dt, int tag));
 void lp_use_properties __PROTO((struct lp_style_type *lp, int tag));
 void load_linetype __PROTO((struct lp_style_type *lp, int tag));
 
 /* Wrappers for term->path() */
 void newpath __PROTO((void));
 void closepath __PROTO((void));
+
+/* Generic wrapper to check for mouse events or hotkeys during
+ * non-interactive input (e.g. "load")
+ */
+void check_for_mouse_events __PROTO((void));
 
 #endif /* GNUPLOT_TERM_API_H */

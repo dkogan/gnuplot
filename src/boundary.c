@@ -1,5 +1,5 @@
 /*
- * $Id: boundary.c,v 1.1 2013/02/28 05:47:41 sfeam Exp $
+ * $Id: boundary.c,v 1.10 2014/03/19 17:30:33 sfeam Exp $
  */
 
 /* GNUPLOT - boundary.c */
@@ -965,10 +965,6 @@ do_key_layout(legend_key *key)
     TBOOLEAN key_panic = FALSE;
 
     /* If there is a separate font for the key, use it for space calculations.	*/
-    /* FIXME:  This is problematic for asynchronous terminals like x11. We ask	*/
-    /* for a font change, and the outboard driver will eventually update the	*/
-    /* values of v_char and h_char, but that change will not happen quickly	*/
-    /* enough for us to see it here two lines later in the code.		*/
     if (key->font)
 	t->set_font(key->font);
 
@@ -1160,9 +1156,8 @@ find_maxl_keys(struct curve_points *plots, int count, int *kcnt)
 }
 
 /*
- * Make this code a subroutine, rather than in-line, so that it can
- * eventually be shared by other callers. It would be nice to share it
- * with the 3d code also, but as of now the two code sections are not
+ * Make the key sample code a subroutine so that it can eventually be
+ * shared by the 3d code also. As of now the two code sections are not
  * very parallel.  EAM Nov 2003
  */
 
@@ -1210,8 +1205,7 @@ do_key_sample(
 
     /* Draw sample in same style and color as the corresponding plot */
     (*t->linetype)(this_plot->lp_properties.l_type);
-    if (this_plot->lp_properties.use_palette)
-	apply_pm3dcolor(&this_plot->lp_properties.pm3d_color,t);
+    apply_pm3dcolor(&this_plot->lp_properties.pm3d_color,t);
 
     /* draw sample depending on bits set in plot_style */
     if (this_plot->plot_style & PLOT_STYLE_HAS_FILL && t->fillbox) {
@@ -1225,6 +1219,10 @@ do_key_sample(
 #ifdef EAM_OBJECTS
 	if (this_plot->plot_style == CIRCLES && w > 0) {
 	    do_arc(xl + key_point_offset, yl, key_entry_height/4, 0., 360., style, FALSE);
+	    /* Retrace the border if the style requests it */
+	    if (need_fill_border(fs)) {
+	        do_arc(xl + key_point_offset, yl, key_entry_height/4, 0., 360., 0, FALSE);
+	    }
 	} else if (this_plot->plot_style == ELLIPSES && w > 0) {
 	    t_ellipse *key_ellipse = (t_ellipse *) gp_alloc(sizeof(t_ellipse),
 	        "cute little ellipse for the key sample");
@@ -1235,6 +1233,10 @@ do_key_sample(
 	    key_ellipse->orientation = 0.0;
 	    /* already in term coords, no need to map */
 	    do_ellipse(2, key_ellipse, style, FALSE);
+	    /* Retrace the border if the style requests it */
+	    if (need_fill_border(fs)) {
+		do_ellipse(2, key_ellipse, 0, FALSE);
+	    }
 	    free(key_ellipse);
 	} else
 #endif
@@ -1261,8 +1263,7 @@ do_key_sample(
 	    if (fs->fillstyle != FS_EMPTY && fs->fillstyle != FS_DEFAULT
 	    && !(fs->border_color.type == TC_LT && fs->border_color.lt == LT_NODRAW)) {
 		(*t->linetype)(this_plot->lp_properties.l_type);
-		if (this_plot->lp_properties.use_palette)
-		    apply_pm3dcolor(&this_plot->lp_properties.pm3d_color,t);
+		apply_pm3dcolor(&this_plot->lp_properties.pm3d_color,t);
 	    }
 	}
 
@@ -1291,14 +1292,56 @@ do_key_sample(
 
     /* oops - doing the point sample now would break the postscript
      * terminal for example, which changes current line style
-     * when drawing a point, but does not restore it. We must wait
-     then draw the point sample at the end of do_plot (line 2058)
+     * when drawing a point, but does not restore it. We must wait to
+     * draw the point sample at the end of do_plot (comment KEY SAMPLES).
      */
 
     (*t->layer)(TERM_LAYER_END_KEYSAMPLE);
 
     /* Restore previous clipping area */
     clip_area = clip_save;
+}
+
+void
+do_key_sample_point(
+    struct curve_points *this_plot,
+    legend_key *key,
+    int xl, int yl)
+{
+    struct termentry *t = term;
+
+    (t->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
+
+    if (this_plot->plot_style == LINESPOINTS
+	 &&  this_plot->lp_properties.p_interval < 0) {
+	t_colorspec background_fill = BACKGROUND_COLORSPEC;
+	(*t->set_color)(&background_fill);
+	(*t->pointsize)(pointsize * pointintervalbox);
+	(*t->point)(xl + key_point_offset, yl, 6);
+	term_apply_lp_properties(&this_plot->lp_properties);
+    }
+
+    if (this_plot->plot_style == BOXPLOT) {
+	;	/* Don't draw a sample point in the key */
+
+    } else if (this_plot->plot_style == DOTS) {
+	if (on_page(xl + key_point_offset, yl))
+	    (*t->point) (xl + key_point_offset, yl, -1);
+
+    } else if (this_plot->plot_style & PLOT_STYLE_HAS_POINT) {
+	if (this_plot->lp_properties.p_size == PTSZ_VARIABLE)
+	    (*t->pointsize)(pointsize);
+	if (on_page(xl + key_point_offset, yl)) {
+	    if (this_plot->lp_properties.p_type == PT_CHARACTER)
+		(*t->put_text) (xl + key_point_offset, yl, 
+				(char *)(&this_plot->lp_properties.p_char));
+	    else
+		(*t->point) (xl + key_point_offset, yl, 
+				this_plot->lp_properties.p_type);
+	}
+    }
+
+    (t->layer)(TERM_LAYER_END_KEYSAMPLE);
 }
 
 /* Graph legend is now optionally done in two passes. The first pass calculates	*/
@@ -1312,14 +1355,14 @@ draw_key(legend_key *key, TBOOLEAN key_pass, int *xinkey, int *yinkey)
 
     /* In two-pass mode (set key opaque) we blank out the key box after	*/
     /* the graph is drawn and then redo the key in the blank area.	*/
-    if (key_pass && t->fillbox) {
+    if (key_pass && t->fillbox && !(t->flags & TERM_NULL_SET_COLOR)) {
 	t_colorspec background_fill = BACKGROUND_COLORSPEC;
 	(*t->set_color)(&background_fill);
 	(*t->fillbox)(FS_OPAQUE, key->bounds.xleft, key->bounds.ybot,
 		key_width, key_height);
     }
 
-    if (*key->title) {
+    if (key->title) {
 	int center = (key->bounds.xleft + key->bounds.xright) / 2;
 
 	/* Only draw the title once */
@@ -1348,7 +1391,7 @@ draw_key(legend_key *key, TBOOLEAN key_pass, int *xinkey, int *yinkey)
 	draw_clip_line(key->bounds.xright, key->bounds.ybot, key->bounds.xleft, key->bounds.ybot);
 	closepath();
 	/* draw a horizontal line between key title and first entry */
-	if (*key->title)
+	if (key->title)
 	    draw_clip_line( key->bounds.xleft,
 	    		    key->bounds.ytop - (key_title_height + key_title_extra),
 			    key->bounds.xright,
@@ -1498,6 +1541,7 @@ draw_titles()
 	str = gp_alloc(MAX_LINE_LEN + 1, "timelabel.text");
 	strftime(str, MAX_LINE_LEN, timelabel.text, localtime(&now));
 
+	apply_pm3dcolor(&(timelabel.textcolor), t);
 	if (timelabel_rotate && (*t->text_angle) (TEXT_VERTICAL)) {
 	    x += t->v_char / 2;	/* HBB */
 	    if (timelabel_bottom)

@@ -1,5 +1,5 @@
 /*
- * $Id: color.h,v 1.37 2012/10/30 04:43:42 sfeam Exp $
+ * $Id: color.h,v 1.40 2013/10/21 22:31:59 sfeam Exp $
  */
 
 /* GNUPLOT - color.h */
@@ -172,7 +172,7 @@ typedef struct {
    * Note: this option is used by all terminals of the postscript
    * family, i.e. postscript, pslatex, epslatex, so it will not be
    * comfortable to move it to the particular .trm files. */
-  char ps_allcF;
+  TBOOLEAN ps_allcF;
 
   /* These variables are used to define interpolated color palettes:
    * gradient is an array if (gray,color) pairs.  This array is
@@ -180,6 +180,9 @@ typedef struct {
    * Interpolated tables are used if colorMode==SMPAL_COLOR_MODE_GRADIENT */
   int gradient_num;
   gradient_struct *gradient;
+  /* Smallest nonzero gradient[i+1] - gradient[i].  If this is < (1/colors)
+   * Then a truncated gray value may miss the gradient it belongs in. */
+  double smallest_gradient_interval;
 
   /* the used color model: RGB, HSV, XYZ, etc. */
   int cmodel;
@@ -226,13 +229,11 @@ int make_palette __PROTO((void));
 void invalidate_palette __PROTO((void));
 
 /*
-   Set the colour on the terminal
-   Currently, each terminal takes care of remembering the current colour,
-   so there is not much to do here---well, except for reversing the gray
-   according to sm_palette.positive == SMPAL_POSITIVE or SMPAL_NEGATIVE
+   Send current colour to the terminal
 */
 void set_color __PROTO(( double gray ));
-void set_rgbcolor __PROTO(( unsigned int rgbvalue ));
+void set_rgbcolor_var __PROTO(( unsigned int rgbvalue ));
+void set_rgbcolor_const __PROTO(( unsigned int rgbvalue ));
 
 void ifilled_quadrangle __PROTO((gpiPoint* icorners));
 

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: scanner.c,v 1.35 2012/06/19 18:11:06 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: scanner.c,v 1.41 2014/03/10 01:28:37 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - scanner.c */
@@ -55,15 +55,12 @@ static void substitute __PROTO((char **strp, size_t *str_lenp, int current));
 #endif /* VMS */
 
 
-#define isident(c) (isalnum((unsigned char)c) || (c) == '_')
+#define isident(c) (isalnum((unsigned char)(c)) || (c) == '_' || ALLOWED_8BITVAR(c))
 
 #define LBRACE '{'
 #define RBRACE '}'
 
 #define APPEND_TOKEN {token[t_num].length++; current++;}
-
-#define SCAN_IDENTIFIER while (isident(expression[current + 1]))\
-				APPEND_TOKEN
 
 static int t_num;		/* number of token I'm working on */
 
@@ -143,9 +140,13 @@ scanner(char **expressionp, size_t *expressionlenp)
 	    continue;
 	}
 	/* allow _ to be the first character of an identifier */
-	if (isalpha((unsigned char) expression[current])
-	    || expression[current] == '_') {
-	    SCAN_IDENTIFIER;
+	/* allow 8bit characters in identifiers */
+	if (isalpha((unsigned char)expression[current])
+	    || (expression[current] == '_')
+	    || ALLOWED_8BITVAR(expression[current])) {
+		while (isident(expression[current + 1]))
+		    APPEND_TOKEN;
+
 	} else if (isdigit((unsigned char) expression[current])) {
 	    token[t_num].is_token = FALSE;
 	    token[t_num].length = get_num(&expression[current]);
@@ -215,8 +216,15 @@ scanner(char **expressionp, size_t *expressionlenp)
 	    }
 	} else
 	    switch (expression[current]) {
-	    case '#':		/* DFK: add comments to gnuplot */
-		goto endline;	/* ignore the rest of the line */
+	    case '#':
+#ifdef OLD_STYLE_CALL_ARGS
+		/* FIXME: This ugly exception handles the old-style syntatic  */
+		/* entity $# (number of arguments in "call" statement), which */
+		/* otherwise would be treated as introducing a comment.       */
+		if ((t_num == 0) ||
+		    (gp_input_line[token[t_num-1].start_index] != '$'))
+#endif
+			goto endline;	/* ignore the rest of the line */
 	    case '^':
 	    case '+':
 	    case '-':
@@ -246,6 +254,8 @@ scanner(char **expressionp, size_t *expressionlenp)
 	    case '!':
 	    case '>':
 		if (expression[current + 1] == '=')
+		    APPEND_TOKEN;
+		if (expression[current + 1] == '>')
 		    APPEND_TOKEN;
 		break;
 	    case '<':
@@ -304,13 +314,19 @@ get_num(char str[])
 	while (isdigit((unsigned char) str[++count]));
     }
     if (token[t_num].l_val.type == INTGR) {
-	long lval;
+	long long lval;
 	char *endptr;
 	errno = 0;
-	lval = strtol(str, &endptr, 0);
-	if (!errno &&
-	   ((token[t_num].l_val.v.int_val = lval) == lval))
-		return(endptr-str);
+	lval = strtoll(str, &endptr, 0);
+	if (!errno) {
+	    count = endptr - str;
+	    if ((token[t_num].l_val.v.int_val = lval) == lval)
+		return(count);
+	    if (str[0] == '0' && (str[1] == 'x' || str[1] == 'X')) {
+		if ((unsigned long)(token[t_num].l_val.v.int_val & 0xffffffff) == lval)
+		    return(count);
+	    }
+	}
 	int_warn(t_num, "integer overflow; changing to floating point");
 	token[t_num].l_val.type = CMPLX;
 	/* Fall through */

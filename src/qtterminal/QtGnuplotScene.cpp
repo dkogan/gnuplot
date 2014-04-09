@@ -46,6 +46,12 @@
 #include "QtGnuplotEvent.h"
 #include "QtGnuplotItems.h"
 
+extern "C" {
+#include "../mousecmn.h"
+// This is defined in term_api.h, but including it there fails to compile
+typedef enum t_fillstyle { FS_EMPTY, FS_SOLID, FS_PATTERN, FS_DEFAULT, FS_TRANSPARENT_SOLID, FS_TRANSPARENT_PATTERN } t_fillstyle;
+}
+
 #include <QtGui>
 #include <QDebug>
 
@@ -64,10 +70,17 @@ QtGnuplotScene::QtGnuplotScene(QtGnuplotEventHandler* eventHandler, QObject* par
 	m_currentPlotNumber = 0;
 	m_inKeySample = false;
 	m_preserve_visibility = false;
+	m_inTextBox = false;
+	m_currentPointsItem = new QtGnuplotPoints;
 
 	m_currentGroup.clear();
 
 	resetItems();
+}
+
+QtGnuplotScene::~QtGnuplotScene()
+{
+	delete m_currentPointsItem;
 }
 
 /////////////////////////////////////////////////
@@ -121,14 +134,30 @@ void QtGnuplotScene::flushCurrentPolygon()
 	}
 
 	clipPolygon(m_currentPolygon);
-	QPainterPath path;
-	path.addPolygon(m_currentPolygon);
-	QGraphicsPathItem *pathItem;
-	pathItem = addPath(path, m_currentPen, Qt::NoBrush);
-	pathItem->setZValue(m_currentZ++);
-	m_currentPolygon.clear();
 	if (!m_inKeySample)
-		m_currentGroup.append(pathItem);
+		m_currentPointsItem->addPolygon(m_currentPolygon, m_currentPen);
+	else
+	{
+		flushCurrentPointsItem();
+		// Including the polygon in a path is necessary to avoid closing the polygon
+		QPainterPath path;
+		path.addPolygon(m_currentPolygon);
+		QGraphicsPathItem *pathItem;
+		pathItem = addPath(path, m_currentPen, Qt::NoBrush);
+		pathItem->setZValue(m_currentZ++);
+	}
+	m_currentPolygon.clear();
+}
+
+void QtGnuplotScene::flushCurrentPointsItem()
+{
+	if (m_currentPointsItem->isEmpty())
+		return;
+
+	m_currentPointsItem->setZValue(m_currentZ++);
+	addItem(m_currentPointsItem);
+	m_currentGroup.append(m_currentPointsItem);
+	m_currentPointsItem = new QtGnuplotPoints();
 }
 
 void QtGnuplotScene::update_key_box(const QRectF rect)
@@ -179,7 +208,10 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		QPointF point; in >> point;
 		m_currentPolygon << point;
 		if (m_inKeySample)
+		{
+			flushCurrentPointsItem();
 			update_key_box( QRectF(point, QSize(0,1)) );
+		}
 	}
 	else if (type == GEPenColor)
 	{
@@ -188,13 +220,13 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	}
 	else if (type == GEBackgroundColor)
 	{
-		m_currentPen.setColor(m_widget->m_backgroundColor);
+		m_currentPen.setColor(m_widget->backgroundColor());
 	}
 	else if (type == GEPenStyle)
 	{
 		int style; in >> style;
 		m_currentPen.setStyle(Qt::PenStyle(style));
-		if (m_widget->m_rounded) {
+		if (m_widget->rounded()) {
 			m_currentPen.setJoinStyle(Qt::RoundJoin);
 			m_currentPen.setCapStyle(Qt::RoundCap);
 		} else {
@@ -214,6 +246,7 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	}
 	else if (type == GEFillBox)
 	{
+		flushCurrentPointsItem();
 		QRect rect; in >> rect;
 		QGraphicsRectItem *rectItem;
 		rectItem = addRect(rect, Qt::NoPen, m_currentBrush);
@@ -226,15 +259,20 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	else if (type == GEFilledPolygon)
 	{
 		QPolygonF polygon; in >> polygon;
-		QPen pen = Qt::NoPen;
-		if (m_currentBrush.style() == Qt::SolidPattern)
-			pen = m_currentBrush.color();
-		clipPolygon(polygon, false);
-		QGraphicsPolygonItem *path;
-		path = addPolygon(polygon, pen, m_currentBrush);
-		path->setZValue(m_currentZ++);
+
 		if (!m_inKeySample)
-			m_currentGroup.append(path);
+			m_currentPointsItem->addFilledPolygon(clipPolygon(polygon, false), m_currentBrush);
+		else
+		{
+			flushCurrentPointsItem();
+			QPen pen = Qt::NoPen;
+			if (m_currentBrush.style() == Qt::SolidPattern)
+				pen = m_currentBrush.color();
+			clipPolygon(polygon, false);
+			QGraphicsPolygonItem *path;
+			path = addPolygon(polygon, pen, m_currentBrush);
+			path->setZValue(m_currentZ++);
+		}
 	}
 	else if (type == GEBrushStyle)
 	{
@@ -257,16 +295,19 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	{
 		QPointF point; in >> point;
 		int style    ; in >> style;
-		QtGnuplotPoint* pointItem = new QtGnuplotPoint(style, m_currentPointSize, m_currentPen.color());
-		pointItem->setPos(clipPoint(point));
-		pointItem->setZValue(m_currentZ++);
-		addItem(pointItem);
-		if (m_inKeySample)
-			update_key_box( QRectF(point, QSize(2,2)) );
+		// Append the point to a points item to speed-up drawing
+		if (!m_inKeySample)
+			m_currentPointsItem->addPoint(clipPoint(point), style, m_currentPointSize, m_currentPen);
 		else
-			m_currentGroup.append(pointItem);
+		{
+			flushCurrentPointsItem();
+			QtGnuplotPoint* pointItem = new QtGnuplotPoint(style, m_currentPointSize, m_currentPen);
+			pointItem->setPos(clipPoint(point));
+			pointItem->setZValue(m_currentZ++);
+			addItem(pointItem);
+			update_key_box( QRectF(point, QSize(2,2)) );
+		}
 
-		// EAM DEBUG 
 		// Create a hypertext label that will become visible on mouseover.
 		// The Z offset is a kludge to force the label into the foreground.
 		if (!m_currentHypertext.isEmpty()) {
@@ -280,28 +321,39 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	}
 	else if (type == GEPutText)
 	{
+		flushCurrentPointsItem();
 		QPoint point; in >> point;
 		QString text; in >> text;
 		QGraphicsTextItem* textItem = addText(text, m_font);
 		textItem->setDefaultTextColor(m_currentPen.color());
 		positionText(textItem, point);
-		if (m_inKeySample) {
-			QRectF rect = textItem->boundingRect();
-			qreal fullheight = rect.height();
-			if (m_textAlignment == Qt::AlignRight)
-				rect.moveBottomRight(point);
-			else
-				rect.moveBottomLeft(point);
-			rect.adjust(0, fullheight/1.8, 0, fullheight/4);
+
+		QRectF rect = textItem->boundingRect();
+		if (m_textAlignment == Qt::AlignCenter) {
+			rect.moveCenter(point);
+			rect.moveBottom(point.y());
+		} else if (m_textAlignment == Qt::AlignRight)
+			rect.moveBottomRight(point);
+		else
+			rect.moveBottomLeft(point);
+		rect.adjust(0, rect.height()*0.67, 0, rect.height()*0.25);
+
+		if (m_inKeySample)
 			update_key_box(rect);
-		} else {
+		else
 			m_currentGroup.append(textItem);
-		}
+#ifdef EAM_BOXED_TEXT
+		if (m_inTextBox)
+			m_currentTextBox |= rect;
+#endif
 	}
 	else if (type == GEEnhancedFlush)
 	{
+		flushCurrentPointsItem();
 		QString fontName; in >> fontName;
 		double fontSize ; in >> fontSize;
+		int fontStyle   ; in >> fontStyle;	// really QFont::Style
+		int fontWeight  ; in >> fontWeight;	// really QFont::Weight
 		double base     ; in >> base;
 		bool widthFlag  ; in >> widthFlag;
 		bool showFlag   ; in >> showFlag;
@@ -309,30 +361,56 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		QString text    ; in >> text;
 		if (m_enhanced == 0)
 			m_enhanced = new QtGnuplotEnhanced();
-		m_enhanced->addText(fontName, fontSize, base, widthFlag, showFlag,
+		m_enhanced->addText(fontName, fontSize, 
+				    (QFont::Style)fontStyle, (QFont::Weight)fontWeight,
+				    base, widthFlag, showFlag,
 		                    overprint, text, m_currentPen.color());
 	}
 	else if (type == GEEnhancedFinish)
 	{
+		flushCurrentPointsItem();
 		QPoint point; in >> point;
-		addItem(m_enhanced);
 		positionText(m_enhanced, point);
+		m_enhanced->setZValue(m_currentZ++);
+		addItem(m_enhanced);
+
+		QRectF rect = m_enhanced->boundingRect();
+		if (m_textAlignment == Qt::AlignCenter) {
+			rect.moveCenter(point);
+			rect.moveBottom(point.y());
+		} else if (m_textAlignment == Qt::AlignRight)
+			rect.moveBottomRight(point);
+		else
+			rect.moveBottomLeft(point);
+		rect.adjust(-m_currentPen.width()*2, rect.height()/2, 
+			    m_currentPen.width()*2, rect.height()/2);
+
+		if (m_inKeySample)
+			update_key_box(rect);
+		else
+			m_currentGroup.append(m_enhanced);
+#ifdef EAM_BOXED_TEXT
+		if (m_inTextBox)
+			m_currentTextBox |= rect;
+#endif
 		m_enhanced = 0;
 	}
 	else if (type == GEImage)
 	{
-		QPoint p0; in >> p0;
-		QPoint p1; in >> p1;
-		QPoint p2; in >> p2;
-		QPoint p3; in >> p3;
+		flushCurrentPointsItem();
+		QPointF p0; in >> p0;
+		QPointF p1; in >> p1;
+		QPointF p2; in >> p2;
+		QPointF p3; in >> p3;
 		QImage image; in >> image;
-		QPixmap pixmap = QPixmap::fromImage(image);
-		QGraphicsPixmapItem* item = addPixmap(pixmap);
+		QSize size(p1.x() - p0.x(), p1.y() - p0.y());
+		QRectF clipRect(p2 - p0, p3 - p0);
+		QPixmap pixmap = QPixmap::fromImage(image).scaled(size, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+		QtGnuplotClippedPixmap* item = new QtGnuplotClippedPixmap(clipRect, pixmap);
+		addItem(item);
 		item->setZValue(m_currentZ++);
 		item->setPos(p0);
-		QPointF size = p1 - p0;
-		item->scale(size.x()/pixmap.width(), size.y()/pixmap.height());
-		/// @todo clipping
+		m_currentGroup.append(item);
 	}
 	else if (type == GEZoomStart)
 	{
@@ -384,10 +462,10 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		for (int i = 0; i < 4; i++)
 			in >> m_axisValid[i] >> m_axisMin[i] >> m_axisLower[i] >> m_axisScale[i] >> m_axisLog[i];
 	}
-	else if (type == GEPlotNumber) 
+	else if (type == GEAfterPlot) 
 	{
-		int newPlotNumber;  in >> newPlotNumber;
-		if (newPlotNumber == 0 && m_currentPlotNumber > 0) {
+		flushCurrentPointsItem();
+		if (m_currentPlotNumber >= m_plot_group.count()) {
 			// End of previous plot, create group holding the accumulated elements
 			QGraphicsItemGroup *newgroup;
 			newgroup = createItemGroup(m_currentGroup);
@@ -396,20 +474,56 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 			if (0 < m_currentPlotNumber && m_currentPlotNumber <= m_key_boxes.count())
 				newgroup->setVisible( !(m_key_boxes[m_currentPlotNumber-1].ishidden()) );
 			// Store it in an ordered list so we can toggle it by index
-			if (m_currentPlotNumber >= m_plot_group.count())
-				m_plot_group.insert(m_currentPlotNumber, newgroup);
-			else
-				m_plot_group.replace(m_currentPlotNumber-1, newgroup);
+			m_plot_group.insert(m_currentPlotNumber, newgroup);
 		} 
-		else
-		{
+		m_currentPlotNumber = 0;
+	}
+	else if (type == GEPlotNumber) 
+	{
+		flushCurrentPointsItem();
+		int newPlotNumber;  in >> newPlotNumber;
+		if (newPlotNumber >= m_plot_group.count()) {
 			// Initialize list of elements for next group
 			m_currentGroup.clear();
-		}
+		} 
+		// Otherwise we are making a second pass through the same plots
+		// (currently used only to draw key samples on an opaque key box)
 		m_currentPlotNumber = newPlotNumber;
+	}
+	else if (type == GEModPlots)
+	{
+		int i = m_key_boxes.count();
+		unsigned int ops_i;
+		in >> ops_i;
+		enum QtGnuplotModPlots ops = (enum QtGnuplotModPlots) ops_i;
+
+		/* FIXME: This shouldn't happen, but it does. */
+		/* Failure to reset lists after multiplot??   */
+		if (i > m_plot_group.count())
+		    i = m_plot_group.count();
+
+		while (i-- > 0) {
+			bool isVisible = m_plot_group[i]->isVisible();
+
+			switch (ops) {
+			case QTMODPLOTS_INVERT_VISIBILITIES:
+				isVisible = !isVisible;
+				break;
+			case QTMODPLOTS_SET_VISIBLE:
+				isVisible = true;
+				break;
+			case QTMODPLOTS_SET_INVISIBLE:
+				isVisible = false;
+				break;
+			}
+
+			m_plot_group[i]->setVisible(isVisible);
+			m_key_boxes[i].setHidden(!isVisible);
+		}
 	}
 	else if (type == GELayer)
 	{
+		flushCurrentPointsItem();
 		int layer; in >> layer;
 		if (layer == QTLAYER_BEGIN_KEYSAMPLE) m_inKeySample = true;
 		if (layer == QTLAYER_END_KEYSAMPLE) m_inKeySample = false;
@@ -420,9 +534,62 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		m_currentHypertext.clear();
 		in >> m_currentHypertext;
 	}
+#ifdef EAM_BOXED_TEXT
+	else if (type == GETextBox)
+	{
+		flushCurrentPointsItem();
+		QPointF point; in >> point;
+		int option; in >> option;
+		QGraphicsRectItem *rectItem;
+
+		/* Must match the definition in ../term_api.h */
+		enum t_textbox_options {
+		       TEXTBOX_INIT = 0,
+		       TEXTBOX_OUTLINE,
+		       TEXTBOX_BACKGROUNDFILL,
+		       TEXTBOX_MARGINS
+		};
+
+		switch (option) {
+		case TEXTBOX_INIT:
+			/* Initialize bounding box */
+			m_currentTextBox = QRectF(point, point);
+			m_inTextBox = true;
+			break;
+		case TEXTBOX_OUTLINE:
+			/* Stroke bounding box */
+			rectItem = addRect(m_currentTextBox, m_currentPen, Qt::NoBrush);
+			rectItem->setZValue(m_currentZ++);
+			m_currentGroup.append(rectItem);
+			m_inTextBox = false;
+			break;
+		case TEXTBOX_BACKGROUNDFILL:
+			/* Fill bounding box */
+			m_currentBrush.setColor(m_widget->backgroundColor());
+			m_currentBrush.setStyle(Qt::SolidPattern);
+			rectItem = addRect(m_currentTextBox, Qt::NoPen, m_currentBrush);
+			rectItem->setZValue(m_currentZ++);
+			m_currentGroup.append(rectItem);
+			m_inTextBox = false;
+			break;
+		case TEXTBOX_MARGINS:
+			/* Set margins of bounding box */
+			break;
+		}
+	}
+#endif
+	else if (type == GEFontMetricRequest)
+	{
+		QFontMetrics metrics(m_font);
+		int par1 = (metrics.ascent() + metrics.descent());
+		int par2 = metrics.width("0123456789")/10.;
+		m_eventHandler->postTermEvent(GE_fontprops, 0, 0, par1, par2, m_widget);
+	}
 	else if (type == GEDone)
-		m_eventHandler->postTermEvent(GE_plotdone, 0, 0, 0, 0, 0);
-		/// @todo m_id;//qDebug() << "Done !" << items().size();
+	{
+		flushCurrentPointsItem();
+		m_eventHandler->postTermEvent(GE_plotdone, 0, 0, 0, 0, m_widget);
+	}
 	else
 		swallowEvent(type, in);
 }
@@ -430,6 +597,8 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 void QtGnuplotScene::resetItems()
 {
 	clear();
+	delete m_currentPointsItem;
+	m_currentPointsItem = new QtGnuplotPoints;
 
 	m_currentZ = 1.;
 
@@ -493,7 +662,7 @@ void QtGnuplotScene::setBrushStyle(int style)
 		/// @todo color & transparent. See other terms
 		m_currentBrush.setStyle(QtGnuplot::brushes[abs(fillpar) % 8]);
 	else if (fillstyle == FS_EMPTY) // fill with background plot->color
-		color = Qt::white;
+		color = m_widget->backgroundColor();
 
 	m_currentBrush.setColor(color);
 }
@@ -511,9 +680,8 @@ void QtGnuplotScene::positionText(QGraphicsItem* item, const QPoint& point)
 	else if (m_textAlignment == Qt::AlignCenter)
 		cx = (item->boundingRect().right() + item->boundingRect().left())/2.;
 
-	item->translate(cx, cy);
-	item->rotate(-m_textAngle);
-	item->translate(-cx, -cy);
+	item->setTransformOriginPoint(cx, cy);
+	item->setRotation(-m_textAngle);
 	item->setPos(point.x() - cx, point.y() - cy);
 }
 
@@ -550,7 +718,7 @@ void QtGnuplotScene::updateModifiers()
 	if (modifierMask != m_lastModifierMask)
 	{
 		m_lastModifierMask = modifierMask;
-		m_eventHandler->postTermEvent(GE_modifier, 0, 0, modifierMask, 0, 0); /// @todo m_id
+		m_eventHandler->postTermEvent(GE_modifier, 0, 0, modifierMask, 0, m_widget);
 	}
 }
 
@@ -566,7 +734,7 @@ void QtGnuplotScene::mousePressEvent(QGraphicsSceneMouseEvent* event)
 
 	m_eventHandler->postTermEvent(GE_buttonpress, 
 			int(event->scenePos().x()), int(event->scenePos().y()), 
-			button, 0, 0); /// @todo m_id
+			button, 0, m_widget);
 	QGraphicsScene::mousePressEvent(event);
 }
 
@@ -621,7 +789,7 @@ void QtGnuplotScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 	}
 	m_hypertextList[0]->setVisible(hit);
 
-	m_eventHandler->postTermEvent(GE_motion, int(event->scenePos().x()), int(event->scenePos().y()), 0, 0, 0); /// @todo m_id
+	m_eventHandler->postTermEvent(GE_motion, int(event->scenePos().x()), int(event->scenePos().y()), 0, 0, m_widget);
 	QGraphicsScene::mouseMoveEvent(event);
 }
 
@@ -635,20 +803,22 @@ void QtGnuplotScene::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 	else if (event->button()== Qt::MidButton)   button = 2;
 	else if (event->button()== Qt::RightButton) button = 3;
 
-	// EAM FIXME - If the press/release events get out of order or if we see
-	// a very fast double-click then the following call causes the program
-	// to error out during event processing.  Also note that I can't find
-	// where the timers are initialized on entry - maybe a problem there?
-	// Finally, why do we need or want a timer at all?
-	int time = m_watches[button].elapsed();
-	if (time > 300) // purely empical work-around
-	if (m_eventHandler->postTermEvent(GE_buttonrelease, int(event->scenePos().x()),
-	    int(event->scenePos().y()), button, time, 0))
-		m_watches[button].start();
+	// FIXME: If the press/release events get out of order or if we see a very
+	// fast double-click then the program errors out during event processing.
+	// Unfortunately I have not been able to reliably filter out these spurious events
+	// by setting a minimum time window.  Maybe an explicit interlock would work?
+	qint64 time = 0;
+	if (m_watches[button].isValid())
+		time = m_watches[button].elapsed();
+	if (time > 300) {
+		m_eventHandler->postTermEvent(GE_buttonrelease,
+			int(event->scenePos().x()), int(event->scenePos().y()), button, time, m_widget);
+	}
+	m_watches[button].start();
 
 	/* Check for click in one of the keysample boxes */
-	int i = m_key_boxes.count();
-	while (i-- > 0) {
+	int n = m_key_boxes.count();
+	for (int i = 0; i < n; i++) {
 		if (m_key_boxes[i].contains(m_lastMousePos)) {
 			if (m_plot_group[i]->isVisible()) {
 				m_plot_group[i]->setVisible(false);
@@ -672,12 +842,12 @@ void QtGnuplotScene::wheelEvent(QGraphicsSceneWheelEvent* event)
 		// 6 = scroll left, 7 = scroll right
 		m_eventHandler->postTermEvent(GE_buttonpress,
 			int(event->scenePos().x()), int(event->scenePos().y()), 
-			event->delta() > 0 ? 6 : 7, 0, 0);
+			event->delta() > 0 ? 6 : 7, 0, m_widget);
 	} else { /* if (event->orientation() == Qt::Vertical) */
 		// 4 = scroll up, 5 = scroll down
 		m_eventHandler->postTermEvent(GE_buttonpress,
 			int(event->scenePos().x()), int(event->scenePos().y()), 
-			event->delta() > 0 ? 4 : 5, 0, 0);
+			event->delta() > 0 ? 4 : 5, 0, m_widget);
 	} 
 }
 
@@ -686,6 +856,7 @@ void QtGnuplotScene::keyPressEvent(QKeyEvent* event)
 	updateModifiers();
 
 	int key = -1;
+	int live;
 
 	/// @todo quit on 'q' or Ctrl+'q'
 
@@ -731,7 +902,7 @@ void QtGnuplotScene::keyPressEvent(QKeyEvent* event)
 	// ASCII keys
 	else if ((event->key() <= 0xff) && (!event->text().isEmpty()))
 		// event->key() does not respect the case
-		key = event->text()[0].toAscii();
+		key = event->text()[0].toLatin1();
 	// Special keys
 	else
 		switch (event->key())
@@ -768,7 +939,31 @@ void QtGnuplotScene::keyPressEvent(QKeyEvent* event)
 		}
 
 	if (key >= 0)
-		m_eventHandler->postTermEvent(GE_keypress, int(m_lastMousePos.x()), int(m_lastMousePos.y()), key, 0, 0); /// @todo m_id
+		live = m_eventHandler->postTermEvent(GE_keypress,
+			int(m_lastMousePos.x()), int(m_lastMousePos.y()), key, 0, m_widget);
+	else
+		live = true;
+
+	// Key handling in persist mode 
+	// !live means (I think!) that we are in persist mode
+	if (!live) {
+		switch (key) {
+		default:
+			break;
+		case 'i':
+			int i = m_key_boxes.count();
+			/* FIXME: This shouldn't happen, but it does. */
+			if (i > m_plot_group.count())
+			    i = m_plot_group.count();
+			while (i-- > 0) {
+				bool isVisible = m_plot_group[i]->isVisible();
+				isVisible = !isVisible;
+				m_plot_group[i]->setVisible(isVisible);
+				m_key_boxes[i].setHidden(!isVisible);
+			}
+			break;
+		}
+	}
 
 	QGraphicsScene::keyPressEvent(event);
 }

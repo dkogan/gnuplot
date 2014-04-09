@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: x11.trm,v 1.206 2013/01/19 06:53:48 sfeam Exp $
+ * $Id: x11.trm,v 1.219 2014/03/19 05:00:32 sfeam Exp $
  *
  */
 
@@ -57,6 +57,10 @@
 /* Daniel Sebald: added X11 support for images. (27 February 2003)
  */
 
+/* Toggle plots on/off by clicking on the key entry
+ * Ethan A Merritt 2013
+ */
+
 #include "driver.h"
 
 #ifdef TERM_REGISTER
@@ -86,11 +90,12 @@ TERM_PUBLIC void X11_fillbox __PROTO((int style, unsigned int x, unsigned int y,
 TERM_PUBLIC void X11_send_endianess __PROTO((void));
 
 # ifdef USE_MOUSE
-TERM_PUBLIC int X11_waitforinput __PROTO((void));
+TERM_PUBLIC int X11_waitforinput __PROTO((int));
 TERM_PUBLIC void X11_set_ruler __PROTO((int, int));
 TERM_PUBLIC void X11_set_cursor __PROTO((int, int, int));
 TERM_PUBLIC void X11_put_tmptext __PROTO((int, const char str[]));
 TERM_PUBLIC void X11_set_clipboard __PROTO((const char[]));
+TERM_PUBLIC void X11_layer __PROTO((t_termlayer syncpoint));
 # endif
 
 TERM_PUBLIC void X11_update_opts __PROTO((void));
@@ -106,6 +111,10 @@ TERM_PUBLIC void ENHX11_OPEN __PROTO((char * fontname, double fontsize,
 				double base, TBOOLEAN widthflag, TBOOLEAN showflag,
 				int overprint));
 TERM_PUBLIC void ENHX11_FLUSH __PROTO((void));
+#ifdef EAM_BOXED_TEXT
+TERM_PUBLIC void ENHX11_boxed_text __PROTO((unsigned int, unsigned int, int));
+#endif
+TERM_PUBLIC void X11_modify_plots __PROTO((unsigned int));
 
 /* These are the default terminal sizing parameters. These should match the
    sizes in gplt_x11.c, and both specify 640,450 */
@@ -217,7 +226,7 @@ static char *X11_command_parsed = NULL;
 static char *X11_full_command_path = NULL;
 
 /* must match the definition in src/gplt_x11.c: */
-static int persist = UNSET;
+static int x11_persist = UNSET;
 static int do_raise = UNSET;
 static int replot_on_resize = UNSET;
 static int dashedlines = UNSET;
@@ -447,7 +456,8 @@ X11_options()
     do_raise = dashedlines = ctrlq = UNSET;
     replot_on_resize = UNSET;
     set_size = set_position = UNSET;
-    persist = persist_cl;	/* previously set from command line */
+    x11_persist = persist_cl		/* previously set from command line */
+	    || (x11_persist > 0);	/* or previously set here */
     strcpy(x11_userbkg,"#RRGGBB");
 
     while (!END_OF_COMMAND) {
@@ -463,13 +473,13 @@ X11_options()
 	    set_close = TRUE;
 	    break;
 	case X11_PERSIST:
-	    persist = yes;
+	    x11_persist = yes;
 	    c_token++;
 	    if (set_persist) duplication=TRUE;
 	    set_persist = TRUE;
 	    break;
 	case X11_NOPERSIST:
-	    persist = no;
+	    x11_persist = no;
 	    c_token++;
 	    if (set_persist) duplication=TRUE;
 	    set_persist = TRUE;
@@ -690,8 +700,8 @@ X11_options()
     if (UNSET != replot_on_resize) {
 	strcat(term_options, (yes == replot_on_resize ? " replotonresize" : " noreplotonresize"));
     }
-    if (UNSET != persist) {
-	strcat(term_options, (yes == persist ? " persist" : " nopersist"));
+    if (UNSET != x11_persist) {
+	strcat(term_options, (yes == x11_persist ? " persist" : " nopersist"));
     }
     if (UNSET != ctrlq) {
 	strcat(term_options, (yes == ctrlq ? " ctrlq" : " noctrlq"));
@@ -800,11 +810,11 @@ X11_update_opts()
     if (!strcmp("xlib",term->name))
 	return;
 
-    if (UNSET != do_raise || UNSET != persist || UNSET != dashedlines ||
+    if (UNSET != do_raise || UNSET != x11_persist || UNSET != dashedlines ||
         UNSET != ctrlq || UNSET != replot_on_resize)
     {
 	fprintf(X11_ipc, "X %d %d %d %d %d\n", 
-		do_raise, persist, dashedlines, ctrlq, replot_on_resize);
+		do_raise, x11_persist, dashedlines, ctrlq, replot_on_resize);
 	fflush(X11_ipc);
     }
 
@@ -869,12 +879,13 @@ X11_atexit()
 #ifdef USE_MOUSE
 
 TERM_PUBLIC int
-X11_waitforinput()
+X11_waitforinput(int options)
 {
 #ifdef PIPE_IPC
     fd_set fds;
     static struct gp_event_t ge;
     static int l = 0;
+    struct timeval one_msec;
     int n;
     int fd = fileno(stdin);
     int repeat_count = 0;
@@ -887,10 +898,22 @@ AGAIN:
     if (ipc_back_fd >= 0)
 	do {
 	    int ierr;
+	    struct timeval *timeout = NULL;
 	    FD_ZERO(&fds);
 	    FD_SET(fd, &fds);
 	    FD_SET(ipc_back_fd, &fds);
-	    ierr = select(ipc_back_fd + 1, SELECT_TYPE_ARG234 &fds, 0, 0, NULL);
+
+	    /* When taking input from the console, we are willing to wait here	*/
+	    /* until the next character is typed. But if input is from a script	*/
+	    /* we just want to check for hotkeys or mouse input and then leave	*/
+	    /*  again without waiting on stdin.					*/
+	    if (options == TERM_ONLY_CHECK_MOUSING) {
+		timeout = &one_msec;
+		one_msec.tv_sec = 0;
+		one_msec.tv_usec = TERM_EVENT_POLL_TIMEOUT;
+	    }
+
+	    ierr = select(ipc_back_fd + 1, SELECT_TYPE_ARG234 &fds, 0, 0, timeout);
 	    if (ierr < 0 && errno == EINTR) {
 		FD_ZERO(&fds);
 		continue;
@@ -943,7 +966,10 @@ AGAIN:
 			}
 		    }
 		}
+	    } else if (options == TERM_ONLY_CHECK_MOUSING) {
+		return '\0';
 	    }
+
 	} while (!FD_ISSET(fd, &fds));
 
     /* If ipc_back_fd is not open, we will never see any mouse events! */
@@ -974,6 +1000,9 @@ AGAIN:
     }
 
 #endif /* PIPE_IPC */
+
+    if (options == TERM_ONLY_CHECK_MOUSING)
+	return '\0';
 
 # if 0
 /* HBB 20010620: switching back and forth between X11 and a non-GUI
@@ -1059,7 +1088,7 @@ X11_init()
 	    fprintf(stderr,"Expected X11 driver: %s\n",X11_full_command_path);
 	    perror("Exec failed");
 	    fprintf(stderr,"See 'help x11' for more details\n");
-	    exit(EXIT_FAILURE);
+	    gp_exit(EXIT_FAILURE);
 	}
 	/* parent */
 # ifdef PIPE_IPC
@@ -1092,7 +1121,7 @@ X11_init()
     }
 
     if (!been_here) {
-	GP_ATEXIT(X11_atexit);
+	gp_atexit(X11_atexit);
 	been_here++;
     }
     X11_send_endianess();
@@ -1156,7 +1185,7 @@ X11_reset()
 
 #define BEFORE_GRAPHICS \
  if (!(X11_ipc = fopen(X11_tmp0, "w"))) { \
-   perror(X11_tmp0); system(X11_shutdown); exit(1); \
+   perror(X11_tmp0); system(X11_shutdown); gp_exit(EXIT_FAILURE); \
  }
 
 #define AFTER_TEXT \
@@ -1284,7 +1313,7 @@ X11_init()
     {
 	static int been_here = 0;
 	if (!been_here) {
-	    GP_ATEXIT(X11_atexit);
+	    gp_atexit(X11_atexit);
 	    been_here = 1;
 	}
     }
@@ -1307,7 +1336,7 @@ do { \
    } \
    status = sys$qiow(0, X11_channel, IO$_WRITEVBLK, &iosb, 0, 0, buffer, strlen(buffer), 0, 0, 0, 0); \
    if ((status & SS$_NORMAL) == SS$_NORMAL) status = iosb.stat; \
-   if((status & SS$_NORMAL) != SS$_NORMAL) exit(status); \
+   if((status & SS$_NORMAL) != SS$_NORMAL) gp_exit(status); \
  } while (0)
 
 #define PRINT0(fmt)          GO((buffer, fmt))
@@ -1399,7 +1428,7 @@ X11_graphics()
     /* replot requests if it does.					*/
     if (multiplot) {
 	fprintf(X11_ipc, "X %d %d %d %d %d\n", 
-		do_raise, persist, dashedlines, ctrlq, no);
+		do_raise, x11_persist, dashedlines, ctrlq, no);
 	fflush(X11_ipc);
     }
 
@@ -1418,7 +1447,7 @@ X11_graphics()
 		PRINT1("QG%s\n",X11_default_font);
 		FFLUSH();
 		if (ipc_back_fd >= 0 && X11_MOUSE_FEEDBACK)
-			X11_waitforinput();
+			X11_waitforinput(0);
 
 		default_font_size_known = TRUE;
 		IPC_LOCK = FALSE;
@@ -1471,22 +1500,22 @@ X11_text()
 	}
 	PRINT2("S %2d %d\n", -2, ALMOST2D);
 	PRINT2("S %2d %d\n", -1, axis_mask);
-	PRINT5("S %2d %14.3g %14d %14.3g %14.3g\n", FIRST_X_AXIS,
+	PRINT5("S %2d %16.6g %14d %16.6g %16.6g\n", FIRST_X_AXIS,
 		axis_array[FIRST_X_AXIS].min,
 		axis_array[FIRST_X_AXIS].term_lower,
 		axis_array[FIRST_X_AXIS].term_scale,
 		axis_array[FIRST_X_AXIS].log ? axis_array[FIRST_X_AXIS].log_base : 0);
-	PRINT5("S %2d %14.3g %14d %14.3g %14.3g\n", FIRST_Y_AXIS,
+	PRINT5("S %2d %16.6g %14d %16.6g %16.6g\n", FIRST_Y_AXIS,
 		axis_array[FIRST_Y_AXIS].min,
 		axis_array[FIRST_Y_AXIS].term_lower,
 		axis_array[FIRST_Y_AXIS].term_scale,
 		axis_array[FIRST_Y_AXIS].log ? axis_array[FIRST_Y_AXIS].log_base : 0);
-	PRINT5("S %2d %14.3g %14d %14.3g %14.3g\n", SECOND_X_AXIS,
+	PRINT5("S %2d %16.6g %14d %16.6g %16.6g\n", SECOND_X_AXIS,
 		axis_array[SECOND_X_AXIS].min,
 		axis_array[SECOND_X_AXIS].term_lower,
 		axis_array[SECOND_X_AXIS].term_scale,
 		axis_array[SECOND_X_AXIS].log ? axis_array[SECOND_X_AXIS].log_base : 0);
-	PRINT5("S %2d %14.3g %14d %14.3g %14.3g\n", SECOND_Y_AXIS,
+	PRINT5("S %2d %16.6g %14d %16.6g %16.6g\n", SECOND_Y_AXIS,
 		axis_array[SECOND_Y_AXIS].min,
 		axis_array[SECOND_Y_AXIS].term_lower,
 		axis_array[SECOND_Y_AXIS].term_scale,
@@ -1871,6 +1900,42 @@ X11_filled_polygon(int points, gpiPoint *corners)
     return;
 }
 
+#ifdef EAM_BOXED_TEXT
+TERM_PUBLIC void
+ENHX11_boxed_text(unsigned int x, unsigned int y, int option)
+{
+    switch(option) {
+    case TEXTBOX_INIT:
+	/* Tell gnuplot_x11 to initialize the text bounding box */
+	PRINT2("Tb%d %d\n", x, y);
+	break;
+    case TEXTBOX_OUTLINE:
+	/* Tell gnuplot_x11 to draw the text bounding box */
+	PRINT0("TB\n");
+	break;
+    case TEXTBOX_BACKGROUNDFILL:
+	/* Tell gnuplot_x11 to fill the text bounding box */
+	PRINT0("TF\n");
+	break;
+    case TEXTBOX_MARGINS:
+	/* Tell gnuplot_x11 to change text margins */
+	PRINT2("Tm%d %d\n", x, y);
+	break;
+    default:
+	break;
+    }
+}
+#endif
+
+TERM_PUBLIC void
+X11_modify_plots(unsigned int ops)
+{
+    if (X11_ipc) {
+	PRINT1("O%u\n", ops);
+	FFLUSH();
+    }
+}
+
 
 /*
  * Ethan A Merritt November 2003
@@ -2052,6 +2117,26 @@ PASS2:
 
 }
 
+TERM_PUBLIC void
+X11_layer(t_termlayer syncpoint)
+{
+    switch (syncpoint)
+	{
+	case TERM_LAYER_RESET:
+	case TERM_LAYER_RESET_PLOTNO:
+		if (multiplot)
+			break;
+	case TERM_LAYER_BEFORE_PLOT:
+	case TERM_LAYER_AFTER_PLOT:
+	case TERM_LAYER_BEGIN_KEYSAMPLE:
+	case TERM_LAYER_END_KEYSAMPLE:
+	case TERM_LAYER_BEFORE_ZOOM:
+		PRINT1("Y%d\n", syncpoint);
+		break;
+	default:
+		break;
+    }
+}
 
 TERM_PUBLIC void
 X11_send_endianess(void)
@@ -2206,10 +2291,10 @@ TERM_TABLE_START(x11_driver)
     X11_XMAX, X11_YMAX, X11_VCHAR, X11_HCHAR,
     X11_VTIC, X11_HTIC, X11_options, X11_init, X11_reset,
     X11_text, null_scale, X11_graphics, X11_move, X11_vector,
-    X11_linetype, X11_put_text, X11_text_angle,
+    X11_linetype, ENHX11_put_text, X11_text_angle,
     X11_justify_text, X11_point, do_arrow, X11_set_font,
     X11_pointsize, 
-    TERM_CAN_MULTIPLOT|TERM_INIT_ON_REPLOT|TERM_NO_OUTPUTFILE|TERM_CAN_DASH|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH,
+    TERM_CAN_MULTIPLOT|TERM_INIT_ON_REPLOT|TERM_NO_OUTPUTFILE|TERM_CAN_DASH|TERM_ALPHA_CHANNEL|TERM_LINEWIDTH|TERM_ENHANCED_TEXT,
     X11_text /* suspend can use same routine */ , 0 /* resume */ ,
     X11_fillbox, X11_linewidth
 #ifdef USE_MOUSE
@@ -2219,6 +2304,12 @@ TERM_TABLE_START(x11_driver)
     X11_set_color, X11_filled_polygon
     , X11_image
     , ENHX11_OPEN, ENHX11_FLUSH, do_enh_writec
+    , X11_layer
+    , NULL, 0.0, NULL /* path, tscale, hypertext */
+#ifdef EAM_BOXED_TEXT
+    , ENHX11_boxed_text
+#endif
+    , X11_modify_plots
 TERM_TABLE_END(x11_driver)
 
 #undef LAST_TERM

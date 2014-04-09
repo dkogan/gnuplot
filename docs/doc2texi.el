@@ -136,6 +136,12 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
 	  (setq parts (cons (substring string start (match-beginning 0)) parts)
 		start (match-end 0)))
 	(nreverse (cons (substring string start) parts)))) ))
+(eval-and-compile
+  (and (featurep 'xemacs)
+    ;; XEmacs 21.4 doesn't have replace-regexp-in-string
+    (not (fboundp 'replace-regexp-in-string))
+    (defun replace-regexp-in-string (regexp rep string)
+       (replace-in-string string regexp rep))))
 
 (defconst d2t-work-buffer-name "*doc2texi*"
   "Name of scratch buffer where the doc file will be converted into a
@@ -174,8 +180,8 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
 
             An Interactive Plotting Program
              Thomas Williams & Colin Kelley
-                Version 4.7 organized by:
-    Hans-Bernhard Broeker, Ethan A Merritt, and others
+                Version 5.0 organized by
+       Ethan A Merritt with help from many others
 
    Copyright (C) 1986 - 1993, 1998, 2004   Thomas Williams, Colin Kelley
            Copyright (C) 2004 - 2012  various authors
@@ -184,7 +190,7 @@ If PATTERN is omitted, it defaults to \"[ \\f\\t\\n\\r\\v]+\"."
      Mailing list for bug reports: gnuplot-bugs@@lists.sourceforge.net
 
          This manual was originally prepared by Dick Crawford
-                   Version 4.7 - March 2012
+                   Version 5.0 - March 2014
 
 
 Major contributors (alphabetic order):
@@ -254,7 +260,6 @@ Major contributors (alphabetic order):
 	"be"
 	"cairo"
 	"canvas"
-	"cgi"
 	"cgm"
 	"context"
 	"corel"
@@ -315,7 +320,6 @@ Major contributors (alphabetic order):
 	"tikz"
 	"tkcanvas"
 	"tpic"
-	"unixpc"
 	"v384"
 	"vgagl"
 	"vws"
@@ -455,7 +459,6 @@ particular conversion chore."
     ("windows" "win")
     ("next" "next")
     ("os2" "pm" "emxvga")
-    ("sco" "cgi")
     ("sun" "sun")
     ("vms" "vws"))
 
@@ -515,10 +518,10 @@ the end of `d2t-get-terminals'.")
                 (while (re-search-forward "^1[ \t]+\\(.+\\)$" nil t)
                   (setq node   (match-string 1)
                         marker (point-marker))
-                  (replace-match (concat "4  " node) nil nil))
+                  (replace-match (concat "3  " node) nil nil))
                 (goto-char (point-min))
                 (while (re-search-forward "^2" nil t)
-                  (replace-match "5 " nil nil))
+                  (replace-match "4 " nil nil))
                 (goto-char (point-min))
                 ;; set up terminals index
                 (while (re-search-forward "^\?\\([^ ]+\\)$" nil t)

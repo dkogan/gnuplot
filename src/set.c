@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.388 2013/04/06 23:05:38 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.442 2014/03/23 13:27:27 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -47,6 +47,7 @@ static char *RCSid() { return RCSid("$Id: set.c,v 1.388 2013/04/06 23:05:38 sfea
 #include "command.h"
 #include "contour.h"
 #include "datafile.h"
+#include "datablock.h"
 #include "fit.h"
 #include "gadgets.h"
 #include "gp_hist.h"
@@ -84,7 +85,9 @@ static void set_boxwidth __PROTO((void));
 static void set_clabel __PROTO((void));
 static void set_clip __PROTO((void));
 static void set_cntrparam __PROTO((void));
+static void set_cntrlabel __PROTO((void));
 static void set_contour __PROTO((void));
+static void set_dashtype __PROTO((void));
 static void set_dgrid3d __PROTO((void));
 static void set_decimalsign __PROTO((void));
 static void set_degreesign __PROTO((char *));
@@ -93,21 +96,15 @@ static void set_encoding __PROTO((void));
 static void set_fit __PROTO((void));
 static void set_grid __PROTO((void));
 static void set_hidden3d __PROTO((void));
-#ifdef GNUPLOT_HISTORY
-static void set_historysize __PROTO((void));
-#endif
+static void set_history __PROTO((void));
 static void set_isosamples __PROTO((void));
 static void set_key __PROTO((void));
-static void set_keytitle __PROTO((void));
 static void set_label __PROTO((void));
 static int assign_label_tag __PROTO((void));
 static void set_loadpath __PROTO((void));
 static void set_fontpath __PROTO((void));
 static void set_locale __PROTO((void));
 static void set_logscale __PROTO((void));
-#ifdef GP_MACROS
-static void set_macros __PROTO((void));
-#endif
 static void set_mapping __PROTO((void));
 static void set_margin __PROTO((t_position *));
 static void set_missing __PROTO((void));
@@ -147,6 +144,7 @@ static void set_view __PROTO((void));
 static void set_zero __PROTO((void));
 static void set_timedata __PROTO((AXIS_INDEX));
 static void set_range __PROTO((AXIS_INDEX));
+static void set_paxis __PROTO((void));
 static void set_raxis __PROTO((void));
 static void set_xyplane __PROTO((void));
 static void set_ticslevel __PROTO((void));
@@ -164,7 +162,6 @@ static void load_tic_series __PROTO((AXIS_INDEX axis));
 static void set_linestyle __PROTO((struct linestyle_def **head));
 static void set_arrowstyle __PROTO((void));
 static int assign_arrowstyle_tag __PROTO((void));
-static int looks_like_numeric __PROTO((char *));
 static int set_tic_prop __PROTO((AXIS_INDEX));
 
 static void check_palette_grayscale __PROTO((void));
@@ -173,12 +170,15 @@ static void set_palette_file __PROTO((void));
 static void set_palette_function __PROTO((void));
 static void parse_histogramstyle __PROTO((histogram_style *hs,
 		t_histogram_type def_type, int def_gap));
+static void set_style_parallel __PROTO((void));
 
-static struct position default_position
+static const struct position default_position
 	= {first_axes, first_axes, first_axes, 0., 0., 0.};
+static const struct position default_offset
+	= {character, character, character, 0., 0., 0.};
 
 static lp_style_type default_hypertext_point_style
-	= {1, LT_BLACK, 4, 0, 1.0, PTSZ_DEFAULT, TRUE, {TC_RGB, 0x000000, 0.0}};
+	= {1, LT_BLACK, 4, DASHTYPE_SOLID, 0, 1.0, PTSZ_DEFAULT, 0, {TC_RGB, 0x000000, 0.0}, DEFAULT_DASHPATTERN};
 
 /******** The 'set' command ********/
 void
@@ -234,11 +234,20 @@ set_command()
 	case S_CLIP:
 	    set_clip();
 	    break;
+	case S_COLORSEQUENCE:
+	    set_colorsequence(0);
+	    break;
 	case S_CNTRPARAM:
 	    set_cntrparam();
 	    break;
+	case S_CNTRLABEL:
+	    set_cntrlabel();
+	    break;
 	case S_CONTOUR:
 	    set_contour();
+	    break;
+	case S_DASHTYPE:
+	    set_dashtype();
 	    break;
 	case S_DGRID3D:
 	    set_dgrid3d();
@@ -267,21 +276,15 @@ set_command()
 	case S_HIDDEN3D:
 	    set_hidden3d();
 	    break;
-	case S_HISTORYSIZE:
-#ifdef GNUPLOT_HISTORY
-	    set_historysize();
-#else
-	    int_error(c_token, "Command 'set historysize' requires history support.");
-#endif
+	case S_HISTORYSIZE:	/* Deprecated in favor of "set history size" */
+	case S_HISTORY:
+	    set_history();
 	    break;
 	case S_ISOSAMPLES:
 	    set_isosamples();
 	    break;
 	case S_KEY:
 	    set_key();
-	    break;
-	case S_KEYTITLE:
-	    set_keytitle();
 	    break;
 	case S_LINESTYLE:
 	    set_linestyle(&first_linestyle);
@@ -308,11 +311,10 @@ set_command()
 	case S_LOGSCALE:
 	    set_logscale();
 	    break;
-#ifdef GP_MACROS
 	case S_MACROS:
-	    set_macros();
+	    /* Aug 2013 - macros are always enabled */
+	    c_token++;
 	    break;
-#endif
 	case S_MAPPING:
 	    set_mapping();
 	    break;
@@ -331,7 +333,7 @@ set_command()
 	case S_DATAFILE:
 	    if (almost_equals(++c_token,"miss$ing"))
 		set_missing();
-	    else if (almost_equals(c_token,"sep$arator"))
+	    else if (almost_equals(c_token,"sep$arators"))
 		set_separator();
 	    else if (almost_equals(c_token,"com$mentschars"))
 		set_datafile_commentschars();
@@ -506,6 +508,8 @@ set_command()
 	    break;
 	case S_RTICS:
 	case S_NORTICS:
+	case S_MRTICS:
+	case S_NOMRTICS:
 	    set_tic_prop(POLAR_AXIS);
 	    break;
 	case S_XDATA:
@@ -581,6 +585,9 @@ set_command()
 	case S_VRANGE:
 	    set_range(V_AXIS);
 	    break;
+	case S_PAXIS:
+	    set_paxis();
+	    break;
 	case S_RAXIS:
 	    set_raxis();
 	    break;
@@ -609,7 +616,7 @@ set_command()
 	    set_ticslevel();
 	    break;
 	default:
-	    int_error(c_token, "Unrecognized option.  See 'help set'.");
+	    int_error(c_token, "unrecognized option - see 'help set'.");
 	    break;
 	}
 
@@ -675,7 +682,8 @@ set_arrow()
 	    || equals(c_token, "size")
 	    || equals(c_token, "filled") || equals(c_token, "empty")
 	    || equals(c_token, "as") || equals(c_token, "arrowstyle")
-	    || almost_equals(c_token, "head$s") || equals(c_token, "nohead")) {
+	    || almost_equals(c_token, "head$s") || equals(c_token, "nohead")
+	    || almost_equals(c_token, "nobo$rder")) {
 	tag = assign_arrow_tag();
 
     } else
@@ -798,7 +806,7 @@ set_autoscale_axis(AXIS_INDEX axis)
 {
     char keyword[16];
     AXIS *this = axis_array + axis;
-    char *name = (char *) &(axis_defaults[axis].name[0]);
+    char *name = (char *) &(axis_name(axis)[0]);
 
     if (equals(c_token, name)) {
 	this->set_autoscale = AUTOSCALE_BOTH;
@@ -1075,7 +1083,7 @@ set_clabel()
     char *new_format;
 
     c_token++;
-    label_contours = TRUE;
+    clabel_onecolor = FALSE;
     if ((new_format = try_to_get_string())) {
 	strncpy(contour_format, new_format, sizeof(contour_format));
 	free(new_format);
@@ -1088,18 +1096,20 @@ static void
 set_clip()
 {
     c_token++;
-    if (END_OF_COMMAND)
+    if (END_OF_COMMAND) {
 	/* assuming same as points */
 	clip_points = TRUE;
-    else if (almost_equals(c_token, "p$oints"))
+    } else if (almost_equals(c_token, "p$oints")) {
 	clip_points = TRUE;
-    else if (almost_equals(c_token, "o$ne"))
+	c_token++;
+    } else if (almost_equals(c_token, "o$ne")) {
 	clip_lines1 = TRUE;
-    else if (almost_equals(c_token, "t$wo"))
+	c_token++;
+    } else if (almost_equals(c_token, "t$wo")) {
 	clip_lines2 = TRUE;
-    else
+	c_token++;
+    } else
 	int_error(c_token, "expecting 'points', 'one', or 'two'");
-    c_token++;
 }
 
 
@@ -1201,6 +1211,43 @@ set_cntrparam()
 	int_error(c_token, "expecting 'linear', 'cubicspline', 'bspline', 'points', 'levels' or 'order'");
 }
 
+/* process 'set cntrlabel' command */
+static void
+set_cntrlabel()
+{
+    c_token++;
+    if (END_OF_COMMAND) {
+	strcpy(contour_format, "%8.3g");
+	clabel_onecolor = FALSE;
+	return;
+    }
+    while (!END_OF_COMMAND) {
+	if (almost_equals(c_token, "form$at")) {
+	    char *new;
+	    c_token++;
+	    if ((new = try_to_get_string()))
+		strncpy(contour_format,new,sizeof(contour_format));
+	    free(new);
+	} else if (equals(c_token, "font")) {
+	    c_token++;
+	    free(clabel_font);
+	    clabel_font = try_to_get_string();
+	} else if (almost_equals(c_token, "one$color")) {
+	    c_token++;
+	    clabel_onecolor = TRUE;
+	} else if (equals(c_token, "start")) {
+	    c_token++;
+	    clabel_start = int_expression();
+	    if (clabel_start <= 0)
+		clabel_start = 5;
+	} else if (almost_equals(c_token, "int$erval")) {
+	    c_token++;
+	    clabel_interval = int_expression();
+	} else {
+	    int_error(c_token, "unrecognized option");
+	}
+    }
+}
 
 /* process 'set contour' command */
 static void
@@ -1223,6 +1270,121 @@ set_contour()
     }
 }
 
+/* process 'set colorsequence command */
+void
+set_colorsequence(int option)
+{
+    unsigned long default_colors[] = DEFAULT_COLOR_SEQUENCE;
+    unsigned long podo_colors[] = PODO_COLOR_SEQUENCE;
+
+    if (option == 0) {	/* Read option from command line */
+	if (equals(++c_token, "default"))
+	    option = 1;
+	else if (equals(c_token, "podo"))
+	    option = 2;
+	else if (equals(c_token, "classic"))
+	    option = 3;
+	else
+	    int_error(c_token, "unrecognized color set");
+    }
+
+    if (option == 1 || option == 2) {
+	int i;
+	char *command;
+	char *command_template = "set linetype %2d lc rgb 0x%06x";
+	unsigned long *colors = default_colors;
+	if (option == 2)
+	    colors = podo_colors;
+	linetype_recycle_count = 8;
+	for (i = 1; i <= 8; i++) {
+	    command = gp_alloc(strlen(command_template)+8, "dynamic command"); 
+	    sprintf(command, command_template, i, colors[i-1]);
+	    do_string_and_free(command);
+	}
+
+    } else if (option == 3) {
+	struct linestyle_def *this;
+	for (this = first_perm_linestyle; this != NULL; this = this->next) {
+	    this->lp_properties.pm3d_color.type = TC_LT;
+	    this->lp_properties.pm3d_color.lt = this->tag-1;
+	}
+	linetype_recycle_count = 0;
+
+    } else {
+	int_error(c_token, "Expecting 'classic' or 'default'");
+    }
+    c_token++;
+}
+
+/* process 'set dashtype' command */
+static void
+set_dashtype()
+{
+    struct custom_dashtype_def *this_dashtype = NULL;
+    struct custom_dashtype_def *new_dashtype = NULL;
+    struct custom_dashtype_def *prev_dashtype = NULL;
+    int tag, d_type, is_new = FALSE;
+
+    c_token++;
+
+    /* get tag */
+    if (END_OF_COMMAND || ((tag = int_expression()) <= 0))
+	int_error(c_token, "tag must be > zero");
+
+    /* Check if dashtype is already defined */
+    for (this_dashtype = first_custom_dashtype; this_dashtype != NULL;
+	 prev_dashtype = this_dashtype, this_dashtype = this_dashtype->next)
+	if (tag <= this_dashtype->tag)
+		break;
+
+    if (this_dashtype == NULL || tag != this_dashtype->tag) {
+	struct t_dashtype loc_dt = DEFAULT_DASHPATTERN;
+	new_dashtype = gp_alloc(sizeof(struct custom_dashtype_def), "dashtype");
+	if (prev_dashtype != NULL)
+	    prev_dashtype->next = new_dashtype;	/* add it to end of list */
+	else
+	    first_custom_dashtype = new_dashtype;	/* make it start of list */
+	new_dashtype->tag = tag;
+	new_dashtype->d_type = DASHTYPE_SOLID;
+	new_dashtype->next = this_dashtype;
+	new_dashtype->dashtype = loc_dt;
+	this_dashtype = new_dashtype;
+	is_new = TRUE;
+    }
+
+    if (almost_equals(c_token, "def$ault")) {
+	delete_dashtype(prev_dashtype, this_dashtype);
+	c_token++;
+    } else
+	this_dashtype->d_type = parse_dashtype(&this_dashtype->dashtype);
+
+    if (!END_OF_COMMAND) {
+	if (is_new) {
+		delete_dashtype(prev_dashtype, this_dashtype);
+	}
+	int_error(c_token,"Extraneous arguments to set dashtype");
+    }
+}
+
+/*
+ * Delete dashtype from linked list.
+ */
+void
+delete_dashtype(struct custom_dashtype_def *prev, struct custom_dashtype_def *this)
+{
+    if (this != NULL) {		/* there really is something to delete */
+	if (this == first_custom_dashtype) {
+	    first_custom_dashtype = this->next;
+	}
+	else {
+	    prev->next = this->next;
+	}
+	if (this->dashtype.str) {
+		free(this->dashtype.str);
+	}
+	free(this);
+    }
+}
 
 /* process 'set dgrid3d' command */
 static void
@@ -1288,7 +1450,7 @@ set_dgrid3d()
 			} else if( token_cnt == 2) {
 		        	normval = int_expression();
 			} else
-				int_error(c_token,"Unrecognize keyword or unexpected value");
+				int_error(c_token,"Unrecognized keyword or unexpected value");
 			break;
 	}
 
@@ -1360,19 +1522,17 @@ set_decimalsign()
 static void
 set_dummy()
 {
+    int i;
     c_token++;
-    if (END_OF_COMMAND)
-	int_error(c_token, "expecting dummy variable name");
-    else {
+    for (i=0; i<MAX_NUM_VAR; i++) {
+	if (END_OF_COMMAND)
+	    return;
 	if (!equals(c_token,","))
-	    copy_str(set_dummy_var[0],c_token++, MAX_ID_LEN);
-	if (!END_OF_COMMAND && equals(c_token,",")) {
-	    c_token++;
-	    if (END_OF_COMMAND)
-		int_error(c_token, "expecting second dummy variable name");
-	    copy_str(set_dummy_var[1],c_token++, MAX_ID_LEN);
-	}
+	    copy_str(set_dummy_var[i],c_token++, MAX_ID_LEN);
+	c_token++;
     }
+    if (!END_OF_COMMAND)
+	int_error(c_token,"too many dummy variables");
 }
 
 
@@ -1386,12 +1546,57 @@ set_encoding()
     if (END_OF_COMMAND) {
 	encoding = S_ENC_DEFAULT;
 #ifdef HAVE_LOCALE_H
-    } else if (equals(c_token,"locale")) {
-	l = setlocale(LC_CTYPE,"");
-	if (l && (strstr(l,"utf") || strstr(l,"UTF")))
+    } else if (equals(c_token, "locale")) {
+#ifndef WIN32
+	l = setlocale(LC_CTYPE, "");
+	if (l && (strstr(l, "utf") || strstr(l, "UTF")))
 	    encoding = S_ENC_UTF8;
-	if (l && (strstr(l,"sjis") || strstr(l,"SJIS") || strstr(l,"932")))
+	if (l && (strstr(l, "sjis") || strstr(l, "SJIS") || strstr(l, "932")))
 	    encoding = S_ENC_SJIS;
+	/* FIXME: "set encoding locale" supports only sjis and utf8 on non-Windows systems */
+#else
+	char * cp_str;
+
+	l = setlocale(LC_CTYPE, "");
+	/* preserve locale string, skip language information */
+	cp_str = strchr(l, '.');
+	if (cp_str) {
+	    unsigned cp;
+
+	    cp_str++; /* Step past the dot in, e.g., German_Germany.1252 */
+	    cp = strtoul(cp_str, NULL, 10);
+
+	    /* The code below is the inverse to the code found in UnicodeText().
+	       For a list of code page identifiers see
+	       http://msdn.microsoft.com/en-us/library/dd317756%28v=vs.85%29.aspx
+	    */
+	    switch (cp) {
+	    case 437:   encoding = S_ENC_CP437; break;
+	    case 850:   encoding = S_ENC_CP850; break;
+	    case 852:   encoding = S_ENC_CP852; break;
+	    case 932:   encoding = S_ENC_SJIS; break;
+	    case 950:   encoding = S_ENC_CP950; break;
+	    case 1250:  encoding = S_ENC_CP1250; break;
+	    case 1251:  encoding = S_ENC_CP1251; break;
+	    case 1252:  encoding = S_ENC_CP1252; break;
+	    case 1254:  encoding = S_ENC_CP1254; break;
+	    case 20866: encoding = S_ENC_KOI8_R; break;
+	    case 21866: encoding = S_ENC_KOI8_U; break;
+	    case 28591: encoding = S_ENC_ISO8859_1; break;
+	    case 28592: encoding = S_ENC_ISO8859_2; break;
+	    case 28599: encoding = S_ENC_ISO8859_9; break;
+	    case 28605: encoding = S_ENC_ISO8859_15; break;
+	    case 65001: encoding = S_ENC_UTF8; break;
+	    case 0:
+		int_warn(NO_CARET, "Error converting locale \"%s\" to codepage number", l);
+		encoding = S_ENC_DEFAULT;
+		break;
+	    default:
+		int_warn(NO_CARET, "Locale not supported by gnuplot: %s", l);
+		encoding = S_ENC_DEFAULT;
+	    }
+	}
+#endif
 	c_token++;
 #endif
     } else {
@@ -1405,12 +1610,13 @@ set_encoding()
 		if (strcmp(encoding_names[i], senc) == 0)
 		    temp = i;
 	    free(senc);
+	} else {
+	    c_token++;
 	}
 
 	if (temp == S_ENC_INVALID)
 	    int_error(c_token, "unrecognized encoding specification; see 'help encoding'.");
 	encoding = temp;
-	c_token++;
     }
 
     /* Set degree sign to match encoding */
@@ -1491,18 +1697,33 @@ set_fit()
 
     while (!END_OF_COMMAND) {
 	if (almost_equals(c_token, "log$file")) {
+	    char *tmp;
+
 	    c_token++;
 	    if (END_OF_COMMAND) {
-		if (fitlogfile != NULL)
-		    free(fitlogfile);
-		fitlogfile=NULL;
-	    } else if (!(fitlogfile = try_to_get_string()))
+		free(fitlogfile);
+		fitlogfile = NULL;
+	    } else if (equals(c_token, "default")) {
+		c_token++;
+		free(fitlogfile);
+		fitlogfile = NULL;
+	    } else if ((tmp = try_to_get_string()) != NULL) {
+		free(fitlogfile);
+		fitlogfile = tmp;
+	    } else {
 		int_error(c_token, "expecting string");
+	    }
 	} else if (almost_equals(c_token, "err$orvariables")) {
 	    fit_errorvariables = TRUE;
 	    c_token++;
 	} else if (almost_equals(c_token, "noerr$orvariables")) {
 	    fit_errorvariables = FALSE;
+	    c_token++;
+	} else if (almost_equals(c_token, "cov$ariancevariables")) {
+	    fit_covarvariables = TRUE;
+	    c_token++;
+	} else if (almost_equals(c_token, "nocov$ariancevariables")) {
+	    fit_covarvariables = FALSE;
 	    c_token++;
 	} else if (almost_equals(c_token, "errors$caling")) {
 	    fit_errorscaling = TRUE;
@@ -1510,21 +1731,130 @@ set_fit()
 	} else if (almost_equals(c_token, "noerrors$caling")) {
 	    fit_errorscaling = FALSE;
 	    c_token++;
-	} else if (equals(c_token,"quiet")) {
-	    fit_quiet = TRUE;
+	} else if (equals(c_token, "quiet")) {
+	    fit_verbosity = QUIET;
 	    c_token++;
-	} else if (equals(c_token,"noquiet")) {
-	    fit_quiet = FALSE;
+	} else if (equals(c_token, "noquiet")) {
+	    fit_verbosity = BRIEF;
 	    c_token++;
-	} else if (equals(c_token,"prescale")) {
+	} else if (equals(c_token, "results")) {
+	    fit_verbosity = RESULTS;
+	    c_token++;
+	} else if (equals(c_token, "brief")) {
+	    fit_verbosity = BRIEF;
+	    c_token++;
+	} else if (equals(c_token, "verbose")) {
+	    fit_verbosity = VERBOSE;
+	    c_token++;
+	} else if (equals(c_token, "prescale")) {
 	    fit_prescale = TRUE;
 	    c_token++;
-	} else if (equals(c_token,"noprescale")) {
+	} else if (equals(c_token, "noprescale")) {
 	    fit_prescale = FALSE;
 	    c_token++;
+	} else if (equals(c_token, "limit")) {
+	    /* preserve compatibility with FIT_LIMIT user variable */
+	    struct udvt_entry *v;
+	    double value;
+
+	    c_token++;
+	    if (equals(c_token, "default")) {
+		c_token++;
+		value = 0.;
+	    } else
+		value = real_expression();
+	    if ((value > 0.) && (value < 1.)) {
+		v = add_udv_by_name((char *)FITLIMIT);
+		v->udv_undef = FALSE;
+		Gcomplex(&v->udv_value, value, 0);
+	    } else {
+		del_udv_by_name((char *)FITLIMIT, FALSE);
+	    }
+	} else if (equals(c_token, "limit_abs")) {
+	    double value;
+	    c_token++;
+	    value = real_expression();
+	    epsilon_abs = (value > 0.) ? value : 0.;
+	} else if (equals(c_token, "maxiter")) {
+	    /* preserve compatibility with FIT_MAXITER user variable */
+	    struct udvt_entry *v;
+	    int maxiter;
+
+	    c_token++;
+	    if (equals(c_token, "default")) {
+		c_token++;
+		maxiter = 0;
+	    } else
+		maxiter = int_expression();
+	    if (maxiter > 0) {
+		v = add_udv_by_name((char *)FITMAXITER);
+		v->udv_undef = FALSE;
+		Ginteger(&v->udv_value, maxiter);
+	    } else {
+		del_udv_by_name((char *)FITMAXITER, FALSE);
+	    }
+	} else if (equals(c_token, "start_lambda")) {
+	    /* preserve compatibility with FIT_START_LAMBDA user variable */
+	    struct udvt_entry *v;
+	    double value;
+
+	    c_token++;
+	    if (equals(c_token, "default")) {
+		c_token++;
+		value = 0.;
+	    } else
+		value = real_expression();
+	    if (value > 0.) {
+		v = add_udv_by_name((char *)FITSTARTLAMBDA);
+		v->udv_undef = FALSE;
+		Gcomplex(&v->udv_value, value, 0);
+	    } else {
+		del_udv_by_name((char *)FITSTARTLAMBDA, FALSE);
+	    }
+	} else if (equals(c_token, "lambda_factor")) {
+	    /* preserve compatibility with FIT_LAMBDA_FACTOR user variable */
+	    struct udvt_entry *v;
+	    double value;
+
+	    c_token++;
+	    if (equals(c_token, "default")) {
+		c_token++;
+		value = 0.;
+	    } else
+		value = real_expression();
+	    if (value > 0.) {
+		v = add_udv_by_name((char *)FITLAMBDAFACTOR);
+		v->udv_undef = FALSE;
+		Gcomplex(&v->udv_value, value, 0);
+	    } else {
+		del_udv_by_name((char *)FITLAMBDAFACTOR, FALSE);
+	    }
+	} else if (equals(c_token, "script")) {
+	    char *tmp;
+
+	    c_token++;
+	    if (END_OF_COMMAND) {
+		free(fit_script);
+		fit_script = NULL;
+	    } else if (equals(c_token, "default")) {
+		c_token++;
+		free(fit_script);
+		fit_script = NULL;
+	    } else if ((tmp = try_to_get_string()) != NULL) {
+		free(fit_script);
+		fit_script = tmp;
+	    } else {
+		int_error(c_token, "expecting string");
+	    }
+	} else if (equals(c_token, "wrap")) {
+	    c_token++;
+	    fit_wrap = int_expression();
+	    if (fit_wrap < 0) fit_wrap = 0;
+	} else if (equals(c_token, "nowrap")) {
+	    c_token++;
+	    fit_wrap = 0;
 	} else {
-	    int_error(c_token,
-	            "unknown --- expected 'logfile', [no]errorvariables, [no]errorscaling, or [no]quiet");
+	    int_error(c_token, "unrecognized option --- see `help set fit`");
 	}
     } /* while (!end) */
 }
@@ -1567,8 +1897,8 @@ set_format()
 
 #define SET_FORMATSTRING(axis)							\
 	if (set_for_axis[axis]) {						\
-		strncpy(axis_array[axis].formatstring, format, MAX_ID_LEN);	\
-		axis_array[axis].format_is_numeric = looks_like_numeric(format);\
+		free(axis_array[axis].formatstring);				\
+		axis_array[axis].formatstring = gp_strdup(format);		\
 	}
 	SET_FORMATSTRING(FIRST_X_AXIS);
 	SET_FORMATSTRING(FIRST_Y_AXIS);
@@ -1621,6 +1951,7 @@ set_grid()
 	else GRID_MATCH(COLOR_AXIS, "nocb$tics")
 	else GRID_MATCH(COLOR_AXIS, "nomcb$tics")
 	else GRID_MATCH(POLAR_AXIS, "nor$tics")
+	else GRID_MATCH(POLAR_AXIS, "nomr$tics")
 	else if (almost_equals(c_token,"po$lar")) {
 	    if (!some_grid_selected())
 		axis_array[POLAR_AXIS].gridmajor = TRUE;
@@ -1675,19 +2006,45 @@ set_hidden3d()
 }
 
 
-#ifdef GNUPLOT_HISTORY
-/* process 'set historysize' command */
 static void
-set_historysize()
+set_history()
 {
     c_token++;
 
-    gnuplot_history_size = int_expression();
-    if (gnuplot_history_size < 0) {
-	gnuplot_history_size = 0;
+    while (!END_OF_COMMAND) {
+	if (equals(c_token, "quiet")) {
+	    c_token++;
+	    history_quiet = TRUE;
+	    continue;
+	} else if (almost_equals(c_token, "num$bers")) {
+	    c_token++;
+	    history_quiet = FALSE; 
+	    continue;
+	} else if (equals(c_token, "full")) {
+	    c_token++;
+	    history_full = TRUE;
+	    continue;
+	} else if (equals(c_token, "trim")) {
+	    c_token++;
+	    history_full = FALSE;
+	    continue;
+	} else if (almost_equals(c_token, "def$ault")) {
+	    c_token++;
+	    history_quiet = FALSE;
+	    history_full = TRUE;
+	    gnuplot_history_size = HISTORY_SIZE;
+	    continue;
+	} else if (equals(c_token, "size")) {
+	    c_token++;
+	    /* fall through */
+	}
+	/* Catches both the deprecated "set historysize" and "set history size" */
+	gnuplot_history_size = int_expression();
+#ifndef GNUPLOT_HISTORY
+	int_warn(NO_CARET, "This copy of gnuplot was built without support for command history.");
+#endif
     }
 }
-#endif
 
 
 /* process 'set isosamples' command */
@@ -1774,6 +2131,10 @@ set_key()
     char *sdir_warn = "Multiple stack direction settings";
     legend_key *key = &keyT;
 
+    /* Only for backward compatibility with deprecated "set keytitle foo" */
+    if (almost_equals(c_token,"keyt$itle"))
+	goto S_KEYTITLE;
+
     c_token++;
     key->visible = TRUE;
 
@@ -1786,7 +2147,6 @@ set_key()
 	    key->visible = FALSE;
 	    break;
 	case S_KEY_DEFAULT:
-	    free(key->font);
 	    reset_key();
 	    break;
 	case S_KEY_TOP:
@@ -1971,19 +2331,15 @@ set_key()
 	    key->auto_titles = NOAUTO_KEYTITLES;
 	    break;
 	case S_KEY_TITLE:
-	    {
-		char *s;
-		c_token++;
-		if ((s = try_to_get_string())) {
-		    strncpy(key->title,s,sizeof(key->title));
-		    free(s);
-		} else
-		    key->title[0] = '\0';
-		c_token--;
-	    }
+	     S_KEYTITLE:
+	    c_token++;
+	    free(key->title);
+	    key->title = try_to_get_string();
+	    c_token--;
 	    break;
 	case S_KEY_NOTITLE:
-	    key->title[0] = '\0';
+	    free(key->title);
+	    key->title = NULL;
 	    break;
 	case S_KEY_FONT:
 	    c_token++;
@@ -2066,24 +2422,6 @@ set_key()
 }
 
 
-/* process 'set keytitle' command */
-static void
-set_keytitle()
-{
-    legend_key *key = &keyT;
-
-    c_token++;
-    if (END_OF_COMMAND) {	/* set to default */
-	key->title[0] = NUL;
-    } else {
-	char *s;
-	if ((s = try_to_get_string())) {
-	    strncpy(key->title,s,sizeof(key->title));
-	    free(s);
-	}
-    }
-}
-
 /* process 'set label' command */
 /* set label {tag} {"label_text"{,<value>{,...}}} {<label options>} */
 /* EAM Mar 2003 - option parsing broken out into separate routine */
@@ -2128,8 +2466,6 @@ set_label()
     }
     /* Insert this label into the list if it is a new one */
     if (this_label == NULL || tag != this_label->tag) {
-	struct position default_offset = { character, character, character,
-					   0., 0., 0. };
 	new_label = new_text_label(tag);
 	new_label->offset = default_offset;
 	if (prev_label == NULL)
@@ -2142,7 +2478,7 @@ set_label()
 
     if (!END_OF_COMMAND) {
 	char* text;
-	parse_label_options( this_label );
+	parse_label_options( this_label, FALSE );
 	text = try_to_get_string();
 	if (text) {
 	    free(this_label->text);
@@ -2152,7 +2488,7 @@ set_label()
     }
 
     /* Now parse the label format and style options */
-    parse_label_options( this_label );
+    parse_label_options( this_label, FALSE );
 }
 
 
@@ -2316,15 +2652,6 @@ set_logscale()
     SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);
 }
 
-#ifdef GP_MACROS
-static void
-set_macros()
-{
-   c_token++;
-   expand_macros = TRUE;
-}
-#endif
-
 /* process 'set mapping3d' command */
 static void
 set_mapping()
@@ -2380,26 +2707,24 @@ set_margin(t_position *margin)
 static void
 set_separator()
 {
-    char *sep;
     c_token++;
-    if (END_OF_COMMAND) {
-	df_separator = '\0';
+    free(df_separators);
+    df_separators = NULL;
+
+    if (END_OF_COMMAND)
 	return;
-    }
-    if (almost_equals(c_token, "white$space"))
-	df_separator = '\0';
-    else if (equals(c_token, "comma"))
-	df_separator = ',';
-    else if (equals(c_token, "tab") || equals(c_token, "\'\\t\'"))
-	df_separator = '\t';
-    else if (!(sep = try_to_get_string()))
+
+    if (almost_equals(c_token, "white$space")) {
+	c_token++;
+    } else if (equals(c_token, "comma")) {
+	df_separators = gp_strdup(",");
+	c_token++;
+    } else if (equals(c_token, "tab") || equals(c_token, "\'\\t\'")) {
+	df_separators = gp_strdup("\t");
+	c_token++;
+    } else if (!(df_separators = try_to_get_string())) {
 	int_error(c_token, "expected \"<separator_char>\"");
-    else {
-	df_separator = sep[0];
-	free(sep);
-	c_token--;
     }
-    c_token++;
 }
 
 static void
@@ -2690,8 +3015,20 @@ set_print()
 
     c_token++;
     if (END_OF_COMMAND) {	/* no file specified */
-	print_set_output(NULL, append_p);
-    } else if ((testfile = try_to_get_string())) {
+	print_set_output(NULL, FALSE, append_p);
+    } else if (equals(c_token, "$") && isletter(c_token + 1)) { /* datablock */
+	/* NB: has to come first because try_to_get_string will choke on the datablock name */
+	char * datablock_name = strdup(parse_datablock_name());
+	if (!END_OF_COMMAND) {
+	    if (equals(c_token, "append")) {
+		append_p = TRUE;
+		c_token++;
+	    } else {
+		int_error(c_token, "expecting keyword \'append\'");
+	    }
+	}
+	print_set_output(datablock_name, TRUE, append_p);
+    } else if ((testfile = try_to_get_string())) {  /* file name */
 	gp_expand_tilde(&testfile);
 	if (!END_OF_COMMAND) {
 	    if (equals(c_token, "append")) {
@@ -2701,9 +3038,9 @@ set_print()
 		int_error(c_token, "expecting keyword \'append\'");
 	    }
 	}
-	print_set_output(testfile, append_p);
+	print_set_output(testfile, FALSE, append_p);
     } else
-	int_error(c_token, "expecting filename");
+	int_error(c_token, "expecting filename or datablock");
 }
 
 /* process 'set psdir' command */
@@ -2748,19 +3085,12 @@ void
 reset_palette()
 {
     if (!enable_reset_palette) return;
-    sm_palette.colorMode = SMPAL_COLOR_MODE_RGB;
-    sm_palette.formulaR = 7; sm_palette.formulaG = 5;
-    sm_palette.formulaB = 15;
-    sm_palette.positive = SMPAL_POSITIVE;
-    sm_palette.ps_allcF = 0;
-    sm_palette.use_maxcolors = 0;
-    sm_palette.gradient_num = 0;
     free(sm_palette.gradient);
-    sm_palette.gradient = NULL;
     free(sm_palette.color);
-    sm_palette.color = NULL;
-    sm_palette.cmodel = C_MODEL_RGB;
-    sm_palette.gamma = 1.5;
+    free_at(sm_palette.Afunc.at);
+    free_at(sm_palette.Bfunc.at);
+    free_at(sm_palette.Cfunc.at);
+    init_color();
     pm3d_last_set_palette_mode = SMPAL_COLOR_MODE_NONE;
 }
 
@@ -2789,6 +3119,7 @@ set_palette_defined()
 
     free( sm_palette.gradient );
     sm_palette.gradient = gp_alloc( actual_size*sizeof(gradient_struct), "pm3d gradient" );
+    sm_palette.smallest_gradient_interval = 1;
 
     if (END_OF_COMMAND) {
 	/* lets use some default gradient */
@@ -2805,11 +3136,13 @@ set_palette_defined()
 	}
 	sm_palette.gradient_num = 8;
 	sm_palette.cmodel = C_MODEL_RGB;
+	sm_palette.smallest_gradient_interval = 0.1;  /* From pal[][] */
+	c_token--; /* Caller will increment! */
 	return 0;
     }
 
     if ( !equals(c_token,"(") )
-	int_error( c_token, "Expected ( to start gradient definition." );
+	int_error( c_token, "expected ( to start gradient definition" );
 
     ++c_token;
     num = -1;
@@ -2820,12 +3153,13 @@ set_palette_defined()
 	col_str = try_to_get_string();
 	if (col_str) {
 	    /* either color name or X-style rgb value "#rrggbb" */
-	    if (col_str[0] == '#') {
+	    if (col_str[0] == '#' || col_str[0] == '0') {
 		/* X-style specifier */
 		int rr,gg,bb;
-		if (sscanf( col_str, "#%2x%2x%2x", &rr, &gg, &bb ) != 3 )
+		if ((sscanf( col_str, "#%2x%2x%2x", &rr, &gg, &bb ) != 3 )
+		&&  (sscanf( col_str, "0x%2x%2x%2x", &rr, &gg, &bb ) != 3 ))
 		    int_error( c_token-1,
-			       "Unknown color specifier. Use '#rrggbb'." );
+			       "Unknown color specifier. Use '#RRGGBB' of '0xRRGGBB'." );
 		r = (double)(rr)/255.;
 		g = (double)(gg)/255.;
 		b = (double)(bb)/255.;
@@ -2876,7 +3210,7 @@ set_palette_defined()
 	sm_palette.gradient[num].col.b = b;
 	if (equals(c_token,")") ) break;
 	if ( !equals(c_token,",") )
-	    int_error( c_token, "Expected comma." );
+	    int_error( c_token, "expected comma" );
 	++c_token;
 
     }
@@ -3007,7 +3341,7 @@ set_palette_function()
     m_capture(&(sm_palette.Afunc.definition), start_token, c_token-1);
     dummy_func = NULL;
     if (!equals(c_token,","))
-	int_error(c_token,"Expected comma" );
+	int_error(c_token,"expected comma" );
     ++c_token;
 
     /* Bfunc */
@@ -3023,7 +3357,7 @@ set_palette_function()
     m_capture(&(sm_palette.Bfunc.definition), start_token, c_token-1);
     dummy_func = NULL;
     if (!equals(c_token,","))
-	int_error(c_token,"Expected comma" );
+	int_error(c_token,"expected comma" );
     ++c_token;
 
     /* Cfunc */
@@ -3054,24 +3388,33 @@ check_palette_grayscale()
 {
     int i;
     double off, f;
+    gradient_struct *gradient = sm_palette.gradient;
 
     /* check if gray values are sorted */
     for (i=0; i<sm_palette.gradient_num-1; ++i ) {
-	if (sm_palette.gradient[i].pos > sm_palette.gradient[i+1].pos) {
+	if (gradient[i].pos > gradient[i+1].pos) {
 	    int_error( c_token, "Gray scale not sorted in gradient." );
 	}
     }
 
     /* fit gray axis into [0:1]:  subtract offset and rescale */
-    off = sm_palette.gradient[0].pos;
-    f = 1.0 / ( sm_palette.gradient[sm_palette.gradient_num-1].pos-off );
+    off = gradient[0].pos;
+    f = 1.0 / ( gradient[sm_palette.gradient_num-1].pos-off );
     for (i=1; i<sm_palette.gradient_num-1; ++i ) {
-	sm_palette.gradient[i].pos = f*(sm_palette.gradient[i].pos-off);
+	gradient[i].pos = f*(gradient[i].pos-off);
     }
 
     /* paranoia on the first and last entries */
-    sm_palette.gradient[0].pos = 0.0;
-    sm_palette.gradient[sm_palette.gradient_num-1].pos = 1.0;
+    gradient[0].pos = 0.0;
+    gradient[sm_palette.gradient_num-1].pos = 1.0;
+
+    /* save smallest interval */
+    sm_palette.smallest_gradient_interval = 1.0;
+    for (i=1; i<sm_palette.gradient_num-1; ++i ) {
+	if (((gradient[i].pos - gradient[i-1].pos) > 0)
+	&&  (sm_palette.smallest_gradient_interval > (gradient[i].pos - gradient[i-1].pos)))
+	     sm_palette.smallest_gradient_interval = (gradient[i].pos - gradient[i-1].pos);
+    }
 }
 
 #define CHECK_TRANSFORM  do {				  \
@@ -3206,19 +3549,19 @@ set_palette()
 
 		++c_token;
 		if (END_OF_COMMAND)
-		    int_error( c_token, "Expected color model." );
+		    int_error( c_token, "expected color model" );
 		model = lookup_table(&color_model_tbl[0],c_token);
 		if (model == -1)
-		    int_error(c_token,"Unknown color model.");
+		    int_error(c_token,"unknown color model");
 		sm_palette.cmodel = model;
 		continue;
 	    }
 	    /* ps_allcF: write all rgb formulae into PS file? */
 	    case S_PALETTE_NOPS_ALLCF: /* "nops_allcF" */
-		sm_palette.ps_allcF = 0;
+		sm_palette.ps_allcF = FALSE;
 		continue;
 	    case S_PALETTE_PS_ALLCF: /* "ps_allcF" */
-		sm_palette.ps_allcF = 1;
+		sm_palette.ps_allcF = TRUE;
 		continue;
 	    /* max colors used */
 	    case S_PALETTE_MAXCOLORS: { /* "maxc$olors" */
@@ -3458,7 +3801,7 @@ set_pm3d()
 		else if (equals(c_token, "max"))
 		    pm3d.which_corner_color = PM3D_WHICHCORNER_MAX;
 		else if (equals(c_token, "rms"))
-			pm3d.which_corner_color = PM3D_WHICHCORNER_RMS;		
+			pm3d.which_corner_color = PM3D_WHICHCORNER_RMS;
 		else if (equals(c_token, "c1"))
 		    pm3d.which_corner_color = PM3D_WHICHCORNER_C1;
 		else if (equals(c_token, "c2"))
@@ -3861,7 +4204,7 @@ set_obj(int tag, int obj_type)
 			int_error(c_token, "Unrecognized polygon syntax");
 
 	default:
-		int_error(c_token, "Unrecoginized object type");
+		int_error(c_token, "unrecognized object type");
 	} /* End of object-specific options */
 
 	/* The rest of the options apply to any type of object */
@@ -3887,6 +4230,14 @@ set_obj(int tag, int obj_type)
 		this_object->fillstyle.fillstyle = FS_DEFAULT;
 	    }
 	    got_fill = got_lt = TRUE;
+	    c_token++;
+	    continue;
+	} else if (equals(c_token, "clip")) {
+	    this_object->clip = OBJ_CLIP;
+	    c_token++;
+	    continue;
+	} else if (equals(c_token, "noclip")) {
+	    this_object->clip = OBJ_NOCLIP;
 	    c_token++;
 	    continue;
 	}
@@ -3916,7 +4267,6 @@ set_obj(int tag, int obj_type)
 	/* Parse the colorspec */
 	if (!got_lt) {
 	    if (equals(c_token,"fc") || almost_equals(c_token,"fillc$olor")) {
-		this_object->lp_properties.use_palette = TRUE;
 		this_object->lp_properties.l_type = LT_BLACK; /* Anything but LT_DEFAULT */
 		parse_colorspec(&this_object->lp_properties.pm3d_color, TC_FRAC);
 		if (this_object->lp_properties.pm3d_color.type == TC_DEFAULT)
@@ -4080,6 +4430,12 @@ set_style()
 	    } else if (almost_equals(c_token, "nowedge$s")) {
 		c_token++;
 		default_circle.o.circle.wedge = FALSE;
+	    } else if (equals(c_token, "clip")) {
+		c_token++;
+		default_circle.clip = OBJ_CLIP;
+	    } else if (equals(c_token, "noclip")) {
+		c_token++;
+		default_circle.clip = OBJ_NOCLIP;
 	    } else
 		int_error(c_token, "unrecognized style option" );
 	}
@@ -4108,6 +4464,12 @@ set_style()
 	        } else {
 	            int_error(c_token, "expecting 'xy', 'xx' or 'yy'" );
 	        }
+	    } else if (equals(c_token, "clip")) {
+		c_token++;
+		default_ellipse.clip = OBJ_CLIP;
+	    } else if (equals(c_token, "noclip")) {
+		c_token++;
+		default_ellipse.clip = OBJ_NOCLIP;
 	    } else
 	        int_error(c_token, "expecting 'units {xy|xx|yy}', 'angle <number>' or 'size <position>'" );
 
@@ -4118,16 +4480,56 @@ set_style()
     case SHOW_STYLE_HISTOGRAM:
 	parse_histogramstyle(&histogram_opts,HT_CLUSTERED,histogram_opts.gap);
 	break;
+#ifdef EAM_BOXED_TEXT
+    case SHOW_STYLE_TEXTBOX:
+	c_token++;
+	while (!END_OF_COMMAND) {
+	    if (almost_equals(c_token,"op$aque")) {
+		textbox_opts.opaque = TRUE;
+		c_token++;
+	    } else if (almost_equals(c_token,"trans$parent")) {
+		textbox_opts.opaque = FALSE;
+		c_token++;
+	    } else if (almost_equals(c_token,"mar$gins")) {
+		struct value a;
+		c_token++;
+		if (END_OF_COMMAND) {
+		    textbox_opts.xmargin = 1.;
+		    textbox_opts.ymargin = 1.;
+		    break;
+		}
+		textbox_opts.xmargin = real(const_express(&a));
+		if (!equals(c_token++,",") || END_OF_COMMAND)
+		    break;
+		textbox_opts.ymargin = real(const_express(&a));
+	    } else if (almost_equals(c_token,"nobo$rder")) {
+		c_token++;
+		textbox_opts.noborder = TRUE;
+	    } else if (almost_equals(c_token,"bo$rder")) {
+		c_token++;
+		textbox_opts.noborder = FALSE;
+	    } else
+		int_error(c_token,"unrecognized option");
+	}
+	break;
+#endif
     case SHOW_STYLE_INCREMENT:
+#ifdef BACKWARDS_COMPATIBLE
 	c_token++;
 	if (END_OF_COMMAND || almost_equals(c_token,"def$ault"))
 	    prefer_line_styles = FALSE;
 	else if (almost_equals(c_token,"u$serstyles"))
 	    prefer_line_styles = TRUE;
+	else
+	    int_error(c_token,"unrecognized option");
 	c_token++;
+#endif
 	break;
     case SHOW_STYLE_BOXPLOT:
 	set_boxplot();
+	break;
+    case SHOW_STYLE_PARALLEL:
+	set_style_parallel();
 	break;
     default:
 	int_error(c_token, "unrecognized option - see 'help set style'");
@@ -4232,7 +4634,7 @@ set_terminal()
  * Only reasonably common terminal options are supported.
  *
  * If necessary, the code in term->options() can detect that it was called
- * from here because in this case almost_equals(c_token-1, "termopt$ion"); 
+ * from here because in this case almost_equals(c_token-1, "termopt$ion");
  */
 
 static void
@@ -4344,26 +4746,7 @@ set_tics()
 		axis_array[i].tic_in = FALSE;
 	    ++c_token;
 	} else if (almost_equals(c_token, "sc$ale")) {
-	    ++c_token;
-	    if (almost_equals(c_token, "def$ault")) {
-		for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
-		    axis_array[i].ticscale = 1.0;
-		    axis_array[i].miniticscale = 0.5;
-		}
-		++c_token;
-	    } else {
-		double lticscale, lminiticscale;
-		lticscale = real_expression();
-		if (equals(c_token, ",")) {
-		    ++c_token;
-		    lminiticscale = real_expression();
-		} else
-		    lminiticscale = 0.5 * lticscale;
-		for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
-		    axis_array[i].ticscale = lticscale;
-		    axis_array[i].miniticscale = lminiticscale;
-		}
-	    }
+	    set_ticscale();
 	} else if (almost_equals(c_token, "ro$tate")) {
 	    for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
 	        axis_array[i].tic_rotate = TEXT_VERTICAL;
@@ -4410,11 +4793,9 @@ set_tics()
 	    for (i = 0; i < AXIS_ARRAY_SIZE; ++i)
 		axis_array[i].ticdef.offset = lpos;
 	} else if (almost_equals(c_token, "nooff$set")) {
-	    struct position tics_nooffset =
-		{ character, character, character, 0., 0., 0.};
 	    ++c_token;
 	    for (i = 0; i < AXIS_ARRAY_SIZE; ++i)
-		axis_array[i].ticdef.offset = tics_nooffset;
+		axis_array[i].ticdef.offset = default_offset;
 	} else if (almost_equals(c_token, "format")) {
 	    set_format();
 	} else if (almost_equals(c_token, "f$ont")) {
@@ -4465,29 +4846,39 @@ set_tics()
 static void
 set_ticscale()
 {
-    double lticscale, lminiticscale;
-    unsigned int i;
-
-    int_warn(c_token,
-	     "Deprecated syntax - please use 'set tics scale' keyword");
+    int i, ticlevel;
 
     ++c_token;
-    if (END_OF_COMMAND) {
-	lticscale = 1.0;
-	lminiticscale = 0.5;
-    } else {
-	lticscale = real_expression();
-	if (END_OF_COMMAND) {
-	    lminiticscale = lticscale*0.5;
-	} else {
-	    if (equals(c_token, ","))
-		++c_token;
-	    lminiticscale = real_expression();
+    if (almost_equals(c_token, "def$ault")) {
+	++c_token;
+	for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
+	    axis_array[i].ticscale = 1.0;
+	    axis_array[i].miniticscale = 0.5;
 	}
-    }
-    for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
-	axis_array[i].ticscale = lticscale;
-	axis_array[i].miniticscale = lminiticscale;
+	ticscale[0] = 1.0;
+	ticscale[1] = 0.5;
+	for (ticlevel = 2; ticlevel < MAX_TICLEVEL; ticlevel++)
+	    ticscale[ticlevel] = 1.0;
+    } else {
+	double lticscale, lminiticscale;
+	lticscale = real_expression();
+	if (equals(c_token, ",")) {
+	    ++c_token;
+	    lminiticscale = real_expression();
+	} else {
+	    lminiticscale = 0.5 * lticscale;
+	}
+	for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
+	    axis_array[i].ticscale = lticscale;
+	    axis_array[i].miniticscale = lminiticscale;
+	}
+	ticlevel = 2;
+	while (equals(c_token, ",")) {
+	    ++c_token;
+	    ticscale[ticlevel++] = real_expression();
+	    if (ticlevel >= MAX_TICLEVEL)
+		break;
+	}
     }
 }
 
@@ -4533,19 +4924,22 @@ set_timefmt()
     c_token++;
     if (END_OF_COMMAND) {
 	/* set all axes to default */
-	for (axis = 0; axis < AXIS_ARRAY_SIZE; axis++)
-	    strcpy(axis_array[axis].timefmt,TIMEFMT);
+	for (axis = 0; axis < AXIS_ARRAY_SIZE; axis++) {
+	    free(axis_array[axis].timefmt);
+	    axis_array[axis].timefmt = gp_strdup(TIMEFMT);
+	}
     } else {
 	if ((axis = lookup_table(axisname_tbl, c_token)) >= 0) {
 	    c_token++;
 	    newformat = try_to_get_string();
-	    if (newformat)
-		strncpy(&(axis_array[axis].timefmt[0]), newformat, MAX_ID_LEN);
+	    free(axis_array[axis].timefmt);
+	    axis_array[axis].timefmt = gp_strdup(newformat);
 	} else {
 	    newformat = try_to_get_string();
-	    if (newformat)
-		for (axis = 0; axis < AXIS_ARRAY_SIZE; axis++)
-		    strncpy(&(axis_array[axis].timefmt[0]), newformat, MAX_ID_LEN);
+	    for (axis = 0; axis < AXIS_ARRAY_SIZE; axis++) {
+		free(axis_array[axis].timefmt);
+		axis_array[axis].timefmt = gp_strdup(newformat);
+	    }
 	}
 	if (!newformat)
 	    int_error(c_token, "time format string expected");
@@ -4596,6 +4990,11 @@ set_timestamp()
 	    new = try_to_get_string();
 	    free(timelabel.font);
 	    timelabel.font = new;
+	    continue;
+	}
+
+	if (equals(c_token,"tc") || almost_equals(c_token,"text$color")) {
+	    parse_colorspec(&(timelabel.textcolor), TC_VARIABLE);
 	    continue;
 	}
 
@@ -4745,16 +5144,19 @@ set_range(AXIS_INDEX axis)
 	while (!END_OF_COMMAND) {
 	    if (almost_equals(c_token, "rev$erse")) {
 		++c_token;
-		axis_array[axis].range_is_reverted = TRUE;
+		axis_array[axis].range_flags |= RANGE_IS_REVERSED;
 	    } else if (almost_equals(c_token, "norev$erse")) {
 		++c_token;
-		axis_array[axis].range_is_reverted = FALSE;
+		axis_array[axis].range_flags &= ~RANGE_IS_REVERSED;
 	    } else if (almost_equals(c_token, "wr$iteback")) {
 		++c_token;
 		axis_array[axis].range_flags |= RANGE_WRITEBACK;
 	    } else if (almost_equals(c_token, "nowri$teback")) {
 		++c_token;
 		axis_array[axis].range_flags &= ~RANGE_WRITEBACK;
+	    } else if (almost_equals(c_token, "ext$end")) {
+		++c_token;
+		axis_array[axis].set_autoscale &= ~(AUTOSCALE_FIXMIN | AUTOSCALE_FIXMAX);
 	    } else if (almost_equals(c_token, "noext$end")) {
 		++c_token;
 		axis_array[axis].set_autoscale |= AUTOSCALE_FIXMIN | AUTOSCALE_FIXMAX;
@@ -4770,6 +5172,27 @@ set_range(AXIS_INDEX axis)
 	    clone_linked_axes(axis + SECOND_AXES, axis);
 }
 
+/*
+ * set paxis <axis> {range <range-options> | tics <tic-options> }
+ */
+static void
+set_paxis()
+{
+    int p;
+    c_token++;
+    p = int_expression();
+
+    if (p <= 0 || p > MAX_PARALLEL_AXES)
+	int_error(c_token-1, "expecting parallel axis number 1 - %d",MAX_PARALLEL_AXES);
+
+    if (equals(c_token, "range"))
+	set_range(PARALLEL_AXES+p-1);
+    else if (almost_equals(c_token, "tic$s"))
+	set_tic_prop(PARALLEL_AXES+p-1);
+    else
+	int_error(c_token, "expecting 'range' or 'tics'");
+}
+
 static void
 set_raxis()
 {
@@ -4781,27 +5204,29 @@ set_raxis()
 static void
 set_zeroaxis(AXIS_INDEX axis)
 {
-
     c_token++;
+    if (axis_array[axis].zeroaxis != (void *)(&default_axis_zeroaxis))
+	free(axis_array[axis].zeroaxis);
     if (END_OF_COMMAND)
-	axis_array[axis].zeroaxis.l_type = -1;
+	axis_array[axis].zeroaxis = (void *)(&default_axis_zeroaxis);
     else {
-	int old_token = c_token;
-	axis_array[axis].zeroaxis.l_type = LT_AXIS;
-	lp_parse(&axis_array[axis].zeroaxis, TRUE, FALSE);
-	if (old_token == c_token)
-	    axis_array[axis].zeroaxis.l_type = int_expression() - 1;
-	}
-
+	/* Some non-default style for the zeroaxis */
+	axis_array[axis].zeroaxis = gp_alloc(sizeof(lp_style_type), "zeroaxis");
+	*(axis_array[axis].zeroaxis) = default_axis_zeroaxis;
+	lp_parse(axis_array[axis].zeroaxis, TRUE, FALSE);
+    }
 }
 
 /* process 'set zeroaxis' command */
 static void
 set_allzeroaxis()
 {
+    int save_token = c_token;
     set_zeroaxis(FIRST_X_AXIS);
-    axis_array[FIRST_Y_AXIS].zeroaxis = axis_array[FIRST_X_AXIS].zeroaxis;
-    axis_array[FIRST_Z_AXIS].zeroaxis = axis_array[FIRST_X_AXIS].zeroaxis;
+    c_token = save_token;
+    set_zeroaxis(FIRST_Y_AXIS);
+    c_token = save_token;
+    set_zeroaxis(FIRST_Z_AXIS);
 }
 
 /*********** Support functions for set_command ***********/
@@ -4850,11 +5275,11 @@ set_tic_prop(AXIS_INDEX axis)
 
     (void) strcpy(nocmd, "no");
     cmdptr = &nocmd[2];
-    (void) strcpy(cmdptr, axis_defaults[axis].name);
+    (void) strcpy(cmdptr, axis_name(axis));
     sfxptr = &nocmd[strlen(nocmd)];
     (void) strcpy(sfxptr, "t$ics");	/* STRING */
 
-    if (almost_equals(c_token, cmdptr)) {
+    if (almost_equals(c_token, cmdptr) || axis >= PARALLEL_AXES) {
 	TBOOLEAN axisset = FALSE;
 	TBOOLEAN mirror_opt = FALSE; /* set to true if (no)mirror option specified) */
 	axis_array[axis].ticdef.def.mix = FALSE;
@@ -4914,10 +5339,8 @@ set_tic_prop(AXIS_INDEX axis)
 		get_position_default(&axis_array[axis].ticdef.offset,
 				     character);
 	    } else if (almost_equals(c_token, "nooff$set")) {
-		struct position tics_nooffset =
-		    { character, character, character, 0., 0., 0.};
 		++c_token;
-		axis_array[axis].ticdef.offset = tics_nooffset;
+		axis_array[axis].ticdef.offset = default_offset;
 	    } else if (almost_equals(c_token, "l$eft")) {
 		axis_array[axis].label.pos = LEFT;
 		axis_array[axis].manual_justify = TRUE;
@@ -4955,11 +5378,8 @@ set_tic_prop(AXIS_INDEX axis)
 		++c_token;
 		if (!((format = try_to_get_string())))
 		    int_error(c_token,"expected format");
-		strncpy(axis_array[axis].formatstring, format,
-			sizeof(axis_array[axis].formatstring));
-		free(format);
-		axis_array[axis].format_is_numeric =
-			looks_like_numeric(axis_array[axis].formatstring);
+		free(axis_array[axis].formatstring);
+		axis_array[axis].formatstring  = format;
 	    } else if (equals(c_token,"tc") ||
 		       almost_equals(c_token,"text$color")) {
 		parse_colorspec(&axis_array[axis].ticdef.textcolor,
@@ -4982,7 +5402,10 @@ set_tic_prop(AXIS_INDEX axis)
 
 	/* if tics are off and not set by axis, reset to default (border) */
 	if (((axis_array[axis].ticmode & TICS_MASK) == NO_TICS) && (!axisset)) {
-	    axis_array[axis].ticmode |= TICS_ON_BORDER;
+	    if (axis >= PARALLEL_AXES)
+		axis_array[axis].ticmode |= TICS_ON_AXIS;
+	    else
+		axis_array[axis].ticmode |= TICS_ON_BORDER;
 	    if ((mirror_opt == FALSE) && ((axis == FIRST_X_AXIS) || (axis == FIRST_Y_AXIS) || (axis == COLOR_AXIS))) {
 		axis_array[axis].ticmode |= TICS_MIRROR;
 	    }
@@ -5028,7 +5451,7 @@ set_tic_prop(AXIS_INDEX axis)
 	match = 1;
     }
     *cmdptr = 'm';
-    (void) strcpy(cmdptr + 1, axis_defaults[axis].name);
+    (void) strcpy(cmdptr + 1, axis_name(axis));
     (void) strcat(cmdptr, "t$ics");	/* MINISTRING */
 
     if (almost_equals(c_token, cmdptr)) {
@@ -5072,7 +5495,7 @@ set_xyzlabel(text_label *label)
 	return;
     }
 
-    parse_label_options(label);
+    parse_label_options(label, FALSE);
 
     if (!END_OF_COMMAND) {
 	text = try_to_get_string();
@@ -5082,7 +5505,7 @@ set_xyzlabel(text_label *label)
 	}
     }
 
-    parse_label_options(label);
+    parse_label_options(label, FALSE);
 
 }
 
@@ -5117,6 +5540,9 @@ set_linestyle(struct linestyle_def **head)
         struct lp_style_type loc_lp = DEFAULT_LP_STYLE_TYPE;
 	loc_lp.l_type = tag - 1;
 	loc_lp.p_type = tag - 1;
+	loc_lp.d_type = DASHTYPE_SOLID;
+	loc_lp.pm3d_color.type = TC_LT;
+	loc_lp.pm3d_color.lt = tag - 1;
 
 	new_linestyle = gp_alloc(sizeof(struct linestyle_def), "linestyle");
 	if (prev_linestyle != NULL)
@@ -5155,6 +5581,9 @@ delete_linestyle(struct linestyle_def **head, struct linestyle_def *prev, struct
 	    *head = this->next;
 	else
 	    prev->next = this->next;
+	if (this->lp_properties.custom_dash_pattern.str) {
+	    free(this->lp_properties.custom_dash_pattern.str);
+	}
 	free(this);
     }
 }
@@ -5412,31 +5841,6 @@ load_tic_series(AXIS_INDEX axis)
     tdef->def.series.end = end;
 }
 
-
-/* return 1 if format looks like a numeric format
- * ie more than one %{efg}, or %something-else
- */
-/* FIXME HBB 20000430: as coded, this will only check the *first*
- * format string, not all of them. */
-static int
-looks_like_numeric(char *format)
-{
-    if (!(format = strchr(format, '%')))
-	return 0;
-
-    while (++format && (*format == ' '
-			|| *format == '-'
-			|| *format == '+'
-			|| *format == '#'))
-	;			/* do nothing */
-
-    while (isdigit((unsigned char) *format)
-	   || *format == '.')
-	++format;
-
-    return (*format == 'f' || *format == 'g' || *format == 'e');
-}
-
 /*
  * new_text_label() allocates and initializes a text_label structure.
  * This routine is also used by the plot and splot with labels commands.
@@ -5445,24 +5849,15 @@ struct text_label *
 new_text_label(int tag)
 {
     struct text_label *new;
-    struct position default_offset = { character, character, character,
-				       0., 0., 0. };
 
     new = gp_alloc( sizeof(struct text_label), "text_label");
-    new->next = NULL;
+    memset(new, 0, sizeof(struct text_label));
     new->tag = tag;
     new->place = default_position;
     new->pos = LEFT;
-    new->rotate = 0;
-    new->layer = 0;
-    new->text = (char *)NULL;
-    new->font = (char *)NULL;
     new->textcolor.type = TC_DEFAULT;
-    new->lp_properties.pointflag = 0;
     new->lp_properties.p_type = 1;
     new->offset = default_offset;
-    new->noenhanced = FALSE;
-    new->hypertext = FALSE;
 
     return(new);
 }
@@ -5473,19 +5868,19 @@ new_text_label(int tag)
  * to handle options for 'plot with labels'
  */
 void
-parse_label_options( struct text_label *this_label )
+parse_label_options( struct text_label *this_label, TBOOLEAN in_plot )
 {
     struct position pos;
     char *font = NULL;
     enum JUSTIFY just = LEFT;
     int rotate = 0;
-    TBOOLEAN set_position = FALSE, set_just = FALSE,
+    TBOOLEAN set_position = FALSE, set_just = FALSE, set_point = FALSE,
 	set_rot = FALSE, set_font = FALSE, set_offset = FALSE,
 	set_layer = FALSE, set_textcolor = FALSE, set_hypertext = FALSE;
     int layer = 0;
     TBOOLEAN axis_label = (this_label->tag == -2);
     TBOOLEAN hypertext = FALSE;
-    struct position offset = { character, character, character, 0., 0., 0. };
+    struct position offset = default_offset;
     t_colorspec textcolor = {TC_DEFAULT,0,0.0};
     struct lp_style_type loc_lp = DEFAULT_LP_STYLE_TYPE;
     loc_lp.pointflag = -2;
@@ -5493,7 +5888,7 @@ parse_label_options( struct text_label *this_label )
    /* Now parse the label format and style options */
     while (!END_OF_COMMAND) {
 	/* get position */
-	if (! set_position && equals(c_token, "at") && !axis_label) {
+	if (!in_plot && !set_position && equals(c_token, "at") && !axis_label) {
 	    c_token++;
 	    get_position(&pos);
 	    set_position = TRUE;
@@ -5561,7 +5956,8 @@ parse_label_options( struct text_label *this_label )
 	    c_token++;
 	    hypertext = TRUE;
 	    set_hypertext = TRUE;
-	    loc_lp = default_hypertext_point_style;
+	    if (!set_point)
+		loc_lp = default_hypertext_point_style;
 	    continue;
 	} else if (!set_hypertext && almost_equals(c_token,"nohyper$text")) {
 	    c_token++;
@@ -5571,7 +5967,7 @@ parse_label_options( struct text_label *this_label )
 	}
 
 	/* get front/back (added by JDP) */
-	if (! set_layer && !axis_label) {
+	if (!in_plot && !set_layer && !axis_label) {
 	    if (equals(c_token, "back")) {
 		layer = 0;
 		c_token++;
@@ -5585,6 +5981,18 @@ parse_label_options( struct text_label *this_label )
 	    }
 	}
 
+#ifdef EAM_BOXED_TEXT
+	if (almost_equals(c_token, "box$ed")) {
+	    this_label->boxed = 1;
+	    c_token++;
+	    continue;
+	} else if (almost_equals(c_token, "nobox$ed")) {
+	    this_label->boxed = 0;
+	    c_token++;
+	    continue;
+	}
+#endif
+
 	if (!axis_label && (loc_lp.pointflag == -2 || set_hypertext)) {
 	    if (almost_equals(c_token, "po$int")) {
 		int stored_token = ++c_token;
@@ -5594,6 +6002,7 @@ parse_label_options( struct text_label *this_label )
 		lp_parse(&tmp_lp, TRUE, TRUE);
 		if (stored_token != c_token)
 		    loc_lp = tmp_lp;
+		set_point = TRUE;
 		continue;
 	    } else if (almost_equals(c_token, "nopo$int")) {
 		loc_lp.pointflag = 0;
@@ -5708,10 +6117,10 @@ parse_histogramstyle( histogram_style *hs,
 	} else if (almost_equals(c_token, "ti$tle")) {
 	    title_specs.offset = hs->title.offset;
 	    set_xyzlabel(&title_specs);
-	    hs->title.textcolor = title_specs.textcolor;
-	    hs->title.offset = title_specs.offset;
-	    /* EAM FIXME - could allocate space and copy parsed font instead */
-	    hs->title.font = axis_array[FIRST_X_AXIS].label.font;
+	    free(title_specs.text);
+	    title_specs.text = NULL;
+	    free(hs->title.font);
+	    hs->title = title_specs;
 	} else if ((equals(c_token,"lw") || almost_equals(c_token,"linew$idth"))
 		  && (hs->type == HT_ERRORBARS)) {
 	    c_token++;
@@ -5721,6 +6130,26 @@ parse_histogramstyle( histogram_style *hs,
 	} else
 	    /* We hit something unexpected */
 	    break;
+    }
+}
+
+/* process 'set style parallelaxis' command */
+static void
+set_style_parallel()
+{
+    c_token++;
+    while (!END_OF_COMMAND) {
+	int save_token = c_token;
+	lp_parse( &parallel_axis_style.lp_properties, FALSE, FALSE );
+	if (save_token != c_token)
+	    continue;
+	if (equals(c_token, "front"))
+	    parallel_axis_style.layer = LAYER_FRONT;
+	else if (equals(c_token, "back"))
+	    parallel_axis_style.layer = LAYER_BACK;
+	else
+	    int_error(c_token, "unrecognized option");
+	c_token++;
     }
 }
 

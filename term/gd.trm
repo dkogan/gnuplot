@@ -1,6 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: gd.trm,v 1.170 2012/11/25 22:01:22 sfeam Exp $
- * based on gif.trm,v 1.26.2.1 2000/05/01 00:17:20 joze
+ * $Id: gd.trm,v 1.177 2013/12/11 19:38:40 sfeam Exp $
  */
 
 /* GNUPLOT -- gd.trm */
@@ -135,6 +134,9 @@ TERM_PUBLIC void ENHGD_OPEN __PROTO((char * fontname, double fontsize,
 			int overprint));
 TERM_PUBLIC void ENHGD_FLUSH __PROTO((void));
 
+#ifdef EAM_BOXED_TEXT
+TERM_PUBLIC void ENHGD_boxed_text __PROTO((unsigned int, unsigned int, int));
+#endif
 
 #include <gd.h>
 /* Include files for bitmap fonts */
@@ -256,6 +258,16 @@ static int PNG_XMAX = GREG_XMAX;
 static int PNG_YMAX = GREG_YMAX;
 static const int PNG_POINT_SCALE = 3;
 static int PNG_ps = 3;
+
+#ifdef EAM_BOXED_TEXT
+    unsigned int bounding_box[4];
+#define GD_TEXTBOX_MARGIN 1.0
+    double bounding_xmargin = GD_TEXTBOX_MARGIN;
+    double bounding_ymargin = GD_TEXTBOX_MARGIN;
+#endif
+
+static TBOOLEAN ENHgd_show = TRUE;
+static TBOOLEAN ENHgd_sizeonly = FALSE;
 
 static struct gen_table PNG_opts[] =
 {
@@ -668,6 +680,9 @@ PNG_options()
 	png_state.default_ttfsize = 0;
 	PNG_linewidth_factor = 1.0;
 	PNG_dashlength_factor = 1.0;
+	/* Default to enhanced text */
+	term->flags |= TERM_ENHANCED_TEXT;
+	term->put_text = ENHGD_put_text;
     }
 
     while (!END_OF_COMMAND) {
@@ -957,12 +972,12 @@ PNG_options()
 	}
     }
 
-#ifndef GIF_ANIMATION /* animated gifs not supported by the current GD library */
     if (gif_anim_option) {
+#ifndef GIF_ANIMATION /* animated gifs not supported by the current GD library */
 	png_state.animate = FALSE;
 	int_warn(NO_CARET, "gif animation options ignored (not compiled into this binary)");
-    }
 #endif
+    }
 
 #ifdef HAVE_GD_TTF
     /* If no font has been chosen but there is a default, use it */
@@ -1249,10 +1264,6 @@ TERM_PUBLIC int PNG_make_palette (t_sm_palette *palette)
 	    (int)( palette->color[i].r * 255 + 0.5 ), /* r,g,b values for png */
 	    (int)( palette->color[i].g * 255 + 0.5 ), /* terminal are [0;255] */
 	    (int)( palette->color[i].b * 255 + 0.5 ) );
-	if (png_smooth_color[i] < 0) { /* this should never happen! take away? */
-	    FPRINTF((stderr,"png_smooth_color[i]<0 cannot happen"));
-	    exit(1);
-	}
     }
     return 0;
 }
@@ -1262,11 +1273,14 @@ TERM_PUBLIC
 void PNG_set_color (t_colorspec *colorspec)
 {
     double gray = colorspec->value;
+    int save;
 
     switch (colorspec->type) {
 
     case TC_LT:
+	save = png_state.linetype;
 	PNG_linetype(colorspec->lt);
+	png_state.linetype = save;
 	break;
 
     case TC_RGB:
@@ -1653,6 +1667,20 @@ PNG_put_text(unsigned int x, unsigned int y, const char *string)
 	    if (err)
 		fprintf(stderr,"gdImageStringFT: %s while printing string %s with font %s\n",
 		    err,string,png_state.ttffont);
+
+#ifdef EAM_BOXED_TEXT
+	    if (!ENHgd_sizeonly) {
+		int xmax = GPMAX(brect[2],brect[6]);
+		int xmin = GPMIN(brect[0],brect[4]);
+		int ymax = GPMIN(brect[1],brect[3]);
+		int ymin = GPMAX(brect[5],brect[7]);
+		if (xmin < bounding_box[0]) bounding_box[0] = xmin;
+		if (xmax > bounding_box[2]) bounding_box[2] = xmax;
+		if (ymin < bounding_box[1]) bounding_box[1] = ymin;
+		if (ymax > bounding_box[3]) bounding_box[3] = ymax;
+	    }
+#endif
+
 	}
     } else if (png_state.angle != 0) {
 	x -= png_state.charh / 2;
@@ -1903,8 +1931,6 @@ static float ENHgd_base;
 static double  ENHgd_fontsize;
 static char   *ENHgd_font;
 
-static TBOOLEAN ENHgd_show = TRUE;
-static TBOOLEAN ENHgd_sizeonly = FALSE;
 static int ENHgd_overprint = 0;
 static TBOOLEAN ENHgd_widthflag = TRUE;
 static unsigned int ENHgd_xsave, ENHgd_ysave;
@@ -2011,8 +2037,19 @@ ENHGD_FLUSH()
 	fprintf(stderr,"gdImageStringFT: %s while printing string %s with font %s\n",
 	    err,enhanced_text,ENHgd_font);
 
-    FPRINTF((stderr,"outputstring: %s boundingbox: %d %d %d %d\n",
-		enhanced_text, brect[6], brect[7], brect[2], brect[3]));
+#ifdef EAM_BOXED_TEXT
+    if (!ENHgd_sizeonly) {
+	int xmax = GPMAX(brect[2],brect[6]);
+	int xmin = GPMIN(brect[0],brect[4]);
+	int ymax = GPMIN(brect[1],brect[3]);
+	int ymin = GPMAX(brect[5],brect[7]);
+	if (xmin < bounding_box[0]) bounding_box[0] = xmin;
+	if (xmax > bounding_box[2]) bounding_box[2] = xmax;
+	if (ymin < bounding_box[1]) bounding_box[1] = ymin;
+	if (ymax > bounding_box[3]) bounding_box[3] = ymax;
+    }
+#endif
+
     if (ENHgd_overprint == 1) {
 	png_state.x += ((brect[2] - brect[0]))/2;
 	png_state.y -= (brect[3] - brect[1]);
@@ -2106,6 +2143,57 @@ ENHGD_put_text(unsigned int x, unsigned int y, const char *str)
     }
 
 }
+
+#ifdef EAM_BOXED_TEXT
+TERM_PUBLIC void
+ENHGD_boxed_text(unsigned int x, unsigned int y, int option)
+{
+    switch (option) {
+    case TEXTBOX_INIT:
+	/* Initialize bounding box for this text string */
+	bounding_box[0] = bounding_box[2] = x;
+	bounding_box[1] = bounding_box[3] = Y(y);
+	break;
+    case TEXTBOX_OUTLINE:
+	/* Stroke the outline of the bounding box for previous text */
+	gdImageLine(png_state.image,
+		bounding_box[0]-bounding_xmargin, bounding_box[1]-bounding_ymargin,
+	 	bounding_box[0]-bounding_xmargin, bounding_box[3]+bounding_ymargin,
+		png_state.color);
+	gdImageLine(png_state.image,
+		bounding_box[0]-bounding_xmargin, bounding_box[3]+bounding_ymargin,
+		bounding_box[2]+bounding_xmargin, bounding_box[3]+bounding_ymargin,
+		png_state.color);
+	gdImageLine(png_state.image,
+		bounding_box[2]+bounding_xmargin, bounding_box[3]+bounding_ymargin,
+		bounding_box[2]+bounding_xmargin, bounding_box[1]-bounding_ymargin,
+		png_state.color);
+	gdImageLine(png_state.image,
+		bounding_box[2]+bounding_xmargin, bounding_box[1]-bounding_ymargin,
+		bounding_box[0]-bounding_xmargin, bounding_box[1]-bounding_ymargin,
+		png_state.color);
+	break;
+    case TEXTBOX_BACKGROUNDFILL:
+	/* Fill the box with background color. FIXME - other colors? */
+	gdImageFilledRectangle(png_state.image,
+		bounding_box[0] - bounding_xmargin,
+		bounding_box[1] - bounding_ymargin,
+		bounding_box[2] + bounding_xmargin,
+		bounding_box[3] + bounding_ymargin,
+		png_state.color_table[0]);
+	break;
+    case TEXTBOX_MARGINS:
+	/* Change the text margins */
+	bounding_xmargin = GD_TEXTBOX_MARGIN * (double)x / 100.;
+	bounding_ymargin = GD_TEXTBOX_MARGIN * (double)y / 100.;
+	break;
+    default:
+    	break;
+    }
+}
+#endif
+
+
 
 #undef gdfont
 
@@ -2308,6 +2396,13 @@ TERM_TABLE_START(png_driver)
     PNG_filled_polygon
     , PNG_image
     , ENHGD_OPEN, ENHGD_FLUSH, do_enh_writec
+    , NULL		/* layering */
+    , NULL		/* path */
+    , 0.0		/* tscale */
+    , NULL		/* hypertext */
+#ifdef EAM_BOXED_TEXT
+    , ENHGD_boxed_text
+#endif
 TERM_TABLE_END(png_driver)
 
 #undef LAST_TERM
@@ -2460,6 +2555,13 @@ TERM_TABLE_START(jpeg_driver)
     PNG_filled_polygon
     , PNG_image
     , ENHGD_OPEN, ENHGD_FLUSH, do_enh_writec
+    , NULL		/* layering */
+    , NULL		/* path */
+    , 0.0		/* tscale */
+    , NULL		/* hypertext */
+#ifdef EAM_BOXED_TEXT
+    , ENHGD_boxed_text
+#endif
 TERM_TABLE_END(jpeg_driver)
 
 #undef LAST_TERM
@@ -2608,6 +2710,13 @@ TERM_TABLE_START(gif_driver)
     PNG_filled_polygon
     , PNG_image
     , ENHGD_OPEN, ENHGD_FLUSH, do_enh_writec
+    , NULL		/* layering */
+    , NULL		/* path */
+    , 0.0		/* tscale */
+    , NULL		/* hypertext */
+#ifdef EAM_BOXED_TEXT
+    , ENHGD_boxed_text
+#endif
 TERM_TABLE_END(gif_driver)
 
 #undef LAST_TERM

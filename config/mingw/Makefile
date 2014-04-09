@@ -1,5 +1,5 @@
 # Hello, emacs: this is a -*- Makefile -*-
-# $Id: Makefile,v 1.28 2012/07/18 16:42:51 markisch Exp $
+# $Id: Makefile,v 1.38 2014/02/28 13:49:21 markisch Exp $
 #
 # GNUPLOT Makefile for MinGW/MSYS on Windows
 # This assumes usual installation of the MinGW32 toolkit, the free
@@ -79,10 +79,17 @@ MOUSE=1
 #CAIROLIBS=1
 
 # Uncomment the following line to select the lua/tikz terminal
-#LUA=lua5.1
+#LUA=lua
+
+# Uncomment the following line to select the caca terminal
+CACA=1
 
 # Uncomment if you have libiconv
 ICONV=1
+
+# Uncomment if you have libcerf
+# http://sourceforge.net/projects/libcerf/
+CERF=1
 
 # Below you can adapt paths according to your software setup:
 
@@ -112,18 +119,18 @@ DESTDIR = "$(PROGRAMFILES)/gnuplot"
 
 # Do you want some special optimization?
 # -mpentium means optimise for Pentium processor
-# -mpentiumpro means optimize for Pentium II and Pro procesors
+# -mpentiumpro means optimize for Pentium II and Pro processors
 #CFLAGS +=
 
 # To compile the .chm file you need the Microsoft HTML Help 1.4 SDK
 # It can be obtained here:
 # http://go.microsoft.com/fwlink/?LinkId=154968
 # We need to explicitly set the correct path here since we also need
-# adjust the include and linrary paths.
+# adjust the include and library paths.
 HHWPATH = "$(PROGRAMFILES)/HTML Help Workshop/"
 HHC = $(HHWPATH)hhc
 
-# Choose which windres/rc do you want to use (GNU windres or MS RC):
+# Choose which resource compiler you want to use (GNU windres or MS rc):
 GNU_RC = 1
 ifndef GNU_RC
   # If uncommented GNU_RC above and rc.exe not in PATH, then set:
@@ -139,7 +146,7 @@ ISCC = "$(PROGRAMFILES)/Inno Setup 5/iscc"
 
 # Directory that might contain extra files to be shipped with the installer.
 # This should include dependencies like DLLs, but also fontconfig configuration files.
-#EXTRADIST = /d/Software/gnuplot-misc/gp-dist
+#EXTRADIST = /d/gnuplot/dist
 
 #
 # *************** End of Configuration section *************************
@@ -158,15 +165,10 @@ ISCC = "$(PROGRAMFILES)/Inno Setup 5/iscc"
 #    window it was launched from, or it opens a new one.
 # 3. gnuplot.exe: Console mode instead of GUI for the text input.
 #
-# Comment for programs using gnuplot as their plotting engine:
-# Both wgnuplot*.exe compile also pgnuplot.exe. This small helper program was
-# used when gnuplot.exe was not available on Windows. Nowadays, pgnuplot.exe
-# is deprecated -- please use gnuplot.exe instead.
 
 # PIPES: define if you would prefer support of pipes undef Windows (e.g.
 # plot '<awk -f preprocess.awk my.dat'). Drawback: wgnuplot_pipes.exe keeps
 # attached to a console=DOS window it was launched from, or it opens a new one.
-# Note: Maybe it does not work properly with pgnuplot (not tested recently).
 
 # CONSOLE: define if you would prefer the console (non-GUI) version of the
 # text command window.
@@ -177,9 +179,8 @@ TARGET=wgnuplot.exe
 #TARGET=gnuplot.exe
 endif
 
-# Set PGNUPLOT, PIPES and CONSOLE according to the target
+# Set PIPES and CONSOLE according to the target
 ifeq ($(TARGET),wgnuplot.exe)
-	PGNUPLOT=pgnuplot.exe
 	MENUFILE=wgnuplot.mnu
 	O=o
 	CFLAGSEXTRA=-DUSE_FAKEPIPES
@@ -205,10 +206,10 @@ RM = rm -f
 CP = cp -p
 
 ifdef DEBUG
-  CFLAGS += -g -Wall
+  CFLAGS += -g -Wall -pipe
   LDFLAGS += -g
 else
-  CFLAGS += -O2
+  CFLAGS += -O2 -pipe
   LDFLAGS += -s
 endif
 
@@ -234,14 +235,14 @@ T=$(TOP)/term/
 D=$(TOP)/docs/
 M=$(TOP)/demo/
 
-VPATH = $(S):$(W):$(W):$(S)/wxterminal
+VPATH = $(S):$(W):$(S)/wxterminal
 
 TERMFLAGS = -DGNUPLOT_PS_DIR=\"$(GNUPLOT_PS_DIR)\" -DGNUPLOT_JS_DIR=\"$(GNUPLOT_JS_DIR)\"
 TERMFLAGS += -I$(TOP)/term
 
 TERMLIBS =
 
-CFLAGS += -I. -I$(S) -D_Windows -DHAVE_CONFIG_H $(OPTS)
+CFLAGS += -I. -I$(S) -I$(T) -D_Windows -DHAVE_CONFIG_H $(OPTS)
 CFLAGS += -DGNUPLOT_SHARE_DIR=\"$(GNUPLOT_SHARE_DIR)\"
 
 ifndef RELEASE
@@ -353,9 +354,19 @@ ifdef LUA
 	LUATARGETS += gnuplot-lua-tikz.sty
 endif
 
+ifdef CACA
+	CFLAGS += -DHAVE_LIBCACA
+	TERMLIBS += -lcaca
+endif
+
 ifdef ICONV
 	CFLAGS += -DHAVE_ICONV
 	TERMLIBS += -liconv
+endif
+
+ifdef CERF
+	CFLAGS += -DHAVE_LIBCERF -DNEED_CEXP
+	TERMLIBS += -lcerf -lm
 endif
 
 ifdef GNU_RC
@@ -373,26 +384,37 @@ else
   RES2COFF = res2coff -i wgnuplot.res -o wgplt_res.$(O)
 endif
 
-default: $(TARGET) $(MENUFILE) support
+ifndef RELEASE
+VERSIONING = timestamp.h
+else
+VERSIONING = all: $(S)/version.c
+endif
 
-console:
+MAINVERSION := `cat $(TOP)/VERSION`
+SHORTVERSION := `cut -b 2 --complement $(TOP)/VERSION``cat $(TOP)/PATCHLEVEL`
+LONGVERSION := `cat $(TOP)/VERSION`.`cat $(TOP)/PATCHLEVEL`
+FULLVERSION := `cat $(TOP)/VERSION` patchlevel `cat $(TOP)/PATCHLEVEL`
+
+default: $(VERSIONING) $(TARGET) $(MENUFILE) support
+
+console: $(VERSIONING)
 	$(MAKE) TARGET=gnuplot.exe gnuplot.exe
 
-windows: $(MENUFILE)
+windows: $(MENUFILE) $(VERSIONING)
 	$(MAKE) TARGET=wgnuplot.exe wgnuplot.exe
 
-pipes:
+pipes: $(VERSIONING)
 	$(MAKE) TARGET=wgnuplot_pipes.exe wgnuplot_pipes.exe
 
 docs:
 	$(MAKE) TARGET=gnuplot.exe gnuplot.pdf gpcard.pdf tutorial.pdf \
 		ps_symbols.pdf ps_fontfile_doc.pdf ps_guide.pdf
 
-support: $(HELPFILE) $(M)bf_test.exe $(PGNUPLOT) $(LUATARGETS) $(HELPFILEJA)
+support: $(HELPFILE) $(M)bf_test.exe $(LUATARGETS) $(HELPFILEJA)
 
 ja: $(HELPFILEJA)
 
-all: $(S)/version.c console windows pipes support docs
+all: $(VERSIONING) console windows pipes support docs
 
 
 # include the 'core makefile template'
@@ -403,7 +425,7 @@ OBJS = $(COREOBJS) version.$(O) gpexecute.$(O) $(WX_OBJS) $(CAIRO_OBJS)
 WINOBJS = winmain.$(O) wgnuplib.$(O) wgraph.$(O) wprinter.$(O) \
 	  wpause.$(O) wgdiplus.$(O)
 ifneq ($(TARGET),gnuplot.exe)
-WINOBJS += wtext.$(O) screenbuf.$(O) wmenu.$(O)
+WINOBJS += wtext.$(O) screenbuf.$(O) wmenu.$(O) wredirect.$(O)
 endif
 
 # default rules
@@ -419,8 +441,8 @@ $(TARGET): $(OBJS) $(WINOBJS) wgplt_res.$(O)
 	$(LDX) $(LDFLAGS) $(LDFLAGS2) -o $@ $(OBJS) $(WINOBJS) wgplt_res.$(O) $(LDLIBS)\
 	$(TERMLIBS) $(WX_LIBS) $(PANGOCAIRO_LIBS)
 
-$(PGNUPLOT): $(W)/pgnuplot.c version.$(O)
-	$(CC) -O2 -DHAVE_STDBOOL_H -s -o $@ $^ -I$(W) -I$(S) -luser32
+pgnuplot.exe: $(W)/pgnuplot.c version.$(O)
+	$(CC) -O2 -DWINDOWS_NO_GUI -DHAVE_STDBOOL_H -s -o $@ $^ -I$(W) -I$(S) -luser32
 
 # pull in dependency info for existing object files
 ifndef NODEPS
@@ -440,11 +462,17 @@ show.$(O): show.c plot.h setshow.h
 term.$(O): term.c term.h plot.h setshow.h bitmap.h $(CORETERM)
 	$(CC) -c $(CFLAGS) $(CFLAGSEXTRA) $(TERMFLAGS) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
 
-version.$(O): $(S)/version.c
-
 ifndef RELEASE
+timestamp.h: $(TOP)/ChangeLog
+	@echo Creating $@
+	@echo "#ifndef GNUPLOT_TIMEBASE_H_INCLUDED" >$@t
+	@echo "#define GNUPLOT_TIMEBASE_H_INCLUDED" >>$@t
+	@head -1 $< | sed -e 's,\(^[0-9-]* \).*$$,const char gnuplot_date[] = "\1";,' >>$@t
+	@echo "#endif /* GNUPLOT_TIMEBASE_H_INCLUDED */" >> $@t
+	@if cmp -s $@ $@t; then rm -f $@t; else mv $@t $@; fi
+else
 $(S)/version.c: $(TOP)/VERSION $(TOP)/PATCHLEVEL $(TOP)/ChangeLog $(S)/Makefile.maint
-	$(MAKE) -C $(S) -f Makefile.maint version.c
+	$(MAKE) -C $(S) srcdir=. top_srcdir=.. -f Makefile.maint version.c
 endif
 
 WINDEPS = $(W)/wgnuplib.h $(W)/wcommon.h $(W)/wresourc.h $(W)/screenbuf.h $(W)/wgdiplus.h
@@ -453,7 +481,10 @@ winmain.$(O): $(W)/winmain.c $(W)/wgnuplib.h $(W)/wtext.h plot.h
 	$(CC) -c $(CFLAGS) $(CFLAGSEXTRA) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
 
 wgdiplus.$(O): $(W)/wgdiplus.cpp $(WINDEPS)
-	$(CXX) -c $(CXXFLAGS) $(CFLAGSEXTRA) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
+	$(CXX) -c $(CFLAGS) $(CXXFLAGS) $(CFLAGSEXTRA) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
+
+wredirect.$(O): $(W)/wredirect.cpp $(WINDEPS)
+	$(CXX) -c $(CFLAGS) $(CXXFLAGS) $(CFLAGSEXTRA) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
 
 wgnuplot.mnu: $(W)/wgnuplot.mnu
 	$(CP) $^ $@
@@ -463,6 +494,9 @@ wxt_gui.$(O): $(S)/wxterminal/wxt_gui.cpp $(S)/wxterminal/wxt_gui.h
 
 gp_cairo.$(O): $(S)/wxterminal/gp_cairo.c $(S)/wxterminal/gp_cairo.h
 	$(CC) -c $(CFLAGS) $(CFLAGSEXTRA) $(CXXFLAGS) $(PANGOCAIRO_CFLAGS) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
+
+demo_plugin.dll: $(M)plugin/demo_plugin.c
+	$(CC) $(CFLAGS) -I$(M)plugin -shared -o $@ $<
 
 # convert gnuplot.doc to windows/wgnuplot.html
 $(BUILDHELPFILE): doc2html.exe $(D)gnuplot.doc $(D)windows/wgnuplot.hhp $(D)windows/wgnuplot.hhk \
@@ -520,13 +554,13 @@ doc2html-ja.exe: $(JASRC) $(D)windows/doc2html.c $(D)termdoc.c $(D)xref.c versio
 	$(LD) $(LDFLAGS) -o $@ -DWINDOWS_NO_GUI -DJAPANESE_DOC $(CFLAGS) -I. -I$(JAD) -I$(JA)/term $(D)windows/doc2html.c $(D)termdoc.c $(D)xref.c version.$(O)
 
 #make binary demo files
+# WINDOWS_NO_GUI makes sure that wtext.h does not redefine fread() etc.
 $(M)bf_test.exe : bf_test.c dbinary.$(O) alloc.$(O)
-	$(LD) $(LDFLAGS) $(CFLAGS) -U_Windows -o $@ $^
+	$(LD) $(LDFLAGS) $(CFLAGS) -DWINDOWS_NO_GUI -o $@ $^
 	(cd $(M) ; ./bf_test.exe )
 
-# _Windows causes wtext.h to define fread() etc
 dbinary.$(O): binary.c
-	$(CC) -c $(CFLAGS) -U_Windows -o $@ $<
+	$(CC) -c $(CFLAGS) -DWINDOWS_NO_GUI -o $@ $<
 
 #
 # Create config.h
@@ -662,8 +696,9 @@ clean:
 	$(RM) eg?.tex eg?.eps linepoin.tex test.tex test_tikz.tex
 	$(RM) $(D)windows/wgnuplot.log $(D)windows/wgnuplot.hhc
 	$(RM) $(D)windows/*.png $(D)windows/wgnuplot.html
+	-$(RM) timestamp.h *.tmp *.par
 	-$(RM) -rf ./dist/ ./gnuplot/
-	$(RM) -rf $(JA)
+	-$(RM) -rf $(JA)
 
 realclean: veryclean
 veryclean: clean
@@ -685,7 +720,6 @@ install:
 	cp -p gnuplot.exe $(DESTDIR)/bin/
 	cp -p wgnuplot.exe $(DESTDIR)/bin/
 	cp -p wgnuplot_pipes.exe $(DESTDIR)/bin/
-	cp -p pgnuplot.exe $(DESTDIR)/bin/
 	cp -p $(W)/wgnuplot.mnu $(DESTDIR)/bin/
 	cp -p $(W)/wgnuplot-ja.mnu $(DESTDIR)/bin/
 	cp -p $(HELPFILE) $(DESTDIR)/bin/
@@ -729,9 +763,12 @@ endif
 	cp -p $(TOP)/BUGS $(DESTDIR)/
 	cp -p $(TOP)/win/README-Windows.txt $(DESTDIR)/
 	cp -p $(TOP)/win/README-Windows-ja.txt $(DESTDIR)/
+	-cp -p $(TOP)/win/README-testing.txt $(DESTDIR)/
 # demo and contrib
 	mkdir -p $(DESTDIR)/demo
 	-cp -p $(M)* $(DESTDIR)/demo/
+	mkdir -p $(DESTDIR)/demo/games
+	-cp -p $(M)/games/* $(DESTDIR)/demo/games/
 	mkdir -p $(DESTDIR)/contrib/pm3d/
 	-cp -p $(TOP)/pm3d/contrib/* $(DESTDIR)/contrib/pm3d/
 # docs
@@ -756,17 +793,31 @@ installer:
 	$(MAKE) DESTDIR=./dist install
 	cp -p $(W)/grpicon.ico ./dist/bin/
 	cp -p $(TOP)/win/*.iss ./dist
+	sed -e '/^#define MyAppVersion/ s/"[^"]*"/"@VER@"/' \
+	    -e '/^#define MyAppVersionShort/ s/"[^"]*"/"@VERSHORT@"/' \
+	    -e '/^#define MyAppNumVersion/ s/"[^"]*"/"@VERLONG@"/' \
+	    -e '/^#define MyInstallerName/ s/"[^"]*"/"@INSTALLER@"/' \
+	    -e "s/@VERSHORT@/$(MAINVERSION)/" \
+	    -e "s/@VER@/$(FULLVERSION)/" \
+	    -e "s/@VERLONG@/$(LONGVERSION)/" \
+	    -e "s/@INSTALLER@/gp$(SHORTVERSION)-win32-setup/" \
+	    $(TOP)/win/gnuplot.iss > ./dist/gnuplot.iss
 	(cd ./dist; $(ISCC) gnuplot.iss)
 ifdef RELEASE
-	mv ./dist/gp*-setup.exe gp470-win32-setup.exe
+	mv ./dist/gp*-setup.exe gp$(SHORTVERSION)-win32-setup.exe
 else
-	mv ./dist/gp*-setup.exe gp470-`date +%Y%m%d`-win32-mingw.exe
+	mv ./dist/gp*-setup.exe gp$(SHORTVERSION)-`date +%Y%m%d`-win32-mingw.exe
 endif
 
 zip:
 	$(MAKE) DESTDIR=./gnuplot install
 ifdef RELEASE
-	zip -mro9 gp470-win32-mingw.zip gnuplot
+	zip -mro9 gp$(SHORTVERSION)-win32-mingw.zip gnuplot
 else
-	zip -mro9 gp470-`date +%Y%m%d`-win32-mingw.zip gnuplot
+	zip -mro9 gp$(SHORTVERSION)-`date +%Y%m%d`-win32-mingw.zip gnuplot
 endif
+
+# rebuild makefile.all
+maint: 
+	-$(RM) $(S)/makefile.all $(S)/makefile.awc
+	$(MAKE) -C $(S) srcdir=. top_srcdir=.. -f Makefile.maint makefile.all makefile.awc

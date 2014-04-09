@@ -48,7 +48,9 @@
 /////////////////////////////
 // QtGnuplotEnhanced
 
-void QtGnuplotEnhanced::addText(const QString& fontName, double fontSize, double base, bool widthFlag,
+void QtGnuplotEnhanced::addText(const QString& fontName, double fontSize, 
+				QFont::Style fontStyle, QFont::Weight fontWeight,
+				double base, bool widthFlag,
                                 bool showFlag, int overprint, const QString& text, QColor color)
 {
 	if ((overprint == 1) && !(m_overprintMark)) // Underprint
@@ -62,6 +64,12 @@ void QtGnuplotEnhanced::addText(const QString& fontName, double fontSize, double
 		m_currentPos = m_savedPos;
 
 	QFont font(fontName, fontSize);
+	if (fontName.isEmpty()) {
+		// qDebug() << "Empty font name";
+		font.setFamily("Sans");		// FIXME: use default? use previous?
+	}
+	font.setStyle(fontStyle);
+	font.setWeight(fontWeight);
 	QtGnuplotEnhancedFragment* item = new QtGnuplotEnhancedFragment(font, text, this);
 	item->setPos(m_currentPos + QPointF(0., -base));
 	if (showFlag)
@@ -112,10 +120,11 @@ void QtGnuplotEnhancedFragment::paint(QPainter* painter, const QStyleOptionGraph
 /////////////////////////////
 // QtGnuplotPoint
 
-QtGnuplotPoint::QtGnuplotPoint(int style, double size, QColor color, QGraphicsItem * parent)
+QtGnuplotPoint::QtGnuplotPoint(int style, double size, QPen pen, QGraphicsItem * parent)
 	: QGraphicsItem(parent)
 {
-	m_color = color;
+	m_pen   = pen;
+	m_color = pen.color();
 	m_style = style;
 	m_size = 3.*size;
 }
@@ -130,51 +139,171 @@ void QtGnuplotPoint::paint(QPainter* painter, const QStyleOptionGraphicsItem* op
 	Q_UNUSED(option);
 	Q_UNUSED(widget);
 
-	int style = m_style % 13;
+	const int style = m_style % 13;
 
-	painter->setPen(m_color);
 	if ((style % 2 == 0) && (style > 3)) // Filled points
+	{
+		painter->setPen(m_color);
 		painter->setBrush(m_color);
+	}
+	else
+		painter->setPen(m_pen);
 
-	painter->drawPoint(0, 0);
+	drawPoint(painter, QPointF(0., 0.), m_size, style);
+}
+
+void QtGnuplotPoint::drawPoint(QPainter* painter, const QPointF& origin, double size, int style)
+{
+	painter->drawPoint(origin);
+
+	if (style == -1)
+		return;
 
 	if ((style == 0) || (style == 2)) // plus or star
 	{
-		painter->drawLine(QPointF(0., -m_size), QPointF(0., m_size));
-		painter->drawLine(QPointF(-m_size, 0.), QPointF(m_size, 0.));
+		painter->drawLine(origin + QPointF(0., -size), origin + QPointF(0., size));
+		painter->drawLine(origin + QPointF(-size, 0.), origin + QPointF(size, 0.));
 	}
 	if ((style == 1) || (style == 2)) // cross or star
 	{
-		painter->drawLine(QPointF(-m_size, -m_size), QPointF(m_size, m_size));
-		painter->drawLine(QPointF(-m_size, m_size), QPointF(m_size, -m_size));
+		painter->drawLine(origin + QPointF(-size, -size), origin + QPointF(size, size));
+		painter->drawLine(origin + QPointF(-size, size), origin + QPointF(size, -size));
 	}
 	else if ((style == 3) || (style == 4)) // box
-		painter->drawRect(boundingRect());
+		painter->drawRect(QRectF(origin + QPointF(-size, -size), origin + QPointF(size, size)));
 	else if ((style == 5) || (style == 6)) // circle
-		painter->drawEllipse(boundingRect());
+		painter->drawEllipse(QRectF(origin + QPointF(-size, -size), origin + QPointF(size, size)));
 	else if ((style == 7) || (style == 8)) // triangle
 	{
-		const QPointF p[3] = { QPointF(0., -m_size),
-		                       QPointF(.866*m_size, .5*m_size),
-		                       QPointF(-.866*m_size, .5*m_size)};
+		const QPointF p[3] = { origin + QPointF(0., -size),
+							origin + QPointF(.866*size, .5*size),
+							origin + QPointF(-.866*size, .5*size)};
 		painter->drawPolygon(p, 3);
 	}
 	else if ((style == 9) || (style == 10)) // upside down triangle
 	{
-		const QPointF p[3] = { QPointF(0., m_size),
-		                       QPointF(.866*m_size, -.5*m_size),
-		                       QPointF(-.866*m_size, -.5*m_size)};
+		const QPointF p[3] = { origin + QPointF(0., size),
+							origin + QPointF(.866*size, -.5*size),
+							origin + QPointF(-.866*size, -.5*size)};
 		painter->drawPolygon(p, 3);
 	}
 	else if ((style == 11) || (style == 12)) // diamond
 	{
-		const QPointF p[4] = { QPointF(0., m_size),
-		                       QPointF(m_size, 0.),
-		                       QPointF(0., -m_size),
-		                       QPointF(-m_size, 0.)};
+		const QPointF p[4] = { origin + QPointF(0., size),
+							origin + QPointF(size, 0.),
+							origin + QPointF(0., -size),
+							origin + QPointF(-size, 0.)};
 		painter->drawPolygon(p, 4);
 	}
 }
+
+/////////////////////////////
+// QtGnuplotPoints
+
+QtGnuplotPoints::QtGnuplotPoints(QGraphicsItem * parent)
+	: QGraphicsItem(parent)
+{
+	m_currentZ = 0;
+}
+
+QRectF QtGnuplotPoints::boundingRect() const
+{
+	return m_boundingRect;
+}
+
+void QtGnuplotPoints::addPoint(const QPointF& point, int style, double pointSize, const QPen& pen)
+{
+	QtGnuplotPoints_PointData pointData;
+	pointData.point = point;
+	pointData.style = style;
+	pointData.pointSize = 3*pointSize;
+	pointData.pen = pen;
+	pointData.z = m_currentZ++;
+	m_points << pointData;
+
+	const double size = pointData.pointSize;
+	const QPointF& origin = pointData.point;
+	m_boundingRect = m_boundingRect.united(QRectF(origin + QPointF(-size, -size), origin + QPointF(size, size)));
+}
+
+void QtGnuplotPoints::addPolygon(const QPolygonF& polygon, const QPen& pen)
+{
+	QtGnuplotPoints_PolygonData polygonData;
+	polygonData.polygon = polygon;
+	polygonData.pen = pen;
+	polygonData.z = m_currentZ++;
+	m_polygons << polygonData;
+	m_boundingRect = m_boundingRect.united(polygon.boundingRect());
+}
+
+void QtGnuplotPoints::addFilledPolygon(const QPolygonF& polygon, const QBrush& brush)
+{
+	QtGnuplotPoints_FilledPolygonData filledPolygonData;
+	filledPolygonData.polygon = polygon;
+	filledPolygonData.brush = brush;
+	filledPolygonData.z = m_currentZ++;
+	m_filledPolygons << filledPolygonData;
+	m_boundingRect = m_boundingRect.united(polygon.boundingRect());
+}
+
+bool QtGnuplotPoints::isEmpty() const
+{
+	return m_points.isEmpty() && m_polygons.isEmpty() && m_filledPolygons.isEmpty();
+}
+
+void QtGnuplotPoints::paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget)
+{
+	Q_UNUSED(option);
+	Q_UNUSED(widget);
+
+	painter->setBrush(Qt::NoBrush);
+
+	int i = 0;
+	int j = 0;
+	int k = 0;
+	unsigned int z = 0;
+
+	while ((i < m_points.size()) || (j < m_polygons.size()) || (k < m_filledPolygons.size()))
+	{
+		for (; i < m_points.size() && m_points[i].z == z; i++, z++)
+		{
+			const int style = m_points[i].style % 13;
+
+			painter->setPen(m_points[i].pen.color());
+			if ((style % 2 == 0) && (style > 3)) // Filled points
+				painter->setBrush(m_points[i].pen.color());
+			else
+			{
+				painter->setPen(m_points[i].pen);
+				painter->setBrush(Qt::NoBrush);
+			}
+
+			QtGnuplotPoint::drawPoint(painter, m_points[i].point, m_points[i].pointSize, style);
+		}
+
+		painter->setBrush(Qt::NoBrush);
+		for (; j < m_polygons.size() && m_polygons[j].z == z; j++, z++)
+		{
+			painter->setPen(m_polygons[j].pen);
+			painter->drawPolyline(m_polygons[j].polygon);
+		}
+
+		for (; k < m_filledPolygons.size() && m_filledPolygons[k].z == z; k++, z++)
+		{
+			QPen pen = Qt::NoPen;
+			QBrush& brush = m_filledPolygons[k].brush;
+			if (brush.style() == Qt::SolidPattern)
+				pen = brush.color();
+			painter->setPen(pen);
+			painter->setBrush(brush);
+			painter->drawPolygon(m_filledPolygons[k].polygon);
+		}
+
+	}
+}
+
+/////////////////////////////
+// QtGnuplotKeyBox
 
 /*
  * EAM - support for toggling plots by clicking on a key sample

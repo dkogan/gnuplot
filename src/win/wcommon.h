@@ -1,5 +1,5 @@
 /*
- * $Id: wcommon.h,v 1.16 2012/10/08 22:30:53 markisch Exp $
+ * $Id: wcommon.h,v 1.19 2014/03/23 14:09:02 markisch Exp $
  */
 
 /* GNUPLOT - wcommon.h */
@@ -41,12 +41,19 @@
  *   Russell Lang
  */
 
+#ifndef GNUPLOT_WCOMMON_H
+#define GNUPLOT_WCOMMON_H
+
 #ifndef CLEARTYPE_QUALITY
 #define CLEARTYPE_QUALITY       5
 #endif
 
 /* maximum number of plots which can be enabled/disabled via toolbar */
 #define MAXPLOTSHIDE 10
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* winmain.c */
 # define PACKVERSION(major,minor) MAKELONG(minor,major)
@@ -88,7 +95,22 @@ BOOL PrintSize(HDC printer, HWND hwnd, LPRECT lprect);
 void PrintRegister(GP_LPPRINT lpr);
 void PrintUnregister(GP_LPPRINT lpr);
 BOOL CALLBACK PrintAbortProc(HDC hdcPrn, int code);
-BOOL CALLBACK PrintDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
+INT_PTR CALLBACK PrintDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 
 /* wgraph.c */
+unsigned luma_from_color(unsigned red, unsigned green, unsigned blue);
+void add_tooltip(LPGW lpgw, PRECT rect, LPWSTR text);
+void clear_tooltips(LPGW lpgw);
+void draw_update_keybox(LPGW lpgw, unsigned plotno, unsigned x, unsigned y);
+int draw_enhanced_text(LPGW lpgw, HDC hdc, LPRECT rect, int x, int y, const char * str);
+void draw_get_enhanced_text_extend(PRECT extend);
+void draw_image(LPGW lpgw, HDC hdc, char *image, POINT corners[4], unsigned int width, unsigned int height, int color_mode);
+void SetFont(LPGW lpgw, HDC hdc);
+void GraphChangeFont(LPGW lpgw, LPCSTR font, int fontsize, HDC hdc, RECT rect);
+LPWSTR UnicodeText(const char *str, enum set_encoding_id encoding);
 
+#ifdef __cplusplus
+};
+#endif
+
+#endif /* GNUPLOT_WCOMMON_H */

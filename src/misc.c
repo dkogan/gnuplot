@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.153 2013/03/22 03:48:55 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.175 2014/03/23 03:03:07 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -39,14 +39,18 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.153 2013/03/22 03:48:55 sfe
 #include "alloc.h"
 #include "command.h"
 #include "graphics.h"
-#include "parse.h"		/* for const_*() */
 #include "plot.h"
 #include "tables.h"
 #include "util.h"
 #include "variable.h"
 #include "axis.h"
 #include "scanner.h"		/* so that scanner() can count curly braces */
-
+#ifdef _Windows
+# include <fcntl.h>
+# if defined(__WATCOMC__) || defined(__MSC__)
+#  include <io.h>        /* for setmode() */
+# endif
+#endif
 #if defined(HAVE_DIRENT_H)
 # include <sys/types.h>
 # include <dirent.h>
@@ -55,23 +59,17 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.153 2013/03/22 03:48:55 sfe
 #endif
 
 static char *recursivefullname __PROTO((const char *path, const char *filename, TBOOLEAN recursive));
-static void prepare_call __PROTO((void));
-static void expand_call_args __PROTO((void));
-
-/* A copy of the declaration from set.c */
-/* There should only be one declaration in a header file. But I do not know
- * where to put it */
-/* void get_position __PROTO((struct position * pos)); */
+static void prepare_call __PROTO((int calltype));
 
 /* State information for load_file(), to recover from errors
  * and properly handle recursive load_file calls
  */
 LFS *lf_head = NULL;		/* NULL if not in load_file */
 
-/* these two could be in load_file, except for error recovery */
-static TBOOLEAN do_load_arg_substitution = FALSE;
-static char *call_args[10] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
-static int call_argc;
+/* these are global so that plot.c can load them for the -c option */
+int call_argc;
+char *call_args[10] = { NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL };
+static char *argname[] = {"ARG0","ARG1","ARG2","ARG3","ARG4","ARG5","ARG6","ARG7","ARG8","ARG9"};
 
 /*
  * iso_alloc() allocates a iso_curve structure that can hold 'num'
@@ -138,21 +136,59 @@ iso_free(struct iso_curve *ip)
 }
 
 static void
-prepare_call(void)
+prepare_call(int calltype)
 {
-    call_argc = 0;
-    /* Gnuplot "call" command can have up to 10 arguments "$0" to "$9" */
-    while (!END_OF_COMMAND && call_argc <= 9) {
-	if (isstring(c_token))
-	    m_quote_capture(&call_args[call_argc++], c_token, c_token);
-	else
-	    m_capture(&call_args[call_argc++], c_token, c_token);
-	c_token++;
+    struct udvt_entry *udv;
+    int argindex;
+    if (calltype == 2) {
+	call_argc = 0;
+	while (!END_OF_COMMAND && call_argc <= 9) {
+	    call_args[call_argc] = try_to_get_string();
+	    if (!call_args[call_argc]) {
+		/* DEPRECATED old style wrapping of bare tokens as strings */
+		/* is still useful for passing unquoted numbers */
+		m_capture(&call_args[call_argc], c_token, c_token);
+		c_token++;
+	    }
+	    call_argc++;
+	}
+	lf_head->c_token = c_token;
+	if (!END_OF_COMMAND)
+	    int_error(++c_token, "too many arguments for 'call <file>'");
+
+    } else if (calltype == 5) {
+	/* lf_push() moved our call arguments from call_args[] to lf->call_args[] */
+	/* call_argc was determined at program entry */
+	for (argindex = 0; argindex < 10; argindex++) {
+	    call_args[argindex] = lf_head->call_args[argindex];
+	    lf_head->call_args[argindex] = NULL;	/* just to be safe */
+	}
+
+    } else {
+	/* "load" command has no arguments */
+	call_argc = 0;
     }
-    if (!END_OF_COMMAND)
-	int_error(++c_token, "too many arguments for 'call <file>'");
+
+    /* Old-style "call" arguments were referenced as $0 ... $9 and $# */
+    /* New-style has ARG0 = script-name, ARG1 ... ARG9 and ARGC */
+    /* FIXME:  If we defined these on entry, we could use get_udv* here */
+    udv = add_udv_by_name("ARGC");
+    Ginteger(&(udv->udv_value), call_argc);
+    udv->udv_undef = FALSE;
+    udv = add_udv_by_name("ARG0");
+    gpfree_string(&(udv->udv_value));
+    Gstring(&(udv->udv_value), gp_strdup(lf_head->name));
+    udv->udv_undef = FALSE;
+    for (argindex = 1; argindex <= 9; argindex++) {
+	char *arg = gp_strdup(call_args[argindex-1]);
+	udv = add_udv_by_name(argname[argindex]);
+	gpfree_string(&(udv->udv_value));
+	Gstring(&(udv->udv_value), arg ? arg : gp_strdup(""));
+	udv->udv_undef = FALSE;
+    }
 }
 
+#ifdef OLD_STYLE_CALL_ARGS
 
 const char *
 expand_call_arg(int c)
@@ -209,9 +245,18 @@ expand_call_args(void)
     gp_input_line[il] = '\0';
     free(raw_line);
 }
+#endif /* OLD_STYLE_CALL_ARGS */
 
+/*
+ * load_file() is called from
+ * (1) the "load" command, no arguments substitution is done
+ * (2) the "call" command, arguments are substituted for $0, $1, etc.
+ * (3) on program entry to load initialization files (acts like "load")
+ * (4) to execute script files given on the command line (acts like "load")
+ * (5) to execute a single script file given with -c (acts like "call")
+ */
 void
-load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
+load_file(FILE *fp, char *name, int calltype)
 {
     int len;
 
@@ -219,111 +264,117 @@ load_file(FILE *fp, char *name, TBOOLEAN can_do_args)
     int more;
     int stop = FALSE;
 
+    /* Provide a user-visible copy of the current line number in the input file */
+    udvt_entry *gpval_lineno = add_udv_by_name("GPVAL_LINENO");
+    Ginteger(&gpval_lineno->udv_value, 0);
+    gpval_lineno->udv_undef = FALSE;
+
     lf_push(fp, name, NULL); /* save state for errors and recursion */
-    do_load_arg_substitution = can_do_args;
 
     if (fp == (FILE *) NULL) {
-	os_error(NO_CARET, "Cannot open %s file '%s'",
-		 can_do_args ? "call" : "load", name);
-    } else if (fp == stdin) {
+	int_error(NO_CARET, "Cannot open script file '%s'", name);
+	return; /* won't actually reach here */
+    }
+
+    if (fp == stdin) {
 	/* DBT 10-6-98  go interactive if "-" named as load file */
 	interactive = TRUE;
 	while (!com_line());
-    } else {
-	call_argc = 0;
-	if (can_do_args) {
-	    prepare_call();
-	    lf_head->c_token = c_token; /* update after prepare_call() */
-	}
-	/* things to do after lf_push */
-	inline_num = 0;
-	/* go into non-interactive mode during load */
-	/* will be undone below, or in load_file_error */
-	interactive = FALSE;
+	(void) lf_pop();
+	return;
+    }
 
-	while (!stop) {	/* read all lines in file */
-	    left = gp_input_line_len;
-	    start = 0;
-	    more = TRUE;
+    /* We actually will read from a file */
+    prepare_call(calltype);
 
-	    /* read one logical line */
-	    while (more) {
-		if (fgets(&(gp_input_line[start]), left, fp) == (char *) NULL) {
-		    stop = TRUE;	/* EOF in file */
-		    gp_input_line[start] = '\0';
-		    more = FALSE;
-		} else {
-		    inline_num++;
-		    len = strlen(gp_input_line) - 1;
-		    if (gp_input_line[len] == '\n') {	/* remove any newline */
-			gp_input_line[len] = '\0';
-			/* Look, len was 1-1 = 0 before, take care here! */
+    /* things to do after lf_push */
+    inline_num = 0;
+    /* go into non-interactive mode during load */
+    /* will be undone below, or in load_file_error */
+    interactive = FALSE;
+
+    while (!stop) {	/* read all lines in file */
+	left = gp_input_line_len;
+	start = 0;
+	more = TRUE;
+
+	/* read one logical line */
+	while (more) {
+	    if (fgets(&(gp_input_line[start]), left, fp) == (char *) NULL) {
+		stop = TRUE;	/* EOF in file */
+		gp_input_line[start] = '\0';
+		more = FALSE;
+	    } else {
+		inline_num++;
+		gpval_lineno->udv_value.v.int_val = inline_num;	/* User visible copy */
+		len = strlen(gp_input_line) - 1;
+		if (gp_input_line[len] == '\n') {	/* remove any newline */
+		    gp_input_line[len] = '\0';
+		    /* Look, len was 1-1 = 0 before, take care here! */
+		    if (len > 0)
+			--len;
+		    if (gp_input_line[len] == '\r') {	/* remove any carriage return */
+			gp_input_line[len] = NUL;
 			if (len > 0)
 			    --len;
-			if (gp_input_line[len] == '\r') {	/* remove any carriage return */
-			    gp_input_line[len] = NUL;
-			    if (len > 0)
-				--len;
-			}
-		    } else if (len + 2 >= left) {
-			extend_input_line();
-			left = gp_input_line_len - len - 1;
-			start = len + 1;
-			continue;	/* don't check for '\' */
 		    }
-		    if (gp_input_line[len] == '\\') {
-			/* line continuation */
-			start = len;
-			left = gp_input_line_len - start;
-		    } else {
-			/* EAM May 2011 - handle multi-line bracketed clauses {...}.
-			 * Introduces a requirement for scanner.c and scanner.h
-			 * This code is redundant with part of do_line(),
-			 * but do_line() assumes continuation lines come from stdin.
-			 */
-#ifdef GP_MACROS
-			/* macros in a clause are problematic, as they are */
-			/* only expanded once even if the clause is replayed */
-			if (expand_macros)
-			    string_expand_macros();
-#endif
-			/* Strip off trailing comment and count curly braces */
-			num_tokens = scanner(&gp_input_line, &gp_input_line_len);
-			if (gp_input_line[token[num_tokens].start_index] == '#') {
-			    gp_input_line[token[num_tokens].start_index] = NUL;
-			    start = token[num_tokens].start_index;
-			    left = gp_input_line_len - start;
-			}
-			/* Read additional lines if necessary to complete a
-			 * bracketed clause {...}
-			 */
-			if (curly_brace_count < 0)
-			    int_error(NO_CARET, "Unexpected }");
-			if (curly_brace_count > 0) {
-			    if (len + 4 > gp_input_line_len)
-				extend_input_line();
-			    strcat(gp_input_line,";\n");
-			    start = strlen(gp_input_line);
-			    left = gp_input_line_len - start;
-			    continue;
-			}
-			
-			more = FALSE;
-		    }
-
+		} else if (len + 2 >= left) {
+		    extend_input_line();
+		    left = gp_input_line_len - len - 1;
+		    start = len + 1;
+		    continue;	/* don't check for '\' */
 		}
-	    }
+		if (gp_input_line[len] == '\\') {
+		    /* line continuation */
+		    start = len;
+		    left = gp_input_line_len - start;
+		} else {
+		    /* EAM May 2011 - handle multi-line bracketed clauses {...}.
+		     * Introduces a requirement for scanner.c and scanner.h
+		     * This code is redundant with part of do_line(),
+		     * but do_line() assumes continuation lines come from stdin.
+		     */
 
-	    /* process line */
-	    if (strlen(gp_input_line) > 0) {
-		if (can_do_args)
-		  expand_call_args();
+		    /* macros in a clause are problematic, as they are */
+		    /* only expanded once even if the clause is replayed */
+		    string_expand_macros();
 
-		screen_ok = FALSE;	/* make sure command line is
-					   echoed on error */
-		if (do_line())
-		    stop = TRUE;
+		    /* Strip off trailing comment and count curly braces */
+		    num_tokens = scanner(&gp_input_line, &gp_input_line_len);
+		    if (gp_input_line[token[num_tokens].start_index] == '#') {
+			gp_input_line[token[num_tokens].start_index] = NUL;
+			start = token[num_tokens].start_index;
+			left = gp_input_line_len - start;
+		    }
+		    /* Read additional lines if necessary to complete a
+		     * bracketed clause {...}
+		     */
+		    if (curly_brace_count < 0)
+			int_error(NO_CARET, "Unexpected }");
+		    if (curly_brace_count > 0) {
+			if ((len + 4) > gp_input_line_len)
+			    extend_input_line();
+			strcat(gp_input_line,";\n");
+			start = strlen(gp_input_line);
+			left = gp_input_line_len - start;
+			continue;
+		    }
+		    
+		    more = FALSE;
+		}
+
 	    }
+	}
+
+	/* process line */
+	if (strlen(gp_input_line) > 0) {
+#ifdef OLD_STYLE_CALL_ARGS
+	    if (calltype == 2 || calltype == 5)
+		expand_call_args();
+#endif
+	    screen_ok = FALSE;	/* make sure command line is echoed on error */
+	    if (do_line())
+		stop = TRUE;
 	}
     }
 
@@ -339,6 +390,7 @@ lf_pop()
 {
     LFS *lf;
     int argindex;
+    struct udvt_entry *udv;
 
     if (lf_head == NULL)
 	return (FALSE);
@@ -360,9 +412,28 @@ lf_pop()
 	call_args[argindex] = lf->call_args[argindex];
     }
     call_argc = lf->call_argc;
-    do_load_arg_substitution = lf->do_load_arg_substitution;
+
+    /* Restore ARGC and ARG0 ... ARG9 */
+    if ((udv = get_udv_by_name("ARGC"))) {
+	Ginteger(&(udv->udv_value), call_argc);
+    }
+    if ((udv = get_udv_by_name("ARG0"))) {
+	gpfree_string(&(udv->udv_value));
+	Gstring(&(udv->udv_value),
+	    (lf->prev && lf->prev->name) ? gp_strdup(lf->prev->name) : gp_strdup(""));
+    }
+    for (argindex = 1; argindex <= 9; argindex++) {
+	if ((udv = get_udv_by_name(argname[argindex]))) {
+	    gpfree_string(&(udv->udv_value));
+	    Gstring(&(udv->udv_value), gp_strdup(call_args[argindex-1]));
+	    if (!call_args[argindex-1])
+		udv->udv_undef = TRUE;
+	}
+    }
+
     interactive = lf->interactive;
     inline_num = lf->inline_num;
+    add_udv_by_name("GPVAL_LINENO")->udv_value.v.int_val = inline_num;
     if_depth = lf->if_depth;
     if_condition = lf->if_condition;
     if_open_for_else = lf->if_open_for_else;
@@ -409,7 +480,6 @@ lf_push(FILE *fp, char *name, char *cmdline)
 
     lf->interactive = interactive;	/* save current state */
     lf->inline_num = inline_num;	/* save current line number */
-    lf->do_load_arg_substitution = do_load_arg_substitution;
     lf->call_argc = call_argc;
     for (argindex = 0; argindex < 10; argindex++) {
 	lf->call_args[argindex] = call_args[argindex];
@@ -450,12 +520,6 @@ load_file_error()
     while (lf_pop());
 }
 
-/* find max len of keys and count keys with len > 0 */
-
-/* FIXME HBB 2000508: by design, this one belongs into 'graphics', and the
- * next to into 'graph3d'. Actually, the existence of a module like this
- * 'misc' is almost always a sign of bad design, IMHO */
-/* may return NULL */
 FILE *
 loadpath_fopen(const char *filename, const char *mode)
 {
@@ -493,6 +557,10 @@ loadpath_fopen(const char *filename, const char *mode)
 
     }
 
+#ifdef _Windows
+    if (fp != NULL)
+	setmode(fileno(fp), _O_BINARY);
+#endif
     return fp;
 }
 
@@ -792,6 +860,87 @@ need_fill_border(struct fill_style_type *fillstyle)
     return TRUE;
 }
 
+int
+parse_dashtype(struct t_dashtype *dt)
+{
+    int res = DASHTYPE_SOLID;
+    int j = 0;
+    int k = 0;
+    char *dash_str = NULL;
+
+    if (equals(c_token, "solid")) {
+	res = DASHTYPE_SOLID;
+	c_token++;
+    } else if (equals(c_token, "(")) {
+	c_token++;
+	while (!END_OF_COMMAND && j < DASHPATTERN_LENGTH) {
+	    if (!END_OF_COMMAND
+		&&  !equals(c_token, ",")
+		&&  !equals(c_token, ")")
+		) {
+		dt->pattern[j] = real_expression(); 
+		j++;
+			
+		/* expect "," or ")" here */
+		if (!END_OF_COMMAND && equals(c_token, ","))
+		    c_token++;		/* loop again */
+		else
+		    break;		/* hopefully ")" */
+	    }
+	}
+
+	if (END_OF_COMMAND || !equals(c_token, ")")) {
+	    int_error(c_token, "expecting comma , or right parenthesis )");
+	}
+	c_token++;
+	/* cleanup */
+	if (dt->str) {
+	    free(dt->str);
+	    dt->str = NULL;
+	}
+	while (j < DASHPATTERN_LENGTH) {
+	    dt->pattern[j++] = 0.0f; 
+	}
+	res = DASHTYPE_CUSTOM;
+    } else if ((dash_str = try_to_get_string())) {
+	while (dash_str[j] && (k < DASHPATTERN_LENGTH)) {
+	    /* .      Dot with short space 
+	     * -      Dash with regular space
+	     * _      Long dash with regular space
+	     * space  Don't add new dash, just increase last space */
+	    switch (dash_str[j]) {
+	    case '.':
+		dt->pattern[k++] = 0.2;
+		dt->pattern[k++] = 0.5;
+		break;
+	    case '-':
+		dt->pattern[k++] = 1.0;
+		dt->pattern[k++] = 1.0;
+		break;
+	    case '_':
+		dt->pattern[k++] = 2.0;
+		dt->pattern[k++] = 1.0;
+		break;
+	    case ' ':
+		dt->pattern[k] += 1.0;
+		break;
+	    default:
+		int_error(c_token - 1, "expecting one of . - _ or space");
+	    }
+	    j++;
+	}
+	dt->str = gp_strdup(dash_str);
+	free(dash_str);
+	res = DASHTYPE_CUSTOM;
+    } else {
+	res = int_expression() - 1;
+	if (res < 0) {
+	    int_error(c_token - 1, "tag must be > 0");
+	}
+    }
+    return res;
+}
+
 /*
  * allow_ls controls whether we are allowed to accept linestyle in
  * the current context [ie not when doing a  set linestyle command]
@@ -801,7 +950,9 @@ int
 lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 {
     /* keep track of which options were set during this call */
-    int set_lt = 0, set_pal = 0, set_lw = 0, set_pt = 0, set_ps = 0, set_pi = 0;
+    int set_lt = 0, set_pal = 0, set_lw = 0; 
+    int set_pt = 0, set_ps  = 0, set_pi = 0;
+    int set_dt = 0;
     int new_lt = 0;
 
     /* EAM Mar 2010 - We don't want properties from a user-defined default
@@ -811,33 +962,34 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
      */
     struct lp_style_type newlp = *lp;
 	
-	if (allow_ls &&
-	    (almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
-	    c_token++;
-	    lp_use_properties(lp, int_expression());
-	} 
+    if (allow_ls &&
+	(almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
+	c_token++;
+	lp_use_properties(lp, int_expression());
+    } 
     
-	while (!END_OF_COMMAND) {
-	    if (almost_equals(c_token, "linet$ype") || equals(c_token, "lt")) {
-		if (set_lt++)
+    while (!END_OF_COMMAND) {
+	if (almost_equals(c_token, "linet$ype") || equals(c_token, "lt")) {
+	    if (set_lt++)
+		break;
+	    c_token++;
+	    if (almost_equals(c_token, "rgb$color")) {
+		if (set_pal++)
 		    break;
-		c_token++;
-		if (almost_equals(c_token, "rgb$color")) {
-		    if (set_pal++)
-			break;
-		    c_token--;
-		    parse_colorspec(&(newlp.pm3d_color), TC_RGB);
-		    newlp.use_palette = 1;
-		} else
+		c_token--;
+		parse_colorspec(&(newlp.pm3d_color), TC_RGB);
+	    } else
 		/* both syntaxes allowed: 'with lt pal' as well as 'with pal' */
 		if (almost_equals(c_token, "pal$ette")) {
 		    if (set_pal++)
 			break;
 		    c_token--;
 		    parse_colorspec(&(newlp.pm3d_color), TC_Z);
-		    newlp.use_palette = 1;
 		} else if (equals(c_token,"bgnd")) {
 		    *lp = background_lp;
+		    c_token++;
+		} else if (equals(c_token,"black")) {
+		    *lp = default_border_lp;
 		    c_token++;
 		} else {
 		    /* These replace the base style */
@@ -849,142 +1001,190 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		    else
 			load_linetype(lp, new_lt);
 		}
-	    } /* linetype, lt */
+	} /* linetype, lt */
 
-	    /* both syntaxes allowed: 'with lt pal' as well as 'with pal' */
-	    if (almost_equals(c_token, "pal$ette")) {
-		if (set_pal++)
-		    break;
+	/* both syntaxes allowed: 'with lt pal' as well as 'with pal' */
+	if (almost_equals(c_token, "pal$ette")) {
+	    if (set_pal++)
+		break;
+	    c_token--;
+	    parse_colorspec(&(newlp.pm3d_color), TC_Z);
+	    continue;
+	}
+
+	if (equals(c_token,"lc") || almost_equals(c_token,"linec$olor")
+	    ||  equals(c_token,"fc") || almost_equals(c_token,"fillc$olor")
+	   ) {
+	    if (set_pal++)
+		break;
+	    c_token++;
+	    if (almost_equals(c_token, "rgb$color")) {
+		c_token--;
+		parse_colorspec(&(newlp.pm3d_color), TC_RGB);
+	    } else if (almost_equals(c_token, "pal$ette")) {
 		c_token--;
 		parse_colorspec(&(newlp.pm3d_color), TC_Z);
-		newlp.use_palette = 1;
-		continue;
-	    }
-
-	    if (equals(c_token,"lc") || almost_equals(c_token,"linec$olor")
-	    ||  equals(c_token,"fc") || almost_equals(c_token,"fillc$olor")) {
-		newlp.use_palette = 1;
-		if (set_pal++)
-		    break;
+	    } else if (equals(c_token,"bgnd")) {
+		newlp.pm3d_color.type = TC_LT;
+		newlp.pm3d_color.lt = LT_BACKGROUND;
 		c_token++;
-		if (almost_equals(c_token, "rgb$color")) {
-		    c_token--;
-		    parse_colorspec(&(newlp.pm3d_color), TC_RGB);
-		} else if (almost_equals(c_token, "pal$ette")) {
-		    c_token--;
-		    parse_colorspec(&(newlp.pm3d_color), TC_Z);
-		} else if (equals(c_token,"bgnd")) {
+	    } else if (equals(c_token,"black")) {
+		newlp.pm3d_color.type = TC_LT;
+		newlp.pm3d_color.lt = LT_BLACK;
+		c_token++;
+	    } else if (almost_equals(c_token, "var$iable")) {
+		c_token++;
+		newlp.l_type = LT_COLORFROMCOLUMN;
+		newlp.pm3d_color.type = TC_LINESTYLE;
+	    } else {
+		/* Pull the line colour from a default linetype, but */
+		/* only if we are not in the middle of defining one! */
+		if (allow_ls) {
+		    struct lp_style_type temp;
+		    load_linetype(&temp, int_expression());
+		    newlp.pm3d_color = temp.pm3d_color;
+		} else {
 		    newlp.pm3d_color.type = TC_LT;
-		    newlp.pm3d_color.lt = LT_BACKGROUND;
-		    c_token++;
-		} else if (almost_equals(c_token, "var$iable")) {
-		    c_token++;
-		    newlp.l_type = LT_COLORFROMCOLUMN;
-		    newlp.pm3d_color.type = TC_LINESTYLE;
-		} else {
-		    /* Pull the line colour from a default linetype, but */
-		    /* only if we are not in the middle of defining one! */
-		    if (allow_ls) {
-			struct lp_style_type temp;
-			load_linetype(&temp, int_expression());
-			newlp.pm3d_color = temp.pm3d_color;
-		    } else {
-			newlp.pm3d_color.type = TC_LT;
-			newlp.pm3d_color.lt = int_expression() - 1;
-		    }
+		    newlp.pm3d_color.lt = int_expression() - 1;
 		}
-		continue;
 	    }
+	    continue;
+	}
 
-	    if (almost_equals(c_token, "linew$idth") || equals(c_token, "lw")) {
-		if (set_lw++)
+	if (almost_equals(c_token, "linew$idth") || equals(c_token, "lw")) {
+	    if (set_lw++)
+		break;
+	    c_token++;
+	    newlp.l_width = real_expression();
+	    if (newlp.l_width < 0)
+		newlp.l_width = 0;
+	    continue;
+	}
+
+	if (equals(c_token,"bgnd")) {
+	    if (set_lt++)
+		break;;
+	    c_token++;
+	    *lp = background_lp;
+	    continue;
+	}
+
+	if (equals(c_token,"black")) {
+	    if (set_lt++)
+		break;;
+	    c_token++;
+	    *lp = default_border_lp;
+	    continue;
+	}
+
+	if (almost_equals(c_token, "pointt$ype") || equals(c_token, "pt")) {
+	    if (allow_point) {
+		char *symbol;
+		if (set_pt++)
 		    break;
 		c_token++;
-		newlp.l_width = real_expression();
-		if (newlp.l_width < 0)
-		    newlp.l_width = 0;
-		continue;
-	    }
-
-	    if (equals(c_token,"bgnd")) {
-		if (set_lt++)
-		    break;;
-		c_token++;
-		*lp = background_lp;
-		continue;
-	    }
-
-	    if (almost_equals(c_token, "pointt$ype") || equals(c_token, "pt")) {
-		if (allow_point) {
-		    if (set_pt++)
-			break;
-		    c_token++;
+		if ((symbol = try_to_get_string())) {
+		    newlp.p_type = PT_CHARACTER;
+		    /* An alternative mechanism would be to use
+		     * utf8toulong(&newlp.p_char, symbol);
+		     */
+		    strncpy((char *)(&newlp.p_char), symbol, 3);
+		    /* Truncate ascii text to single character */
+		    if ((((char *)&newlp.p_char)[0] & 0x80) == 0)
+			((char *)&newlp.p_char)[1] = '\0';
+		    /* UTF-8 characters may use up to 3 bytes */
+		    ((char *)&newlp.p_char)[3] = '\0';
+		    free(symbol);
+		} else {
 		    newlp.p_type = int_expression() - 1;
-		} else {
-		    int_warn(c_token, "No pointtype specifier allowed, here");
-		    c_token += 2;
 		}
-		continue;
+	    } else {
+		int_warn(c_token, "No pointtype specifier allowed, here");
+		c_token += 2;
 	    }
+	    continue;
+	}
 
-	    if (almost_equals(c_token, "points$ize") || equals(c_token, "ps")) {
-		if (allow_point) {
-		    if (set_ps++)
-			break;
-		    c_token++;
-		    if (almost_equals(c_token, "var$iable")) {
-			newlp.p_size = PTSZ_VARIABLE;
-			c_token++;
-		    } else if (almost_equals(c_token, "def$ault")) {
-			newlp.p_size = PTSZ_DEFAULT;
-			c_token++;
-		    } else {
-			newlp.p_size = real_expression();
-			if (newlp.p_size < 0)
-			    newlp.p_size = 0;
-		    }
-		} else {
-		    int_warn(c_token, "No pointsize specifier allowed, here");
-		    c_token += 2;
-		}
-		continue;
-	    }
-
-	    if (almost_equals(c_token, "pointi$nterval") || equals(c_token, "pi")) {
+	if (almost_equals(c_token, "points$ize") || equals(c_token, "ps")) {
+	    if (allow_point) {
+		if (set_ps++)
+		    break;
 		c_token++;
-		if (allow_point) {
-		    newlp.p_interval = int_expression();
-		    set_pi = 1;
+		if (almost_equals(c_token, "var$iable")) {
+		    newlp.p_size = PTSZ_VARIABLE;
+		    c_token++;
+		} else if (almost_equals(c_token, "def$ault")) {
+		    newlp.p_size = PTSZ_DEFAULT;
+		    c_token++;
 		} else {
-		    int_warn(c_token, "No pointinterval specifier allowed, here");
-		    int_expression();
+		    newlp.p_size = real_expression();
+		    if (newlp.p_size < 0)
+			newlp.p_size = 0;
 		}
-		continue;
+	    } else {
+		int_warn(c_token, "No pointsize specifier allowed, here");
+		c_token += 2;
 	    }
-
-
-	    /* caught unknown option -> quit the while(1) loop */
-	    break;
+	    continue;
 	}
 
-	if (set_lt > 1 || set_pal > 1 || set_lw > 1 || set_pt > 1 || set_ps > 1)
-	    int_error(c_token, "duplicated arguments in style specification");
-
-	if (set_pal) {
-	    lp->pm3d_color = newlp.pm3d_color;
-	    lp->use_palette = newlp.use_palette;
-	    new_lt = LT_SINGLECOLOR;
+	if (almost_equals(c_token, "pointi$nterval") || equals(c_token, "pi")) {
+	    c_token++;
+	    if (allow_point) {
+		newlp.p_interval = int_expression();
+		set_pi = 1;
+	    } else {
+		int_warn(c_token, "No pointinterval specifier allowed, here");
+		int_expression();
+	    }
+	    continue;
 	}
-	if (set_lw)
-	    lp->l_width = newlp.l_width;
-	if (set_pt)
-	    lp->p_type = newlp.p_type;
-	if (set_ps)
-	    lp->p_size = newlp.p_size;
-	if (set_pi)
-	    lp->p_interval = newlp.p_interval;
-	if (newlp.l_type == LT_COLORFROMCOLUMN)
-	    lp->l_type = LT_COLORFROMCOLUMN;
+
+	if (almost_equals(c_token, "dasht$ype") || equals(c_token, "dt")) {
+	    int tmp;
+	    if (set_dt++)
+		break;
+	    c_token++;
+	    tmp = parse_dashtype(&newlp.custom_dash_pattern);
+	    /* Pull the dashtype from the list of already defined dashtypes, */
+	    /* but only if it we didn't get an explicit one back from parse_dashtype */ 
+	    if (tmp >= 0) {
+		tmp = load_dashtype(&newlp.custom_dash_pattern, tmp + 1);
+	    }
+	    newlp.d_type = tmp;
+	    continue;
+	}
+
+
+	/* caught unknown option -> quit the while(1) loop */
+	break;
+    }
+
+    if (set_lt > 1 || set_pal > 1 || set_lw > 1 || set_pt > 1 || set_ps > 1 || set_dt > 1)
+	int_error(c_token, "duplicated arguments in style specification");
+
+    if (set_pal) {
+	lp->pm3d_color = newlp.pm3d_color;
+	/* FIXME:  This was used by hidden3d but it breaks contour colors! */
+	/* new_lt = LT_SINGLECOLOR; */
+    }
+    if (set_lw)
+	lp->l_width = newlp.l_width;
+    if (set_pt) {
+	lp->p_type = newlp.p_type;
+	lp->p_char = newlp.p_char;
+    }
+    if (set_ps)
+	lp->p_size = newlp.p_size;
+    if (set_pi)
+	lp->p_interval = newlp.p_interval;
+    if (newlp.l_type == LT_COLORFROMCOLUMN)
+	lp->l_type = LT_COLORFROMCOLUMN;
+    if (set_dt) {
+	lp->d_type = newlp.d_type;
+	lp->custom_dash_pattern = newlp.custom_dash_pattern;
+    }	
+		
 
     return new_lt;
 }
@@ -1097,6 +1297,10 @@ parse_colorspec(struct t_colorspec *tc, int options)
 	c_token++;
 	tc->type = TC_LT;
 	tc->lt = LT_BACKGROUND;
+    } else if (equals(c_token,"black")) {
+	c_token++;
+	tc->type = TC_LT;
+	tc->lt = LT_BLACK;
     } else if (equals(c_token,"lt")) {
 	c_token++;
 	if (END_OF_COMMAND)
@@ -1172,14 +1376,17 @@ parse_color_name()
     if (almost_equals(c_token,"rgb$color") && almost_equals(c_token-1,"back$ground"))
 	c_token++;
     if ((string = try_to_get_string())) {
-	color = lookup_table_nth(pm3d_color_names_tbl, string);
-	if (color >= 0)
-	    color = pm3d_color_names_tbl[color].value;
-	else
-	    sscanf(string,"#%lx",&color);
+	int iret;
+	iret = lookup_table_nth(pm3d_color_names_tbl, string);
+	if (iret >= 0)
+	    color = pm3d_color_names_tbl[iret].value;
+	else if (string[0] == '#')
+	    iret = sscanf(string,"#%lx",&color);
+	else if (string[0] == '0' && (string[1] == 'x' || string[1] == 'X'))
+	    iret = sscanf(string,"%lx",&color);
 	free(string);
 	if (color == -2)
-	    int_error(c_token, "unrecognized color name and not a string \"#AARRGGBB\"");
+	    int_error(c_token, "unrecognized color name and not a string \"#AARRGGBB\" or \"0xAARRGGBB\"");
     } else {
 	color = int_expression();
     }
@@ -1268,25 +1475,32 @@ arrow_parse(
 	    continue;
 	}
 
+	if (almost_equals(c_token, "nobo$rder")) {
+	    if (set_headfilled++)
+		break;
+	    c_token++;
+	    arrow->headfill = AS_NOBORDER;
+	    continue;
+	}
 	if (almost_equals(c_token, "fill$ed")) {
 	    if (set_headfilled++)
 		break;
 	    c_token++;
-	    arrow->head_filled = 2;
+	    arrow->headfill = AS_FILLED;
 	    continue;
 	}
 	if (almost_equals(c_token, "empty")) {
 	    if (set_headfilled++)
 		break;
 	    c_token++;
-	    arrow->head_filled = 1;
+	    arrow->headfill = AS_EMPTY;
 	    continue;
 	}
 	if (almost_equals(c_token, "nofill$ed")) {
 	    if (set_headfilled++)
 		break;
 	    c_token++;
-	    arrow->head_filled = 0;
+	    arrow->headfill = AS_NOFILL;
 	    continue;
 	}
 
@@ -1307,6 +1521,13 @@ arrow_parse(
 	    /* invalid backangle --> default of 90.0 degrees */
 	    if (arrow->head_backangle <= arrow->head_angle)
 		arrow->head_backangle = 90.0;
+	    
+	    /* Assume adjustable size but check for 'fixed' instead */
+	    arrow->head_fixedsize = FALSE;
+	    if (almost_equals(c_token, "fix$ed")) {
+		arrow->head_fixedsize = TRUE;
+		c_token++;
+	    }
 	    continue;
 	}
 

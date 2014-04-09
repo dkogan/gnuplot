@@ -1,5 +1,5 @@
 /*
- * $Id: datafile.h,v 1.41 2013/03/14 19:40:18 sfeam Exp $
+ * $Id: datafile.h,v 1.44 2014/01/09 21:12:56 sfeam Exp $
  */
 
 /* GNUPLOT - datafile.h */
@@ -62,9 +62,17 @@ enum DF_STATUS {
 
 /* Variables of datafile.c needed by other modules: */
 
-/* how many using columns were specified, and max possible */
+/* how many using columns were specified in the current command */
 extern int df_no_use_specs;
-#define MAXDATACOLS 7
+
+/* Maximum number of columns returned to caller by df_readline		*/
+/* Various data structures are dimensioned to hold this many entries.	*/
+/* As of June 2013, plot commands never ask for more than 7 columns of	*/
+/* data, but fit commands can use more. "fit" is also limited by	*/
+/* the number of parameters that can be passed	to a user function, so	*/
+/* let's try setting MAXDATACOLS to match.				*/
+/* At present this bumps it from 7 to 14.				*/
+#define MAXDATACOLS (MAX_NUM_VAR+2)
 
 /* suggested x value if none given */
 extern int df_datum;
@@ -78,7 +86,10 @@ extern TBOOLEAN df_binary;
 extern char *df_filename;
 extern int df_line_number;
 extern AXIS_INDEX df_axis[];
-extern struct udft_entry ydata_func; /* HBB 990829: moved from command.h */
+
+#ifdef BACKWARDS_COMPATIBLE
+extern struct udft_entry ydata_func; /* deprecated "thru" function */
+#endif
 
 /* Returned to caller by df_readline() */
 extern char *df_tokens[];
@@ -89,8 +100,8 @@ extern int df_last_col;
 /* string representing missing values, ascii datafiles */
 extern char *missing_val;
 
-/* input field separator, NUL if whitespace is the separator */
-extern char df_separator;
+/* input field separators, NULL if whitespace is the separator */
+extern char *df_separators;
 
 /* comments chars */
 extern char *df_commentschars;

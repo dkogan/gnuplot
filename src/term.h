@@ -1,5 +1,5 @@
 /*
- * $Id: term.h,v 1.58 2013/02/27 00:08:56 sfeam Exp $
+ * $Id: term.h,v 1.66 2014/03/19 23:36:07 sfeam Exp $
  */
 
 /* GNUPLOT - term.h */
@@ -151,7 +151,7 @@
 */
 
 /* Apple Mac OS X */
-#ifdef HAVE_LIBAQUATERM
+#ifdef HAVE_FRAMEWORK_AQUATERM
 /* support for AquaTerm.app */
 # include "aquaterm.trm"
 #endif
@@ -192,11 +192,6 @@
 # include "vws.trm"
 #endif
 
-/* AT&T Unix-PC */
-#ifdef UNIXPC
-# include "unixpc.trm"
-#endif
-
 /****************************************************************************/
 /* Terminals not relevant for MSDOS, MS-Windows */
 #if !(defined(MSDOS) || defined(_Windows))
@@ -205,10 +200,14 @@
 /* # include "aed.trm" */
 
 /* gpic for groff */
+#ifdef HAVE_GPIC
 # include "gpic.trm"
+#endif
 
 /* REGIS graphics language */
-/* # include "regis.trm" */
+#ifdef VMS
+# include "regis.trm"
+#endif
 
 /* Tektronix 4106, 4107, 4109 and 420x terminals */
 # include "t410x.trm"
@@ -253,6 +252,11 @@
 /* dumb terminal */
 #include "dumb.trm"
 
+/* caca: color ascii art terminal using libcaca */
+#ifdef HAVE_LIBCACA
+# include "caca.trm"
+#endif
+
 /* DXF format for use with AutoCad (Release 10.x) */
 #include "dxf.trm"
 
@@ -270,11 +274,11 @@
 /* geographical info system */
 /* #include "grass.trm" */
 
-/* HP2623A and probably others */
-#include "hp26.trm"
+/* HP2623A "ET head" 1980 era graphics terminal */
+/* #include "hp26.trm" */
 
 /* HP2647 and 2648 */
-#include "hp2648.trm"
+/* #include "hp2648.trm" */
 
 /* HP7475, HP7220 plotters, and (hopefully) lots of others */
 #include "hpgl.trm"
@@ -298,7 +302,9 @@
 /* #include "kyo.trm" */
 
 /* Frame Maker MIF 3.00 format driver */
+#ifdef HAVE_MIF
 #include "mif.trm"
+#endif
 
 /* Adobe Portable Document Format (PDF) */
 /* NOTE THAT PDF REQUIRES A SEPARATE LIBRARY : see term/pdf.trm */

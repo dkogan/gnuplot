@@ -41,6 +41,13 @@
  * under either the GPL or the gnuplot license.
 ]*/
 
+/*
+ *  Thomas Bleher -  October 2013
+ *  The Qt terminal is changed to only create its data on initialization
+ *  (to avoid the Static Initialization Order Fiasco) and to destroy its data
+ *  in a gnuplot atexit handler.
+ */
+
 #include <QtCore>
 #include <QtGui>
 #include <QtNetwork>
@@ -55,161 +62,241 @@ extern "C" {
 	#include "alloc.h"     // for gp_alloc
 	#include "parse.h"     // for real_expression
 	#include "axis.h"
+#ifdef WIN32
+	#include "win/winmain.h"  // for WinMessageLoop, ConsoleReadCh, stdin_pipe_reader
+	#include "win/wgnuplib.h" // for TextStartEditing, TextStopEditing
+	#include "win/wtext.h"    // for kbhit, getchar
+	#include <io.h>           // for isatty
+#endif
 	#include <signal.h>
-	double removeDockIcon();
 }
+
 
 #include "qt_term.h"
 #include "QtGnuplotEvent.h"
+#include "QtGnuplotApplication.h"
 #include "qt_conversion.cpp"
 
 void qt_atexit();
 
-/*-------------------------------------------------------
- * Terminal options with default values
- *-------------------------------------------------------*/
+static int argc = 1;
+static char empty = '\0';
+static char* emptyp = &empty;
 
-/// @todo per-window options
+struct QtGnuplotState {
+    /// @todo per-window options
 
-int  qt_optionWindowId = 0;
-bool qt_optionEnhanced = false;
-bool qt_optionPersist  = false;
-bool qt_optionRaise    = true;
-bool qt_optionCtrl     = false;
-bool qt_optionDash     = false;
-int  qt_optionWidth    = 640;
-int  qt_optionHeight   = 480;
-int  qt_optionFontSize = 9;
-QString qt_optionFontName = "Sans";
-QString qt_optionTitle;
-QString qt_optionWidget;
+    // Create a QCoreApplication without event loop if any QObject needs it.
+    QCoreApplication application;
+
+    /*-------------------------------------------------------
+     * State variables
+     *-------------------------------------------------------*/
+
+    bool gnuplot_qtStarted;
+    int  currentFontSize;
+    QString currentFontName;
+    QString localServerName;
+    QTextCodec* codec;
+
+    // Events coming from gnuplot are processed by this file
+    // and send to the GUI by a QDataStream writing on a
+    // QByteArray sent trough a QLocalSocket (a cross-platform IPC protocol)
+    QLocalSocket socket;
+    QByteArray   outBuffer;
+    QDataStream  out;
+
+    bool       enhancedSymbol;
+    QString    enhancedFontName;
+    double     enhancedFontSize;
+    double     enhancedBase;
+    bool       enhancedWidthFlag;
+    bool       enhancedShowFlag;
+    int        enhancedOverprint;
+    enum QFont::Weight enhancedFontWeight;
+    enum QFont::Style enhancedFontStyle;
+    QByteArray enhancedText;
+
+    /// Constructor
+    QtGnuplotState()
+        : application(argc, &emptyp)
+
+        , gnuplot_qtStarted(false)
+        , currentFontSize()
+        , currentFontName()
+        , localServerName()
+        , codec(QTextCodec::codecForLocale())
+
+        , socket()
+        , outBuffer()
+        , out(&outBuffer, QIODevice::WriteOnly)
+
+        , enhancedSymbol(false)
+        , enhancedFontName()
+        , enhancedFontSize()
+        , enhancedBase()
+        , enhancedWidthFlag()
+        , enhancedShowFlag()
+        , enhancedOverprint()
+        , enhancedFontWeight(QFont::Normal)
+        , enhancedFontStyle(QFont::StyleNormal)
+        , enhancedText()
+    {
+    }
+
+};
+
+static QtGnuplotState* qt = NULL;
+
 static const int qt_oversampling = 10;
 static const double qt_oversamplingF = double(qt_oversampling);
 
 /*-------------------------------------------------------
- * State variables
+ * Terminal options with default values
  *-------------------------------------------------------*/
+static int  qt_optionWindowId = 0;
+static bool qt_optionEnhanced = true;
+static bool qt_optionPersist  = false;
+static bool qt_optionRaise    = true;
+static bool qt_optionCtrl     = false;
+static bool qt_optionDash     = false;
+static int  qt_optionWidth    = 640;
+static int  qt_optionHeight   = 480;
+static int  qt_optionFontSize = 9;
+/* Encapsulates all Qt options that have a constructor and destructor. */
+struct QtOption {
+    QtOption()
+        : FontName("Sans")
+    {}
 
-bool qt_initialized = false;
-bool qt_gnuplot_qtStarted = false;
-bool qt_setSize = true;
-int  qt_setWidth = qt_optionWidth;
-int  qt_setHeight = qt_optionHeight;
-int  qt_currentFontSize;
-QString qt_currentFontName;
-QString qt_localServerName;
-QTextCodec* qt_codec = QTextCodec::codecForLocale();
+    QString FontName;
+    QString Title;
+    QString Widget;
+};
+static QtOption* qt_option = NULL;
 
-QApplication* gnuplot_qt_application;
+static void ensureOptionsCreated()
+{
+	if (!qt_option)
+	    qt_option = new QtOption();
+}
+
+
+static bool qt_setSize   = true;
+static int  qt_setWidth  = qt_optionWidth;
+static int  qt_setHeight = qt_optionHeight;
 
 /* ------------------------------------------------------
  * Helpers
  * ------------------------------------------------------*/
 
 // Convert gnuplot coordinates into floating point term coordinates
-QPointF qt_termCoordF(unsigned int x, unsigned int y)
+QPointF qt_termCoordF(int x, int y)
 {
-	return QPointF(double(x)/qt_oversamplingF, double(term->ymax - y)/qt_oversamplingF);
+	return QPointF(double(x)/qt_oversamplingF, double(int(term->ymax) - y)/qt_oversamplingF);
 }
 
 // The same, but with coordinates clipped to the nearest pixel
-QPoint qt_termCoord(unsigned int x, unsigned int y)
+QPoint qt_termCoord(int x, int y)
 {
 	return QPoint(qRound(double(x)/qt_oversamplingF), qRound(double(term->ymax - y)/qt_oversamplingF));
+}
+
+// Inverse of the previous function
+QPoint qt_gnuplotCoord(int x, int y)
+{
+	return QPoint(x*qt_oversampling, int(term->ymax) - y*qt_oversampling);
 }
 
 // Start the GUI application
 void execGnuplotQt()
 {
-	// Fork the GUI and exec the gnuplot_qt program in the child process
-	pid_t pid = fork();
-	if (pid < 0)
-		fprintf(stderr, "Forking error\n");
-	else if (pid == 0) // Child: start the GUI
-	{
-		// Make sure the forked copy doesn't trash the history file 
-		cancel_history();
+	QString filename;
+	char* path = getenv("GNUPLOT_DRIVER_DIR");
+	if (path)
+		filename = QString(path);
+#ifdef WIN32
+	if (filename.isEmpty())
+		filename = QCoreApplication::applicationDirPath();
+	filename += "/gnuplot_qt.exe";
+#else
+	if (filename.isEmpty())
+		filename = QT_DRIVER_DIR;
+	filename += "/gnuplot_qt";
+#endif
 
-		// Start the gnuplot_qt program
-		QString filename = getenv("GNUPLOT_DRIVER_DIR");
-		if (filename.isEmpty())
-			filename = QT_DRIVER_DIR;
-		filename += "/gnuplot_qt";
-
-		execlp(filename.toAscii().data(), "gnuplot_qt", (char*)NULL);
-		fprintf(stderr, "Expected Qt driver: %s\n", filename.toAscii().data());
-		perror("Exec failed");
-		exit(EXIT_FAILURE);
-	}
-	qt_localServerName = "qtgnuplot" + QString::number(pid);
-	qt_gnuplot_qtStarted = true;
+	qint64 pid;
+	qt->gnuplot_qtStarted = QProcess::startDetached(filename, QStringList(), QString(), &pid);
+	if (qt->gnuplot_qtStarted)
+		qt->localServerName = "qtgnuplot" + QString::number(pid);
+	else
+		qDebug() << "Could not start gnuplot_qt with path" << filename;
 }
 
 /*-------------------------------------------------------
  * Communication gnuplot -> terminal
  *-------------------------------------------------------*/
 
-// Events coming from gnuplot are processed by this file
-// and send to the GUI by a QDataStream writing on a
-// QByteArray sent trough a QLocalSocket (a cross-platform IPC protocol)
-QLocalSocket qt_socket;
-QByteArray   qt_outBuffer;
-QDataStream  qt_out(&qt_outBuffer, QIODevice::WriteOnly);
-
 void qt_flushOutBuffer()
 {
-	if (!qt_initialized)
+	if (!qt || !qt->socket.isValid())
 		return;
 
 	// Write the block size at the beginning of the bock
-	QDataStream sizeStream(&qt_socket);
-	sizeStream << (quint32)(qt_outBuffer.size());
+	QDataStream sizeStream(&qt->socket);
+	sizeStream << (quint32)(qt->outBuffer.size());
 	// Write the block to the QLocalSocket
-	qt_socket.write(qt_outBuffer);
+	qt->socket.write(qt->outBuffer);
 	// waitForBytesWritten(-1) is supposed implement this loop, but it does not seem to work !
-	// update: seems to work with Qt 4.5
-	while (qt_socket.bytesToWrite() > 0)
+	// update: seems to work with Qt 4.5 on Linux and Qt 5.1 on Windows, but not on Mac
+	while (qt->socket.bytesToWrite() > 0)
 	{
-		qt_socket.flush();
-		qt_socket.waitForBytesWritten(-1);
+		qt->socket.flush();
+		// Avoid dead-locking when no more data is available
+		if (qt->socket.bytesToWrite() > 0)
+			qt->socket.waitForBytesWritten(-1);
 	}
 	// Reset the buffer
-	qt_out.device()->seek(0);
-	qt_outBuffer.clear();
+	qt->out.device()->seek(0);
+	qt->outBuffer.clear();
 }
 
 // Helper function called by qt_connectToServer()
 void qt_connectToServer(const QString& server, bool retry = true)
 {
-	bool connectToWidget = (server != qt_localServerName);
+	ensureOptionsCreated();
+	bool connectToWidget = (server != qt->localServerName);
 
-	// The QLocalSocket::waitForConnected does not respect the time out argument when the
-	// gnuplot_qt application is not yet started. To wait for it, we need to implement the timeout ourselves
-	QDateTime timeout = QDateTime::currentDateTime().addMSecs(1000);
+	// The QLocalSocket::waitForConnected does not respect the time out argument when
+	// the gnuplot_qt application is not yet started or has not yet self-initialized.
+	// To wait for it, we need to implement the timeout ourselves
+	QDateTime timeout = QDateTime::currentDateTime().addMSecs(30000);
 	do
 	{
-		qt_socket.connectToServer(server);
-		qt_socket.waitForConnected(200);
-		// TODO: yield CPU ?
+		qt->socket.connectToServer(server);
+		if (!qt->socket.waitForConnected(-1)) {
+			// qDebug() << qt->socket.errorString();
+			GP_SLEEP(0.2);	// yield CPU for 0.2 seconds
+		}
 	}
-	while((qt_socket.state() != QLocalSocket::ConnectedState) && (QDateTime::currentDateTime() < timeout));
+	while((qt->socket.state() != QLocalSocket::ConnectedState) && (QDateTime::currentDateTime() < timeout));
 
 	// Still not connected...
-	if ((qt_socket.state() != QLocalSocket::ConnectedState) && retry)
+	if ((qt->socket.state() != QLocalSocket::ConnectedState) && retry)
 	{
 		// The widget could not be reached: start a gnuplot_qt program which will create a QtGnuplotApplication
 		if (connectToWidget)
 		{
-			qDebug() << "Could not connect to widget" << qt_optionWidget << ". Starting a QtGnuplotApplication";
-			qt_optionWidget = QString();
-			qt_connectToServer(qt_localServerName);
+			qDebug() << "Could not connect to widget" << qt_option->Widget << ". Starting a QtGnuplotApplication";
+			qt_option->Widget = QString();
+			qt_connectToServer(qt->localServerName);
 		}
 		// The gnuplot_qt program could not be reached: try to start a new one
 		else
 		{
-			qDebug() << "Could not connect gnuplot_qt" << qt_optionWidget << ". Starting a new one";
+			qDebug() << "Could not connect to gnuplot_qt" << server << ". Starting a new one";
 			execGnuplotQt();
-			qt_connectToServer(qt_localServerName, false);
+			qt_connectToServer(qt->localServerName, false);
 		}
 	}
 }
@@ -217,28 +304,31 @@ void qt_connectToServer(const QString& server, bool retry = true)
 // Called before a plot to connect to the terminal window, if needed
 void qt_connectToServer()
 {
-	if (!qt_initialized)
+	if (!qt)
 		return;
+	ensureOptionsCreated();
 
 	// Determine to which server we should connect
-	bool connectToWidget = !qt_optionWidget.isEmpty();
-	QString server = connectToWidget ? qt_optionWidget : qt_localServerName;
+	bool connectToWidget = !qt_option->Widget.isEmpty();
+	QString server = connectToWidget ? qt_option->Widget : qt->localServerName;
 
-	if (qt_socket.state() == QLocalSocket::ConnectedState)
+	if (qt->socket.state() == QLocalSocket::ConnectedState)
 	{
 		// Check if we are already connected to the correct server
-		if (qt_socket.serverName() == server)
+		if (qt->socket.serverName() == server)
 			return;
 
 		// Otherwise disconnect
-		qt_socket.disconnectFromServer();
-		while (qt_socket.state() == QLocalSocket::ConnectedState)
-			qt_socket.waitForDisconnected(1000);
+		qt->socket.disconnectFromServer();
+		while (qt->socket.state() == QLocalSocket::ConnectedState)
+			qt->socket.waitForDisconnected(1000);
 	}
 
 	// Start the gnuplot_qt helper program if not already started
-	if (!connectToWidget && !qt_gnuplot_qtStarted)
+	if (!connectToWidget && !qt->gnuplot_qtStarted) {
 		execGnuplotQt();
+		server = qt->localServerName;
+	}
 
 	// Connect to the server, or local server if not available.
 	qt_connectToServer(server);
@@ -253,6 +343,13 @@ bool qt_processTermEvent(gp_event_t* event)
 	// Intercepts resize event
 	if (event->type == GE_fontprops)
 	{
+		// This is an answer to a font metric request. We don't send it back to gnuplot
+		if ((event->par1 > 0) && (event->par2 > 0))
+		{
+			qDebug() << "qt_processTermEvent received a GE_fontprops event. This should not have happened";
+			return false;
+		}
+		// This is a resize event
 		qt_setSize   = true;
 		qt_setWidth  = event->mx;
 		qt_setHeight = event->my;
@@ -260,8 +357,9 @@ bool qt_processTermEvent(gp_event_t* event)
 	// Scale mouse events
 	else
 	{
-		event->mx *= qt_oversampling;
-		event->my = (qt_setHeight - event->my)*qt_oversampling;
+		QPoint p = qt_gnuplotCoord(event->mx, event->my);
+		event->mx = p.x();
+		event->my = p.y();
 	}
 
 	// Send the event to gnuplot core
@@ -293,23 +391,15 @@ bool qt_processTermEvent(gp_event_t* event)
 // Called before first plot after a set term command.
 void qt_init()
 {
-	if (qt_initialized)
+    if (qt)
 		return;
+    ensureOptionsCreated();
+
+    qt = new QtGnuplotState();
 
 	// If we are not connecting to an existing QtGnuplotWidget, start a QtGnuplotApplication
-	if (qt_optionWidget.isEmpty())
+	if (qt_option->Widget.isEmpty())
 		execGnuplotQt();
-
-	// Create a QApplication without event loop for QObject's that need it, namely font handling
-	// A better strategy would be to transfer the font handling to the QtGnuplotWidget, but it would require
-	// some synchronization between the widget and the gnuplot process.
-	int argc = 0;
-	gnuplot_qt_application = new QApplication(argc, (char**)( NULL));
-
-#ifdef Q_WS_MAC
-	// Don't display this application in the MAC OS X dock
-	removeDockIcon();
-#endif
 
 	// The creation of a QApplication mangled our locale settings
 #ifdef HAVE_LOCALE_H
@@ -317,33 +407,90 @@ void qt_init()
 	setlocale(LC_TIME, current_locale);
 #endif
 
-	qt_out.setVersion(QDataStream::Qt_4_4);
-	qt_initialized = true;
+	qt->out.setVersion(QDataStream::Qt_4_4);
 	term_interlock = (void *)qt_init;
-	GP_ATEXIT(qt_atexit);
+	gp_atexit(qt_atexit);
+}
+
+// Send a "Set font" event to the GUI, and wait for the font metrics answer
+void qt_sendFont()
+{
+	qt->out << GESetFont << qt->currentFontName << qt->currentFontSize;
+
+	QPair<QString, int> currentFont(qt->currentFontName, qt->currentFontSize);
+	static QPair<QString, int> lastFont("", 0);
+
+	// The font has not changed
+	if (currentFont == lastFont)
+		return;
+
+	static QMap<QPair<QString, int>, QPair<int, int> > fontMetricCache;
+	QPair<int, int> metric;
+
+	// Try to find the font metric in the cache or ask the GUI for the font metrics
+	if (fontMetricCache.contains(currentFont))
+		metric = fontMetricCache[currentFont];
+	else
+	{
+		qt->out << GEFontMetricRequest;
+		qt_flushOutBuffer();
+		bool receivedFontProps = false;
+		int waitcount = 0;
+		while (!receivedFontProps)
+		{
+			qt->socket.waitForReadyRead(1000);
+			if (qt->socket.bytesAvailable() < (int)sizeof(gp_event_t)) {
+				fprintf(stderr, (waitcount++ % 10 > 0) ? "  ."
+					: "\nWarning: slow font initialization");
+#ifdef Q_OS_MAC
+				// OSX can be slow (>30 seconds?!) in determining font metrics
+				// Give it more time rather than failing after 1 second 
+				// Possibly this is only relevant to Qt5
+				GP_SLEEP(0.5);
+				continue;
+#endif
+				return;
+			}
+			while (qt->socket.bytesAvailable() >= (int)sizeof(gp_event_t))
+			{
+				gp_event_t event;
+				qt->socket.read((char*) &event, sizeof(gp_event_t));
+				// Here, we discard other events than fontprops.
+				if ((event.type == GE_fontprops) && (event.par1 > 0) && (event.par2 > 0))
+				{
+					receivedFontProps = true;
+					metric = QPair<int, int>(event.par1, event.par2);
+					fontMetricCache[currentFont] = metric;
+					break;
+				}
+			}
+		}
+		if (waitcount > 0)
+			fprintf(stderr,"\n");
+	}
+
+	term->v_char = qt_oversampling*metric.first;
+	term->h_char = qt_oversampling*metric.second;
+	lastFont = currentFont;
 }
 
 // Called just before a plot is going to be displayed.
 void qt_graphics()
 {
-	qt_out << GEDesactivate;
+	ensureOptionsCreated();
+	qt->out << GEDesactivate;
 	qt_flushOutBuffer();
 	qt_connectToServer();
 
 	// Set text encoding
-	if (!(qt_codec = qt_encodingToCodec(encoding)))
-		qt_codec = QTextCodec::codecForLocale();
+	if (!(qt->codec = qt_encodingToCodec(encoding)))
+		qt->codec = QTextCodec::codecForLocale();
 
 	// Set font
-	qt_currentFontSize = qt_optionFontSize;
-	qt_currentFontName = qt_optionFontName;
+	qt->currentFontSize = qt_optionFontSize;
+	qt->currentFontName = qt_option->FontName;
 
-	// Set plot metrics
-	QFontMetrics metrics(QFont(qt_currentFontName, qt_currentFontSize));
-	term->v_char = qt_oversampling * (metrics.ascent() + metrics.descent());
-	term->h_char = qt_oversampling * metrics.width("0123456789")/10.;
-	term->v_tic = (unsigned int) (term->v_char/2.5);
-	term->h_tic = (unsigned int) (term->v_char/2.5);
+	// Set plot size
 	if (qt_setSize)
 	{
 		term->xmax = qt_oversampling*qt_setWidth;
@@ -352,39 +499,41 @@ void qt_graphics()
 	}
 
 	// Initialize window
-	qt_out << GESetCurrentWindow << qt_optionWindowId;
-	qt_out << GEInitWindow;
-	qt_out << GEActivate;
-	qt_out << GETitle << qt_optionTitle;
-	qt_out << GESetCtrl << qt_optionCtrl;
-	qt_out << GESetWidgetSize << QSize(term->xmax, term->ymax)/qt_oversampling;
+	qt->out << GESetCurrentWindow << qt_optionWindowId;
+	qt->out << GEInitWindow;
+	qt->out << GEActivate;
+	qt->out << GETitle << qt_option->Title;
+	qt->out << GESetCtrl << qt_optionCtrl;
+	qt->out << GESetWidgetSize << QSize(term->xmax, term->ymax)/qt_oversampling;
 	// Initialize the scene
-	qt_out << GESetSceneSize << QSize(term->xmax, term->ymax)/qt_oversampling;
-	qt_out << GEClear;
+	qt->out << GESetSceneSize << QSize(term->xmax, term->ymax)/qt_oversampling;
+	qt->out << GEClear;
 	// Initialize the font
-	qt_out << GESetFont << qt_currentFontName << qt_currentFontSize;
+	qt_sendFont();
+	term->v_tic = (unsigned int) (term->v_char/2.5);
+	term->h_tic = (unsigned int) (term->v_char/2.5);
 }
 
 // Called after plotting is done
 void qt_text()
 {
 	if (qt_optionRaise)
-		qt_out << GERaise;
-	qt_out << GEDone;
+		qt->out << GERaise;
+	qt->out << GEDone;
 	qt_flushOutBuffer();
 }
 
 void qt_text_wrapper()
 {
 	// Remember scale to update the status bar while the plot is inactive
-	qt_out << GEScale;
+	qt->out << GEScale;
 
 	const int axis_order[4] = {FIRST_X_AXIS, FIRST_Y_AXIS, SECOND_X_AXIS, SECOND_Y_AXIS};
 
 	for (int i = 0; i < 4; i++)
 	{
-		qt_out << (axis_array[axis_order[i]].ticmode != NO_TICS); // Axis active or not
-		qt_out << axis_array[axis_order[i]].min;
+		qt->out << (axis_array[axis_order[i]].ticmode != NO_TICS); // Axis active or not
+		qt->out << axis_array[axis_order[i]].min;
 		double lower = double(axis_array[axis_order[i]].term_lower);
 		double scale = double(axis_array[axis_order[i]].term_scale);
 		// Reverse the y axis
@@ -393,8 +542,8 @@ void qt_text_wrapper()
 			lower = term->ymax - lower;
 			scale *= -1;
 		}
-		qt_out << lower/qt_oversamplingF << scale/qt_oversamplingF;
-		qt_out << (axis_array[axis_order[i]].log ? axis_array[axis_order[i]].log_base : 0.);
+		qt->out << lower/qt_oversamplingF << scale/qt_oversamplingF;
+		qt->out << (axis_array[axis_order[i]].log ? axis_array[axis_order[i]].log_base : 0.);
 	}
 
 	qt_text();
@@ -407,55 +556,65 @@ void qt_reset()
 
 void qt_move(unsigned int x, unsigned int y)
 {
-	qt_out << GEMove << qt_termCoordF(x, y);
+	qt->out << GEMove << qt_termCoordF(x, y);
 }
 
 void qt_vector(unsigned int x, unsigned int y)
 {
-	qt_out << GEVector << qt_termCoordF(x, y);
+	qt->out << GEVector << qt_termCoordF(x, y);
 }
-
-bool       qt_enhancedSymbol = false;
-QString    qt_enhancedFontName;
-double     qt_enhancedFontSize;
-double     qt_enhancedBase;
-bool       qt_enhancedWidthFlag;
-bool       qt_enhancedShowFlag;
-int        qt_enhancedOverprint;
-QByteArray qt_enhancedText;
 
 void qt_enhanced_flush()
 {
-	qt_out << GEEnhancedFlush << qt_enhancedFontName << qt_enhancedFontSize
-	       << qt_enhancedBase << qt_enhancedWidthFlag << qt_enhancedShowFlag
-	       << qt_enhancedOverprint << qt_codec->toUnicode(qt_enhancedText);
-	qt_enhancedText.clear();
+	qt->out << GEEnhancedFlush << qt->enhancedFontName << qt->enhancedFontSize
+		<< (int)qt->enhancedFontStyle << (int)qt->enhancedFontWeight
+		<< qt->enhancedBase << qt->enhancedWidthFlag << qt->enhancedShowFlag
+		<< qt->enhancedOverprint 
+		<< qt->codec->toUnicode(qt->enhancedText);
+	qt->enhancedText.clear();
 }
 
 void qt_enhanced_writec(int c)
 {
-	if (qt_enhancedSymbol)
-		qt_enhancedText.append(qt_codec->fromUnicode(qt_symbolToUnicode(c)));
+	if (qt->enhancedSymbol)
+		qt->enhancedText.append(qt->codec->fromUnicode(qt_symbolToUnicode(c)));
 	else
-		qt_enhancedText.append(char(c));
+		qt->enhancedText.append(char(c));
 }
 
 void qt_enhanced_open(char* fontname, double fontsize, double base, TBOOLEAN widthflag, TBOOLEAN showflag, int overprint)
 {
-	qt_enhancedFontName = fontname;
-	if (qt_enhancedFontName.toLower() == "symbol")
+	qt->enhancedFontSize  = fontsize;
+	qt->enhancedBase      = base;
+	qt->enhancedWidthFlag = widthflag;
+	qt->enhancedShowFlag  = showflag;
+	qt->enhancedOverprint = overprint;
+
+	// strip Bold or Italic property out of font name
+	QString tempname = fontname;
+	if (tempname.contains(":italic", Qt::CaseInsensitive))
+		qt->enhancedFontStyle = QFont::StyleItalic;
+	else
+		qt->enhancedFontStyle = QFont::StyleNormal;
+	if (tempname.contains(":bold", Qt::CaseInsensitive))
+		qt->enhancedFontWeight = QFont::Bold;
+	else
+		qt->enhancedFontWeight = QFont::Normal;
+	int sep = tempname.indexOf(":");
+	if (sep >= 0)
+		tempname.truncate(sep);
+	
+	// Blank font name means keep using the previous font
+	if (!tempname.isEmpty())
+		qt->enhancedFontName = tempname;
+
+	if (qt->enhancedFontName.toLower() == "symbol")
 	{
-		qt_enhancedSymbol = true;
-		qt_enhancedFontName = "Sans";
+		qt->enhancedSymbol = true;
+		qt->enhancedFontName = "Sans";
 	}
 	else
-		qt_enhancedSymbol = false;
-
-	qt_enhancedFontSize  = fontsize;
-	qt_enhancedBase      = base;
-	qt_enhancedWidthFlag = widthflag;
-	qt_enhancedShowFlag  = showflag;
-	qt_enhancedOverprint = overprint;
+		qt->enhancedSymbol = false;
 }
 
 void qt_put_text(unsigned int x, unsigned int y, const char* string)
@@ -466,7 +625,7 @@ void qt_put_text(unsigned int x, unsigned int y, const char* string)
 	{
 		/// @todo Symbol font to unicode
 		/// @todo bold, italic
-		qt_out << GEPutText << qt_termCoord(x, y) << qt_codec->toUnicode(string);
+		qt->out << GEPutText << qt_termCoord(x, y) << qt->codec->toUnicode(string);
 		return;
 	}
 
@@ -484,8 +643,8 @@ void qt_put_text(unsigned int x, unsigned int y, const char* string)
 	// terminator of the string, that can only mean that we did find an unmatched
 	// closing brace in the string. We increment past it (else we get stuck
 	// in an infinite loop) and try again.
-	while (*(string = enhanced_recursion((char*)string, TRUE, qt_currentFontName.toUtf8().data(),
-			qt_currentFontSize, 0.0, TRUE, TRUE, 0)))
+	while (*(string = enhanced_recursion((char*)string, TRUE, qt->currentFontName.toUtf8().data(),
+			qt->currentFontSize, 0.0, TRUE, TRUE, 0)))
 	{
 		qt_enhanced_flush();
 		enh_err_check(string); // we can only get here if *str == '}'
@@ -494,7 +653,7 @@ void qt_put_text(unsigned int x, unsigned int y, const char* string)
 		// else carry on and process the rest of the string
 	}
 
-	qt_out << GEEnhancedFinish << qt_termCoord(x, y);
+	qt->out << GEEnhancedFinish << qt_termCoord(x, y);
 }
 
 void qt_linetype(int lt)
@@ -503,7 +662,7 @@ void qt_linetype(int lt)
 		lt = LT_NODRAW; // background color
 
 	if (lt == -1)
-		qt_out << GEPenStyle << Qt::DotLine;
+		qt->out << GEPenStyle << Qt::DotLine;
 	else if (qt_optionDash && lt > 0) {
 		Qt::PenStyle style;
 		style =
@@ -511,53 +670,49 @@ void qt_linetype(int lt)
 			(lt%4 == 2) ? Qt::DashDotLine :
 			(lt%4 == 3) ? Qt::DashDotDotLine :
 			              Qt::SolidLine ;
-		qt_out << GEPenStyle << style;
+		qt->out << GEPenStyle << style;
 		}
 	else
-		qt_out << GEPenStyle << Qt::SolidLine;
+		qt->out << GEPenStyle << Qt::SolidLine;
 
 	if ((lt-1) == LT_BACKGROUND) {
 		/* FIXME: Add parameter to this API to set the background color from the gnuplot end */
-		qt_out << GEBackgroundColor;
+		qt->out << GEBackgroundColor;
 	} else
-		qt_out << GEPenColor << qt_colorList[lt % 9 + 3];
+		qt->out << GEPenColor << qt_colorList[lt % 9 + 3];
 }
 
 int qt_set_font (const char* font)
 {
-	int  qt_previousFontSize = qt_currentFontSize;
-	QString qt_previousFontName = qt_currentFontName;
+	ensureOptionsCreated();
+	int  qt_previousFontSize = qt->currentFontSize;
+	QString qt_previousFontName = qt->currentFontName;
 
 	if (font && (*font))
 	{
 		QStringList list = QString(font).split(',');
 		if (list.size() > 0)
-			qt_currentFontName = list[0];
+			qt->currentFontName = list[0];
 		if (list.size() > 1)
-			qt_currentFontSize = list[1].toInt();
+			qt->currentFontSize = list[1].toInt();
 	} else {
-		qt_currentFontSize = qt_optionFontSize;
-		qt_currentFontName = qt_optionFontName;
+		qt->currentFontSize = qt_optionFontSize;
+		qt->currentFontName = qt_option->FontName;
 	}
 
-	if (qt_currentFontName.isEmpty())
-		qt_currentFontName = qt_optionFontName;
+	if (qt->currentFontName.isEmpty())
+		qt->currentFontName = qt_option->FontName;
 
-	if (qt_currentFontSize <= 0)
-		qt_currentFontSize = qt_optionFontSize;
+	if (qt->currentFontSize <= 0)
+		qt->currentFontSize = qt_optionFontSize;
 
 	/* Optimize by leaving early if there is no change */
-	if (qt_currentFontSize == qt_previousFontSize
-	&&  qt_currentFontName == qt_currentFontName) {
+	if (qt->currentFontSize == qt_previousFontSize
+	&&  qt->currentFontName == qt->currentFontName) {
 		return 1;
 	}
 
-	qt_out << GESetFont << qt_currentFontName << qt_currentFontSize;
-
-	/* Update the font size as seen by the core gnuplot code */
-	QFontMetrics metrics(QFont(qt_currentFontName, qt_currentFontSize));
-	term->v_char = qt_oversampling * (metrics.ascent() + metrics.descent());
-	term->h_char = qt_oversampling * metrics.width("0123456789")/10.;
+	qt_sendFont();
 
 	return 1;
 }
@@ -565,41 +720,41 @@ int qt_set_font (const char* font)
 int qt_justify_text(enum JUSTIFY mode)
 {
 	if (mode == LEFT)
-		qt_out << GETextAlignment << Qt::AlignLeft;
+		qt->out << GETextAlignment << Qt::AlignLeft;
 	else if (mode == RIGHT)
-		qt_out << GETextAlignment << Qt::AlignRight;
+		qt->out << GETextAlignment << Qt::AlignRight;
 	else if (mode == CENTRE)
-		qt_out << GETextAlignment << Qt::AlignCenter;
+		qt->out << GETextAlignment << Qt::AlignCenter;
 
 	return 1; // We can justify
 }
 
 void qt_point(unsigned int x, unsigned int y, int pointstyle)
 {
-	qt_out << GEPoint << qt_termCoordF(x, y) << pointstyle;
+	qt->out << GEPoint << qt_termCoordF(x, y) << pointstyle;
 }
 
 void qt_pointsize(double ptsize)
 {
 	if (ptsize < 0.) ptsize = 1.; // same behaviour as x11 terminal
-	qt_out << GEPointSize << ptsize;
+	qt->out << GEPointSize << ptsize;
 }
 
 void qt_linewidth(double lw)
 {
-	qt_out << GELineWidth << lw;
+	qt->out << GELineWidth << lw;
 }
 
 int qt_text_angle(int angle)
 {
-	qt_out << GETextAngle << double(angle);
+	qt->out << GETextAngle << double(angle);
 	return 1; // 1 means we can rotate
 }
 
 void qt_fillbox(int style, unsigned int x, unsigned int y, unsigned int width, unsigned int height)
 {
-	qt_out << GEBrushStyle << style;
-	qt_out << GEFillBox << QRect(qt_termCoord(x, y + height), QSize(width, height)/qt_oversampling);
+	qt->out << GEBrushStyle << style;
+	qt->out << GEFillBox << QRect(qt_termCoord(x, y + height), QSize(width, height)/qt_oversampling);
 }
 
 int qt_make_palette(t_sm_palette* palette)
@@ -609,22 +764,26 @@ int qt_make_palette(t_sm_palette* palette)
 
 void qt_set_color(t_colorspec* colorspec)
 {
-	if (colorspec->type == TC_LT)
-		qt_linetype(colorspec->lt);
+	if (colorspec->type == TC_LT) {
+		if (colorspec->lt <= LT_NODRAW)
+			qt->out << GEBackgroundColor;
+		else
+			qt->out << GEPenColor << qt_colorList[colorspec->lt % 9 + 3];
+	}
 	else if (colorspec->type == TC_FRAC)
 	{
 		rgb_color rgb;
 		rgb1maxcolors_from_gray(colorspec->value, &rgb);
 		QColor color;
 		color.setRgbF(rgb.r, rgb.g, rgb.b);
-		qt_out << GEPenColor << color;
+		qt->out << GEPenColor << color;
 	}
 	else if (colorspec->type == TC_RGB) {
 		QColor color = QRgb(colorspec->lt);
 		int alpha = (colorspec->lt >> 24) & 0xff;
 		if (alpha > 0)
 			color.setAlpha(255-alpha);
-		qt_out << GEPenColor << color;
+		qt->out << GEPenColor << color;
 	}
 }
 
@@ -634,17 +793,17 @@ void qt_filled_polygon(int n, gpiPoint *corners)
 	for (int i = 0; i < n; i++)
 		polygon << qt_termCoordF(corners[i].x, corners[i].y);
 
-	qt_out << GEBrushStyle << corners->style;
-	qt_out << GEFilledPolygon << polygon;
+	qt->out << GEBrushStyle << corners->style;
+	qt->out << GEFilledPolygon << polygon;
 }
 
 void qt_image(unsigned int M, unsigned int N, coordval* image, gpiPoint* corner, t_imagecolor color_mode)
 {
 	QImage qimage = qt_imageToQImage(M, N, image, color_mode);
-	qt_out << GEImage;
+	qt->out << GEImage;
 	for (int i = 0; i < 4; i++)
-		qt_out << qt_termCoord(corner[i].x, corner[i].y);
-	qt_out << qimage;
+		qt->out << qt_termCoordF(corner[i].x, corner[i].y);
+	qt->out << qimage;
 }
 
 #ifdef USE_MOUSE
@@ -655,76 +814,112 @@ void qt_image(unsigned int M, unsigned int N, coordval* image, gpiPoint* corner,
 // box, with \r separating text above and below the point.
 void qt_put_tmptext(int n, const char str[])
 {
+    if (!qt)
+        return;
+
 	if (n == 0)
-		qt_out << GEStatusText << QString(str);
+		qt->out << GEStatusText << QString(str);
 	else if (n == 1)
-		qt_out << GEZoomStart << QString(str);
+		qt->out << GEZoomStart << QString(str);
 	else if (n == 2)
-		qt_out << GEZoomStop << QString(str);
+		qt->out << GEZoomStop << QString(str);
 
 	qt_flushOutBuffer();
 }
 
 void qt_set_cursor(int c, int x, int y)
 {
+    if (!qt)
+        return;
+
 	// Cancel zoombox when Echap is pressed
 	if (c == 0)
-		qt_out << GEZoomStop << QString();
+		qt->out << GEZoomStop << QString();
 
 	if (c == -4)
-		qt_out << GELineTo << false;
+		qt->out << GELineTo << false;
 	else if (c == -3)
-		qt_out << GELineTo << true;
+		qt->out << GELineTo << true;
 	else if (c == -2) // warp the pointer to the given position
-		qt_out << GEWrapCursor << qt_termCoord(x, y);
+		qt->out << GEWrapCursor << qt_termCoord(x, y);
 	else if (c == -1) // start zooming
-		qt_out << GECursor << Qt::SizeFDiagCursor;
+		qt->out << GECursor << Qt::SizeFDiagCursor;
 	else if (c ==  1) // Rotation
-		qt_out << GECursor << Qt::ClosedHandCursor;
+		qt->out << GECursor << Qt::ClosedHandCursor;
 	else if (c ==  2) // Rescale
-		qt_out << GECursor << Qt::SizeAllCursor;
+		qt->out << GECursor << Qt::SizeAllCursor;
 	else if (c ==  3) // Zoom
-		qt_out << GECursor << Qt::SizeFDiagCursor;
+		qt->out << GECursor << Qt::SizeFDiagCursor;
 	else
-		qt_out << GECursor << Qt::CrossCursor;
+		qt->out << GECursor << Qt::CrossCursor;
 
 	qt_flushOutBuffer();
 }
 
 void qt_set_ruler(int x, int y)
 {
-	qt_out << GERuler << qt_termCoord(x, y);
+	if (!qt)
+		return;
+	qt->out << GERuler << qt_termCoord(x, y);
 	qt_flushOutBuffer();
 }
 
 void qt_set_clipboard(const char s[])
 {
-	qt_out << GECopyClipboard << s;
+	if (!qt)
+		return;
+	qt->out << GECopyClipboard << s;
 	qt_flushOutBuffer();
 }
 #endif // USE_MOUSE
 
-int qt_waitforinput(void)
+
+struct ScopeCounter {
+	ScopeCounter(int & var)
+		: mVar(var)
+	{ mVar++; }
+
+	~ScopeCounter()
+	{ mVar--; }
+private:
+	int& mVar;
+};
+
+
+int qt_waitforinput(int options)
 {
 #ifdef USE_MOUSE
+#ifndef WIN32
 	fd_set read_fds;
+	struct timeval one_msec;
 	int stdin_fd  = fileno(stdin);
-	int socket_fd = qt_socket.socketDescriptor();
+	int socket_fd = qt ? qt->socket.socketDescriptor() : -1;
 
-	if (!qt_initialized || (socket_fd < 0) || (qt_socket.state() != QLocalSocket::ConnectedState))
-		return getchar();
+	if (!qt || (socket_fd < 0) || (qt->socket.state() != QLocalSocket::ConnectedState))
+		return (options == TERM_ONLY_CHECK_MOUSING) ? '\0' : getchar();
 
 	// Gnuplot event loop
 	do
 	{
 		// Watch file descriptors
+		struct timeval *timeout = NULL;
 		FD_ZERO(&read_fds);
 		FD_SET(socket_fd, &read_fds);
 		if (!paused_for_mouse)
 			FD_SET(stdin_fd, &read_fds);
 
+		// When taking input from the console, we are willing to wait
+		// here until the next character is typed.  But if input is from
+		// a script we just want to check for hotkeys or mouse input and
+		// then leave again without waiting on stdin.
+		if (options == TERM_ONLY_CHECK_MOUSING) {
+			timeout = &one_msec;
+			one_msec.tv_sec = 0;
+			one_msec.tv_usec = TERM_EVENT_POLL_TIMEOUT;
+		}
+
 		// Wait for input
-		if (select(socket_fd+1, &read_fds, NULL, NULL, NULL) < 0)
+		if (select(socket_fd+1, &read_fds, NULL, NULL, timeout) < 0)
 		{
 			// Display the error message except when Ctrl + C is pressed
 			if (errno != 4)
@@ -735,15 +930,25 @@ int qt_waitforinput(void)
 		// Terminal event coming
 		if (FD_ISSET(socket_fd, &read_fds))
 		{
-			qt_socket.waitForReadyRead(-1);
-			// Temporary event for mouse move events. If several consecutive move events
-			// are received, only transmit the last one.
+			if (!(qt->socket.waitForReadyRead(-1))) {
+				// Must be a socket error; we need to restart qt_gnuplot
+				qDebug() << "Error: gnuplot_qt socket not responding";
+				qt->gnuplot_qtStarted = false;
+				return '\0';
+			}
+
+			// Temporary event for mouse move events. If several consecutive
+			// move events are received, only transmit the last one.
 			gp_event_t tempEvent;
 			tempEvent.type = -1;
-			while (qt_socket.bytesAvailable() >= sizeof(gp_event_t))
+			if (qt->socket.bytesAvailable() < (int)sizeof(gp_event_t)) {
+				qDebug() << "Error: short read from gnuplot_qt socket";
+				return '\0';
+			}
+			while (qt->socket.bytesAvailable() >= (int)sizeof(gp_event_t))
 			{
 				struct gp_event_t event;
-				qt_socket.read((char*) &event, sizeof(gp_event_t));
+				qt->socket.read((char*) &event, sizeof(gp_event_t));
 				// Delay move events
 				if (event.type == GE_motion)
 					tempEvent = event;
@@ -763,9 +968,169 @@ int qt_waitforinput(void)
 			if (tempEvent.type == GE_motion)
 				qt_processTermEvent(&tempEvent);
 		}
-	} while (paused_for_mouse || (!paused_for_mouse && !FD_ISSET(stdin_fd, &read_fds)));
+
+		else if (options == TERM_ONLY_CHECK_MOUSING) {
+			return '\0';
+		}
+	} while (paused_for_mouse || !FD_ISSET(stdin_fd, &read_fds));
+		return getchar();
+#else // Windows console and wgnuplot
+#ifdef WGP_CONSOLE
+	int fd = fileno(stdin);
 #endif
+	HANDLE h[2];	// list of handles to wait for
+	DWORD idx = 0;	// count of handles to wait for and current index
+	DWORD idx_stdin = -1;	// return value MsgWaitForMultipleObjects for stdin
+	DWORD idx_socket = -1;	// return value MsgWaitForMultipleObjects for the Qt socket
+	DWORD idx_msg = -1;		// return value MsgWaitForMultipleObjects for message queue events
+	int c = NUL;
+	bool waitOK = true;
+	bool quitLoop = false;
+#if 0  // Maybe not necessary after all?
+	static int nrConcurrentCalls = 0;
+	ScopeCounter scopeCounter(nrConcurrentCalls);
+
+	// avoid recursion when check_for_mouse_events() is called as a result of a
+	// keypress sent from Qt
+	if ((nrConcurrentCalls > 1) && (options == TERM_ONLY_CHECK_MOUSING))
+		return NUL;
+#endif
+#ifndef WGP_CONSOLE
+	if (options != TERM_ONLY_CHECK_MOUSING)
+		TextStartEditing(&textwin);
+#endif
+
+	// stdin or console
+	if (options != TERM_ONLY_CHECK_MOUSING) { // NOTE: change this if used also for the caca terminal
+#ifdef WGP_CONSOLE
+		if (!isatty(fd))
+			h[0] = CreateThread(NULL, 0, stdin_pipe_reader, NULL, 0, NULL);
+		else
+#endif
+			h[0] = GetStdHandle(STD_INPUT_HANDLE);
+		if (h[0] != NULL)
+			idx_stdin = WAIT_OBJECT_0 + idx++;
+	}
+
+	// Named pipe of QLocalSocket
+	if (qt != NULL) {
+		h[idx] = (HANDLE) qt->socket.socketDescriptor();
+		DWORD flags;
+		if (GetHandleInformation(h[idx], &flags) == 0)
+			fprintf(stderr, "Error: QtLocalSocket handle is invalid\n");
+		else
+			idx_socket = WAIT_OBJECT_0 + idx++;
+	}
+
+	// Windows Messages
+	idx_msg = WAIT_OBJECT_0 + idx; // do not increment count
+
+	// Process any pending message queue events
+	WinMessageLoop();
+
+	do {
+		DWORD waitResult = -1;
+		
+#ifndef WGP_CONSOLE
+		// Process pending key events of the text console
+		if (kbhit() && (options != TERM_ONLY_CHECK_MOUSING))
+			waitResult = idx_msg;
+#endif
+
+		// Process pending qt events
+		if ((idx_socket != -1) && // (qt != NULL)) &&
+			(qt->socket.waitForReadyRead(0)) && (qt->socket.bytesAvailable() >= (int)sizeof(gp_event_t)))
+			waitResult = idx_socket; // data already available
+		
+		// Wait for a new event 
+		if ((waitResult == -1) && (options != TERM_ONLY_CHECK_MOUSING))
+			waitResult = MsgWaitForMultipleObjects(idx, h, FALSE, INFINITE, QS_ALLINPUT);  // wait for new data
+		
+		if ((waitResult == idx_stdin) && (idx_stdin != -1)) { // console windows or caca terminal (TBD)
+#ifdef WGP_CONSOLE
+			if (!isatty(fd)) {
+				DWORD dw;
+				GetExitCodeThread(h, &dw);
+				CloseHandle(h);
+				c = dw;
+				quitLoop = true;
+			} else 
+#endif
+			{
+				c = ConsoleReadCh();
+				if (c != NUL)
+					quitLoop = true;
+				// Otherwise, this wasn't a key down event and we cycle again
+			}
+
+		} else if ((waitResult == idx_socket) && (idx_socket != -1)) { // qt terminal
+			qt->socket.waitForReadyRead(0);
+			// Temporary event for mouse move events. If several consecutive move events
+			// are received, only transmit the last one.
+			gp_event_t tempEvent;
+			tempEvent.type = -1;
+			while (qt->socket.bytesAvailable() >= (int)sizeof(gp_event_t)) {
+				struct gp_event_t event;
+				qt->socket.read((char*) &event, sizeof(gp_event_t));
+				// Delay move events
+				if (event.type == GE_motion)
+					tempEvent = event;
+				// Other events. Replay the last move event if present
+				else {
+					if (tempEvent.type == GE_motion) {
+						qt_processTermEvent(&tempEvent);
+						tempEvent.type = -1;
+					}
+					if (qt_processTermEvent(&event)) {
+						c = NUL; // exit from paused_for_mouse
+						quitLoop = true;
+					}
+				}
+			}
+			// Replay move event
+			if (tempEvent.type == GE_motion)
+				qt_processTermEvent(&tempEvent);
+
+		} else if (waitResult == idx_msg) {	// Text window, windows and wxt terminals
+			// process windows message queue events
+			WinMessageLoop();
+			if (options == TERM_ONLY_CHECK_MOUSING) {
+				quitLoop = true;
+			} else {
+#ifdef WGP_CONSOLE
+				if (ctrlc_flag) {
+					c = '\r';
+					quitLoop = true;
+				}
+#else
+				// get key from text window if available
+				if (kbhit()) {
+					c = getchar();
+					quitLoop = true;
+				}
+#endif
+			}
+
+		} else { // Time-out or Error
+			waitOK = false;
+			quitLoop = true;
+		}
+	} while (!quitLoop);
+
+
+#ifndef WGP_CONSOLE
+	if (options != TERM_ONLY_CHECK_MOUSING)
+		TextStopEditing(&textwin);
+	
+	// This happens if neither the qt queue is alive, nor there is a console window.
+	if ((options != TERM_ONLY_CHECK_MOUSING) && !waitOK)
+		return getchar();
+#endif
+	return c;
+#endif // WIN32
+#else
 	return getchar();
+#endif // USE_MOUSE
 }
 
 /*-------------------------------------------------------
@@ -776,13 +1141,18 @@ void qt_atexit()
 {
 	if (qt_optionPersist || persist_cl)
 	{
-		qt_out << GEDesactivate;
-		qt_out << GEPersist;
+		qt->out << GEDesactivate;
+		qt->out << GEPersist;
 	}
 	else
-		qt_out << GEExit;
+		qt->out << GEExit;
 	qt_flushOutBuffer();
-	qt_initialized = false;
+        
+        delete qt;
+        qt = NULL;
+
+	delete qt_option;
+	qt_option = NULL;
 }
 
 /*-------------------------------------------------------
@@ -837,6 +1207,7 @@ static struct gen_table qt_opts[] = {
 // term_options[] is used by the save command.  Use options_null() if no options are available." *
 void qt_options()
 {
+	ensureOptionsCreated();
 	char *s = NULL;
 	QString fontSettings;
 	bool duplication = false;
@@ -864,7 +1235,7 @@ void qt_options()
 			if (!(s = try_to_get_string()))
 				int_error(c_token, "widget: expecting string");
 			if (*s)
-				qt_optionWidget = QString(s);
+				qt_option->Widget = QString(s);
 			free(s);
 			break;
 		case QT_FONT:
@@ -876,7 +1247,7 @@ void qt_options()
 				fontSettings = QString(s);
 				QStringList list = fontSettings.split(',');
 				if ((list.size() > 0) && !list[0].isEmpty())
-					qt_optionFontName = list[0];
+					qt_option->FontName = list[0];
 				if ((list.size() > 1) && (list[1].toInt() > 0))
 					qt_optionFontSize = list[1].toInt();
 			}
@@ -932,7 +1303,7 @@ void qt_options()
 			if (!(s = try_to_get_string()))
 				int_error(c_token, "title: expecting string");
 			if (*s)
-				qt_optionTitle = qt_codec->toUnicode(s);
+				qt_option->Title = qt_encodingToCodec(encoding)->toUnicode(s);
 			free(s);
 			break;
 		case QT_CLOSE:
@@ -954,7 +1325,7 @@ void qt_options()
 		case QT_OTHER:
 		default:
 			qt_optionWindowId = int_expression();
-			qt_optionWidget = "";
+			qt_option->Widget = "";
 			if (set_number) duplication = true;
 			set_number = true;
 			break;
@@ -968,13 +1339,13 @@ void qt_options()
 	QString termOptions = QString::number(qt_optionWindowId);
 
 	/* Initialize user-visible font setting */
-	fontSettings = qt_optionFontName + "," + QString::number(qt_optionFontSize);
+	fontSettings = qt_option->FontName + "," + QString::number(qt_optionFontSize);
 
 	if (set_title)
 	{
-		termOptions += " title \"" + qt_optionTitle + '"';
-		if (qt_initialized)
-			qt_out << GETitle << qt_optionTitle;
+		termOptions += " title \"" + qt_option->Title + '"';
+		if (qt)
+			qt->out << GETitle << qt_option->Title;
 	}
 
 	if (set_size)
@@ -986,15 +1357,15 @@ void qt_options()
 		qt_setHeight = qt_optionHeight;
 	}
 
-	if (set_enhanced) termOptions +=  qt_optionEnhanced ? " enhanced" : " noenhanced";
+	if (set_enhanced) termOptions += qt_optionEnhanced ? " enhanced" : " noenhanced";
 	                  termOptions += " font \"" + fontSettings + '"';
 	if (set_dash)     termOptions += qt_optionDash ? " dashed" : " solid";
-	if (set_widget)   termOptions += " widget \"" + qt_optionWidget + '"';
+	if (set_widget)   termOptions += " widget \"" + qt_option->Widget + '"';
 	if (set_persist)  termOptions += qt_optionPersist ? " persist" : " nopersist";
 	if (set_raise)    termOptions += qt_optionRaise ? " raise" : " noraise";
 	if (set_ctrl)     termOptions += qt_optionCtrl ? " ctrl" : " noctrl";
 
-	if (set_close && qt_initialized) qt_out << GECloseWindow << qt_optionWindowId;
+	if (set_close && qt) qt->out << GECloseWindow << qt_optionWindowId;
 
 	/// @bug change Utf8 to local encoding
 	strncpy(term_options, termOptions.toUtf8().data(), MAX_LINE_LEN);
@@ -1003,23 +1374,32 @@ void qt_options()
 void qt_layer( t_termlayer syncpoint )
 {
     static int current_plotno = 0;
+	if (!qt)
+		return;
 
     /* We must ignore all syncpoints that we don't recognize */
     switch (syncpoint) {
 	case TERM_LAYER_BEFORE_PLOT:
 		current_plotno++;
-		qt_out << GEPlotNumber << current_plotno; break;
+		qt->out << GEPlotNumber << current_plotno; break;
 	case TERM_LAYER_AFTER_PLOT:
-		qt_out << GEPlotNumber << 0; break;
-	case TERM_LAYER_RESET:
+		qt->out << GEAfterPlot; break;
 	case TERM_LAYER_RESET_PLOTNO:
-		if (!multiplot) current_plotno = 0; break;
+		// FIXME: This should handle the case of a multiplot with opaque keys
+		// by resetting plotno to that of the 1st plot in the current panel.
+		// For the non-multiplot case that's 0, so we can just fall through.
+	case TERM_LAYER_RESET:
+		if (!multiplot) {
+			current_plotno = 0;
+			qt->out << GEPlotNumber << 0;
+		}
+		break;
 	case TERM_LAYER_BEGIN_KEYSAMPLE:
-		qt_out << GELayer << QTLAYER_BEGIN_KEYSAMPLE; break;
+		qt->out << GELayer << QTLAYER_BEGIN_KEYSAMPLE; break;
 	case TERM_LAYER_END_KEYSAMPLE:
-		qt_out << GELayer << QTLAYER_END_KEYSAMPLE; break;
+		qt->out << GELayer << QTLAYER_END_KEYSAMPLE; break;
 	case TERM_LAYER_BEFORE_ZOOM:
-		qt_out << GELayer << QTLAYER_BEFORE_ZOOM; break;
+		qt->out << GELayer << QTLAYER_BEFORE_ZOOM; break;
     	default:
 		break;
     }
@@ -1028,5 +1408,24 @@ void qt_layer( t_termlayer syncpoint )
 void qt_hypertext( int type, const char *text )
 {
 	if (type == TERM_HYPERTEXT_TOOLTIP)
-		qt_out << GEHypertext << qt_codec->toUnicode(text);
+		qt->out << GEHypertext << qt->codec->toUnicode(text);
+}
+
+#ifdef EAM_BOXED_TEXT
+void qt_boxed_text(unsigned int x, unsigned int y, int option)
+{
+	qt->out << GETextBox << qt_termCoordF(x, y) << option;
+}
+#endif
+
+void qt_modify_plots(unsigned int ops)
+{
+	if ((ops & MODPLOTS_INVERT_VISIBILITIES) == MODPLOTS_INVERT_VISIBILITIES) {
+		qt->out << GEModPlots << QTMODPLOTS_INVERT_VISIBILITIES;
+	} else if (ops & MODPLOTS_SET_VISIBLE) {
+		qt->out << GEModPlots << QTMODPLOTS_SET_VISIBLE;
+	} else if (ops & MODPLOTS_SET_INVISIBLE) {
+		qt->out << GEModPlots << QTMODPLOTS_SET_INVISIBLE;
+	}
+	qt_flushOutBuffer();
 }

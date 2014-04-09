@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_term.h,v 1.20 2013/02/19 05:30:38 sfeam Exp $
+ * $Id: wxt_term.h,v 1.23 2013/08/23 18:56:32 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_term.h */
@@ -76,7 +76,7 @@ void wxt_pointsize(double ptsize);
 void wxt_image(unsigned int M, unsigned int N, coordval * image, gpiPoint * corner, t_imagecolor color_mode);
 
 # ifdef USE_MOUSE
-int wxt_waitforinput(void);
+int wxt_waitforinput(int);
 void wxt_put_tmptext(int, const char str[]);
 void wxt_set_ruler(int x, int y);
 void wxt_set_cursor(int, int, int);
@@ -92,6 +92,12 @@ void wxt_enhanced_open(char* fontname, double fontsize, double base, TBOOLEAN wi
 
 void wxt_layer(t_termlayer layer);
 void wxt_hypertext(int type, const char *text);
+
+#ifdef EAM_BOXED_TEXT
+void wxt_boxed_text(unsigned int x, unsigned int y, int option);
+#endif
+
+void wxt_modify_plots(unsigned int);
 
 void wxt_raise_terminal_window __PROTO((int));
 void wxt_raise_terminal_group __PROTO((void));

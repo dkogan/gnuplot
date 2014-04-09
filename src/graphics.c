@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graphics.c,v 1.419 2013/04/07 17:20:33 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graphics.c,v 1.446 2014/03/19 17:30:33 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graphics.c */
@@ -101,9 +101,7 @@ static void plot_boxes __PROTO((struct curve_points * plot, int xaxis_y));
 static void plot_filledcurves __PROTO((struct curve_points * plot));
 static void finish_filled_curve __PROTO((int, gpiPoint *, struct curve_points *));
 static void plot_betweencurves __PROTO((struct curve_points * plot));
-static void fill_missing_corners __PROTO((gpiPoint *corners, int *points, int exit, int reentry, int updown, int leftright));
 static void fill_between __PROTO((double, double, double, double, double, double, double, double, struct curve_points *));
-static TBOOLEAN bound_intersect __PROTO((struct coordinate GPHUGE * points, int i, double *ex, double *ey, filledcurves_opts *filledcurves_options));
 static void plot_vectors __PROTO((struct curve_points * plot));
 static void plot_f_bars __PROTO((struct curve_points * plot));
 static void plot_c_bars __PROTO((struct curve_points * plot));
@@ -115,23 +113,18 @@ static void place_labels __PROTO((struct text_label * listhead, int layer, TBOOL
 static void place_arrows __PROTO((int layer));
 static void place_grid __PROTO((void));
 static void place_raxis __PROTO((void));
+static void place_parallel_axes __PROTO((struct curve_points *plots, int pcount, int layer));
 
 static void plot_steps __PROTO((struct curve_points * plot));	/* JG */
 static void plot_fsteps __PROTO((struct curve_points * plot));	/* HOE */
 static void plot_histeps __PROTO((struct curve_points * plot));	/* CAC */
-static void histeps_horizontal __PROTO((int *xl, int *yl, double x1, double x2, double y));	/* CAC */
-static void histeps_vertical __PROTO((int *xl, int *yl, double x, double y1, double y2));	/* CAC */
 
 static int edge_intersect __PROTO((struct coordinate GPHUGE * points, int i, double *ex, double *ey));
-static void edge_intersect_steps __PROTO((struct coordinate GPHUGE * points, int i, double *ex, double *ey));	/* JG */
-static void edge_intersect_fsteps __PROTO((struct coordinate GPHUGE * points, int i, double *ex, double *ey));	/* HOE */
 static TBOOLEAN two_edge_intersect __PROTO((struct coordinate GPHUGE * points, int i, double *lx, double *ly));
-static TBOOLEAN two_edge_intersect_steps __PROTO((struct coordinate GPHUGE * points, int i, double *lx, double *ly));	/* JG */
-static TBOOLEAN two_edge_intersect_fsteps __PROTO((struct coordinate GPHUGE * points, int i, double *lx, double *ly));
 
 /* HBB 20010118: these should be static, but can't --- HP-UX assembler bug */
-void ytick2d_callback __PROTO((AXIS_INDEX, double place, char *text, struct lp_style_type grid, struct ticmark *userlabels));
-void xtick2d_callback __PROTO((AXIS_INDEX, double place, char *text, struct lp_style_type grid, struct ticmark *userlabels));
+void ytick2d_callback __PROTO((AXIS_INDEX, double place, char *text, int ticlevel, struct lp_style_type grid, struct ticmark *userlabels));
+void xtick2d_callback __PROTO((AXIS_INDEX, double place, char *text, int ticlevel, struct lp_style_type grid, struct ticmark *userlabels));
 int histeps_compare __PROTO((SORTFUNC_ARGS p1, SORTFUNC_ARGS p2));
 
 static void get_arrow __PROTO((struct arrow_def* arrow, int* sx, int* sy, int* ex, int* ey));
@@ -148,6 +141,8 @@ static void plot_circles __PROTO((struct curve_points *plot));
 static void plot_ellipses __PROTO((struct curve_points *plot));
 static void do_rectangle __PROTO((int dimensions, t_object *this_object, int style));
 #endif
+
+static void plot_parallel __PROTO((struct curve_points *plot));
 
 /* for plotting error bars
  * half the width of error bar tic mark
@@ -190,6 +185,11 @@ get_arrow(
     } else if (arrow->type == arrow_end_oriented) {
 	double aspect = (double)term->v_tic / (double)term->h_tic;
 	double radius, junk;
+
+#ifdef WIN32
+	if (strcmp(term->name, "windows") == 0)
+	    aspect = 1.;
+#endif
 	map_position_r(&arrow->end, &radius, &junk, "arrow");
 	*ex = *sx + cos(DEG2RAD * arrow->angle) * radius;
 	*ey = *sy + sin(DEG2RAD * arrow->angle) * radius * aspect;
@@ -247,6 +247,7 @@ place_grid()
 	    tic_hjust = (rotate_tics == TEXT_VERTICAL) ? RIGHT : LEFT;
 	if (R_AXIS.manual_justify)
 	    tic_hjust = R_AXIS.label.pos;
+	tic_direction = 1;
 	gen_tics(POLAR_AXIS, xtick2d_callback);
 	(*t->text_angle) (0);
     }
@@ -385,7 +386,8 @@ place_objects(struct object *listhead, int layer, int dimensions)
 
 	    term_apply_lp_properties(&lpstyle);
 
-	    if (e->center.scalex == screen && e->center.scaley == screen)
+	    if ((e->center.scalex == screen || e->center.scaley == screen) 
+	    ||  (this_object->clip == OBJ_NOCLIP))
 	    	clip_area = &canvas;
 
 	    do_arc((int)x1, (int)y1, radius, e->arc_begin, e->arc_end, style, FALSE);
@@ -400,19 +402,27 @@ place_objects(struct object *listhead, int layer, int dimensions)
 
 	case OBJ_ELLIPSE:
 	{
+	    t_ellipse *e = &this_object->o.ellipse;
+	    BoundingBox *clip_save = clip_area;
+
 	    term_apply_lp_properties(&lpstyle);
 
+	    if ((e->center.scalex == screen || e->center.scaley == screen)
+	    ||  (this_object->clip == OBJ_NOCLIP))
+	    	clip_area = &canvas;
+
 	    if (dimensions == 2)
-		do_ellipse(2, &this_object->o.ellipse, style, TRUE);
+		do_ellipse(2, e, style, TRUE);
 	    else if (splot_map)
-		do_ellipse(3, &this_object->o.ellipse, style, TRUE);
+		do_ellipse(3, e, style, TRUE);
 	    else
 		break;
 
 	    /* Retrace the border if the style requests it */
 	    if (need_fill_border(fillstyle))
-		do_ellipse(dimensions, &this_object->o.ellipse, 0, TRUE);
+		do_ellipse(dimensions, e, 0, TRUE);
 
+	    clip_area = clip_save;
 	    break;
 	}
 
@@ -420,11 +430,11 @@ place_objects(struct object *listhead, int layer, int dimensions)
 	{
 	    term_apply_lp_properties(&lpstyle);
 
-	    do_polygon(dimensions, &this_object->o.polygon, style);
+	    do_polygon(dimensions, &this_object->o.polygon, style, this_object->clip);
 
 	    /* Retrace the border if the style requests it */
 	    if (need_fill_border(fillstyle))
-		    do_polygon(dimensions, &this_object->o.polygon, 0);
+		do_polygon(dimensions, &this_object->o.polygon, 0, this_object->clip);
 
 	    break;
 	}
@@ -532,29 +542,21 @@ do_plot(struct curve_points *plots, int pcount)
     if (grid_layer == 0 || grid_layer == -1)
 	place_grid();
 
-    /* DRAW AXES */
-    /* after grid so that axes linetypes are on top */
-    if (grid_layer == 0 || grid_layer == -1) {
-	x_axis = FIRST_X_AXIS;
-	y_axis = FIRST_Y_AXIS;	/* chose scaling */
+    /* DRAW ZERO AXES and update axis->term_zero */
+    axis_draw_2d_zeroaxis(FIRST_X_AXIS,FIRST_Y_AXIS);
+    axis_draw_2d_zeroaxis(FIRST_Y_AXIS,FIRST_X_AXIS);
+    axis_draw_2d_zeroaxis(SECOND_X_AXIS,SECOND_Y_AXIS);
+    axis_draw_2d_zeroaxis(SECOND_Y_AXIS,SECOND_X_AXIS);
 
-	axis_draw_2d_zeroaxis(FIRST_X_AXIS,FIRST_Y_AXIS);
-	axis_draw_2d_zeroaxis(FIRST_Y_AXIS,FIRST_X_AXIS);
-
-	x_axis = SECOND_X_AXIS;
-	y_axis = SECOND_Y_AXIS;	/* chose scaling */
-
-	axis_draw_2d_zeroaxis(SECOND_X_AXIS,SECOND_Y_AXIS);
-	axis_draw_2d_zeroaxis(SECOND_Y_AXIS,SECOND_X_AXIS);
-    }
+    /* DRAW VERTICAL AXES OF PARALLEL AXIS PLOTS */
+    place_parallel_axes(plots, pcount, LAYER_BACK);
 
     /* DRAW PLOT BORDER */
     if (draw_border)
 	plot_border();
 
     /* Add back colorbox if appropriate */
-    if (is_plot_with_colorbox() && term->set_color
-	&& color_box.layer == LAYER_BACK)
+    if (is_plot_with_colorbox() && color_box.layer == LAYER_BACK)
 	    draw_color_smooth_box(MODE_PLOT);
 
     /* And rectangles */
@@ -577,8 +579,8 @@ do_plot(struct curve_points *plots, int pcount)
     if (key->visible)
 	draw_key( key, key_pass, &xl, &yl );
     SECOND_KEY_PASS:
-	/* This tells the canvas and svg terminals to restart the plot count */
-	/* so that the key titles are in sync with the plots they describe.  */
+	/* This tells the canvas, qt, and svg terminals to restart the plot   */
+	/* count so that key titles are in sync with the plots they describe. */
 	(*t->layer)(TERM_LAYER_RESET_PLOTNO);
 
     /* DRAW CURVES */
@@ -628,13 +630,14 @@ do_plot(struct curve_points *plots, int pcount)
 		struct lp_style_type save_lp = this_plot->lp_properties;
 		for (key_entry = this_plot->labels->next; key_entry;
 		     key_entry = key_entry->next) {
-		    this_plot->lp_properties.l_type = key_entry->tag;
-		    this_plot->fill_properties.fillpattern = key_entry->tag;
+		    int histogram_linetype = key_entry->tag + this_plot->histogram->startcolor;
+		    this_plot->lp_properties.l_type = histogram_linetype;
+		    this_plot->fill_properties.fillpattern = histogram_linetype;
 		    if (key_entry->text) {
 			if (prefer_line_styles)
-			    lp_use_properties(&this_plot->lp_properties, key_entry->tag + 1);
+			    lp_use_properties(&this_plot->lp_properties, histogram_linetype);
 			else
-			    load_linetype(&this_plot->lp_properties, key_entry->tag + 1);
+			    load_linetype(&this_plot->lp_properties, histogram_linetype);
 			do_key_sample(this_plot, key, key_entry->text, xl, yl);
 		    }
 		    if (++key_count >= key_rows) {
@@ -803,6 +806,11 @@ do_plot(struct curve_points *plots, int pcount)
 		break;
 
 #endif
+
+	    case PARALLELPLOT:
+		plot_parallel(this_plot);
+		break;
+
 	    default:
 		int_error(NO_CARET, "unknown plot style");
 	    }
@@ -810,34 +818,13 @@ do_plot(struct curve_points *plots, int pcount)
 
 
 	/* If there are two passes, defer key sample till the second */
+	/* KEY SAMPLES */
 	if (key->front && !key_pass)
 	    ;
 	else if (localkey && this_plot->title && !this_plot->title_is_suppressed) {
 	    /* we deferred point sample until now */
-	    if (this_plot->plot_style == LINESPOINTS
-	         &&  this_plot->lp_properties.p_interval < 0) {
-		if (t->set_color)
-		    (*t->set_color)(&background_fill);
-		(*t->pointsize)(pointsize * pointintervalbox);
-		(*t->point)(xl + key_point_offset, yl, 6);
-		term_apply_lp_properties(&this_plot->lp_properties);
-	    }
-
-	    if (this_plot->plot_style == BOXPLOT) {
-		;	/* Don't draw a sample point in the key */
-
-	    } else if (this_plot->plot_style == DOTS) {
-		if (on_page(xl + key_point_offset, yl))
-		    (*t->point) (xl + key_point_offset, yl, -1);
-
-	    } else if (this_plot->plot_style & PLOT_STYLE_HAS_POINT) {
-		if (this_plot->lp_properties.p_size == PTSZ_VARIABLE)
-		    (*t->pointsize)(pointsize);
-		(t->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
-		if (on_page(xl + key_point_offset, yl))
-		    (*t->point) (xl + key_point_offset, yl, this_plot->lp_properties.p_type);
-		(t->layer)(TERM_LAYER_END_KEYSAMPLE);
-	    }
+	    if (this_plot->plot_style & PLOT_STYLE_HAS_POINT)
+		do_key_sample_point(this_plot, key, xl, yl);
 
 	    if (key->invert)
 		yl = key->bounds.ybot + yl_ref + key_entry_height/2 - yl;
@@ -872,29 +859,25 @@ do_plot(struct curve_points *plots, int pcount)
     if (polar && raxis)
 	place_raxis();
 
-    /* DRAW AXES */
-    /* after grid so that axes linetypes are on top */
+    /* DRAW ZERO AXES */
+    /* redraw after grid so that axes linetypes are on top */
     if (grid_layer == 1) {
-	x_axis = FIRST_X_AXIS;
-	y_axis = FIRST_Y_AXIS;	/* chose scaling */
-
 	axis_draw_2d_zeroaxis(FIRST_X_AXIS,FIRST_Y_AXIS);
 	axis_draw_2d_zeroaxis(FIRST_Y_AXIS,FIRST_X_AXIS);
-
-	x_axis = SECOND_X_AXIS;
-	y_axis = SECOND_Y_AXIS;	/* chose scaling */
-
 	axis_draw_2d_zeroaxis(SECOND_X_AXIS,SECOND_Y_AXIS);
 	axis_draw_2d_zeroaxis(SECOND_Y_AXIS,SECOND_X_AXIS);
     }
+
+    /* DRAW VERTICAL AXES OF PARALLEL AXIS PLOTS */
+    if (parallel_axis_style.layer == LAYER_FRONT)
+	place_parallel_axes(plots, pcount, LAYER_FRONT);
 
     /* REDRAW PLOT BORDER */
     if (draw_border && border_layer == 1)
 	plot_border();
 
     /* Add front colorbox if appropriate */
-    if (is_plot_with_colorbox() && term->set_color
-	&& color_box.layer == LAYER_FRONT)
+    if (is_plot_with_colorbox() && color_box.layer == LAYER_FRONT)
 	    draw_color_smooth_box(MODE_PLOT);
 
     /* And rectangles */
@@ -1048,6 +1031,8 @@ finish_filled_curve(
     gpiPoint *corners,
     struct curve_points *plot)
 {
+    static gpiPoint *clipcorners = NULL;
+    int clippoints;
     filledcurves_opts *filledcurves_options = &plot->filledcurves_options;
     long side = 0;
     int i;
@@ -1150,9 +1135,12 @@ finish_filled_curve(
     if (filledcurves_options->oneside < 0 && side > 0)
 	return;
 
-    /* EAM Mar 2004 - Apply fill style to filled curves */
-    corners->style = style_from_fill(&plot->fill_properties);
-    term->filled_polygon(points, corners);
+    /* EAM Apr 2013 - Use new polygon clipping code */
+    clipcorners = gp_realloc( clipcorners, 2*points*sizeof(gpiPoint), "filledcurve verticess");
+    clip_polygon(corners, clipcorners, points, &clippoints);
+    clipcorners->style = style_from_fill(&plot->fill_properties);
+    if (clippoints > 0)
+	term->filled_polygon(clippoints, clipcorners);
 }
 
 
@@ -1163,18 +1151,9 @@ plot_filledcurves(struct curve_points *plot)
     int x, y;			/* point in terminal coordinates */
     struct termentry *t = term;
     enum coord_type prev = UNDEFINED;	/* type of previous point */
-    double ex, ey;			/* an edge point */
-    double lx[2], ly[2];		/* two edge points */
     int points = 0;			/* how many corners */
     static gpiPoint *corners = 0;	/* array of corners */
     static int corners_allocated = 0;	/* how many allocated */
-
-    /* This set of variables is for tracking closed curve fill areas */
-    int exit_edge = 0;		/* Which edge did an OUTRANGE point exit via? */
-    int reentry_edge = 0;	/* Where did it reenter? */
-    int out_updown = 0;		/* And where has it been in the meantime? */
-    int out_leftright = 0;
-    int first_entry = 0;	/* If the start point of the curve was OUTRANGE */
 
     if (!t->filled_polygon) { /* filled polygons are not available */
 	plot_lines(plot);
@@ -1220,213 +1199,35 @@ plot_filledcurves(struct curve_points *plot)
     for (i = 0; i < plot->p_count; i++) {
 	if (points+2 >= corners_allocated) { /* there are 2 side points */
 	    corners_allocated += 128; /* reallocate more corners */
-	    corners = gp_realloc( corners, corners_allocated*sizeof(gpiPoint), "corners for filledcurves");
+	    corners = gp_realloc( corners, corners_allocated*sizeof(gpiPoint), "filledcurve vertices");
 	}
 	switch (plot->points[i].type) {
-	case INRANGE:{
+	case INRANGE:
+	case OUTRANGE:
 		x = map_x(plot->points[i].x);
 		y = map_y(plot->points[i].y);
-
-		if (prev == INRANGE) {
-		    /* Split this segment if it crosses a bounding line */
-		    if (bound_intersect(plot->points, i, &ex, &ey,
-					&plot->filledcurves_options)) {
-			corners[points].x = map_x(ex);
-			corners[points++].y = map_y(ey);
-			finish_filled_curve(points, corners, plot);
-			points = 0;
-			corners[points].x = map_x(ex);
-			corners[points++].y = map_y(ey);
-		    }
-		    /* vector(x,y) */
-		    corners[points].x = x;
-		    corners[points++].y = y;
-		} else if (prev == OUTRANGE) {
-		    /* from outrange to inrange */
-		    if (clip_fill) {  /* EAM concave bounding curves */
-			reentry_edge = edge_intersect(plot->points, i, &ex, &ey);
-
-			if (!exit_edge)
-			    /* Curve must have started outside the plot area */
-			    first_entry = reentry_edge;
-			else if (reentry_edge != exit_edge)
-			    /* Fill in dummy points at plot corners if the bounding curve */
-			    /* went around the corner while out of range */
-			    fill_missing_corners(corners, &points,
-				exit_edge, reentry_edge, out_updown, out_leftright);
-
-			/* vector(map_x(ex),map_y(ey)); */
-			corners[points].x = map_x(ex);
-			corners[points++].y = map_y(ey);
-			/* vector(x,y); */
-			corners[points].x = x;
-			corners[points++].y = y;
-
-		    } else if (!clip_lines1) {
-			finish_filled_curve(points, corners, plot);
-			points = 0;
-			/* move(x,y) */
-			corners[points].x = x;
-			corners[points++].y = y;
-
-		    } else {
-			finish_filled_curve(points, corners, plot);
-			points = 0;
-			edge_intersect(plot->points, i, &ex, &ey);
-			/* move(map_x(ex),map_y(ey)); */
-			corners[points].x = map_x(ex);
-			corners[points++].y = map_y(ey);
-			/* vector(x,y); */
-			corners[points].x = x;
-			corners[points++].y = y;
-		    }
-		} else {	/* prev == UNDEFINED */
-		    finish_filled_curve(points, corners, plot);
-		    points = 0;
-		    /* move(x,y) */
-		    corners[points].x = x;
-		    corners[points++].y = y;
-		    /* vector(x,y); */
-		    corners[points].x = x;
-		    corners[points++].y = y;
-		}
+		corners[points].x = x;
+		corners[points++].y = y;
 		break;
-	    }
-	case OUTRANGE:{
-		if (clip_fill) {
-		    int where_was_I = clip_point(map_x(plot->points[i].x), map_y(plot->points[i].y));
-		    if (where_was_I & (LEFT_EDGE|RIGHT_EDGE))
-			out_leftright = where_was_I & (LEFT_EDGE|RIGHT_EDGE);
-		    if (where_was_I & (TOP_EDGE|BOTTOM_EDGE))
-			out_updown = where_was_I & (TOP_EDGE|BOTTOM_EDGE);
-		}
-		if (prev == INRANGE) {
-		    /* from inrange to outrange */
-		    if (clip_lines1 || clip_fill) {
-			exit_edge = edge_intersect(plot->points, i, &ex, &ey);
-			/* vector(map_x(ex),map_y(ey)); */
-			corners[points].x = map_x(ex);
-			corners[points++].y = map_y(ey);
-		    }
-		} else if (prev == OUTRANGE) {
-		    /* from outrange to outrange */
-		    if (clip_fill) {
-			if (two_edge_intersect(plot->points, i, lx, ly)) {
-			    coordinate temp;
-
-			    /* vector(map_x(lx[0]),map_y(ly[0])); */
-			    corners[points].x = map_x(lx[0]);
-			    corners[points++].y = map_y(ly[0]);
-
-			    /* Figure out which side we entered by */
-			    temp.x = plot->points[i].x;
-			    temp.y = plot->points[i].y;
-			    plot->points[i].x = lx[1];
-			    plot->points[i].y = ly[1];
-			    reentry_edge = edge_intersect(plot->points, i, &ex, &ey);
-			    plot->points[i].x = temp.x;
-			    plot->points[i].y = temp.y;
-
-			    if (!exit_edge) {
-			    /* Curve must have started outside the plot area */
-				first_entry = reentry_edge;
-			    } else if (reentry_edge != exit_edge) {
-				fill_missing_corners(corners, &points, exit_edge, reentry_edge,
-					out_updown, out_leftright);
-			    }
-			    /* vector(map_x(lx[1]),map_y(ly[1])); */
-			    corners[points].x = map_x(lx[1]);
-			    corners[points++].y = map_y(ly[1]);
-
-			    /* Figure out which side we left by */
-			    temp.x = plot->points[i-1].x;
-			    temp.y = plot->points[i-1].y;
-			    plot->points[i-1].x = lx[0];
-			    plot->points[i-1].y = ly[0];
-			    exit_edge = edge_intersect(plot->points, i, &ex, &ey);
-			    plot->points[i-1].x = temp.x;
-			    plot->points[i-1].y = temp.y;
-			}
-		    }
-		    else if (clip_lines2) {
-			if (two_edge_intersect(plot->points, i, lx, ly)) {
-			    finish_filled_curve(points, corners, plot);
-			    points = 0;
-			    /* move(map_x(lx[0]),map_y(ly[0])); */
-			    corners[points].x = map_x(lx[0]);
-			    corners[points++].y = map_y(ly[0]);
-			    /* vector(map_x(lx[1]),map_y(ly[1])); */
-			    corners[points].x = map_x(lx[1]);
-			    corners[points++].y = map_y(ly[1]);
-			}
-		    }
-		}
-		break;
-	    }
-	case UNDEFINED:{
+	case UNDEFINED:
 		/* UNDEFINED flags a blank line in the input file.
 		 * Unfortunately, it can also mean that the point was undefined.
 		 * Is there a clean way to detect or handle the latter case?
 		 */
 		if (prev != UNDEFINED) {
-		    if (first_entry && first_entry != exit_edge)
-			fill_missing_corners(corners, &points,
-				exit_edge, first_entry, out_updown, out_leftright);
 		    finish_filled_curve(points, corners, plot);
 		    points = 0;
-		    exit_edge = reentry_edge = first_entry = 0;
 		}
 		break;
-	    }
 	default:		/* just a safety */
 		break;
 	}
 	prev = plot->points[i].type;
     }
 
-    if (clip_fill) {   /* Did we finish cleanly, or is there an unresolved corner-crossing? */
-	if (first_entry && first_entry != exit_edge) {
-	    fill_missing_corners(corners, &points, exit_edge, first_entry,
-		out_updown, out_leftright);
-	}
-    }
-
     finish_filled_curve(points, corners, plot);
 }
 
-/*
- * When the bounding curve of a filled area passes through the plot box but
- * exits through a different edge than it entered by, in order to properly
- * fill the enclosed area we must add dummy points at the plot corners.
- */
-static void
-fill_missing_corners(gpiPoint *corners, int *points, int exit, int reentry, int updown, int leftright)
-{
-    if ((exit | reentry) == (LEFT_EDGE | RIGHT_EDGE)) {
-	corners[(*points)].x   = (exit & LEFT_EDGE)
-			? map_x(X_AXIS.min) : map_x(X_AXIS.max);
-	corners[(*points)++].y = (updown & TOP_EDGE)
-			? map_y(Y_AXIS.max) : map_y(Y_AXIS.min);
-	corners[(*points)].x   = (reentry & LEFT_EDGE)
-			? map_x(X_AXIS.min) : map_x(X_AXIS.max);
-	corners[(*points)++].y = (updown & TOP_EDGE)
-			? map_y(Y_AXIS.max) : map_y(Y_AXIS.min);
-    } else  if ((exit | reentry) == (BOTTOM_EDGE | TOP_EDGE)) {
-	corners[(*points)].x   = (leftright & LEFT_EDGE)
-			? map_x(X_AXIS.min) : map_x(X_AXIS.max);
-	corners[(*points)++].y = (exit & TOP_EDGE)
-			? map_y(Y_AXIS.max) : map_y(Y_AXIS.min);
-	corners[(*points)].x   = (leftright & LEFT_EDGE)
-			? map_x(X_AXIS.min) : map_x(X_AXIS.max);
-	corners[(*points)++].y = (reentry & TOP_EDGE)
-			? map_y(Y_AXIS.max) : map_y(Y_AXIS.min);
-    } else {
-	corners[(*points)].x   = (exit | reentry) & LEFT_EDGE
-			? map_x(X_AXIS.min) : map_x(X_AXIS.max);
-	corners[(*points)++].y = (exit | reentry) & TOP_EDGE
-			? map_y(Y_AXIS.max) : map_y(Y_AXIS.min);
-    }
-}
 /*
  * Fill the area between two curves
  */
@@ -1614,107 +1415,73 @@ struct curve_points *plot)
 }
 
 
-/* XXX - JG  */
 /* plot_steps:
  * Plot the curves in STEPS or FILLSTEPS style
+ * Each new value is reached by tracing horizontally to the new x value
+ * and then up/down to the new y value.
  */
 static void
 plot_steps(struct curve_points *plot)
 {
-    int i;			/* point index */
-    int x=0, y=0;		/* point in terminal coordinates */
     struct termentry *t = term;
+    int i;				/* point index */
+    int x=0, y=0;			/* point in terminal coordinates */
     enum coord_type prev = UNDEFINED;	/* type of previous point */
-    double ex, ey;		/* an edge point */
-    double lx[2], ly[2];	/* two edge points */
-    int xprev, yprev;		/* previous point coordinates */
-    int y0;			/* baseline */
+    int xprev, yprev;			/* previous point coordinates */
+    int xleft, xright, ytop, ybot;	/* plot limits in terminal coords */
+    int y0;				/* baseline */
     int style = 0;
 
     /* EAM April 2011:  Default to lines only, but allow filled boxes */
     if ((plot->plot_style & PLOT_STYLE_HAS_FILL) && t->fillbox) {
+	double ey = 0;
 	style = style_from_fill(&plot->fill_properties);
-	if (Y_AXIS.log) {
+	if (Y_AXIS.log)
 	    ey = Y_AXIS.min;
-	} else {
-	    ey = 0;
+	else
 	    cliptorange(ey, Y_AXIS.min, Y_AXIS.max);
-	}
 	y0 = map_y(ey);
     }
+
+    xleft = map_x(X_AXIS.min);
+    xright = map_x(X_AXIS.max); 
+    ybot = map_y(Y_AXIS.min);
+    ytop = map_y(Y_AXIS.max);
 
     for (i = 0; i < plot->p_count; i++) {
 	xprev = x; yprev = y;
 
 	switch (plot->points[i].type) {
 	case INRANGE:
+	case OUTRANGE:
 		x = map_x(plot->points[i].x);
 		y = map_y(plot->points[i].y);
+		if (style)
+		    cliptorange(y, ybot, ytop);
 
-		if (prev == INRANGE) {
-		    if (style) {
-			if (yprev-y0 < 0)
-			    (*t->fillbox)(style, xprev,yprev,(x-xprev),y0-yprev);
-			else
-			    (*t->fillbox)(style, xprev,y0,(x-xprev),yprev-y0);
-		    } else {
-			(*t->vector) (x, yprev);
-			(*t->vector) (x, y);
-		    }
-		} else if (prev == OUTRANGE) {
-		    /* from outrange to inrange */
-		    if (clip_lines1) {	/* find edge intersection */
-			edge_intersect_steps(plot->points, i, &ex, &ey);
-			xprev = map_x(ex);
-			yprev = map_y(ey);
-			if (style) {
-			    if (yprev-y0 < 0)
-				(*t->fillbox)(style, xprev,yprev,(x-xprev),y0-yprev);
-			    else
-				(*t->fillbox)(style, xprev,y0,(x-xprev),yprev-y0);
-			} else {
-			    (*t->move) (xprev,yprev);
-			    (*t->vector) (x, yprev);
-			    (*t->vector) (x, y);
-			}
-		    }
-		} /* remaining case (prev == UNDEFINED) do nothing */
+		if (prev == UNDEFINED)
+		    break;
+		if (style) {
+		    /* We don't yet have a generalized draw_clip_rectangle routine */
+		    int xl = xprev;
+		    int xr = x;
 
-		(*t->move)(x, y);
-		break;
+		    cliptorange(xr, xleft, xright);
+		    cliptorange(xl, xleft, xright);
 
-	case OUTRANGE:
-		if (prev == INRANGE) {
-		    /* from inrange to outrange */
-		    if (clip_lines1) {
-			edge_intersect_steps(plot->points, i, &ex, &ey);
-			x = map_x(ex); y = map_y(ey);
-			if (style) {
-			    (*t->fillbox)(style, xprev,y0,(x-xprev),yprev-y0);
-			} else {
-			    (*t->vector) (x, yprev);
-			    (*t->vector) (x, y);
-			}
-		    }
-		} else if (prev == OUTRANGE) {
-		    /* from outrange to outrange */
-		    if (clip_lines2) {
-			if (two_edge_intersect_steps(plot->points, i, lx, ly)) {
-			    xprev = map_x(lx[0]);
-			    yprev = map_y(ly[0]);
-			    x = map_x(lx[1]);
-			    y = map_y(ly[1]);
-			    if (style) {
-				(*t->fillbox)(style, xprev,y0,(x-xprev),yprev-y0);
-			    } else {
-				(*t->move) (xprev, yprev);
-				(*t->vector) (x, yprev);
-				(*t->vector) (x, y);
-			    }
-			}
-		    }
+		    /* Entire box is out of range on x */
+		    if (xr == xl && (xr == xleft || xr == xright))
+			break;
+
+		    if (yprev - y0 < 0)
+			(*t->fillbox)(style, xl, yprev, (xr-xl), y0-yprev);
+		    else
+			(*t->fillbox)(style, xl, y0, (xr-xl), yprev-y0);
+		} else {
+		    draw_clip_line(xprev, yprev, x, yprev);
+		    draw_clip_line(x, yprev, x, y);
 		}
-		(*t->move)(x, y);
+
 		break;
 
 	default:		/* just a safety */
@@ -1725,71 +1492,35 @@ plot_steps(struct curve_points *plot)
     }
 }
 
-/* XXX - HOE  */
 /* plot_fsteps:
- * Plot the curves in STEPS style by step on forward yvalue
+ * Each new value is reached by tracing up/down to the new y value
+ * and then horizontally to the new x value.
  */
 static void
 plot_fsteps(struct curve_points *plot)
 {
     int i;			/* point index */
     int x=0, y=0;		/* point in terminal coordinates */
-    struct termentry *t = term;
-    enum coord_type prev = UNDEFINED;	/* type of previous point */
-    double ex, ey;		/* an edge point */
-    double lx[2], ly[2];	/* two edge points */
     int xprev, yprev;		/* previous point coordinates */
+    enum coord_type prev = UNDEFINED;	/* type of previous point */
 
     for (i = 0; i < plot->p_count; i++) {
 	xprev = x; yprev = y;
 
 	switch (plot->points[i].type) {
 	case INRANGE:
+	case OUTRANGE:
 		x = map_x(plot->points[i].x);
 		y = map_y(plot->points[i].y);
 
 		if (prev == INRANGE) {
-		    (*t->vector) (xprev, y);
-		    (*t->vector) (x, y);
+		    draw_clip_line(xprev, yprev, xprev, y);
+		    draw_clip_line(xprev, y, x, y);
 		} else if (prev == OUTRANGE) {
-		    /* from outrange to inrange */
-		    if (clip_lines1) {	/* find edge intersection */
-			edge_intersect_fsteps(plot->points, i, &ex, &ey);
-			xprev = map_x(ex);
-			yprev = map_y(ey);
-			(*t->move) (xprev, yprev);
-			(*t->vector) (xprev, y);
-			(*t->vector) (x, y);
-		    }
+		    draw_clip_line(xprev, yprev, xprev, y);
+		    draw_clip_line(xprev, y, x, y);
 		} /* remaining case (prev == UNDEFINED) do nothing */
 
-		(*t->move)(x, y);
-		break;
-
-	case OUTRANGE:
-		if (prev == INRANGE) {
-		    /* from inrange to outrange */
-		    if (clip_lines1) {
-			edge_intersect_fsteps(plot->points, i, &ex, &ey);
-			x = map_x(ex);  y = map_y(ey);
-			(*t->vector) (xprev, y);
-			(*t->vector) (x, y);
-		    }
-		} else if (prev == OUTRANGE) {
-		    /* from outrange to outrange */
-		    if (clip_lines2) {
-			if (two_edge_intersect_fsteps(plot->points, i, lx, ly)) {
-			    xprev = map_x(lx[0]);
-			    yprev = map_y(ly[0]);
-			    x = map_x(lx[1]);
-			    y = map_y(ly[1]);
-			    (*t->move) (xprev, yprev);
-			    (*t->vector) (xprev, y);
-			    (*t->vector) (x, y);
-			}
-		    }
-		}
-		(*t->move)(x, y);
 		break;
 
 	default:		/* just a safety */
@@ -1810,8 +1541,8 @@ static struct curve_points *histeps_current_plot;
 int
 histeps_compare(SORTFUNC_ARGS p1, SORTFUNC_ARGS p2)
 {
-    double x1=histeps_current_plot->points[*(int *)p1].x;
-    double x2=histeps_current_plot->points[*(int *)p2].x;
+    double x1 = histeps_current_plot->points[*(int *)p1].x;
+    double x2 = histeps_current_plot->points[*(int *)p2].x;
 
     if (x1 < x2)
 	return -1;
@@ -1827,8 +1558,7 @@ static void
 plot_histeps(struct curve_points *plot)
 {
     int i;			/* point index */
-    int xl, yl;			/* cursor position in terminal coordinates */
-    struct termentry *t = term;
+    int x1m, y1m, x2m, y2m;	/* mapped coordinates */
     double x, y, xn, yn;	/* point position */
     double y_null;		/* y coordinate of histogram baseline */
     int *gl, goodcount;		/* array to hold list of valid points */
@@ -1869,19 +1599,18 @@ plot_histeps(struct curve_points *plot)
     x = (3.0 * plot->points[gl[0]].x - plot->points[gl[1]].x) / 2.0;
     y = y_null;
 
-    xl = map_x(x);
-    yl = map_y(y);
-
-    if (!clip_point(xl,yl))
-	(*t->move) (xl, yl);
-
     for (i = 0; i < goodcount - 1; i++) {	/* loop over all points except last  */
 	yn = plot->points[gl[i]].y;
 	if ((Y_AXIS.log) && yn < y_null)
 	    yn = y_null;
 	xn = (plot->points[gl[i]].x + plot->points[gl[i + 1]].x) / 2.0;
-	histeps_vertical(&xl, &yl, x, y, yn);
-	histeps_horizontal(&xl, &yl, x, xn, yn);
+
+	x1m = map_x(x);
+	x2m = map_x(xn);
+	y1m = map_y(y);
+	y2m = map_y(yn);
+	draw_clip_line(x1m, y1m, x1m, y2m);
+	draw_clip_line(x1m, y2m, x2m, y2m);
 
 	x = xn;
 	y = yn;
@@ -1889,63 +1618,17 @@ plot_histeps(struct curve_points *plot)
 
     yn = plot->points[gl[i]].y;
     xn = (3.0 * plot->points[gl[i]].x - plot->points[gl[i - 1]].x) / 2.0;
-    histeps_vertical(&xl, &yl, x, y, yn);
-    histeps_horizontal(&xl, &yl, x, xn, yn);
-    histeps_vertical(&xl, &yl, xn, yn, y_null);
+
+    x1m = map_x(x);
+    x2m = map_x(xn);
+    y1m = map_y(y);
+    y2m = map_y(yn);
+    draw_clip_line(x1m, y1m, x1m, y2m);
+    draw_clip_line(x1m, y2m, x2m, y2m);
+    draw_clip_line(x2m, y2m, x2m, map_y(y_null));
 
     free(gl);
 }
-
-/* CAC
- * Draw vertical line for the histeps routine.
- * Performs clipping.
- */
-static void
-histeps_vertical(
-    int *cur_x, int *cur_y,	/* keeps track of "cursor" position */
-    double x,
-    double y1, double y2)	/* coordinates of vertical line */
-{
-    struct termentry *t = term;
-    int xm, y1m, y2m;
-
-    xm = map_x(x);
-    y1m = map_y(y1);
-    y2m = map_y(y2);
-    if (clip_line(&xm, &y1m, &xm, &y2m)) {
-	(*t->move)(xm, y1m);
-	(*t->vector)(xm, y2m);
-	*cur_x = xm;
-	*cur_y = y2m;
-    }
-    return;
-}
-
-/* CAC
- * Draw horizontal line for the histeps routine.
- * Performs clipping.
- */
-static void
-histeps_horizontal(
-    int *cur_x, int *cur_y,	/* keeps track of "cursor" position */
-    double x1, double x2,
-    double y)			/* coordinates of vertical line */
-{
-    struct termentry *t = term;
-    int x1m, x2m, ym;
-
-    x1m = map_x(x1);
-    x2m = map_x(x2);
-    ym = map_y(y);
-    if (clip_line(&x1m, &ym, &x2m, &ym)) {
-	(*t->move)(x1m, ym);
-	(*t->vector)(x2m, ym);
-	*cur_x = x2m;
-	*cur_y = ym;
-    }
-    return;
-}
-
 
 /* plot_bars:
  * Plot the curves in ERRORBARS style
@@ -1959,12 +1642,10 @@ plot_bars(struct curve_points *plot)
     double x, y;		/* position of the bar */
     double ylow, yhigh;		/* the ends of the bars */
     double xlow, xhigh;
-    double x1, y1, x2, y2, slope;	/* parameters for polar error bars */
-    unsigned int xM, ylowM, yhighM;	/* the mapped version of above */
-    unsigned int yM, xlowM, xhighM;
-    TBOOLEAN low_inrange, high_inrange;
+    int xM, ylowM, yhighM;	/* the mapped version of above */
+    int yM, xlowM, xhighM;
     int tic = ERRORBARTIC;
-    double halfwidth = 0;		/* Used to calculate full box width */
+    double halfwidth = 0;	/* Used to calculate full box width */
 
     /* Limitation: no boxes with x errorbars */
 
@@ -2013,29 +1694,11 @@ plot_bars(struct curve_points *plot)
 	    /* find low and high points of bar, and check yrange */
 	    yhigh = plot->points[i].yhigh;
 	    ylow = plot->points[i].ylow;
-
-	    high_inrange = inrange(yhigh, Y_AXIS.min, Y_AXIS.max);
-	    low_inrange = inrange(ylow, Y_AXIS.min, Y_AXIS.max);
-
-	    /* compute the plot position of yhigh */
-	    if (high_inrange)
-		yhighM = map_y(yhigh);
-	    else if (samesign(yhigh - Y_AXIS.max, Y_AXIS.max - Y_AXIS.min))
-		yhighM = map_y(Y_AXIS.max);
-	    else
-		yhighM = map_y(Y_AXIS.min);
-
-	    /* compute the plot position of ylow */
-	    if (low_inrange)
-		ylowM = map_y(ylow);
-	    else if (samesign(ylow - Y_AXIS.max, Y_AXIS.max - Y_AXIS.min))
-		ylowM = map_y(Y_AXIS.max);
-	    else
-		ylowM = map_y(Y_AXIS.min);
-
-	    if (!high_inrange && !low_inrange && ylowM == yhighM)
-		/* both out of range on the same side */
-		continue;
+	    yhighM = map_y(yhigh);
+	    ylowM = map_y(ylow);
+	    /* This can happen if the y errorbar on a log-scaled Y goes negative */
+	    if (plot->points[i].ylow == -VERYLARGE)
+		ylowM = map_y(GPMIN(Y_AXIS.min, Y_AXIS.max));
 
 	    /* find low and high points of bar, and check xrange */
 	    xhigh = plot->points[i].xhigh;
@@ -2045,28 +1708,8 @@ plot_bars(struct curve_points *plot)
 		xlowM = map_x(x-halfwidth);
 		xhighM = map_x(x+halfwidth);
 	    } else {
-		high_inrange = inrange(xhigh, X_AXIS.min, X_AXIS.max);
-		low_inrange = inrange(xlow, X_AXIS.min, X_AXIS.max);
-
-		/* compute the plot position of xhigh */
-		if (high_inrange)
-		    xhighM = map_x(xhigh);
-		else if (samesign(xhigh - X_AXIS.max, X_AXIS.max - X_AXIS.min))
-		    xhighM = map_x(X_AXIS.max);
-		else
-		    xhighM = map_x(X_AXIS.min);
-
-		/* compute the plot position of xlow */
-		if (low_inrange)
-		    xlowM = map_x(xlow);
-		else if (samesign(xlow - X_AXIS.max, X_AXIS.max - X_AXIS.min))
-		    xlowM = map_x(X_AXIS.max);
-		else
-		    xlowM = map_x(X_AXIS.min);
-
-		if (!high_inrange && !low_inrange && xlowM == xhighM)
-		    /* both out of range on the same side */
-		    continue;
+		xhighM = map_x(xhigh);
+		xlowM = map_x(xlow);
 	    }
 
 	    /* Check for variable color - June 2010 */
@@ -2082,81 +1725,53 @@ plot_bars(struct curve_points *plot)
 		(void) need_fill_border(&plot->fill_properties);
 
 	    /* by here everything has been mapped */
+	    /* EAM Sep 2013 - use draw_clip_line rather than calculating it here */
 	    if (!polar) {
-		/* HBB 981130: use Igor's routine *only* for polar errorbars */
-		(*t->move) (xM, ylowM);
 		/* draw the main bar */
-		(*t->vector) (xM, yhighM);
+		draw_clip_line(xM, ylowM, xM, yhighM);
+
 		if (bar_size < 0.0) {
 		    /* draw the bottom tic same width as box */
-		    (*t->move) ((unsigned int) (xlowM), ylowM);
-		    (*t->vector) ((unsigned int) (xhighM), ylowM);
+		    draw_clip_line(xlowM, ylowM, xhighM, ylowM);
 		    /* draw the top tic same width as box */
-		    (*t->move) ((unsigned int) (xlowM), yhighM);
-		    (*t->vector) ((unsigned int) (xhighM), yhighM);
+		    draw_clip_line(xlowM, yhighM, xhighM, yhighM);
 		} else if (bar_size > 0.0) {
 		    /* draw the bottom tic */
-		    (*t->move) ((unsigned int) (xM - bar_size * tic), ylowM);
-		    (*t->vector) ((unsigned int) (xM + bar_size * tic), ylowM);
+		    draw_clip_line((int)(xM - bar_size * tic), ylowM,
+				   (int)(xM + bar_size * tic), ylowM);
 		    /* draw the top tic */
-		    (*t->move) ((unsigned int) (xM - bar_size * tic), yhighM);
-		    (*t->vector) ((unsigned int) (xM + bar_size * tic), yhighM);
+		    draw_clip_line((int)(xM - bar_size * tic), yhighM,
+				   (int)(xM + bar_size * tic), yhighM);
 		}
-	    } else {
-		/* HBB 981130: see above */
-		/* The above has been replaced by Igor inorder to get errorbars
-		   coming out in polar mode AND to stop the bar from going
-		   through the symbol */
-		if ((xhighM - xlowM) * (xhighM - xlowM) + (yhighM - ylowM) * (yhighM - ylowM)
-		    > pointsize * tic * pointsize * tic * 4.5) {
-		    /* Only plot the error bar if it is bigger than the
-		     * symbol */
-		    /* The factor of 4.5 should strictly be 4.0, but it looks
-		     * better to drop the error bar if it is only slightly
-		     * bigger than the symbol, Igor. */
-		    if (xlowM == xhighM) {
-			(*t->move) (xM, ylowM);
-			/* draw the main bar to the symbol end */
-			(*t->vector) (xM, (unsigned int) (yM - pointsize * tic));
-			(*t->move) (xM, (unsigned int) (yM + pointsize * tic));
-			/* draw the other part of the main bar */
-			(*t->vector) (xM, yhighM);
-		    } else {
-			(*t->move) (xlowM, ylowM);
-			/* draw the main bar in polar mode. Note that here
-			 * the bar is drawn through the symbol. I tried to
-			 * fix this, but got into trouble with the two bars
-			 * (on either side of symbol) not being perfectly
-			 * parallel due to mapping considerations. Igor
-			 */
-			(*t->vector) (xhighM, yhighM);
-		    }
+	    } else { /* Polar error bars */
+		/* Draw the main bar */
+		draw_clip_line(xlowM, ylowM, xhighM, yhighM);
+
+		/* Draw the whiskers perpendicular to the main bar */
 		    if (bar_size > 0.0) {
-			/* The following attempts to ensure that the tics
-			 * are perpendicular to the error bar, Igor. */
-			/*perpendicular to the main bar */
-			slope = (xlowM * 1.0 - xhighM * 1.0) / (yhighM * 1.0 - ylowM * 1.0 + 1e-10);
-			x1 = xlowM + bar_size * tic / sqrt(1.0 + slope * slope);
-			x2 = xlowM - bar_size * tic / sqrt(1.0 + slope * slope);
-			y1 = slope * (x1 - xlowM) + ylowM;
-			y2 = slope * (x2 - xlowM) + ylowM;
+			int x1, y1, x2, y2;
+			double slope;
+
+			slope = atan2((double)(yhighM - ylowM), (double)(xhighM - xlowM));
+			x1 = xlowM - (bar_size * tic * sin(slope));
+			x2 = xlowM + (bar_size * tic * sin(slope));
+			y1 = ylowM + (bar_size * tic * cos(slope));
+			y2 = ylowM - (bar_size * tic * cos(slope));
 
 			/* draw the bottom tic */
-			(*t->move) ((unsigned int) x1, (unsigned int) y1);
-			(*t->vector) ((unsigned int) x2, (unsigned int) y2);
+			draw_clip_line(x1, y1, x2, y2);
 
-			x1 = xhighM + bar_size * tic / sqrt(1.0 + slope * slope);
-			x2 = xhighM - bar_size * tic / sqrt(1.0 + slope * slope);
-			y1 = slope * (x1 - xhighM) + yhighM;
-			y2 = slope * (x2 - xhighM) + yhighM;
+			x1 += xhighM - xlowM;
+			x2 += xhighM - xlowM;
+			y1 += yhighM - ylowM;
+			y2 += yhighM - ylowM;
 			/* draw the top tic */
-			(*t->move) ((unsigned int) x1, (unsigned int) y1);
-			(*t->vector) ((unsigned int) x2, (unsigned int) y2);
-		    }		/* if error bar is bigger than symbol */
+			draw_clip_line(x1, y1, x2, y2);
+		    }
 		}
-	    }			/* HBB 981130: see above */
-	}			/* for loop */
-    }				/* if yerrorbars OR xyerrorbars OR yerrorlines OR xyerrorlines */
+	}	/* for loop */
+    }		/* if yerrorbars OR xyerrorbars OR yerrorlines OR xyerrorlines */
+
     if ((plot->plot_style == XERRORBARS)
 	|| (plot->plot_style == XYERRORBARS)
 	|| (plot->plot_style == XERRORLINES)
@@ -2177,44 +1792,25 @@ plot_bars(struct curve_points *plot)
 	    /* find low and high points of bar, and check xrange */
 	    xhigh = plot->points[i].xhigh;
 	    xlow = plot->points[i].xlow;
-
-	    high_inrange = inrange(xhigh, X_AXIS.min, X_AXIS.max);
-	    low_inrange = inrange(xlow, X_AXIS.min, X_AXIS.max);
-
-	    /* compute the plot position of xhigh */
-	    if (high_inrange)
-		xhighM = map_x(xhigh);
-	    else if (samesign(xhigh - X_AXIS.max, X_AXIS.max - X_AXIS.min))
-		xhighM = map_x(X_AXIS.max);
-	    else
-		xhighM = map_x(X_AXIS.min);
-
-	    /* compute the plot position of xlow */
-	    if (low_inrange)
-		xlowM = map_x(xlow);
-	    else if (samesign(xlow - X_AXIS.max, X_AXIS.max - X_AXIS.min))
-		xlowM = map_x(X_AXIS.max);
-	    else
-		xlowM = map_x(X_AXIS.min);
-
-	    if (!high_inrange && !low_inrange && xlowM == xhighM)
-		/* both out of range on the same side */
-		continue;
+	    xhighM = map_x(xhigh);
+	    xlowM = map_x(xlow);
+	    /* This can happen if the x errorbar on a log-scaled X goes negative */
+	    if (plot->points[i].xlow == -VERYLARGE)
+		xlowM = map_x(GPMIN(X_AXIS.min, X_AXIS.max));
 
 	    /* Check for variable color - June 2010 */
 	    check_for_variable_color(plot, &plot->varcolor[i]);
 
 	    /* by here everything has been mapped */
-	    (*t->move) (xlowM, yM);
-	    (*t->vector) (xhighM, yM);	/* draw the main bar */
+	    draw_clip_line(xlowM, yM, xhighM, yM);
 	    if (bar_size > 0.0) {
-		(*t->move) (xlowM, (unsigned int) (yM - bar_size * tic));	/* draw the left tic */
-		(*t->vector) (xlowM, (unsigned int) (yM + bar_size * tic));
-		(*t->move) (xhighM, (unsigned int) (yM - bar_size * tic));	/* draw the right tic */
-		(*t->vector) (xhighM, (unsigned int) (yM + bar_size * tic));
+		draw_clip_line( xlowM, (int)(yM - bar_size * tic),
+				xlowM, (int)(yM + bar_size * tic));
+		draw_clip_line( xhighM, (int)(yM - bar_size * tic),
+				xhighM, (int)(yM + bar_size * tic));
 	    }
-	}			/* for loop */
-    }				/* if xerrorbars OR xyerrorbars OR xerrorlines OR xyerrorlines */
+	}	/* for loop */
+    }		/* if xerrorbars OR xyerrorbars OR xerrorlines OR xyerrorlines */
 }
 
 /* plot_boxes:
@@ -2317,6 +1913,7 @@ plot_boxes(struct curve_points *plot, int xaxis_y)
 		if (plot->plot_style == HISTOGRAMS) {
 		    int ix = plot->points[i].x;
 		    int histogram_linetype = i;
+		    struct lp_style_type ls;
 		    int stack = i;
 		    if (plot->histogram->startcolor > 0)
 			histogram_linetype += plot->histogram->startcolor;
@@ -2350,15 +1947,11 @@ plot_boxes(struct curve_points *plot, int xaxis_y)
 		    case HT_STACKED_IN_TOWERS: /* columnstacked */
 			stack = 0;
 			/* Line type (color) must match row number */
-			if (prefer_line_styles) {
-			    struct lp_style_type ls;
-			    lp_use_properties(&ls, histogram_linetype+1);
-			    apply_pm3dcolor(&ls.pm3d_color, term);
-			} else {
-			    struct lp_style_type ls;
+			if (prefer_line_styles)
+			    lp_use_properties(&ls, histogram_linetype);
+			else
 			    load_linetype(&ls, histogram_linetype);
-			    apply_pm3dcolor(&ls.pm3d_color, term);
-			}
+			apply_pm3dcolor(&ls.pm3d_color, term);
 			plot->fill_properties.fillpattern = histogram_linetype;
 			/* Fall through */
 		    case HT_STACKED_IN_LAYERS: /* rowstacked */
@@ -2448,8 +2041,7 @@ plot_boxes(struct curve_points *plot, int xaxis_y)
 
 		if( t->fillbox && plot->fill_properties.border_color.type != TC_DEFAULT) {
 		    (*t->linetype)(plot->lp_properties.l_type);
-		    if (plot->lp_properties.use_palette)
-			apply_pm3dcolor(&plot->lp_properties.pm3d_color,t);
+		    apply_pm3dcolor(&plot->lp_properties.pm3d_color,t);
 		}
 
 		break;
@@ -2480,6 +2072,14 @@ plot_points(struct curve_points *plot)
     int interval = plot->lp_properties.p_interval;
     struct termentry *t = term;
 
+    /* Set whatever we can that applies to every point in the loop */
+    if (plot->lp_properties.p_type == PT_CHARACTER) {
+	ignore_enhanced(TRUE);
+	if (plot->labels->font && plot->labels->font[0])
+	    (*t->set_font) (plot->labels->font);
+	(*t->justify_text) (CENTRE);
+    }
+
     for (i = 0; i < plot->p_count; i++) {
 	if ((plot->plot_style == LINESPOINTS) && (interval) && (i % interval)) {
 	    continue;
@@ -2504,8 +2104,7 @@ plot_points(struct curve_points *plot)
 		/* modification to all terminal drivers. It might be worth it.  */
 		/* term_apply_lp_properties will restore the point type and size*/
 		if (plot->plot_style == LINESPOINTS && interval < 0) {
-		    if (t->set_color)
-			(*t->set_color)(&background_fill);
+		    (*t->set_color)(&background_fill);
 		    (*t->pointsize)(pointsize * pointintervalbox);
 		    (*t->point) (x, y, 6);
 		    term_apply_lp_properties(&(plot->lp_properties));
@@ -2514,9 +2113,24 @@ plot_points(struct curve_points *plot)
 		/* rgb variable  -  color read from data column */
 		check_for_variable_color(plot, &plot->varcolor[i]);
 
-		(*t->point) (x, y, plot->lp_properties.p_type);
+		/* The normal case */
+		if (plot->lp_properties.p_type >= 0)
+		    (*t->point) (x, y, plot->lp_properties.p_type);
+
+		/* Print special character rather than drawn symbol */
+		else if (plot->lp_properties.p_type == PT_CHARACTER) {
+		    apply_pm3dcolor(&(plot->labels->textcolor), t);
+		    (*t->put_text)(x, y, (char *)(&(plot->lp_properties.p_char)));
+		}
 	    }
 	}
+    }
+
+    /* Return to initial state */
+    if (plot->lp_properties.p_type == PT_CHARACTER) {
+	if (plot->labels->font && plot->labels->font[0])
+	    (*t->set_font) ("");
+	ignore_enhanced(FALSE);
     }
 }
 
@@ -2533,6 +2147,10 @@ plot_circles(struct curve_points *plot)
     struct fill_style_type *fillstyle = &plot->fill_properties;
     int style = style_from_fill(fillstyle);
     TBOOLEAN withborder = FALSE;
+    BoundingBox *clip_save = clip_area;
+
+    if (default_circle.clip == OBJ_NOCLIP)
+	clip_area = &canvas;
 
     if (fillstyle->border_color.type != TC_LT
     ||  fillstyle->border_color.lt != LT_NODRAW)
@@ -2561,6 +2179,8 @@ plot_circles(struct curve_points *plot)
 	    }
 	}
     }
+
+    clip_area = clip_save;
 }
 
 /* plot_ellipses:
@@ -2575,6 +2195,10 @@ plot_ellipses(struct curve_points *plot)
     struct fill_style_type *fillstyle = &plot->fill_properties;
     int style = style_from_fill(fillstyle);
     TBOOLEAN withborder = FALSE;
+    BoundingBox *clip_save = clip_area;
+
+    if (default_ellipse.clip == OBJ_NOCLIP)
+	clip_area = &canvas;
 
     if (fillstyle->border_color.type != TC_LT
     ||  fillstyle->border_color.lt != LT_NODRAW)
@@ -2642,7 +2266,7 @@ plot_ellipses(struct curve_points *plot)
 	}
     }
     free(e);
-    /* free(willy); */
+    clip_area = clip_save; 
 }
 #endif
 
@@ -2666,6 +2290,7 @@ plot_dots(struct curve_points *plot)
 	    (*t->point) (x, y, -1);
 	}
     }
+
 }
 
 /* plot_vectors:
@@ -2985,8 +2610,7 @@ plot_c_bars(struct curve_points *plot)
 	&& !( plot->fill_properties.border_color.type == TC_LT &&
 	      plot->fill_properties.border_color.lt == LT_NODRAW)) {
 		(*t->linetype)(plot->lp_properties.l_type);
-		if (plot->lp_properties.use_palette)
-		    apply_pm3dcolor(&plot->lp_properties.pm3d_color,t);
+		apply_pm3dcolor(&plot->lp_properties.pm3d_color,t);
 	}
 
 	/* variable color read from extra data column. June 2010 */
@@ -3088,6 +2712,30 @@ compare_ypoints(SORTFUNC_ARGS arg1, SORTFUNC_ARGS arg2)
     if (p1->y < p2->y)
 	return (-1);
     return (0);
+}
+
+static void
+plot_parallel(struct curve_points *plot)
+{
+    int i, j;
+    int x0, y0, x1, y1;
+
+    for (i = 0; i < plot->p_count; i++) {
+
+	/* rgb variable  -  color read from data column */
+	check_for_variable_color(plot, &plot->varcolor[i]);
+
+	x0 = map_x(1.0);
+	y0 = AXIS_MAP(PARALLEL_AXES+0, plot->z_n[0][i]);
+	for (j = 1; j < plot->n_par_axes; j++) {
+	    x1 = map_x((double)(j+1));
+	    y1 = AXIS_MAP(PARALLEL_AXES+j, plot->z_n[j][i]);
+	    draw_clip_line(x0, y0, x1, y1);
+	    x0 = x1;
+	    y0 = y1;
+	}
+
+    }
 }
 
 int
@@ -3437,225 +3085,6 @@ edge_intersect(
     return 0;
 }
 
-/* XXX - JG  */
-/* single edge intersection algorithm for "steps" curves */
-/*
- * Given two points, one inside and one outside the plot, return
- * the point where an edge of the plot intersects the line segments
- * forming the step between the two points.
- *
- * Recall that if P1 = (x1,y1) and P2 = (x2,y2), the step from
- * P1 to P2 is drawn as two line segments: (x1,y1)->(x2,y1) and
- * (x2,y1)->(x2,y2).
- */
-static void
-edge_intersect_steps(
-    struct coordinate GPHUGE *points, /* the points array */
-    int i,			/* line segment from point i-1 to point i */
-    double *ex, double *ey)	/* the point where it crosses an edge */
-{
-    /* global X_AXIS.min, X_AXIS.max, Y_AXIS.min, X_AXIS.max */
-    double ax = points[i - 1].x;
-    double ay = points[i - 1].y;
-    double bx = points[i].x;
-    double by = points[i].y;
-
-    if (points[i].type == INRANGE) {	/* from OUTRANGE to INRANG */
-	if (inrange(ay, Y_AXIS.min, Y_AXIS.max)) {
-	    *ey = ay;
-	    cliptorange(ax, X_AXIS.min, X_AXIS.max);
-	    *ex = ax;
-	} else {
-	    *ex = bx;
-	    cliptorange(ay, Y_AXIS.min, Y_AXIS.max);
-	    *ey = ay;
-	}
-    } else {			/* from INRANGE to OUTRANGE */
-	if (inrange(bx, X_AXIS.min, X_AXIS.max)) {
-	    *ex = bx;
-	    cliptorange(by, Y_AXIS.min, Y_AXIS.max);
-	    *ey = by;
-	} else {
-	    *ey = ay;
-	    cliptorange(bx, X_AXIS.min, X_AXIS.max);
-	    *ex = bx;
-	}
-    }
-    return;
-}
-
-/* XXX - HOE  */
-/* single edge intersection algorithm for "fsteps" curves */
-/* fsteps means step on forward y-value.
- * Given two points, one inside and one outside the plot, return
- * the point where an edge of the plot intersects the line segments
- * forming the step between the two points.
- *
- * Recall that if P1 = (x1,y1) and P2 = (x2,y2), the step from
- * P1 to P2 is drawn as two line segments: (x1,y1)->(x1,y2) and
- * (x1,y2)->(x2,y2).
- */
-static void
-edge_intersect_fsteps(
-    struct coordinate GPHUGE *points, /* the points array */
-    int i,			/* line segment from point i-1 to point i */
-    double *ex, double *ey)	/* the point where it crosses an edge */
-{
-    /* global X_AXIS.min, X_AXIS.max, Y_AXIS.min, X_AXIS.max */
-    double ax = points[i - 1].x;
-    double ay = points[i - 1].y;
-    double bx = points[i].x;
-    double by = points[i].y;
-
-    if (points[i].type == INRANGE) {	/* from OUTRANGE to INRANG */
-	if (inrange(ax, X_AXIS.min, X_AXIS.max)) {
-	    *ex = ax;
-	    cliptorange(ay, Y_AXIS.min, Y_AXIS.max);
-	    *ey = ay;
-	} else {
-	    *ey = by;
-	    cliptorange(bx, X_AXIS.min, X_AXIS.max);
-	    *ex = bx;
-	}
-    } else {			/* from INRANGE to OUTRANGE */
-	if (inrange(by, Y_AXIS.min, Y_AXIS.max)) {
-	    *ey = by;
-	    cliptorange(bx, X_AXIS.min, X_AXIS.max);
-	    *ex = bx;
-	} else {
-	    *ex = ax;
-	    cliptorange(by, Y_AXIS.min, Y_AXIS.max);
-	    *ey = by;
-	}
-    }
-    return;
-}
-
-/* XXX - JG  */
-/* double edge intersection algorithm for "steps" plot */
-/* Given two points, both outside the plot, return the points where an
- * edge of the plot intersects the line segments forming a step
- * by the two points. There may be zero, one, two, or an infinite number
- * of intersection points. (One means an intersection at a corner, infinite
- * means overlaying the edge itself). We return FALSE when there is nothing
- * to draw (zero intersections), and TRUE when there is something to
- * draw (the one-point case is a degenerate of the two-point case and we do
- * not distinguish it - we draw it anyway).
- *
- * Recall that if P1 = (x1,y1) and P2 = (x2,y2), the step from
- * P1 to P2 is drawn as two line segments: (x1,y1)->(x2,y1) and
- * (x2,y1)->(x2,y2).
- */
-static TBOOLEAN			/* any intersection? */
-two_edge_intersect_steps(
-    struct coordinate GPHUGE *points, /* the points array */
-    int i,			/* line segment from point i-1 to point i */
-    double *lx, double *ly)	/* lx[2], ly[2]: points where it crosses edges */
-{
-    /* global X_AXIS.min, X_AXIS.max, Y_AXIS.min, X_AXIS.max */
-    double ax = points[i - 1].x;
-    double ay = points[i - 1].y;
-    double bx = points[i].x;
-    double by = points[i].y;
-
-    if (GPMAX(ax, bx) < X_AXIS.min || GPMIN(ax, bx) > X_AXIS.max
-	|| GPMAX(ay, by) < Y_AXIS.min || GPMIN(ay, by) > Y_AXIS.max
-	|| (!inrange(ay, Y_AXIS.min, Y_AXIS.max)
-	    && !inrange(bx, X_AXIS.min, X_AXIS.max))
-	) {
-	return (FALSE);
-    } else if (inrange(ay, Y_AXIS.min, Y_AXIS.max)
-	       && inrange(bx, X_AXIS.min, X_AXIS.max)) {
-	/* corner of step inside plotspace */
-	cliptorange(ax, X_AXIS.min, X_AXIS.max);
-	*lx++ = ax;
-	*ly++ = ay;
-
-	cliptorange(by, Y_AXIS.min, Y_AXIS.max);
-	*lx = bx;
-	*ly = by;
-
-	return (TRUE);
-    } else if (inrange(ay, Y_AXIS.min, Y_AXIS.max)) {
-	/* cross plotspace in x-direction */
-	*lx++ = X_AXIS.min;
-	*ly++ = ay;
-	*lx = X_AXIS.max;
-	*ly = ay;
-	return (TRUE);
-    } else if (inrange(ax, X_AXIS.min, X_AXIS.max)) {
-	/* cross plotspace in y-direction */
-	*lx++ = bx;
-	*ly++ = Y_AXIS.min;
-	*lx = bx;
-	*ly = Y_AXIS.max;
-	return (TRUE);
-    } else
-	return (FALSE);
-}
-
-/* XXX - HOE  */
-/* double edge intersection algorithm for "fsteps" plot */
-/* Given two points, both outside the plot, return the points where an
- * edge of the plot intersects the line segments forming a step
- * by the two points. There may be zero, one, two, or an infinite number
- * of intersection points. (One means an intersection at a corner, infinite
- * means overlaying the edge itself). We return FALSE when there is nothing
- * to draw (zero intersections), and TRUE when there is something to
- * draw (the one-point case is a degenerate of the two-point case and we do
- * not distinguish it - we draw it anyway).
- *
- * Recall that if P1 = (x1,y1) and P2 = (x2,y2), the step from
- * P1 to P2 is drawn as two line segments: (x1,y1)->(x1,y2) and
- * (x1,y2)->(x2,y2).
- */
-static TBOOLEAN			/* any intersection? */
-two_edge_intersect_fsteps(
-    struct coordinate GPHUGE *points, /* the points array */
-    int i,			/* line segment from point i-1 to point i */
-    double *lx, double *ly)	/* lx[2], ly[2]: points where it crosses edges */
-{
-    /* global X_AXIS.min, X_AXIS.max, Y_AXIS.min, X_AXIS.max */
-    double ax = points[i - 1].x;
-    double ay = points[i - 1].y;
-    double bx = points[i].x;
-    double by = points[i].y;
-
-    if (GPMAX(ax, bx) < X_AXIS.min || GPMIN(ax, bx) > X_AXIS.max
-	|| GPMAX(ay, by) < Y_AXIS.min || GPMIN(ay, by) > Y_AXIS.max
-	|| (!inrange(by, Y_AXIS.min, Y_AXIS.max)
-	    && !inrange(ax, X_AXIS.min, X_AXIS.max))
-	) {
-	return (FALSE);
-    } else if (inrange(by, Y_AXIS.min, Y_AXIS.max)
-	       && inrange(ax, X_AXIS.min, X_AXIS.max)) {
-	/* corner of step inside plotspace */
-	cliptorange(ay, Y_AXIS.min, Y_AXIS.max);
-	*lx++ = ax;
-	*ly++ = ay;
-
-	cliptorange(bx, X_AXIS.min, X_AXIS.max);
-	*lx = bx;
-	*ly = by;
-
-	return (TRUE);
-    } else if (inrange(by, Y_AXIS.min, Y_AXIS.max)) {
-	/* cross plotspace in x-direction */
-	*lx++ = X_AXIS.min;
-	*ly++ = by;
-	*lx = X_AXIS.max;
-	*ly = by;
-	return (TRUE);
-    } else if (inrange(ax, X_AXIS.min, X_AXIS.max)) {
-	/* cross plotspace in y-direction */
-	*lx++ = ax;
-	*ly++ = Y_AXIS.min;
-	*lx = ax;
-	*ly = Y_AXIS.max;
-	return (TRUE);
-    } else
-	return (FALSE);
-}
 
 /* double edge intersection algorithm */
 /* Given two points, both outside the plot, return
@@ -3871,54 +3300,6 @@ two_edge_intersect(
 }
 
 
-/* EAM April 2004 - If the line segment crosses a bounding line we will
- * interpolate an extra corner and split the filled polygon into two.
- */
-static TBOOLEAN
-bound_intersect(
-struct coordinate GPHUGE *points,
-int i,				/* line segment from point i-1 to point i */
-double *ex, double *ey,		/* the point where it crosses a boundary */
-filledcurves_opts *filledcurves_options)
-{
-    double dx1, dx2, dy1, dy2;
-
-    /* If there are no bounding lines in effect, don't bother */
-    if (!filledcurves_options->oneside)
-	return FALSE;
-
-    switch (filledcurves_options->closeto) {
-	case FILLEDCURVES_ATX1:
-	case FILLEDCURVES_ATX2:
-	    dx1 = filledcurves_options->at - points[i-1].x;
-	    dx2 = filledcurves_options->at - points[i].x;
-	    dy1 = points[i].y - points[i-1].y;
-	    if (dx1*dx2 < 0) {
-		*ex = filledcurves_options->at;
-		*ey = points[i-1].y + dy1 * dx1 / (dx1-dx2);
-		return TRUE;
-	    }
-	    break;
-	case FILLEDCURVES_ATY1:
-	case FILLEDCURVES_ATY2:
-	    dy1 = filledcurves_options->at - points[i-1].y;
-	    dy2 = filledcurves_options->at - points[i].y;
-	    dx1 = points[i].x - points[i-1].x;
-	    if (dy1*dy2 < 0) {
-		*ex = points[i-1].x + dx1 * dy1 / (dy1-dy2);
-		*ey = filledcurves_options->at;
-		return TRUE;
-	    }
-	    break;
-	case FILLEDCURVES_ATXY:
-	default:
-	    break;
-    }
-
-    return FALSE;
-}
-
-
 /* HBB 20010118: all the *_callback() functions made non-static. This
  * is necessary to work around a bug in HP's assembler shipped with
  * HP-UX 10 and higher, if GCC tries to use it */
@@ -3930,15 +3311,14 @@ xtick2d_callback(
     AXIS_INDEX axis,
     double place,
     char *text,
+    int ticlevel,
     struct lp_style_type grid,	/* grid.l_type == LT_NODRAW means no grid */
     struct ticmark *userlabels)	/* User-specified tic labels */
 {
     struct termentry *t = term;
     /* minitick if text is NULL - beware - h_tic is unsigned */
-    int ticsize = tic_direction * (int) t->v_tic * (text ? axis_array[axis].ticscale : axis_array[axis].miniticscale);
+    int ticsize = tic_direction * (int) t->v_tic * TIC_SCALE(ticlevel, axis);
     int x = map_x(place);
-
-    (void) axis;		/* avoid "unused parameter" warning */
 
     /* Skip label if we've already written a user-specified one here */
 #   define MINIMUM_SEPARATION 2
@@ -4033,15 +3413,19 @@ ytick2d_callback(
     AXIS_INDEX axis,
     double place,
     char *text,
+    int ticlevel,
     struct lp_style_type grid,	/* grid.l_type == LT_NODRAW means no grid */
     struct ticmark *userlabels)	/* User-specified tic labels */
 {
     struct termentry *t = term;
     /* minitick if text is NULL - v_tic is unsigned */
-    int ticsize = tic_direction * (int) t->h_tic * (text ? axis_array[axis].ticscale : axis_array[axis].miniticscale);
-    int y = map_y(place);
+    int ticsize = tic_direction * (int) t->h_tic * TIC_SCALE(ticlevel, axis);
+    int y;
 
-    (void) axis;	/* avoid "unused parameter" warning */
+    if (axis >= PARALLEL_AXES)
+	y = AXIS_MAP(axis, place);
+    else
+	y = map_y(place);
 
     /* Skip label if we've already written a user-specified one here */
 #   define MINIMUM_SEPARATION 2
@@ -4355,17 +3739,17 @@ plot_border()
 
 
 void
-init_histogram(struct histogram_style *histogram, char *title)
+init_histogram(struct histogram_style *histogram, text_label *title)
 {
     if (stackheight)
 	free(stackheight);
     stackheight = NULL;
     if (histogram) {
-	memcpy(histogram,&histogram_opts,sizeof(histogram_opts));
-	memset(&(histogram->title), 0, sizeof(text_label));
+	memcpy(histogram, &histogram_opts, sizeof(histogram_opts));
+	memcpy(&histogram->title, title, sizeof(text_label));
+	memset(title, 0, sizeof(text_label));
 	/* Insert in linked list */
 	histogram_opts.next = histogram;
-	histogram->title.text = title;
     }
 }
 
@@ -4374,8 +3758,10 @@ free_histlist(struct histogram_style *hist)
 {
     if (!hist)
 	return;
-    if (hist->title.text)
+    if (hist != &histogram_opts) {
 	free(hist->title.text);
+	free(hist->title.font);
+    }
     if (hist->next) {
 	free_histlist(hist->next);
 	free(hist->next);
@@ -4388,6 +3774,7 @@ place_histogram_titles()
 {
     histogram_style *hist = &histogram_opts;
     unsigned int x, y;
+
     while ((hist = hist->next)) {
 	if (hist->title.text && *(hist->title.text)) {
 	    double xoffset_d, yoffset_d;
@@ -4395,11 +3782,11 @@ place_histogram_titles()
 			   "histogram");
 	    x = map_x((hist->start + hist->end) / 2.);
 	    y = xlabel_y;
+	    /* NB: offset in "newhistogram" is additive with that in "set style hist" */
 	    x += (int)xoffset_d;
 	    y += (int)yoffset_d + 0.25 * term->v_char;
-	    apply_pm3dcolor(&hist->title.textcolor,term);
-	    write_multiline(x, y, hist->title.text,
-			    CENTRE, JUST_BOT, 0, hist->title.font);
+
+	    write_label(x, y, &(hist->title));
 	    reset_textcolor(&hist->title.textcolor,term);
 	}
     }
@@ -4415,9 +3802,9 @@ place_raxis()
 {
 #ifdef EAM_OBJECTS
     t_object raxis_circle = {
-	NULL, 1, 1, OBJ_CIRCLE,	/* link, tag, layer (front), object_type */
+	NULL, 1, 1, OBJ_CIRCLE,	OBJ_CLIP, /* link, tag, layer (front), object_type, clip */
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},
-	{0, LT_BACKGROUND, 0, 0, 0.2, 0.0, FALSE, BACKGROUND_COLORSPEC},
+	{0, LT_BACKGROUND, 0, DASHTYPE_AXIS, 0, 0.2, 0.0, 0, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN},
 	{.circle = {1, {0,0,0,0.,0.,0.}, {graph,0,0,0.02,0.,0.}, 0., 360. }}
     };
 #endif
@@ -4440,6 +3827,50 @@ place_raxis()
 
 }
 
+static void
+place_parallel_axes(struct curve_points *first_plot, int pcount, int layer)
+{
+    int j;
+    int axes_in_use = 0;
+    struct curve_points *plot = first_plot;
+
+    /* Check for use of parallel axes */
+    for (j = 0; j < pcount; j++, plot = plot->next)
+	if (axes_in_use < plot->n_par_axes)
+	    axes_in_use = plot->n_par_axes;
+
+    /* Set up the vertical scales used by AXIS_MAP() */
+    for (j = 0; j < axes_in_use; j++) {
+	axis_revert_range(PARALLEL_AXES+j);
+	axis_array[PARALLEL_AXES+j].term_lower = plot_bounds.ybot;
+	axis_array[PARALLEL_AXES+j].term_scale =
+	    (plot_bounds.ytop - plot_bounds.ybot)
+	    / (axis_array[PARALLEL_AXES+j].max - axis_array[PARALLEL_AXES+j].min);
+
+	FPRINTF((stderr,
+	    "axis p%d: min %g max %g set_min %g set_max %g autoscale %o set_autoscale %o\n",
+	    j, axis_array[PARALLEL_AXES+j].min, axis_array[PARALLEL_AXES+j].max,
+	    axis_array[PARALLEL_AXES+j].set_min, axis_array[PARALLEL_AXES+j].set_max,
+	    axis_array[PARALLEL_AXES+j].autoscale, axis_array[PARALLEL_AXES+j].set_autoscale));
+	setup_tics(PARALLEL_AXES+j, 20);
+    }
+
+    if (parallel_axis_style.layer == LAYER_FRONT && layer == LAYER_BACK)
+	return;
+
+    /* Draw the axis lines */
+    term_apply_lp_properties(&parallel_axis_style.lp_properties);
+    for (j = 0; j < axes_in_use; j++) {
+	int max = AXIS_MAP(PARALLEL_AXES+j, axis_array[PARALLEL_AXES+j].data_max);
+	int min = AXIS_MAP(PARALLEL_AXES+j, axis_array[PARALLEL_AXES+j].data_min);
+	int axis_x = map_x((double)(j+1));
+	draw_clip_line( axis_x, min, axis_x, max );
+    }
+
+    /* Draw the axis tickmarks and labels */
+    for (j = 0; j < axes_in_use; j++)
+	axis_output_tics(PARALLEL_AXES+j, &xtic_y, FIRST_X_AXIS, ytick2d_callback);
+}
 
 /*
  * Label the curve by placing its title at one end of the curve.
@@ -4474,7 +3905,7 @@ attach_title_to_plot(struct curve_points *this_plot, legend_key *key)
 	/* Draw key text in black */
 	(*t->linetype)(LT_BLACK);
 
-    write_multiline(x, y, this_plot->title, 
+    write_multiline(x, y, this_plot->title,
     	(this_plot->title_position > 0) ? LEFT : RIGHT, JUST_TOP, 0, key->font);
 }
 
@@ -4512,12 +3943,14 @@ do_rectangle( int dimensions, t_object *this_object, int style )
 	    y2 = y1 + height;
 	    w = width;
 	    h = height;
-	    if (this_rect->extent.scalex == first_axes
-	    ||  this_rect->extent.scalex == second_axes)
-		clip_x = TRUE;
-	    if (this_rect->extent.scaley == first_axes
-	    ||  this_rect->extent.scaley == second_axes)
-		clip_y = TRUE;
+	    if (this_object->clip == OBJ_CLIP) {
+		if (this_rect->extent.scalex == first_axes
+		    ||  this_rect->extent.scalex == second_axes)
+		    clip_x = TRUE;
+		if (this_rect->extent.scaley == first_axes
+		    ||  this_rect->extent.scaley == second_axes)
+		    clip_y = TRUE;
+	    }
 
 	} else {
 	    if ((dimensions == 2)
@@ -4532,10 +3965,12 @@ do_rectangle( int dimensions, t_object *this_object, int style )
 
 	    if (x1 > x2) {double t=x1; x1=x2; x2=t;}
 	    if (y1 > y2) {double t=y1; y1=y2; y2=t;}
-	    if (this_rect->bl.scalex != screen && this_rect->tr.scalex != screen)
-		clip_x = TRUE;
-	    if (this_rect->bl.scaley != screen && this_rect->tr.scaley != screen)
-		clip_y = TRUE;
+	    if (this_object->clip == OBJ_CLIP) {
+		if (this_rect->bl.scalex != screen && this_rect->tr.scalex != screen)
+		    clip_x = TRUE;
+		if (this_rect->bl.scaley != screen && this_rect->tr.scaley != screen)
+		    clip_y = TRUE;
+	    }
 	}
 
 	/* FIXME - Should there be a generic clip_rectangle() routine?	*/
@@ -4603,7 +4038,6 @@ do_ellipse( int dimensions, t_ellipse *e, int style, TBOOLEAN do_own_mapping )
     double xoff, yoff;
     double junkfoo;
     int junkw, junkh;
-    int xcent, ycent;
     double cosO = cos(DEG2RAD * e->orientation);
     double sinO = sin(DEG2RAD * e->orientation);
     double A = e->extent.x / 2.0;	/* Major axis radius */
@@ -4614,6 +4048,11 @@ do_ellipse( int dimensions, t_ellipse *e, int style, TBOOLEAN do_own_mapping )
     /* Choose how many segments to draw for this ellipse */
     int segments = 72;
     double ang_inc  =  M_PI / 36.;
+
+#ifdef WIN32
+    if (strcmp(term->name, "windows") == 0)
+	aspect = 1.;
+#endif
 
     /* Find the center of the ellipse */
     /* If this ellipse is part of a plot - as opposed to an object -
@@ -4689,38 +4128,22 @@ do_ellipse( int dimensions, t_ellipse *e, int style, TBOOLEAN do_own_mapping )
     if (style) {
 	/* Fill in the center */
 	gpiPoint fillarea[120];
-	for (i=0, in=0; i<segments; i++) {
-	    xcent = cx; ycent = cy;
-	    fillarea[in] = vertex[i];
-	    if (clip_line(&xcent, &ycent, &fillarea[in].x, &fillarea[in].y))
-		in++;
-	}
-	if (clip_point(cx,cy))
-	    for (i=segments-1; i>=0; i--) {
-		fillarea[in+1] = vertex[i];
-		fillarea[in].x = cx; fillarea[in].y = cy;
-		if (clip_line(&fillarea[in+1].x, &fillarea[in+1].y, &fillarea[in].x, &fillarea[in].y))
-		    in++;
-	    }
-
+	clip_polygon(vertex, fillarea, segments, &in);
 	fillarea[0].style = style;
 	if (term->filled_polygon)
 	    term->filled_polygon(in, fillarea);
     } else {
 	/* Draw the arc */
-	for (i=0; i<segments; i++)
-	    draw_clip_line( vertex[i].x, vertex[i].y,
-		vertex[i+1].x, vertex[i+1].y );
+	draw_clip_polygon(segments+1, vertex);
     }
 }
 
 void
-do_polygon( int dimensions, t_polygon *p, int style )
+do_polygon( int dimensions, t_polygon *p, int style, t_clip_object clip )
 {
     static gpiPoint *corners = NULL;
     static gpiPoint *clpcorn = NULL;
     BoundingBox *clip_save = clip_area;
-    TBOOLEAN noclip = FALSE;
     int nv;
 
     if (!p->vertex || p->type < 2)
@@ -4728,57 +4151,34 @@ do_polygon( int dimensions, t_polygon *p, int style )
 
     corners = gp_realloc(corners, p->type * sizeof(gpiPoint), "polygon");
     clpcorn = gp_realloc(clpcorn, 2 * p->type * sizeof(gpiPoint), "polygon");
+
     for (nv = 0; nv < p->type; nv++) {
 	if (dimensions == 3)
 	    map3d_position(&p->vertex[nv], &corners[nv].x, &corners[nv].y, "pvert");
 	else
 	    map_position(&p->vertex[nv], &corners[nv].x, &corners[nv].y, "pvert");
 
-	/* Any vertex not given in plot coords will disable clipping */
+	/* Any vertex given in screen coords will disable clipping */
 	if (p->vertex[nv].scalex == screen || p->vertex[nv].scaley == screen)
-	    noclip = TRUE;
-	if (p->vertex[nv].scalex == graph || p->vertex[nv].scaley == graph)
-	    noclip = TRUE;
+	    clip = OBJ_NOCLIP;
     }
 
-    if (noclip)
+    if (clip == OBJ_NOCLIP)
 	clip_area = &canvas;
 
     if (term->filled_polygon && style) {
-	int i,o;
-	int clipped = 1;
-	gpiPoint temp;
-	for (i=0,o=0; i<nv-1; i++) {
-	    clpcorn[o] = corners[i];
-	    temp = corners[i+1];
-	    clipped = clip_line(&corners[i].x, &corners[i].y, &corners[i+1].x, &corners[i+1].y);
-	    if (clipped == 0) continue;	/* both ends out of range */
-	    if (clipped  > 0) o++;	/* both ends in range */
-	    if (clipped  < 0) {		/* clipped to range */
-		clpcorn[o++] = corners[i];
-		clpcorn[o++] = corners[i+1];
-		corners[i+1] = temp;
-	    }
-	}
-	if (clipped == 1)
-	    clpcorn[o++] = corners[i];
+	int out_length;
+	clip_polygon(corners, clpcorn, nv, &out_length);
 	clpcorn[0].style = style;
-	term->filled_polygon(o, clpcorn);
+	term->filled_polygon(out_length, clpcorn);
 
     } else { /* Just draw the outline? */
-	int i;
  	newpath();
-	for (i=0; i<nv-1; i++)
-	    draw_clip_line( corners[i].x, corners[i].y,
-		corners[i+1].x, corners[i+1].y );
-	if (corners[i].x != corners[0].x || corners[i].y != corners[0].y)
-	    draw_clip_line( corners[i].x, corners[i].y,
-		corners[0].x, corners[0].y );
+	draw_clip_polygon(nv, corners);
 	closepath();
     }
 
     clip_area = clip_save;
-
 }
 #endif
 
@@ -4790,14 +4190,19 @@ check_for_variable_color(struct curve_points *plot, double *colorvalue)
 
     if ((plot->lp_properties.pm3d_color.value < 0.0)
     &&  (plot->lp_properties.pm3d_color.type == TC_RGB)) {
-	set_rgbcolor(*colorvalue);
+	set_rgbcolor_var(*colorvalue);
 	return TRUE;
     } else if (plot->lp_properties.pm3d_color.type == TC_Z) {
 	set_color( cb2gray(*colorvalue) );
 	return TRUE;
     } else if (plot->lp_properties.l_type == LT_COLORFROMCOLUMN) {
 	lp_style_type lptmp;
-	lp_use_properties(&lptmp, (int)(*colorvalue));
+	/* lc variable will only pick up line _style_ as opposed to _type_ */
+	/* in the case of "set style increment user".  THIS IS A CHANGE.   */
+	if (prefer_line_styles)
+	    lp_use_properties(&lptmp, (int)(*colorvalue));
+	else
+	    load_linetype(&lptmp, (int)(*colorvalue));
 	apply_pm3dcolor(&(lptmp.pm3d_color), term);
 	return TRUE;
     } else
@@ -5046,7 +4451,8 @@ plot_image_or_update_axes(void *plot, TBOOLEAN update_axes)
 	/* int_warn(NO_CARET, "This terminal does not support palette-based images.\n\n"); */
 	return;
     }
-    if ((pixel_planes == IC_RGB || pixel_planes == IC_RGBA) && !term->set_color) {
+    if ((pixel_planes == IC_RGB || pixel_planes == IC_RGBA)
+    &&  ((term->flags & TERM_NULL_SET_COLOR))) {
 	/* int_warn(NO_CARET, "This terminal does not support rgb images.\n\n"); */
 	return;
     }
@@ -5281,6 +4687,8 @@ plot_image_or_update_axes(void *plot, TBOOLEAN update_axes)
 	if (!term->filled_polygon)
 	    int_error(NO_CARET, "This terminal does not support filled polygons");
 
+	(term->layer)(TERM_LAYER_BEGIN_IMAGE);
+
 	/* Grid spacing in 3D space. */
 	if (log_axes) {
 	    delta_grid[0].x = (GRIDX(grid_corner[1]) - GRIDX(grid_corner[0])) / (K-1);
@@ -5426,7 +4834,7 @@ plot_image_or_update_axes(void *plot, TBOOLEAN update_axes)
 			    int g = cb2gray(points[i_image].CRD_G) * 255. + 0.5;
 			    int b = cb2gray(points[i_image].CRD_B) * 255. + 0.5;
 			    int rgblt = (r << 16) + (g << 8) + b;
-			    set_rgbcolor(rgblt);
+			    set_rgbcolor_var(rgblt);
 			}
 			if (pixel_planes == IC_RGBA) {
 			    int alpha = points[i_image].CRD_A * 100./255.;
@@ -5453,6 +4861,8 @@ skip_pixel:
 		i_image++;
 	    }
 	}
+
+	(term->layer)(TERM_LAYER_END_IMAGE);
     }
     }
 

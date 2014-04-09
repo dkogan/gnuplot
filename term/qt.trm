@@ -1,5 +1,5 @@
 /* GNUPLOT - qt.trm 
- * $Id: qt.trm,v 1.9 2012/05/21 23:15:18 sfeam Exp $
+ * $Id: qt.trm,v 1.12 2013/10/07 21:43:48 sfeam Exp $
  */
 
 /*[
@@ -53,7 +53,7 @@ TERM_TABLE_START (qt_driver)
     qt_text_angle, qt_justify_text,
     qt_point, do_arrow, qt_set_font,
     qt_pointsize,
-    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH,
+    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH|TERM_ENHANCED_TEXT,
     0 /* suspend */, 0 /* resume */, qt_fillbox, qt_linewidth
 #ifdef USE_MOUSE
     , qt_waitforinput, qt_put_tmptext, qt_set_ruler, qt_set_cursor, qt_set_clipboard
@@ -65,6 +65,10 @@ TERM_TABLE_START (qt_driver)
     , NULL /* qt_path */
     , 0.0 /* Scale (unused) */
     , qt_hypertext
+#ifdef EAM_BOXED_TEXT
+    , qt_boxed_text
+#endif
+    , qt_modify_plots
 TERM_TABLE_END (qt_driver)
 
 #undef LAST_TERM

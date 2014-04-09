@@ -1,5 +1,5 @@
 /*
- * $Id: wxt.trm,v 1.34 2013/02/19 05:30:38 sfeam Exp $
+ * $Id: wxt.trm,v 1.37 2013/10/07 21:43:48 sfeam Exp $
  */
 
 /* GNUPLOT - wxt.trm */
@@ -58,7 +58,7 @@ TERM_PUBLIC void wxt_text_wrapper __PROTO ((void));
 
 /* terminal state, defined extern in wxt_term.h */
 int wxt_window_number = 0;
-TBOOLEAN wxt_enhanced_enabled = FALSE;
+TBOOLEAN wxt_enhanced_enabled = TRUE;
 TBOOLEAN wxt_dashed = FALSE;
 double wxt_dashlength = 1.0;
 double wxt_lw = 1.0;
@@ -455,7 +455,7 @@ TERM_TABLE_START (wxt_driver)
     wxt_text_angle, wxt_justify_text,
     wxt_point, do_arrow, wxt_set_font,
     wxt_pointsize,
-    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH|TERM_FONTSCALE,
+    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH|TERM_FONTSCALE|TERM_ENHANCED_TEXT,
     wxt_text /* suspend */, 0 /* resume */, wxt_fillbox, wxt_linewidth
 #ifdef USE_MOUSE
     , wxt_waitforinput, wxt_put_tmptext, wxt_set_ruler, wxt_set_cursor, wxt_set_clipboard
@@ -467,6 +467,10 @@ TERM_TABLE_START (wxt_driver)
     , NULL /* no term->path */
     , 0.0 /* Scale (unused) */
     , wxt_hypertext
+#ifdef EAM_BOXED_TEXT
+    , wxt_boxed_text
+#endif
+    , wxt_modify_plots
 TERM_TABLE_END (wxt_driver)
 
 #undef LAST_TERM

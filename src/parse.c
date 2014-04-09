@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: parse.c,v 1.78 2012/11/23 07:00:19 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: parse.c,v 1.86 2014/03/21 21:40:06 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - parse.c */
@@ -43,9 +43,12 @@ static char *RCSid() { return RCSid("$Id: parse.c,v 1.78 2012/11/23 07:00:19 sfe
 #include "help.h"
 #include "util.h"
 
-/* protection mechanism for parsing string followed by + or - sign */
+/* Protection mechanism for trying to parse a string followed by a + or - sign.
+ * Also suppresses an undefined variable message if an unrecognized token
+ * is encountered during try_to_get_string().
+ */
+TBOOLEAN string_result_only = FALSE;
 static int parse_recursion_level;
-static TBOOLEAN string_result_only = FALSE;
 
 /* Exported globals: the current 'dummy' variable names */
 char c_dummy_var[MAX_NUM_VAR][MAX_ID_LEN+1];
@@ -76,6 +79,7 @@ static void accept_exclusive_OR_expression __PROTO((void));
 static void accept_AND_expression __PROTO((void));
 static void accept_equality_expression __PROTO((void));
 static void accept_relational_expression __PROTO((void));
+static void accept_bitshift_expression __PROTO((void));
 static void accept_additive_expression __PROTO((void));
 static void accept_multiplicative_expression __PROTO((void));
 static void parse_primary_expression __PROTO((void));
@@ -87,6 +91,7 @@ static void parse_exclusive_OR_expression __PROTO((void));
 static void parse_AND_expression __PROTO((void));
 static void parse_equality_expression __PROTO((void));
 static void parse_relational_expression __PROTO((void));
+static void parse_bitshift_expression __PROTO((void));
 static void parse_additive_expression __PROTO((void));
 static void parse_multiplicative_expression __PROTO((void));
 static void parse_unary_expression __PROTO((void));
@@ -375,8 +380,16 @@ accept_equality_expression()
 static void
 accept_relational_expression()
 {
-    accept_additive_expression();
+    accept_bitshift_expression();
     parse_relational_expression();
+}
+
+
+static void
+accept_bitshift_expression()
+{
+    accept_additive_expression();
+    parse_bitshift_expression();
 }
 
 
@@ -471,6 +484,19 @@ parse_primary_expression()
 	    enum operators whichfunc = is_builtin_function(c_token);
 	    struct value num_params;
 	    num_params.type = INTGR;
+
+#if (1)	    /* DEPRECATED */
+	    if (whichfunc && (strcmp(ft[whichfunc].f_name,"defined")==0)) {
+		/* Deprecated syntax:   if (defined(foo)) ...  */
+		/* New syntax:          if (exists("foo")) ... */
+		struct udvt_entry *udv = add_udv(c_token+2);
+		union argument *foo = add_action(PUSHC);
+		foo->v_arg.type = INTGR;
+		foo->v_arg.v.int_val = udv->udv_undef ? 0 : 1;
+		c_token += 4;  /* skip past "defined ( <foo> ) " */
+		return;
+	    }
+#endif
 
 	    if (whichfunc) {
 		c_token += 2;	/* skip fnc name and '(' */
@@ -591,7 +617,7 @@ parse_primary_expression()
      * Currently only used to generate substrings, but could also be used to
      * extract vector slices.
      */
-    if (equals(c_token, "[")) {
+    if (equals(c_token, "[") && !isanumber(c_token-1)) {
 	/* handle '*' or empty start of range */
 	if (equals(++c_token,"*") || equals(c_token,":")) {
 	    union argument *empty = add_action(PUSHC);
@@ -769,10 +795,9 @@ parse_relational_expression()
      * operators */
 
     while (TRUE) {
-	/* I hate "else if" statements */
 	if (equals(c_token, ">")) {
 	    c_token++;
-	    accept_additive_expression();
+	    accept_bitshift_expression();
 	    (void) add_action(GT);
 	} else if (equals(c_token, "<")) {
 	    /*  Workaround for * in syntax of range constraints  */
@@ -780,20 +805,40 @@ parse_relational_expression()
 		break;
 	    }
 	    c_token++;
-	    accept_additive_expression();
+	    accept_bitshift_expression();
 	    (void) add_action(LT);
 	} else if (equals(c_token, ">=")) {
 	    c_token++;
-	    accept_additive_expression();
+	    accept_bitshift_expression();
 	    (void) add_action(GE);
 	} else if (equals(c_token, "<=")) {
 	    c_token++;
-	    accept_additive_expression();
+	    accept_bitshift_expression();
 	    (void) add_action(LE);
 	} else
 	    break;
     }
 
+}
+
+
+
+static void
+parse_bitshift_expression()
+{
+    /* create action codes for << and >> operators */
+    while (TRUE) {
+	if (equals(c_token, "<<")) {
+	    c_token++;
+	    accept_additive_expression();
+	    (void) add_action(LEFTSHIFT);
+	} else if (equals(c_token, ">>")) {
+	    c_token++;
+	    accept_additive_expression();
+	    (void) add_action(RIGHTSHIFT);
+	} else
+	    break;
+    }
 }
 
 
@@ -892,7 +937,7 @@ parse_unary_expression()
  * expression2 maps secondary coordinates into the primary coordinate space.
  */
 void
-parse_link_via( struct udft_entry *udf, char *domain )
+parse_link_via( struct udft_entry *udf )
 {
     int start_token;
     
@@ -1119,10 +1164,13 @@ check_for_iteration()
 	    int_error(c_token-1, errormsg);
 
 	iteration_current = iteration_start;
-	
-	empty_iteration = iteration_udv 
-	    && ((iteration_end - iteration_start) * iteration_increment < 0);
-        
+
+	empty_iteration = FALSE;	
+	if ( (iteration_udv != NULL)
+	&&   ((iteration_end > iteration_start && iteration_increment < 0)
+	   || (iteration_end < iteration_start && iteration_increment > 0)))
+		empty_iteration = TRUE;
+
 	/* allocating a node of the linked list and initializing its fields */
 	/* iterating just once is the same as not iterating at all, 
 	 * so we skip building the node in that case */
@@ -1187,9 +1235,9 @@ next_iteration(t_iterator *iter)
 	this_iter->iteration_current = this_iter->iteration_start;
 	this_iter->done = FALSE;
 	if (this_iter->iteration_string) {
-	    free(this_iter->iteration_udv->udv_value.v.string_val);
-	    this_iter->iteration_udv->udv_value.v.string_val
-	         = gp_word(this_iter->iteration_string, this_iter->iteration_current);
+	    gpfree_string(&(this_iter->iteration_udv->udv_value));
+	    Gstring(&(this_iter->iteration_udv->udv_value), 
+		    gp_word(this_iter->iteration_string, this_iter->iteration_current));
     } else
 	    this_iter->iteration_udv->udv_value.v.int_val = this_iter->iteration_current;	
 	
@@ -1205,19 +1253,23 @@ next_iteration(t_iterator *iter)
     if (!iter->really_done)
 	this_iter->iteration_current += this_iter->iteration_increment;
     if (this_iter->iteration_string) {
-	free(this_iter->iteration_udv->udv_value.v.string_val);
-	this_iter->iteration_udv->udv_value.v.string_val
-	    = gp_word(this_iter->iteration_string, this_iter->iteration_current);
+	gpfree_string(&(this_iter->iteration_udv->udv_value));
+	Gstring(&(this_iter->iteration_udv->udv_value), 
+		gp_word(this_iter->iteration_string, this_iter->iteration_current));
     } else
 	this_iter->iteration_udv->udv_value.v.int_val = this_iter->iteration_current;
     
-    /* no need to check for increment <> 0 here, 
-     * because that case was already caught in check_for_iteration */
-    this_iter->done = 
-	!((this_iter->iteration_end - this_iter->iteration_current - this_iter->iteration_increment)
-	   * this_iter->iteration_increment >= 0);
+    /* Mar 2014 revised to avoid integer overflow */
+    if (this_iter->iteration_increment > 0
+    &&  this_iter->iteration_end - this_iter->iteration_current < this_iter->iteration_increment)
+	this_iter->done = TRUE;
+    else if (this_iter->iteration_increment < 0
+    &&  this_iter->iteration_end - this_iter->iteration_current > this_iter->iteration_increment)
+	this_iter->done = TRUE;
+    else
+	this_iter->done = FALSE;
     
-    /* We return false only if we're, erm, really done */
+    /* We return false only if we're, um, really done */
     this_iter = iter;
     while (this_iter) {
 	condition = condition || (!this_iter->done);

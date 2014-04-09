@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.247 2013/03/14 19:59:00 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.275 2014/03/14 18:30:07 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -165,25 +165,30 @@ static char *RCSid() { return RCSid("$Id: datafile.c,v 1.247 2013/03/14 19:59:00
 /* is it a comment line? */
 #define is_comment(c) ((c) && (strchr(df_commentschars, (c)) != NULL))
 
+/* Used to skip whitespace but not cross a field boundary */
+#define NOTSEP (!df_separators || !strchr(df_separators,*s))
+
 /*{{{  static fns */
 static int check_missing __PROTO((char *s));
 
 static void expand_df_column __PROTO((int));
+static void clear_df_column_headers __PROTO((void));
 static char *df_gets __PROTO((void));
 static int df_tokenise __PROTO((char *s));
 static float *df_read_matrix __PROTO((int *rows, int *columns));
 
 static void plot_option_every __PROTO((void));
 static void plot_option_index __PROTO((void));
-static void plot_option_thru __PROTO((void));
 static void plot_option_using __PROTO((int));
 static TBOOLEAN valid_format __PROTO((const char *));
 static void plot_ticlabel_using __PROTO((int));
-/*static char * df_parse_string_field __PROTO((char *));*/
 static void add_key_entry __PROTO((char *temp_string, int df_datum));
 static char * df_generate_pseudodata __PROTO((void));
 static int df_skip_bytes __PROTO((int nbytes));
 
+#ifdef BACKWARDS_COMPATIBLE
+static void plot_option_thru __PROTO((void));
+#endif
 /*}}} */
 
 /*{{{  variables */
@@ -203,15 +208,16 @@ TBOOLEAN df_matrix = FALSE;     /* indicates if data originated from a 2D or 3D 
 
 void *df_pixeldata;		/* pixel data from an external library (e.g. libgd) */
 
+#ifdef BACKWARDS_COMPATIBLE
 /* jev -- the 'thru' function --- NULL means no dummy vars active */
-/* HBB 990829: moved this here, from command.c */
 struct udft_entry ydata_func;
+#endif
 
 /* string representing missing values in ascii datafiles */
 char *missing_val = NULL;
 
-/* input field separator, NUL if whitespace is the separator */
-char df_separator = '\0';
+/* input field separators, NULL if whitespace is the separator */
+char *df_separators = NULL;
 
 /* comments chars */
 char *df_commentschars = 0;
@@ -263,6 +269,7 @@ static int df_current_index;    /* current mesh */
 /* stuff for named index support */
 static char *indexname = NULL;
 static TBOOLEAN index_found = FALSE;
+static int df_longest_columnhead = 0;
 
 /* stuff for every point:line */
 static int everypoint = 1;
@@ -273,6 +280,9 @@ static int firstline = 0;
 static int lastline = MAXINT;
 static int point_count = -1;    /* point counter - preincrement and test 0 */
 static int line_count = 0;      /* line counter */
+
+/* for ascii file "skip" lines at head of file */
+static int df_skip_at_front = 0;
 
 /* for pseudo-data (1 if filename = '+'; 2 if filename = '++') */
 static int df_pseudodata = 0;
@@ -307,8 +317,8 @@ static int df_max_cols = 0;     /* space allocated */
 static int df_no_cols;          /* cols read */
 static int fast_columns;        /* corey@cac optimization */
 
-char *df_tokens[MAXDATACOLS];           /* filled in by df_tokenise */
-static char *df_stringexpression[MAXDATACOLS] = {NULL,NULL,NULL,NULL,NULL,NULL,NULL};
+char *df_tokens[MAXDATACOLS];			/* filled in by df_tokenise */
+static char *df_stringexpression[MAXDATACOLS];	/* filled in after evaluate_at() */
 static struct curve_points *df_current_plot;	/* used to process histogram labels + key entries */
 
 /* These control the handling of fields in the first row of a data file.
@@ -657,16 +667,19 @@ df_tokenise(char *s)
     TBOOLEAN in_string;
     int i;
 
+    /* "here data" lines may end in \n rather than \0. */
+    /* DOS/Windows lines may end in \r rather than \0. */
+    if (s[strlen(s)-1] == '\n' || s[strlen(s)-1] == '\r')
+	s[strlen(s)-1] = '\0';
+
     for (i = 0; i<MAXDATACOLS; i++)
 	df_tokens[i] = NULL;
-
-#define NOTSEP (*s != df_separator)
 
     df_no_cols = 0;
 
     while (*s) {
-	/* check store - double max cols or add 20, whichever is greater */
-	if (df_max_cols <= df_no_cols)
+	/* We may poke at 2 new fields before coming back here - make sure there is room */
+	if (df_max_cols <= df_no_cols + 2)
 	    expand_df_column((df_max_cols < 20) ? df_max_cols+20 : 2*df_max_cols);
 
 	/* have always skipped spaces at this point */
@@ -685,7 +698,7 @@ df_tokenise(char *s)
 
 	/* CSV files must accept numbers inside quotes also,
 	 * so we step past the quote */
-	if (*s == '"' && df_separator != '\0') {
+	if (*s == '"' && df_separators != NULL) {
 	    in_string = TRUE;
 	    df_column[df_no_cols].position = ++s;
 	}
@@ -693,13 +706,11 @@ df_tokenise(char *s)
 	if (*s == '"') {
 	    /* treat contents of a quoted string as single column */
 	    in_string = !in_string;
-	    df_column[df_no_cols].good = DF_MISSING;
-	    /* Allow timedata input to be contained in quotes */
-	    if (axis_array[df_axis[df_no_cols]].timefmt)
-		df_column[df_no_cols].good = DF_STRINGDATA;
+	    df_column[df_no_cols].good = DF_STRINGDATA;
 	} else if (check_missing(s)) {
 	    df_column[df_no_cols].good = DF_MISSING;
 	    df_column[df_no_cols].datum = not_a_number();
+	    df_column[df_no_cols].position = NULL;
 	} else {
 	    int used;
 	    int count;
@@ -743,20 +754,18 @@ df_tokenise(char *s)
 		 *  - atof() does not return a count or new position
 		 */
 		 char *next;
-		 df_column[df_no_cols].datum = gp_strtod(s, &next);
+		 df_column[df_no_cols].datum = strtod(s, &next);
 		 used = next - s;
 		 count = (used) ? 1 : 0;
 
 	    } else {
 		/* skip any space at start of column */
-		/* HBB tells me that the cast must be to
-		 * unsigned char instead of int. */
 		while (isspace((unsigned char) *s) && NOTSEP)
 		    ++s;
 		count = (*s && NOTSEP) ? 1 : 0;
 		/* skip chars to end of column */
 		used = 0;
-		if (df_separator != '\0' && in_string) {
+		if (df_separators != NULL && in_string) {
 		    do
 			++s;
 		    while (*s && *s != '"');
@@ -782,7 +791,7 @@ df_tokenise(char *s)
 		/* might be fortran double */
 		s[used] = 'e';
 		/* and try again */
-		df_column[df_no_cols].datum = gp_strtod(s, &endptr);
+		df_column[df_no_cols].datum = strtod(s, &endptr);
 		count = (endptr == s) ? 0 : 1;
 		s[used] = save_char;
 	    }
@@ -805,27 +814,36 @@ df_tokenise(char *s)
 	    while (*s && (unsigned char) *s != '"');
 	}
 
-	/* skip to 1st character past next separator */
-	if (df_separator != '\0') {
-	    while (*s && NOTSEP)
+	/* skip to 1st character in the next field */
+	if (df_separators != NULL) {
+	    /* skip to next separator or end of line */
+	    while ((*s != '\0') && (*s != '\n') && NOTSEP)
 		++s;
-	    if (*s == df_separator)
-		/* skip leading whitespace in next field */
-		do
-		    ++s;
-		while (*s && isspace((unsigned char) *s) && NOTSEP);
+	    if ((*s == '\0') || (*s == '\n'))	/* End of line; we're done */
+		break;
+	    /* step over field separator */
+		++s;
+	    /* skip whitespace at start of next field */
+	    while ((*s == ' ' || *s == '\t') && NOTSEP)
+		++s;
+	    if ((*s == '\0') || (*s == '\n'))	{ /* Last field is empty */
+		df_column[df_no_cols].good = DF_MISSING;
+		df_column[df_no_cols].datum = not_a_number();
+		++df_no_cols;
+		break;
+	    }
 	} else {
-	    /* skip chars to end of column */
-	    while ((!isspace((unsigned char) *s)) && (*s != '\0'))
+	    /* skip trash chars remaining in this column */
+	    while ((*s != '\0') && (*s != '\n') && !isspace((unsigned char) *s))
 		++s;
-	    /* skip spaces to start of next column */
-	    while (isspace((unsigned char) *s))
+	    /* skip whitespace to start of next column */
+	    while (isspace((unsigned char) *s) && *s != '\n')
 		++s;
 	}
+
     }
 
     return df_no_cols;
-#undef NOTSEP
 }
 
 /*}}} */
@@ -858,7 +876,7 @@ df_read_matrix(int *rows, int *cols)
 	    return linearized_matrix;   
 	}
 
-	while (isspace((unsigned char) *s))
+	while (isspace((unsigned char) *s) && NOTSEP)
 	    ++s;
 
 	if (!*s || is_comment(*s)) {
@@ -942,7 +960,7 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 {
     int name_token = c_token - 1;
     TBOOLEAN duplication = FALSE;
-    TBOOLEAN set_index = FALSE, set_every = FALSE, set_thru = FALSE;
+    TBOOLEAN set_index = FALSE, set_every = FALSE, set_skip = FALSE;
     TBOOLEAN set_using = FALSE;
     TBOOLEAN set_matrix = FALSE;
 
@@ -963,6 +981,7 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     df_key_title = NULL;
 
     initialize_use_spec();
+    clear_df_column_headers();
 
     df_datum = -1;              /* it will be preincremented before use */
     df_line_number = 0;         /* ditto */
@@ -986,6 +1005,7 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     df_num_bin_records = 0;
     df_matrix = FALSE;
     df_nonuniform_matrix = FALSE;
+    df_skip_at_front = 0;
 
     df_eof = 0;
 
@@ -996,8 +1016,6 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     parse_1st_row_as_headers = FALSE;
     df_already_got_headers = FALSE;
     /*}}} */
-
-    assert(max_using <= MAXDATACOLS);
 
     if (!cmd_filename)
 	int_error(c_token, "missing filename");
@@ -1011,9 +1029,10 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 
     /* defer opening until we have parsed the modifiers... */
 
-    if (ydata_func.at) /* something for thru (?) */
-	free_at(ydata_func.at);
+#ifdef BACKWARDS_COMPATIBLE
+    free_at(ydata_func.at);
     ydata_func.at = NULL;
+#endif
 
     /* pm 25.11.2001 allow any order of options */
     while (!END_OF_COMMAND) {
@@ -1023,7 +1042,7 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 	    if (df_filename[0] == '$')
 		int_error(c_token, "data blocks cannot be binary");
 	    c_token++;
-	    if (df_binary_file) {
+	    if (df_binary_file || set_skip) {
 		duplication=TRUE;
 		break;
 	    }
@@ -1082,14 +1101,25 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 	    continue;
 	}
 
+	/* deal with skip */
+	if (equals(c_token, "skip")) {
+	    if (set_skip || df_binary_file) { duplication=TRUE; break; }
+	    set_skip = TRUE;
+	    c_token++;
+	    df_skip_at_front = int_expression();
+	    if (df_skip_at_front < 0)
+		df_skip_at_front = 0;
+	    continue;
+	}
+
+#ifdef BACKWARDS_COMPATIBLE
 	/* deal with thru */
 	/* jev -- support for passing data from file thru user function */
 	if (almost_equals(c_token, "thru$")) {
-	    if (set_thru) { duplication=TRUE; break; }
 	    plot_option_thru();
-	    set_thru = TRUE;
 	    continue;
 	}
+#endif
 
 	/* deal with using */
 	if (almost_equals(c_token, "u$sing")) {
@@ -1255,10 +1285,10 @@ df_close()
     if (!data_fp && !df_datablock)
 	return;
 
-    if (ydata_func.at) {
-	free_at(ydata_func.at);
-	ydata_func.at = NULL;
-    }
+#ifdef BACKWARDS_COMPATIBLE
+    free_at(ydata_func.at);
+    ydata_func.at = NULL;
+#endif
 
     /* free any use expression storage */
     for (i = 0; i < MAXDATACOLS; ++i)
@@ -1326,7 +1356,8 @@ plot_option_every()
 
     if (!equals(++c_token, ":")) {
 	everypoint = int_expression();
-	if (everypoint < 1)
+	if (everypoint < 0) everypoint = 1;
+	else if (everypoint < 1)
 	    int_error(c_token, "Expected positive integer");
     }
     /* if it fails on first test, no more tests will succeed. If it
@@ -1334,28 +1365,29 @@ plot_option_every()
      * c_token */
     if (equals(c_token, ":") && !equals(++c_token, ":")) {
 	everyline = int_expression();
-	if (everyline < 1)
+	if (everyline < 0) everyline = 1;
+	else if (everyline < 1)
 	    int_error(c_token, "Expected positive integer");
     }
     if (equals(c_token, ":") && !equals(++c_token, ":")) {
 	firstpoint = int_expression();
-	if (firstpoint < 0)
-	    int_error(c_token, "Expected non-negative integer");
+	if (firstpoint < 0) firstpoint = 0;
     }
     if (equals(c_token, ":") && !equals(++c_token, ":")) {
 	firstline = int_expression();
-	if (firstline < 0)
-	    int_error(c_token, "Expected non-negative integer");
+	if (firstline < 0) firstline = 0;
     }
     if (equals(c_token, ":") && !equals(++c_token, ":")) {
 	lastpoint = int_expression();
-	if (lastpoint < firstpoint)
+	if (lastpoint < 0) lastpoint = MAXINT;
+	else if (lastpoint < firstpoint)
 	    int_error(c_token, "Last point must not be before first point");
     }
     if (equals(c_token, ":")) {
 	++c_token;
 	lastline = int_expression();
-	if (lastline < firstline)
+	if (lastline < 0) lastline = MAXINT;
+	else if (lastline < firstline)
 	    int_error(c_token, "Last line must not be before first line");
     }
 }
@@ -1395,7 +1427,7 @@ plot_option_index()
 	df_upper_index = df_lower_index;
 }
 
-
+#ifdef BACKWARDS_COMPATIBLE
 static void
 plot_option_thru()
 {
@@ -1412,6 +1444,7 @@ plot_option_thru()
     ydata_func.at = perm_at();
     dummy_func = NULL;
 }
+#endif
 
 
 static void
@@ -1438,6 +1471,9 @@ plot_option_using(int max_using)
 
     if (!END_OF_COMMAND) {
 	do {                    /* must be at least one */
+	    if (df_no_use_specs >= MAXDATACOLS)
+		int_error(c_token, "at most %d columns allowed in using spec", MAXDATACOLS);
+
 	    if (df_no_use_specs >= max_using)
 		int_error(c_token, "Too many columns in using specification");
 
@@ -1525,12 +1561,15 @@ plot_option_using(int max_using)
 }
 
 
-static
-void plot_ticlabel_using(int axis)
+static void
+plot_ticlabel_using(int axis)
 {
     int col = 0;
     
-    c_token += 2;
+    c_token ++;
+    if (!equals(c_token,"("))
+	int_error(c_token, "missing '('");
+    c_token++;
 
     /* FIXME: What we really want is a test for a constant expression as  */
     /* opposed to a dummy expression. This is similar to the problem with */
@@ -1546,6 +1585,8 @@ void plot_ticlabel_using(int axis)
 
     if (col < 1)
 	int_error(c_token, "ticlabels must come from a real column");
+    if (!equals(c_token,")"))
+	int_error(c_token, "missing ')'");
     c_token++;
     use_spec[df_no_use_specs+df_no_tic_specs].expected_type = axis;
     use_spec[df_no_use_specs+df_no_tic_specs].column = col;
@@ -1593,12 +1634,18 @@ df_readascii(double v[], int max)
 	int line_okay = 1;
 	int output = 0;         /* how many numbers written to v[] */
 
+	/* "skip" option */
+	if (df_skip_at_front > 0) {
+	    df_skip_at_front--;
+	    continue;
+	}
+
 	++df_line_number;
 	df_no_cols = 0;
 
 	/*{{{  check for blank lines, and reject by index/every */
 	/*{{{  skip leading spaces */
-	while (isspace((unsigned char) *s))
+	while (isspace((unsigned char) *s) && NOTSEP)
 	    ++s;                /* will skip the \n too, to point at \0  */
 	/*}}} */
 
@@ -1723,7 +1770,10 @@ df_readascii(double v[], int max)
 	    /*{{{  do a sscanf */
 	    int i;
 
-	    assert(MAXDATACOLS == 7);
+	    /* plot commands never request more than 7 columns */
+	    /* "fit" can use more, but we only handle 7 in the format */
+	    if (max > 7)
+		int_error(NO_CARET,"Formatted input can only handle 7 data columns");
 
 	    /* check we have room for at least 7 columns */
 	    if (df_max_cols < 7)
@@ -1760,7 +1810,11 @@ df_readascii(double v[], int max)
 	    for (j=0; j<df_no_cols; j++) {
 		free(df_column[j].header);
 		df_column[j].header = df_parse_string_field(df_column[j].position);
-		FPRINTF((stderr,"Col %d: \"%s\"\n",j,df_column[j].header));
+		if (df_column[j].header) {
+		    if (df_longest_columnhead < strlen(df_column[j].header))
+			df_longest_columnhead = strlen(df_column[j].header);
+		    FPRINTF((stderr,"Col %d: \"%s\"\n",j,df_column[j].header));
+		}
 	    }
 	    df_already_got_headers = TRUE;
 
@@ -1814,7 +1868,7 @@ df_readascii(double v[], int max)
 		/* Axis labels, plot titles, etc.                     */
 		if (use_spec[output].expected_type >= CT_XTICLABEL) {
 		    int axis, axcol;
-		    float xpos;
+		    double xpos;
 		   
 		    /* EAM FIXME - skip columnstacked histograms also */
 		    if (df_current_plot) {
@@ -1873,8 +1927,10 @@ df_readascii(double v[], int max)
 			if (a.type == STRING) {
 			    add_tic_user(axis, a.v.string_val, xpos, -1);
 			    gpfree_string(&a);
-			} else
-			    fprintf(stderr,"Tic label does not evaluate as string!\n");
+			} else {
+			    add_tic_user(axis, "", xpos, -1);
+			    int_warn(NO_CARET,"Tic label does not evaluate as string!\n");
+			}
 		    } else {
 			char *temp_string = df_parse_string_field(df_tokens[output]);
 			add_tic_user(axis, temp_string, xpos, -1);
@@ -2220,7 +2276,7 @@ f_column(union argument *arg)
 		int offset = (*df_column[j].header == '"') ? 1 : 0;
 		if (streq(name, df_column[j].header + offset)) {
 		    column = j+1;
-		    if (!df_key_title) /* EAM DEBUG - on the off chance we want it */
+		    if (!df_key_title)
 			df_key_title = gp_strdup(df_column[j].header);
 		    break;
 		}
@@ -2235,7 +2291,7 @@ f_column(union argument *arg)
 		if (df_column[j].header) {
 		    int offset = (*df_column[j].header == '"') ? 1 : 0;
 		    if (!strncmp(name, df_column[j].header + offset,strlen(name)))
-			int_warn(NO_CARET, "partial match against column %d header %s",
+			int_warn(NO_CARET, "partial match against column %d header \"%s\"",
 				j+1, df_column[j].header);
 		}
 	    }
@@ -2291,14 +2347,26 @@ f_stringcolumn(union argument *arg)
 		int offset = (*df_column[j].header == '"') ? 1 : 0;
 		if (streq(name, df_column[j].header + offset)) {
 		    column = j+1;
-		    if (!df_key_title) /* EAM DEBUG - on the off chance we want it */
+		    if (!df_key_title)
 			df_key_title = gp_strdup(df_column[j].header);
 		    break;
 		}
 	    }
 	}
-	if (column == DF_COLUMN_HEADERS)
-	    FPRINTF(("could not find column with header \"%s\"\n", a.v.string_val));
+	/* This warning should only trigger once per problematic input file */
+	if (column == DF_COLUMN_HEADERS && (*name)
+	&&  df_warn_on_missing_columnheader) {
+	    df_warn_on_missing_columnheader = FALSE;
+	    int_warn(NO_CARET,"no column with header \"%s\"", a.v.string_val);
+	    for (j=0; j<df_no_cols; j++) {
+		if (df_column[j].header) {
+		    int offset = (*df_column[j].header == '"') ? 1 : 0;
+		    if (!strncmp(name, df_column[j].header + offset,strlen(name)))
+			int_warn(NO_CARET, "partial match against column %d header \"%s\"",
+				j+1, df_column[j].header);
+		}
+	    }
+	}
 	gpfree_string(&a);
     } else
 	column = (int) real(&a);
@@ -2332,6 +2400,7 @@ f_stringcolumn(union argument *arg)
 void
 f_columnhead(union argument *arg)
 {
+    static char placeholder[] = "@COLUMNHEAD00@";
     struct value a;
 
     if (!evaluate_inside_using)
@@ -2340,7 +2409,8 @@ f_columnhead(union argument *arg)
     (void) arg;                 /* avoid -Wunused warning */
     (void) pop(&a);
     column_for_key_title = (int) real(&a);
-    push(Gstring(&a, "@COLUMNHEAD@"));
+    snprintf(placeholder+11, 4, "%02d@", column_for_key_title);
+    push(Gstring(&a, placeholder));
 }
 
 
@@ -2423,6 +2493,10 @@ check_missing(char *s)
 	    (isspace((unsigned char) s[len]) || !s[len]))
 	    return 1;   /* store undefined point in plot */
     }
+    /* April 2013 - Treat an empty csv field as "missing" */
+    if (df_separators && strchr(df_separators,*s))
+	return 1;
+
     return (0);
 }
 
@@ -2514,15 +2588,22 @@ df_set_key_title(struct curve_points *plot)
 
     /* What if there was already a title specified? */
     if (plot->title && !plot->title_is_filename) {
-	char *placeholder = strstr(plot->title, "@COLUMNHEAD@");
-	char *newtitle = NULL;
-	if (!placeholder)
-	    return;
-	newtitle = gp_alloc(strlen(plot->title) + strlen(df_key_title),"plot title");
-	*placeholder = '\0';
-	sprintf(newtitle, "%s%s%s", plot->title, df_key_title, placeholder+12);
-	free(df_key_title);
-	df_key_title = newtitle;
+	int columnhead;
+	char *placeholder = strstr(plot->title, "@COLUMNHEAD");
+
+	while (placeholder) {
+	    char *newtitle = gp_alloc(strlen(plot->title) + df_longest_columnhead, "plot title");
+	    columnhead = atoi(placeholder+11);
+	    *placeholder = '\0';
+	    sprintf(newtitle, "%s%s%s", plot->title, 
+		    (columnhead <= 0) ? df_key_title :
+		    (columnhead <= df_no_cols) ? df_column[columnhead-1].header : "",
+		    placeholder+14);
+	    free(plot->title);
+	    plot->title = newtitle;
+	    placeholder = strstr(newtitle, "@COLUMNHEAD");
+	}
+	return;
     }
     if (plot->title_is_suppressed)
 	return;
@@ -2558,28 +2639,32 @@ df_set_key_title_columnhead(struct curve_points *plot)
     }
     /* This results from  plot 'foo' using (column("name")) title columnhead */
     if (column_for_key_title == NO_COLUMN_HEADER)
-	plot->title = gp_strdup("@COLUMNHEAD@");
+	plot->title = gp_strdup("@COLUMNHEAD-1@");
 }
 
 char *
 df_parse_string_field(char *field)
 {
     char *temp_string;
+    int length;
 
     if (!field) {
 	return NULL;
     } else if (*field == '"') {
-	temp_string = gp_strdup(&field[1]);
-	temp_string[strcspn(temp_string,"\"")] = '\0';
-    } else if (df_separator != '\0') {
-	char eor[3];
-	eor[0] = df_separator; eor[1] = '"'; eor[2] = '\0';
-	temp_string = gp_strdup(field);
-	temp_string[strcspn(temp_string,eor)] = '\0';
-    } else {
-	temp_string = gp_strdup(field);
-	temp_string[strcspn(temp_string,"\t ")] = '\0';
+	field++;
+	length = strcspn(field, "\"");
+    } else if (df_separators != NULL) {
+	length = strcspn(field, df_separators);
+	if (length > strcspn(field, "\""))	/* Why? */
+	    length = strcspn(field, "\"");
+   } else {
+	length = strcspn(field,"\t ");
     }
+
+    temp_string = malloc(length+1);
+    strncpy(temp_string, field, length);
+    temp_string[length] = '\0';
+
     parse_esc(temp_string);
 
     return temp_string;
@@ -2896,6 +2981,7 @@ df_bin_default_columns default_style_cols[] = {
     , {CIRCLES, 2, 1}
     , {ELLIPSES, 2, 3}
 #endif
+    , {TABLESTYLE, 0, 0}
 };
 
 
@@ -4952,24 +5038,27 @@ df_generate_pseudodata()
 	if (df_pseudorecord >= samples_1)
 	    return NULL;
 	if (df_pseudorecord == 0) {
-	    if (parametric || polar)
-		int_error(NO_CARET,"Pseudodata not yet implemented for polar or parametric graphs");
-	    if (axis_array[FIRST_X_AXIS].max == -VERYLARGE)
-		axis_array[FIRST_X_AXIS].max = 10;
-	    if (axis_array[FIRST_X_AXIS].min == VERYLARGE)
-		axis_array[FIRST_X_AXIS].min = -10;
 	    if ((axis_array[SAMPLE_AXIS].range_flags & RANGE_SAMPLED)) {
 		t_min = axis_array[SAMPLE_AXIS].min;
 		t_max = axis_array[SAMPLE_AXIS].max;
+		/* FIXME:  Do we need to hangle log-scaled SAMPLE_AXIS? */
+	    } else if (parametric || polar) {
+		t_min = axis_array[T_AXIS].min;
+		t_max = axis_array[T_AXIS].max;
 	    } else {
+		if (axis_array[FIRST_X_AXIS].max == -VERYLARGE)
+		    axis_array[FIRST_X_AXIS].max = 10;
+		if (axis_array[FIRST_X_AXIS].min == VERYLARGE)
+		    axis_array[FIRST_X_AXIS].min = -10;
 		t_min = X_AXIS.min;
 		t_max = X_AXIS.max;
+		axis_unlog_interval(x_axis, &t_min, &t_max, 1);
 	    }
-	    axis_unlog_interval(x_axis, &t_min, &t_max, 1);
 	    t_step = (t_max - t_min) / (samples_1 - 1);
 	}
 	t = t_min + df_pseudorecord * t_step;
-	t = AXIS_DE_LOG_VALUE(x_axis, t);
+	if (!parametric)
+	    t = AXIS_DE_LOG_VALUE(x_axis, t);
 	if (df_current_plot->sample_var)
 	    Gcomplex(&(df_current_plot->sample_var->udv_value), t, 0.0);
 	sprintf(line,"%g",t);
@@ -4996,12 +5085,19 @@ df_generate_pseudodata()
 	if (df_pseudospan == 0) {
 	    if (samples_1 < 2 || samples_2 < 2 || iso_samples_1 < 2 || iso_samples_2 < 2)
 		int_error(NO_CARET, "samples or iso_samples < 2. Must be at least 2.");
-	    axis_checked_extend_empty_range(FIRST_X_AXIS, "x range is invalid");
-	    axis_checked_extend_empty_range(FIRST_Y_AXIS, "y range is invalid");
-	    u_min = axis_log_value_checked(u_axis, axis_array[u_axis].min, "x range");
-	    u_max = axis_log_value_checked(u_axis, axis_array[u_axis].max, "x range");
-	    v_min = axis_log_value_checked(v_axis, axis_array[v_axis].min, "y range");
-	    v_max = axis_log_value_checked(v_axis, axis_array[v_axis].max, "y range");
+	    if (parametric) {
+		u_min = axis_array[U_AXIS].min;
+		u_max = axis_array[U_AXIS].max;
+		v_min = axis_array[V_AXIS].min;
+		v_max = axis_array[V_AXIS].max;
+	    } else {
+		axis_checked_extend_empty_range(FIRST_X_AXIS, "x range is invalid");
+		axis_checked_extend_empty_range(FIRST_Y_AXIS, "y range is invalid");
+		u_min = axis_log_value_checked(u_axis, axis_array[u_axis].min, "x range");
+		u_max = axis_log_value_checked(u_axis, axis_array[u_axis].max, "x range");
+		v_min = axis_log_value_checked(v_axis, axis_array[v_axis].min, "y range");
+		v_max = axis_log_value_checked(v_axis, axis_array[v_axis].max, "y range");
+	    }
 
 	    if (hidden3d) {
 		 u_step = (u_max - u_min) / (iso_samples_1 - 1);
@@ -5017,7 +5113,10 @@ df_generate_pseudodata()
 	/* Duplicate algorithm from calculate_set_of_isolines() */
 	u = u_min + df_pseudorecord * u_step;
 	v = v_max - df_pseudospan * v_isostep;
-	sprintf(line,"%g %g", AXIS_DE_LOG_VALUE(u_axis,u), AXIS_DE_LOG_VALUE(v_axis,v));
+	if (parametric) 
+	    sprintf(line,"%g %g", u, v);
+	else
+	    sprintf(line,"%g %g", AXIS_DE_LOG_VALUE(u_axis,u), AXIS_DE_LOG_VALUE(v_axis,v));
 	++df_pseudorecord;
     }
 
@@ -5034,5 +5133,18 @@ expand_df_column(int new_max)
     for (; df_max_cols < new_max; df_max_cols++) {
 	df_column[df_max_cols].datum = 0;
 	df_column[df_max_cols].header = NULL;
+	df_column[df_max_cols].position = NULL;
     }
+}
+
+/* Clear column headers stored for previous plot */
+void
+clear_df_column_headers()
+{
+    int i;
+    for (i=0; i<df_max_cols; i++) {
+	free(df_column[i].header);
+	df_column[i].header = NULL;
+    }
+    df_longest_columnhead = 0;
 }

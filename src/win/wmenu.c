@@ -1,5 +1,5 @@
 /*
- * $Id: wmenu.c,v 1.23 2012/06/30 06:41:33 markisch Exp $Id: wmenu.c,v 1.23 2012/06/30 06:41:33 markisch Exp $
+ * $Id: wmenu.c,v 1.26 2013/12/27 19:51:22 markisch Exp $Id: wmenu.c,v 1.26 2013/12/27 19:51:22 markisch Exp $
  */
 
 /* GNUPLOT - win/wmenu.c */
@@ -41,14 +41,9 @@
  *
  */
 
-#ifdef HAVE_CONFIG_H
-# include "config.h"
-#endif
-
+#include "syscfg.h"
 #define STRICT
 #define COBJMACROS
-/* required for COMCTRL32 5.81 or later */
-#define _WIN32_IE 0x0501
 #include <windows.h>
 #include <windowsx.h>
 #include <commdlg.h>
@@ -68,7 +63,7 @@
    a modified version of the "file open" dialog */
 #define SHELL_DIR_DIALOG
 
-BOOL CALLBACK InputBoxDlgProc(HWND, UINT, WPARAM, LPARAM);
+INT_PTR CALLBACK InputBoxDlgProc(HWND, UINT, WPARAM, LPARAM);
 
 /* limits */
 #define MAXSTR 255
@@ -830,7 +825,7 @@ int ButtonIcon[BUTTONMAX];
 		}
 		hMenu[nMenuLevel] = CreateMenu();
 		AppendMenu(hMenu[nMenuLevel > 0 ? nMenuLevel-1 : 0],
-			MF_STRING | MF_POPUP, (UINT)hMenu[nMenuLevel], (LPCSTR)buf);
+			MF_STRING | MF_POPUP, (UINT_PTR)hMenu[nMenuLevel], (LPCSTR)buf);
 	  }
 	  else if (!lstrcmpi(buf,"[EndMenu]")) {
 		if (nMenuLevel > 0)
@@ -1043,12 +1038,13 @@ LPMW lpmw;
 /* InputBoxDlgProc() -  Message handling routine for Input dialog box         */
 /***********************************************************************/
 
-BOOL CALLBACK
+INT_PTR CALLBACK
 InputBoxDlgProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-LPTW lptw;
-LPMW lpmw;
-    lptw = (LPTW)GetWindowLong(GetParent(hDlg), 0);
+	LPTW lptw;
+	LPMW lpmw;
+
+    lptw = (LPTW)GetWindowLongPtr(GetParent(hDlg), 0);
     lpmw = lptw->lpmw;
 
     switch( message) {

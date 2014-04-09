@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.149 2013/04/08 04:18:20 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.157 2014/02/26 21:02:45 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -78,17 +78,8 @@ static char *RCSid() { return RCSid("$Id: mouse.c,v 1.149 2013/04/08 04:18:20 sf
 /********************** variables ***********************************************************/
 char mouse_fmt_default[] = "% #g";
 
-mouse_setting_t mouse_setting = {
-#ifdef OS2
-    0 /* don't start with mouse on default -- clashes with arrow keys on command line */,
-#else
-    1 /* start with mouse on by default */,
-#endif
-    300 /* ms */,
-    1, 0, 0, 0, 0,
-    mouse_fmt_default,
-    NULL
-};
+mouse_setting_t default_mouse_setting = DEFAULT_MOUSE_SETTING;
+mouse_setting_t         mouse_setting = DEFAULT_MOUSE_SETTING;
 
 /* "usual well-known" keycodes, i.e. those not listed in special_keys in mouse.h
 */
@@ -222,6 +213,9 @@ static char *builtin_toggle_border __PROTO((struct gp_event_t * ge));
 static char *builtin_replot __PROTO((struct gp_event_t * ge));
 static char *builtin_toggle_grid __PROTO((struct gp_event_t * ge));
 static char *builtin_help __PROTO((struct gp_event_t * ge));
+static char *builtin_set_plots_visible __PROTO((struct gp_event_t * ge));
+static char *builtin_set_plots_invisible __PROTO((struct gp_event_t * ge));
+static char *builtin_invert_plot_visibilities __PROTO((struct gp_event_t * ge));
 static char *builtin_toggle_log __PROTO((struct gp_event_t * ge));
 static char *builtin_nearest_log __PROTO((struct gp_event_t * ge));
 static char *builtin_toggle_mouse __PROTO((struct gp_event_t * ge));
@@ -241,14 +235,16 @@ static char *builtin_rotate_up __PROTO((struct gp_event_t * ge));
 static char *builtin_rotate_left __PROTO((struct gp_event_t * ge));
 static char *builtin_rotate_down __PROTO((struct gp_event_t * ge));
 static char *builtin_cancel_zoom __PROTO((struct gp_event_t * ge));
+static char *builtin_zoom_in_around_mouse __PROTO((struct gp_event_t * ge));
+static char *builtin_zoom_out_around_mouse __PROTO((struct gp_event_t * ge));
+#if (0)	/* Not currently used */
 static char *builtin_zoom_scroll_left __PROTO((struct gp_event_t * ge));
 static char *builtin_zoom_scroll_right __PROTO((struct gp_event_t * ge));
 static char *builtin_zoom_scroll_up __PROTO((struct gp_event_t * ge));
 static char *builtin_zoom_scroll_down __PROTO((struct gp_event_t * ge));
 static char *builtin_zoom_in_X __PROTO((struct gp_event_t * ge));
 static char *builtin_zoom_out_X __PROTO((struct gp_event_t * ge));
-static char *builtin_zoom_in_around_mouse __PROTO((struct gp_event_t * ge));
-static char *builtin_zoom_out_around_mouse __PROTO((struct gp_event_t * ge));
+#endif
 
 /* prototypes for bind stuff
  * which are used only here. */
@@ -504,6 +500,11 @@ xDateTimeFormat(double x, char *b, int mode)
 {
     time_t xtime_position = SEC_OFFS_SYS + x;
     struct tm *pxtime_position = gmtime(&xtime_position);
+
+    if (pxtime_position == NULL) {
+	b[0] = NUL;
+	return b;
+    }
     switch (mode) {
     case MOUSE_COORDINATES_XDATE:
 	sprintf(b, "%d. %d. %04d", pxtime_position->tm_mday, (pxtime_position->tm_mon) + 1,
@@ -626,7 +627,7 @@ GetRulerString(char *p, double x, double y)
 
 
 static struct t_zoom *zoom_head = NULL, *zoom_now = NULL;
-static AXIS axis_array_copy[AXIS_ARRAY_SIZE];
+static AXIS *axis_array_copy = NULL;
 
 /* Applies the zoom rectangle of  z  by sending the appropriate command
    to gnuplot
@@ -653,6 +654,7 @@ apply_zoom(struct t_zoom *z)
      * broke refresh. Just save the complete axis state and have done with it.
      */
     if (zoom_now == zoom_head && z != zoom_head) {
+	axis_array_copy = gp_realloc( axis_array_copy, sizeof(axis_array), "axis_array copy");
 	memcpy(axis_array_copy, axis_array, sizeof(axis_array));
     }
 
@@ -706,7 +708,6 @@ apply_zoom(struct t_zoom *z)
 	memcpy(axis_array, axis_array_copy, sizeof(axis_array));
 	s[0] = '\0';	/* FIXME:  Is this better than calling replotrequest()? */
 
-#ifdef VOLATILE_REFRESH
 	/* Falling through to do_string_replot() does not work! */
 	if (volatile_data) {
 	    if (refresh_ok == E_REFRESH_OK_2D) {
@@ -718,7 +719,6 @@ apply_zoom(struct t_zoom *z)
 		return;
 	    }
 	}
-#endif /* VOLATILE_REFRESH */
 
     } else {
 	inside_zoom = TRUE;
@@ -851,8 +851,17 @@ static void
 UpdateStatuslineWithMouseSetting(mouse_setting_t * ms)
 {
     char s0[256], *sp;
+
+/* This suppresses mouse coordinate update after a ^C, but I think
+ * that the relevant terminals do their own checks anyhow so we
+ * we can just let the ones that care silently skip the update
+ * while the ones that don't care keep on updating as usual.
+ */
+#if (0)
     if (!term_initialised)
 	return;
+#endif
+
     if (!ms->on) {
 	s0[0] = 0;
     } else if (!ALMOST2D) {
@@ -1004,6 +1013,39 @@ builtin_help(struct gp_event_t *ge)
     fprintf(stderr, "\n");
     bind_display((char *) 0);	/* display all bindings */
     restore_prompt();
+    return (char *) 0;
+}
+
+static char *
+builtin_set_plots_visible(struct gp_event_t *ge)
+{
+    if (!ge) {
+	return "`builtin-set-plots-visible`";
+    }
+    if (term->modify_plots)
+	term->modify_plots(MODPLOTS_SET_VISIBLE);
+    return (char *) 0;
+}
+
+static char *
+builtin_set_plots_invisible(struct gp_event_t *ge)
+{
+    if (!ge) {
+	return "`builtin-set-plots-invisible`";
+    }
+    if (term->modify_plots)
+	term->modify_plots(MODPLOTS_SET_INVISIBLE);
+    return (char *) 0;
+}
+
+static char *
+builtin_invert_plot_visibilities(struct gp_event_t *ge)
+{
+    if (!ge) {
+	return "`builtin-invert-plot-visibilities`";
+    }
+    if (term->modify_plots)
+	term->modify_plots(MODPLOTS_INVERT_VISIBILITIES);
     return (char *) 0;
 }
 
@@ -1621,7 +1663,26 @@ do_zoom_out_around_mouse()
     zoom_around_mouse('-');
 }
 
+static char *
+builtin_zoom_in_around_mouse(struct gp_event_t *ge)
+{
+    if (!ge)
+	return "`builtin-zoom-in` zoom in";
+    do_zoom_in_around_mouse();
+    return (char *) 0;
+}
 
+static char *
+builtin_zoom_out_around_mouse(struct gp_event_t *ge)
+{
+    if (!ge)
+	return "`builtin-zoom-out` zoom out";
+    do_zoom_out_around_mouse();
+    return (char *) 0;
+}
+
+
+#if (0) /* Not currently used */
 static char *
 builtin_zoom_scroll_left(struct gp_event_t *ge)
 {
@@ -1659,24 +1720,6 @@ builtin_zoom_scroll_down(struct gp_event_t *ge)
 }
 
 static char *
-builtin_zoom_in_around_mouse(struct gp_event_t *ge)
-{
-    if (!ge)
-	return "`builtin-zoom-in` zoom in";
-    do_zoom_in_around_mouse();
-    return (char *) 0;
-}
-
-static char *
-builtin_zoom_out_around_mouse(struct gp_event_t *ge)
-{
-    if (!ge)
-	return "`builtin-zoom-out` zoom out";
-    do_zoom_out_around_mouse();
-    return (char *) 0;
-}
-
-static char *
 builtin_zoom_in_X(struct gp_event_t *ge)
 {
     if (!ge)
@@ -1693,7 +1736,7 @@ builtin_zoom_out_X(struct gp_event_t *ge)
     do_zoom_out_X();
     return (char *) 0;
 }
-
+#endif /* Not currently used */
 
 static void
 event_buttonpress(struct gp_event_t *ge)
@@ -1727,7 +1770,7 @@ event_buttonpress(struct gp_event_t *ge)
 
 	/* Horizontal stroke (button 6) or Shift+wheel up */
 	else if (b == 6 || (modifier_mask & Mod_Shift)) 
-	    do_zoom_scroll_right();
+	    do_zoom_scroll_left();
 	
 	/* Wheel up (no modifier keys) */
 	else
@@ -1747,7 +1790,7 @@ event_buttonpress(struct gp_event_t *ge)
 
 	/* Horizontal stroke (button 7) or Shift+wheel down */
 	else if (b == 7 || (modifier_mask & Mod_Shift)) 
-	    do_zoom_scroll_left();
+	    do_zoom_scroll_right();
 	
 	/* Wheel down (no modifier keys) */
 	else
@@ -2117,7 +2160,7 @@ event_reset(struct gp_event_t *ge)
     modifier_mask = 0;
     button = 0;
     builtin_cancel_zoom(ge);
-    if (term && term->set_cursor) {
+    if (term && term_initialised && term->set_cursor) {
 	term->set_cursor(0, 0, 0);
 	if (mouse_setting.annotate_zoom_box && term->put_tmptext) {
 	    term->put_tmptext(1, "");
@@ -2295,10 +2338,13 @@ bind_install_default_bindings()
     bind_append("e", (char *) 0, builtin_replot);
     bind_append("g", (char *) 0, builtin_toggle_grid);
     bind_append("h", (char *) 0, builtin_help);
+    bind_append("i", (char *) 0, builtin_invert_plot_visibilities);
     bind_append("l", (char *) 0, builtin_toggle_log);
     bind_append("L", (char *) 0, builtin_nearest_log);
     bind_append("m", (char *) 0, builtin_toggle_mouse);
     bind_append("r", (char *) 0, builtin_toggle_ruler);
+    bind_append("V", (char *) 0, builtin_set_plots_invisible);
+    bind_append("v", (char *) 0, builtin_set_plots_visible);
     bind_append("1", (char *) 0, builtin_decrement_mousemode);
     bind_append("2", (char *) 0, builtin_increment_mousemode);
     bind_append("3", (char *) 0, builtin_decrement_clipboardmode);

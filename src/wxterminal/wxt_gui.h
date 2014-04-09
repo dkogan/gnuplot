@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.h,v 1.39 2013/04/05 10:09:04 markisch Exp $
+ * $Id: wxt_gui.h,v 1.42 2014/02/04 22:11:34 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.h */
@@ -153,12 +153,14 @@ extern "C" {
 
 /* depending on the platform, and mostly because of the Windows terminal which
  * already has its event loop, we may or may not be multithreaded */
+#ifndef WXT_MONOTHREADED
 #if defined(__WXGTK__)
 # define WXT_MULTITHREADED
 #elif defined(__WXMSW__) || defined(__WXMAC__)
 # define WXT_MONOTHREADED
 #else
-# error "wxt does not know if this platform has to be mono- or multi-threaded"
+# error "wxt does not know if this platform has to be single- or multi-threaded"
+#endif
 #endif
 
 extern "C" {
@@ -265,7 +267,6 @@ typedef enum wxt_gp_command_t {
 	command_move,
 	command_vector,
 	command_put_text,
-	command_enhanced_put_text,
 	command_enhanced_init,
 	command_enhanced_open,
 	command_enhanced_writec,
@@ -282,6 +283,9 @@ typedef enum wxt_gp_command_t {
 	command_image,
 	command_layer,
 	command_hypertext
+#ifdef EAM_BOXED_TEXT
+	,command_boxed_text
+#endif
 } wxt_gp_command_t;
 
 /* base structure for storing gnuplot commands */

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.256 2013/02/28 21:27:45 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.282 2014/03/23 13:27:27 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -94,6 +94,7 @@ static char *RCSid() { return RCSid("$Id: command.c,v 1.256 2013/02/28 21:27:45 
 #include "tables.h"
 #include "term_api.h"
 #include "util.h"
+#include "external.h"
 
 #ifdef USE_MOUSE
 # include "mouse.h"
@@ -155,9 +156,7 @@ static void test_palette_subcommand __PROTO((void));
 static void test_time_subcommand __PROTO((void));
 static int find_clause __PROTO((int *, int *));
 
-#ifdef GP_MACROS
-TBOOLEAN expand_macros = FALSE;
-#endif
+static int expand_1level_macros __PROTO((void));
 
 struct lexical_unit *token;
 int token_table_size;
@@ -179,6 +178,7 @@ TBOOLEAN replot_disabled = FALSE;
 
 /* output file for the print command */
 FILE *print_out = NULL;
+struct udvt_entry *print_out_var = NULL;
 char *print_out_name = NULL;
 
 /* input data, parsing variables */
@@ -335,14 +335,8 @@ do_line()
     /* Line continuation has already been handled by read_line() */
     char *inlptr;
 
-#ifdef GP_MACROS
-    /* Expand any string variables in the current input line.
-     * Allow up to 3 levels of recursion */
-    if (expand_macros)
-    if (string_expand_macros() && string_expand_macros()
-    &&  string_expand_macros() && string_expand_macros())
-	int_error(NO_CARET, "Too many levels of nested macros");
-#endif
+    /* Expand any string variables in the current input line */
+    string_expand_macros();
 
     /* Skip leading whitespace */
     inlptr = gp_input_line;
@@ -398,6 +392,9 @@ do_line()
 	    retval = read_line("more> ", strlen(gp_input_line));
 	    if (retval)
 	 	int_error(NO_CARET, "Syntax error: missing block terminator }");
+	    /* Expand any string variables in the current input line */
+	    string_expand_macros();
+
 	    num_tokens = scanner(&gp_input_line, &gp_input_line_len);
 	    if (gp_input_line[token[num_tokens].start_index] == '#')
 		gp_input_line[token[num_tokens].start_index] = NUL;
@@ -426,9 +423,12 @@ do_line()
 	    } else if (equals(c_token, "}")) {
 		end_clause();
 	    } else
-		int_error(c_token, "';' expected");
+		int_error(c_token, "unexpected or unrecognized token");
 	}
     }
+
+    /* This check allows event handling inside load/eval/while statements */
+    check_for_mouse_events();
     return (0);
 }
 
@@ -481,19 +481,16 @@ do_string_replot(const char *s)
 {
     do_string(s);
 
-#ifdef VOLATILE_REFRESH
     if (volatile_data && (E_REFRESH_NOT_OK != refresh_ok)) {
 	if (display_ipc_commands())
 	    fprintf(stderr, "refresh\n");
 	refresh_request();
-    } else
-#endif /* VOLATILE_REFRESH */
 
-    if (!replot_disabled)
+    } else if (!replot_disabled)
 	replotrequest();
+
     else
 	int_warn(NO_CARET, "refresh not possible and replot is disabled");
-
 }
 
 void
@@ -527,6 +524,7 @@ define()
 	/* function ! */
 	int dummy_num = 0;
 	struct at_type *at_tmp;
+	char *tmpnam;
 	char save_dummy[MAX_NUM_VAR][MAX_ID_LEN+1];
 	memcpy(save_dummy, c_dummy_var, sizeof(save_dummy));
 	start_token = c_token;
@@ -551,13 +549,12 @@ define()
 	dummy_func = NULL;	/* dont let anyone else use our workspace */
 
 	/* Save function definition in a user-accessible variable */
-	if (1) {
-	    char *tmpnam = gp_alloc(8+strlen(udf->udf_name), "varname");
-	    strcpy(tmpnam, "GPFUN_");
-	    strcat(tmpnam, udf->udf_name);
-	    fill_gpval_string(tmpnam, udf->definition);
-	    free(tmpnam);
-	}
+	tmpnam = gp_alloc(8+strlen(udf->udf_name), "varname");
+	strcpy(tmpnam, "GPFUN_");
+	strcat(tmpnam, udf->udf_name);
+	fill_gpval_string(tmpnam, udf->definition);
+	free(tmpnam);
+
     } else {
 	/* variable ! */
 	char *varname = gp_input_line + token[c_token].start_index;
@@ -817,7 +814,7 @@ call_command()
     gp_expand_tilde(&save_file);
 
     /* Argument list follows filename */
-    load_file(loadpath_fopen(save_file, "r"), save_file, TRUE);
+    load_file(loadpath_fopen(save_file, "r"), save_file, 2);
 }
 
 
@@ -881,7 +878,7 @@ exit_command()
 {
     /* If the command is "exit gnuplot" then do so */
     if (equals(c_token+1,"gnuplot"))
-	exit(0);
+	gp_exit(EXIT_SUCCESS);
 
     /* else graphics will be tidied up in main */
     command_exit_status = 1;
@@ -913,15 +910,30 @@ history_command()
 	c_token++;
 
     } else if (!END_OF_COMMAND && equals(c_token,"!")) {
-	char *search_str = NULL;  /* string from command line to search for */
-	const char *line_to_do = NULL;  /* command to execute at end if necessary */
+	const char *line_to_do = NULL;  /* command returned by search	*/
 
 	c_token++;
-	m_capture(&search_str, c_token, c_token);
-	line_to_do = history_find(search_str);
-	free(search_str);
+	if (isanumber(c_token)) {
+	    int i = int_expression();
+	    line_to_do = history_find_by_number(i);
+	} else {
+	    char *search_str = NULL;  /* string from command line to search for */
+	    m_capture(&search_str, c_token, c_token);
+	    line_to_do = history_find(search_str);
+	    free(search_str);
+	}
 	if (line_to_do == NULL)
 	    int_error(c_token, "not in history");
+
+	/* Replace current entry "history !..." in history list	*/
+	/* with the command we found by searching.		*/
+#if defined(HAVE_LIBREADLINE)
+	free(replace_history_entry(history_length-1, line_to_do, NULL)->line);
+#elif defined(READLINE)
+	free(history->line);
+	history->line = line_to_do;
+#endif
+
 	printf("  Executing:\n\t%s\n", line_to_do);
 	do_string(line_to_do);
 	c_token++;
@@ -931,7 +943,7 @@ history_command()
 	TBOOLEAN append = FALSE;   /* rewrite output file or append it */
 	static char *name = NULL;  /* name of the output file; NULL for stdout */
 
-	TBOOLEAN quiet = FALSE;
+	TBOOLEAN quiet = history_quiet;
 	if (!END_OF_COMMAND && almost_equals(c_token,"q$uiet")) {
 	    /* option quiet to suppress history entry numbers */
 	    quiet = TRUE;
@@ -953,7 +965,7 @@ history_command()
 
 #else
     c_token++;
-    int_warn(NO_CARET, "You have to compile gnuplot with builtin readline or GNU readline or BSD editline to enable history support.");
+    int_warn(NO_CARET, "This copy of gnuplot was built without support for command history.");
 #endif /* defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE) */
 }
 
@@ -1226,21 +1238,25 @@ link_command()
 	memset(axis_array[secondary_axis].link_udf, 0, sizeof(udft_entry));
     }
 
-    if (!equals(c_token,"via")) {
+    if (equals(c_token,"via")) {
+	parse_link_via(axis_array[secondary_axis].link_udf);
+	if (almost_equals(c_token,"inv$erse")) {
+	    parse_link_via(axis_array[primary_axis].link_udf);
+	} else {
+	    int_warn(c_token,"inverse mapping function required");
+	    linked = FALSE;
+	}
+    }
+
+    if (linked) {
+	/* Clone the range information */
+	clone_linked_axes(secondary_axis, primary_axis);
+    } else {
 	free_at(axis_array[secondary_axis].link_udf->at);
 	axis_array[secondary_axis].link_udf->at = NULL;
 	free_at(axis_array[primary_axis].link_udf->at);
 	axis_array[primary_axis].link_udf->at = NULL;
-    } else {
-	parse_link_via(axis_array[secondary_axis].link_udf,
-		    (secondary_axis==SECOND_X_AXIS) ? "x" : "y");
-	if (!almost_equals(c_token,"inv$erse"))
-	    int_error(c_token,"inverse mapping function required");
-	parse_link_via(axis_array[primary_axis].link_udf,
-		    (secondary_axis==SECOND_X_AXIS) ? "x" : "y");
     }
-    /* Clone the range information */
-    clone_linked_axes(secondary_axis, primary_axis);
 }
 
 /* process the 'load' command */
@@ -1257,7 +1273,7 @@ load_command()
     gp_expand_tilde(&save_file);
 
     fp = strcmp(save_file, "-") ? loadpath_fopen(save_file, "r") : stdout;
-    load_file(fp, save_file, FALSE);
+    load_file(fp, save_file, 1);
 }
 
 
@@ -1329,6 +1345,23 @@ clause_reset_after_error()
     clause_depth = 0;
 }
 
+/* helper routine to multiplex mouse event handling with a timed pause command */
+void
+timed_pause(double sleep_time)
+{
+#if defined(HAVE_USLEEP) && defined(USE_MOUSE)
+    if (term->waitforinput)		/* If the terminal supports it */
+	while (sleep_time > 0.05) {	/* we poll 20 times a second */
+	    usleep(50000);		/* Sleep for 50 msec */
+	    check_for_mouse_events();
+	    sleep_time -= 0.05;
+	}
+    usleep((useconds_t)(sleep_time * 1e6));
+    check_for_mouse_events();
+#else
+    GP_SLEEP(sleep_time);
+#endif
+}
 
 /* process the 'pause' command */
 #define EAT_INPUT_WITH(slurp) do {int junk=0; do {junk=slurp;} while (junk != EOF && junk != '\n');} while (0)
@@ -1420,15 +1453,15 @@ pause_command()
 #if defined(_Windows)
 # ifdef WXWIDGETS
 	if (!strcmp(term->name, "wxt")) {
-	    /* copy of the code below:  !(_Windows || OS2 || _Macintosh) */
+	    /* copy of the code below:  !(_Windows || OS2) */
 	    if (term && term->waitforinput && paused_for_mouse){
 		fprintf(stderr, "%s\n", buf);
-		term->waitforinput();
+		term->waitforinput(0);
 	    } else {
 #  if defined(WGP_CONSOLE)
 		fprintf(stderr, "%s\n", buf);
 		if (term && term->waitforinput)
-		    while (term->waitforinput() != (int)'\r') {}; /* waiting for Enter*/
+		    while (term->waitforinput(0) != (int)'\r') {}; /* waiting for Enter*/
 #  else /* !WGP_CONSOLE */
 		if (!Pause(buf))
 		    bail_to_command_line();
@@ -1437,6 +1470,7 @@ pause_command()
 	} else
 # endif /* _Windows && WXWIDGETS */
 	{
+# ifdef USE_MOUSE
 	    if (paused_for_mouse && !GraphHasWindow(graphwin)) {
 		if (interactive) { /* cannot wait for Enter in a non-interactive session without the graph window */
 		    if (buf) fprintf(stderr, "%s\n", buf);
@@ -1444,10 +1478,16 @@ pause_command()
 		}
 	    } else { /* pausing via graphical windows */
 		if (!paused_for_mouse) {
+# endif
 #  if defined(WGP_CONSOLE)
 		    if (buf) fprintf(stderr,"%s\n", buf);
 		    if (term && term->waitforinput) {
-			while (term->waitforinput() != (int)'\r') {}; /* waiting for Enter*/
+			while (term->waitforinput(0) != (int)'\r') {
+			    if (ctrlc_flag) {
+				ctrlc_flag = FALSE;
+				bail_to_command_line();
+			    }
+			}; /* waiting for Enter*/
 		    } else {
 			EAT_INPUT_WITH(fgetc(stdin));
 		    }
@@ -1455,12 +1495,14 @@ pause_command()
 		    if (!Pause(buf))
 			bail_to_command_line();
 #  endif
+# ifdef USE_MOUSE
 		} else {
 		    if (buf) fprintf(stderr,"%s\n", buf);
 		    if (!Pause(buf) && !GraphHasWindow(graphwin))
 			bail_to_command_line();
 		}
 	    }
+# endif
 	}
 #elif defined(OS2)
 	if (strcmp(term->name, "pm") == 0 && sleep_time < 0) {
@@ -1477,22 +1519,19 @@ pause_command()
 		EAT_INPUT_WITH(fgetc(stdin));
 	    }
 	}
-#elif defined(_Macintosh)
-	if (strcmp(term->name, "macintosh") == 0 && sleep_time < 0)
-	    Pause( (int)sleep_time );
-#else /* !(_Windows || OS2 || _Macintosh) */
+#else /* !(_Windows || OS2) */
 #ifdef USE_MOUSE
 	if (term && term->waitforinput) {
 	    /* It does _not_ work to do EAT_INPUT_WITH(term->waitforinput()) */
-	    term->waitforinput();
+	    term->waitforinput(0);
 	} else
 #endif /* USE_MOUSE */
 	    EAT_INPUT_WITH(fgetc(stdin));
 
-#endif /* !(_Windows || OS2 || _Macintosh) */
+#endif /* !(_Windows || OS2) */
     }
     if (sleep_time > 0)
-	GP_SLEEP(sleep_time);
+	timed_pause(sleep_time);
 
     if (text != 0 && sleep_time >= 0)
 	fputc('\n', stderr);
@@ -1525,7 +1564,7 @@ plot_command()
 
 
 void
-print_set_output(char *name, TBOOLEAN append_p)
+print_set_output(char *name, TBOOLEAN datablock, TBOOLEAN append_p)
 {
     if (print_out && print_out != stderr && print_out != stdout) {
 #ifdef PIPES
@@ -1538,23 +1577,22 @@ print_set_output(char *name, TBOOLEAN append_p)
 		perror(print_out_name);
     }
 
-    if (print_out_name)
-	free(print_out_name);
-
+    free(print_out_name);
     print_out_name = NULL;
 
     if (! name) {
 	print_out = stderr;
+	print_out_var = NULL;
 	return;
     }
 
-    if (! strcmp(name, "-")) {
+    if (strcmp(name, "-") == 0) {
 	print_out = stdout;
 	return;
     }
 
 #ifdef PIPES
-    if (name[0]=='|') {
+    if (name[0] == '|') {
 	restrict_popen();
 	print_out = popen(name + 1, "w");
 	if (!print_out)
@@ -1565,10 +1603,29 @@ print_set_output(char *name, TBOOLEAN append_p)
     }
 #endif
 
-    print_out = fopen(name, append_p ? "a" : "w");
-    if (!print_out) {
-	perror(name);
-	return;
+    if (!datablock) {
+	print_out = fopen(name, append_p ? "a" : "w");
+	if (!print_out) {
+	    perror(name);
+	    return;
+	}
+    } else {
+	print_out_var = add_udv_by_name(name);
+	if (print_out_var == NULL) {
+	    fprintf(stderr, "Error allocating datablock \"%s\"\n", name);
+	    return;
+	}
+	if (!print_out_var->udv_undef) {
+	    gpfree_string(&print_out_var->udv_value);
+	    if (!append_p)
+		gpfree_datablock(&print_out_var->udv_value);
+	    if (print_out_var->udv_value.type != DATABLOCK)
+	        print_out_var->udv_value.v.data_array = NULL;
+	} else {
+	    print_out_var->udv_value.v.data_array = NULL;
+	}
+	print_out_var->udv_value.type = DATABLOCK;
+	print_out_var->udv_undef = FALSE;
     }
 
     print_out_name = name;
@@ -1577,12 +1634,15 @@ print_set_output(char *name, TBOOLEAN append_p)
 char *
 print_show_output()
 {
-    if (print_out==stdout)
+    if (print_out_name)
+	return print_out_name;
+    if (print_out == stdout)
 	return "<stdout>";
-    if (!print_out || print_out==stderr || !print_out_name)
+    if (!print_out || print_out == stderr || !print_out_name)
 	return "<stderr>";
     return print_out_name;
 }
+
 
 /* process the 'print' command */
 void
@@ -1591,36 +1651,59 @@ print_command()
     struct value a;
     /* space printed between two expressions only */
     int need_space = 0;
+    char *dataline = NULL;
+    size_t size = 256;
 
-    if (!print_out) {
+    if (!print_out)
 	print_out = stderr;
+    if (print_out_var != NULL) { /* print to datablock */
+	dataline = (char *) gp_alloc(size, "dataline");
+	*dataline = NUL;
     }
     screen_ok = FALSE;
     do {
 	++c_token;
-	if (equals(c_token,"$") && isletter(c_token+1)) {
+	if (equals(c_token, "$") && isletter(c_token+1)) {
 	    char **line = get_datablock(parse_datablock_name());
 	    while (line && *line) {
-		fputs(*line, print_out);
+		if (print_out_var != NULL)
+		    append_to_datablock(&print_out_var->udv_value, strdup(*line));
+		else
+		    fprintf(print_out, "%s\n", *line);
 		line++;
 	    }
 	    continue;
 	}
 	const_express(&a);
 	if (a.type == STRING) {
-	    fputs(a.v.string_val, print_out);
+	    if (dataline)
+		strappend(&dataline, &size, a.v.string_val);
+	    else
+		fputs(a.v.string_val, print_out);
 	    gpfree_string(&a);
 	    need_space = 0;
 	} else {
 	    if (need_space)
-		putc(' ', print_out);
-	    disp_value(print_out, &a, FALSE);
+		if (dataline)
+		    strappend(&dataline, &size, " ");
+		else
+		    putc(' ', print_out);
+	    if (dataline) {
+		char * val = value_to_str(&a, FALSE);
+		strappend(&dataline, &size, val);
+	    } else {
+		disp_value(print_out, &a, FALSE);
+	    }
 	    need_space = 1;
 	}
     } while (!END_OF_COMMAND && equals(c_token, ","));
 
-    (void) putc('\n', print_out);
-    fflush(print_out);
+    if (dataline)
+	append_to_datablock(&print_out_var->udv_value, dataline);
+    else {
+	(void) putc('\n', print_out);
+	fflush(print_out);
+    }
 }
 
 
@@ -1640,7 +1723,6 @@ pwd_command()
 }
 
 
-#ifdef VOLATILE_REFRESH
 /* EAM April 2007
  * The "refresh" command replots the previous graph without going back to read
  * the original data. This allows zooming or other operations on data that was
@@ -1686,15 +1768,15 @@ refresh_request()
     if (refresh_ok == E_REFRESH_OK_2D) {
 	refresh_bounds(first_plot, refresh_nplots); 
 	do_plot(first_plot, refresh_nplots);
+	update_gpval_variables(1);
     } else if (refresh_ok == E_REFRESH_OK_3D) {
 	refresh_3dbounds(first_3dplot, refresh_nplots);
 	do_3dplot(first_3dplot, refresh_nplots, 0);
+	update_gpval_variables(1);
     } else
 	int_error(NO_CARET, "Internal error - refresh of unknown plot type");
 
 }
-#endif /* VOLATILE_REFRESH */
-
 
 /* process the 'replot' command */
 void
@@ -1703,14 +1785,12 @@ replot_command()
     if (!*replot_line)
 	int_error(c_token, "no previous plot");
 
-#ifdef VOLATILE_REFRESH
     if (volatile_data && (refresh_ok != E_REFRESH_NOT_OK) && !replot_disabled) {
 	FPRINTF((stderr,"volatile_data %d refresh_ok %d plotted_data_from_stdin %d\n",
 		volatile_data, refresh_ok, plotted_data_from_stdin));
 	refresh_command();
 	return;
     }
-#endif
 
     /* Disable replot for some reason; currently used by the mouse/hotkey
        capable terminals to avoid replotting when some data come from stdin,
@@ -1905,7 +1985,7 @@ se key top right at scre 0.975,0.975 horizontal \
 title 'R,G,B profiles of the current color palette';";
     static const char post[] = "\
 \n\n\nuns multi;\n"; /* no final 'reset' in favour of mousing */
-    int can_pm3d = (term->make_palette && term->set_color);
+    int can_pm3d = (term->make_palette && ((term->flags & TERM_NULL_SET_COLOR) == 0));
     char *order = "rgb";
     char *save_replot_line;
     TBOOLEAN save_is_3d_plot;
@@ -2003,16 +2083,13 @@ title 'R,G,B profiles of the current color palette';";
 
     /* execute all commands from the temporary file */
     rewind(f);
-    load_file(f, NULL, FALSE); /* note: it does fclose(f) */
+    load_file(f, NULL, 1); /* note: it does fclose(f) */
 
     /* enable reset_palette() and restore replot line */
     enable_reset_palette = 1;
     free(replot_line);
     replot_line = save_replot_line;
     is_3d_plot = save_is_3d_plot;
-
-    /* further, gp_input_line[] and token[] now destroyed! */
-    c_token = num_tokens = 0;
 }
 
 
@@ -2104,6 +2181,56 @@ update_command()
     free(opfname);
 }
 
+/* the "import" command is only implemented if support is configured for */
+/* using functions from external shared objects as plugins. */
+void
+import_command()
+{
+    int start_token = c_token;
+
+#ifdef HAVE_EXTERNAL_FUNCTIONS
+    struct udft_entry *udf;
+
+    int dummy_num = 0;
+    char save_dummy[MAX_NUM_VAR][MAX_ID_LEN+1];
+
+    if (!equals(++c_token + 1, "("))
+	int_error(c_token, "Expecting function template");
+
+    memcpy(save_dummy, c_dummy_var, sizeof(save_dummy));
+    do {
+	c_token += 2;	/* skip to the next dummy */
+	copy_str(c_dummy_var[dummy_num++], c_token, MAX_ID_LEN);
+    } while (equals(c_token + 1, ",") && (dummy_num < MAX_NUM_VAR));
+    if (equals(++c_token, ","))
+	int_error(c_token + 1, "function contains too many parameters");
+    if (!equals(c_token++, ")"))
+	int_error(c_token, "missing ')'");
+
+    if (!equals(c_token, "from"))
+	int_error(c_token, "Expecting 'from <sharedobj>'");
+    c_token++;
+
+    udf = dummy_func = add_udf(start_token+1);
+    udf->dummy_num = dummy_num;
+    free_at(udf->at);	/* In case there was a previous function by this name */
+
+    udf->at = external_at(udf->udf_name);
+    memcpy(c_dummy_var, save_dummy, sizeof(save_dummy));
+    dummy_func = NULL;	/* dont let anyone else use our workspace */
+
+    if (!udf->at)
+	int_error(NO_CARET, "failed to load external function");
+
+    /* Don't copy the definition until we know it worked */
+    m_capture(&(udf->definition), start_token, c_token - 1);
+
+#else
+    while (!END_OF_COMMAND)
+	c_token++;
+    int_error(start_token, "This copy of gnuplot does not support plugins");
+#endif
+}
 
 /* process invalid commands and, on OS/2, REXX commands */
 void
@@ -2221,7 +2348,7 @@ replotrequest()
     num_tokens = scanner(&gp_input_line, &gp_input_line_len);
     c_token = 1;		/* skip the 'plot' part */
 
-    if (is_3d_plot)
+    if (almost_equals(0,"s$plot"))
 	plot3drequest();
     else
 	plotrequest();
@@ -2324,12 +2451,10 @@ void
 done(int status)
 {
     term_reset();
-    exit(status);
+    gp_exit(status);
 }
 
-/* please note that the vms version of read_line doesn't support variable line
-   length (yet) */
-
+/* VMS-only version of read_line */
 static int
 read_line(const char *prompt, int start)
 {
@@ -2476,6 +2601,7 @@ help_command()
     }
 }
 #else  /* !_Windows */
+#ifndef VMS
 void
 help_command()
 {
@@ -2483,6 +2609,7 @@ help_command()
 	c_token++;
     fputs("This gnuplot was not built with inline help\n", stderr);
 }
+#endif /* VMS */
 #endif /* _Windows */
 #endif /* NO_GIH */
 
@@ -2716,29 +2843,29 @@ rlgets(char *s, size_t n, const char *prompt)
 	    /* search in the history for entries containing line.
 	     * They may have other tokens before and after line, hence
 	     * the check on strcmp below. */
-	    found = history_search(line, -1);
-	    if (found != -1 && !strcmp(current_history()->line,line)) {
-		/* this line is already in the history, remove the earlier entry */
-		HIST_ENTRY *removed = remove_history(where_history());
-		/* according to history docs we are supposed to free the stuff */
-		if (removed) {
-		    free(removed->line);
-		    free(removed->data);
-		    free(removed);
+	    if (!history_full) {
+		found = history_search(line, -1);
+		if (found != -1 && !strcmp(current_history()->line,line)) {
+		    /* this line is already in the history, remove the earlier entry */
+		    HIST_ENTRY *removed = remove_history(where_history());
+		    /* according to history docs we are supposed to free the stuff */
+		    if (removed) {
+			free(removed->line);
+			free(removed->data);
+			free(removed);
+		    }
 		}
 	    }
 	    add_history(line);
 #  elif defined(HAVE_LIBEDITLINE)
-	    /* deleting history entries does not work, so suppress adjacent
-	    duplicates only */
-
-	    int found;
+	    /* deleting history entries does not work, so suppress adjacent duplicates only */
+	    int found = 0;
 	    using_history();
 
-	    found = history_search(line, -1);
-	    if (found <= 0) {
+	    if (!history_full)
+		found = history_search(line, -1);
+	    if (found <= 0)
                add_history(line);
-            }
 #  else /* builtin readline */
 	    add_history(line);
 #  endif
@@ -2870,12 +2997,12 @@ fgets_ipc(
 #ifdef USE_MOUSE
     if (term && term->waitforinput) {
 	/* This a mouseable terminal --- must expect input from it */
-	int c;			/* char got from waitforinput() */
+	int c;			/* char gotten from waitforinput() */
 	size_t i=0;		/* position inside dest */
 
 	dest[0] = '\0';
 	for (i=0; i < len-1; i++) {
-	    c = term->waitforinput();
+	    c = term->waitforinput(0);
 	    if ('\n' == c) {
 		dest[i] = '\n';
 		i++;
@@ -3034,17 +3161,24 @@ call_kill_pending_Pause_dialog()
 }
 #endif /* _Windows */
 
-#ifdef GP_MACROS
 /*
  * Walk through the input line looking for string variables preceded by @.
  * Replace the characters @<varname> with the contents of the string.
  * Anything inside quotes is not expanded.
+ * Allow up to 3 levels of nested macros.
  */
+void
+string_expand_macros()
+{
+	if (expand_1level_macros() && expand_1level_macros()
+	&&  expand_1level_macros() && expand_1level_macros())
+	    int_error(NO_CARET, "Macros nested too deeply");
+}
 
 #define COPY_CHAR gp_input_line[o++] = *c; \
                   after_backslash = FALSE;
 int
-string_expand_macros()
+expand_1level_macros()
 {
     TBOOLEAN in_squote = FALSE;
     TBOOLEAN in_dquote = FALSE;
@@ -3078,8 +3212,8 @@ string_expand_macros()
 		    while (isalnum(*c) || (*c=='_')) c++;
 		    temp_char = *c; *c = '\0';
 		    /* Look up the key and restore the original following char */
-		    udv = add_udv_by_name(m);
-		    if (udv && udv->udv_value.type == STRING) {
+		    udv = get_udv_by_name(m);
+		    if (udv && !udv->udv_undef && udv->udv_value.type == STRING) {
 			nfound++;
 			m = udv->udv_value.v.string_val;
 			FPRINTF((stderr,"Replacing @%s with \"%s\"\n",udv->udv_name,m));
@@ -3123,7 +3257,6 @@ string_expand_macros()
 
     return(nfound);
 }
-#endif
 
 /* much more than what can be useful */
 #define MAX_TOTAL_LINE_LEN (1024 * MAX_LINE_LEN)

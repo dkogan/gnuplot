@@ -46,18 +46,42 @@
 #include "QtGnuplotScene.h"
 #include "QtGnuplotItems.h"
 
+extern "C" {
+#include "../mousecmn.h"
+}
+
 #include <QtGui>
 #include <QSvgGenerator>
 
 int QtGnuplotWidget::m_widgetUid = 1;
 
+QtGnuplotWidget::QtGnuplotWidget(QWidget* parent)
+	: QWidget(parent)
+	, m_id(0)
+{
+	m_eventHandler = 0;
+	init();
+}
+
 QtGnuplotWidget::QtGnuplotWidget(int id, QtGnuplotEventHandler* eventHandler, QWidget* parent)
 	: QWidget(parent)
+	, m_id(id)
 {
-	m_id = id;
+	m_eventHandler = eventHandler;
+	init();
+}
+
+void QtGnuplotWidget::init()
+{
 	m_active = false;
 	m_lastSizeRequest = QSize(-1, -1);
-	m_eventHandler = eventHandler;
+	m_rounded = true;
+	m_backgroundColor = Qt::white;
+	m_antialias = true;
+	m_replotOnResize = true;
+	m_statusLabelActive = false;
+	m_skipResize = false;
+
 	// Register as the main event receiver if not already created
 	if (m_eventHandler == 0)
 		m_eventHandler = new QtGnuplotEventHandler(this,"qtgnuplot" +
@@ -74,12 +98,21 @@ QtGnuplotWidget::QtGnuplotWidget(int id, QtGnuplotEventHandler* eventHandler, QW
 	layout->addWidget(m_view);
 	setLayout(layout);
 	setViewMatrix();
-
-	loadSettings();
+	m_statusLabel = new QLabel(m_view->viewport());
+	m_statusLabel->setStyleSheet("QLabel { background-color :  rgba(230, 212, 166, 150) }");
+	m_statusLabel->setMargin(1);
+	m_statusLabel->setVisible(false);
 }
 
 void QtGnuplotWidget::setStatusText(const QString& status)
 {
+	if (m_statusLabelActive)
+	{
+		m_statusLabel->setText(status);
+		m_statusLabel->adjustSize();
+		m_statusLabel->move(m_view->viewport()->width() - m_statusLabel->width(), 0);
+		m_statusLabel->setVisible(true);
+	}
 	emit statusTextChanged(status);
 }
 
@@ -100,21 +133,52 @@ void QtGnuplotWidget::setViewMatrix()
 
 void QtGnuplotWidget::processEvent(QtGnuplotEventType type, QDataStream& in)
 {
+	// Plot is done. Emit a signal and forward to the scene
+	if (type == GEDone)
+	{
+		emit plotDone();
+		m_scene->processEvent(type, in);
+		return;
+	}
+
 	if (type == GESetWidgetSize)
 	{
 		QSize s;
 		in >> s;
-//		qDebug() << "Size request" << s << " / viewport" << m_view->maximumViewportSize();
 		m_lastSizeRequest = s;
 		m_view->resetMatrix();
 		QWidget* viewport = m_view->viewport();
-
-		if (s != viewport->size())
+/*		qDebug() << "QtGnuplotWidget::processEvent Size request" << s << size() << " / viewport" << m_view->maximumViewportSize();
+		qDebug() << " widget size   " << size();
+		qDebug() << " view size     " << m_view->size();
+		qDebug() << " viewport size " << viewport->size();
+		qDebug() << " last size req." << m_lastSizeRequest;
+*/
+		// Qt has no reliable mechanism to set the size of widget while having it resizable. So we heuristically use the
+		// resize function to set the size of the plotting area when the plot window is already displayed.
+		// When the window is not yet displayed, this does not work because the window messes up with its content sizes before
+		// showing up. In this case, we use the sizeHint mechanism to tell the window which size we prefer for the plotting area.
+		// On MacOS, it looks like QMainWindow forgets the status bar area when it layouts its contents
+		// This makes the plot area 14 pixels too small in the vertical direction when the plot window
+		// is first displayed.
+		QMainWindow* parent = dynamic_cast<QMainWindow*>(parentWidget());
+		if ((s != viewport->size()) || (parent && !parent->isVisible()))
 		{
 //			qDebug() << " -> resizing";
-			QMainWindow* parent = dynamic_cast<QMainWindow*>(parentWidget());
 			if (parent)
-				parent->resize(s + parent->size() - viewport->size());
+			{
+				// The parent is not visible : resize via the sizeHint mechanism because the "resize" function is not active
+				if (!parent->isVisible())
+				{
+					m_skipResize = true;
+					m_sizeHint = s + QSize(2*m_view->frameWidth(), 2*m_view->frameWidth());
+					parent->updateGeometry();
+					parent->show();
+					m_skipResize = false;
+				}
+				else
+					parent->resize(s + parent->size() - viewport->size());
+			}
 			viewport->resize(s);
 		}
 	}
@@ -153,15 +217,24 @@ void QtGnuplotWidget::processEvent(QtGnuplotEventType type, QDataStream& in)
 void QtGnuplotWidget::resizeEvent(QResizeEvent* event)
 {
 	QWidget* viewport = m_view->viewport();
-//	qDebug() << "QtGnuplotWidget::resizeEvent" << "W" << size() << "V" << m_view->size() << "P" << viewport->size();
+/*	qDebug() << "QtGnuplotWidget::resizeEvent" << isVisible();
+	qDebug() << " event->size   " << event->size();
+	qDebug() << " event->oldSize" << event->oldSize();
+	qDebug() << " widget size   " << size();
+	qDebug() << " view size     " << m_view->size();
+	qDebug() << " viewport size " << viewport->size();
+	qDebug() << " last size req." << m_lastSizeRequest;
+*/
+	m_statusLabel->move(viewport->width() - m_statusLabel->width(), 0);
 
 	// We only inform gnuplot of a new size, and not of the first resize event
-	if ((viewport->size() != m_lastSizeRequest) && (m_lastSizeRequest != QSize(-1, -1)))
+	if ((viewport->size() != m_lastSizeRequest) && (m_lastSizeRequest != QSize(-1, -1)) && !m_skipResize)
 	{
+//		qDebug() << " -> Sending event";
 		m_eventHandler->postTermEvent(GE_fontprops,viewport->size().width(),
-		                               viewport->size().height(), 0, 0, 0); /// @todo m_id
-		if (m_replotOnResize && m_active)
-			m_eventHandler->postTermEvent(GE_keypress, 0, 0, 'e', 0, 0); // ask for replot
+		                               viewport->size().height(), 0, 0, this);
+		if (m_replotOnResize && isActive())
+			m_eventHandler->postTermEvent(GE_keypress, 0, 0, 'e', 0, this); // ask for replot
 		else
 			m_view->fitInView(m_scene->sceneRect(), Qt::KeepAspectRatio);
 	}
@@ -176,6 +249,11 @@ QPainter::RenderHints QtGnuplotWidget::renderHints() const
 		hint |= QPainter::Antialiasing;
 
 	return hint;
+}
+
+QSize QtGnuplotWidget::sizeHint() const
+{
+	return m_sizeHint;
 }
 
 /////////////////////////////////////////////////
@@ -198,25 +276,15 @@ void QtGnuplotWidget::copyToClipboard()
 	QApplication::clipboard()->setPixmap(createPixmap());
 }
 
-void QtGnuplotWidget::print()
+void QtGnuplotWidget::print(QPrinter& printer)
 {
-	QPrinter printer;
-	if (QPrintDialog(&printer).exec() == QDialog::Accepted)
-	{
-		QPainter painter(&printer);
-		painter.setRenderHints(renderHints());
-		m_scene->render(&painter);
-	}
+	QPainter painter(&printer);
+	painter.setRenderHints(renderHints());
+	m_scene->render(&painter);
 }
 
-void QtGnuplotWidget::exportToPdf()
+void QtGnuplotWidget::exportToPdf(const QString& fileName)
 {
-	QString fileName = QFileDialog::getSaveFileName(this, tr("Export to PDF"), "", tr("PDF files (*.pdf)"));
-	if (fileName.isEmpty())
-		return;
-	if (!fileName.endsWith(".pdf", Qt::CaseInsensitive))
-			fileName += ".pdf";
-
 	QPrinter printer;
 	printer.setOutputFormat(QPrinter::PdfFormat);
 	printer.setOutputFileName(fileName);
@@ -232,28 +300,13 @@ void QtGnuplotWidget::exportToEps()
 	/// @todo
 }
 
-void QtGnuplotWidget::exportToImage()
+void QtGnuplotWidget::exportToImage(const QString& fileName)
 {
-	/// @todo other image formats supported by Qt
-	QString fileName = QFileDialog::getSaveFileName(this, tr("Export to Image"), "",
-	                       tr("Image files (*.png *.bmp)"));
-	if (fileName.isEmpty())
-		return;
-	if (!fileName.endsWith(".png", Qt::CaseInsensitive) &&
-	    !fileName.endsWith(".bmp", Qt::CaseInsensitive))
-			fileName += ".png";
-
 	createPixmap().save(fileName);
 }
 
-void QtGnuplotWidget::exportToSvg()
+void QtGnuplotWidget::exportToSvg(const QString& fileName)
 {
-	QString fileName = QFileDialog::getSaveFileName(this, tr("Export to SVG"), "", tr("SVG files (*.svg)"));
-	if (fileName.isEmpty())
-		return;
-	if (!fileName.endsWith(".svg", Qt::CaseInsensitive))
-			fileName += ".svg";
-
 	QSvgGenerator svg;
 	svg.setFileName(fileName);
 	svg.setSize(QSize(m_view->width(), m_view->height()));
@@ -266,63 +319,50 @@ void QtGnuplotWidget::exportToSvg()
 /////////////////////////////////////////////////
 // Settings
 
-void QtGnuplotWidget::loadSettings()
+void QtGnuplotWidget::loadSettings(const QSettings& settings)
 {
-	QSettings settings("gnuplot", "qtterminal");
-	m_antialias = settings.value("view/antialias", true).toBool();
-	m_rounded = settings.value("view/rounded", true).toBool();
-	m_backgroundColor = settings.value("view/backgroundColor", Qt::white).value<QColor>();
-	m_replotOnResize = settings.value("view/replotOnResize", true).toBool();
-	applySettings();
+	setAntialias(settings.value("antialias", true).toBool());
+	setRounded(settings.value("rounded", true).toBool());
+	setBackgroundColor(settings.value("backgroundColor", QColor(Qt::white)).value<QColor>());
+	setReplotOnResize(settings.value("replotOnResize", true).toBool());
+	setStatusLabelActive(settings.value("statusLabelActive", false).toBool());
 }
 
-void QtGnuplotWidget::applySettings()
+void QtGnuplotWidget::saveSettings(QSettings& settings) const
 {
+	settings.setValue("antialias", m_antialias);
+	settings.setValue("rounded", m_rounded);
+	settings.setValue("backgroundColor", m_backgroundColor);
+	settings.setValue("replotOnResize", m_replotOnResize);
+	settings.setValue("statusLabelActive", m_statusLabelActive);
+}
+
+void QtGnuplotWidget::setAntialias(bool value)
+{
+	m_antialias = value;
 	m_view->setRenderHints(renderHints());
+}
+
+void QtGnuplotWidget::setRounded(bool value)
+{
+	m_rounded = value;
+}
+
+void QtGnuplotWidget::setReplotOnResize(bool value)
+{
+	m_replotOnResize = value;
+}
+
+void QtGnuplotWidget::setBackgroundColor(const QColor& color)
+{
+	m_backgroundColor = color;
 	m_view->setBackgroundBrush(m_backgroundColor);
 }
 
-void QtGnuplotWidget::saveSettings()
+void QtGnuplotWidget::setStatusLabelActive(bool active)
 {
-	QSettings settings("gnuplot", "qtterminal");
-	settings.setValue("view/antialias", m_antialias);
-	settings.setValue("view/rounded", m_rounded);
-	settings.setValue("view/backgroundColor", m_backgroundColor);
-	settings.setValue("view/replotOnResize", m_replotOnResize);
+	m_statusLabelActive = active;
+	if (!active)
+		m_statusLabel->setVisible(false);
 }
 
-#include "ui_QtGnuplotSettings.h"
-
-void QtGnuplotWidget::showSettingsDialog()
-{
-	QDialog* settingsDialog = new QDialog(this);
-	m_ui = new Ui_settingsDialog();
-	m_ui->setupUi(settingsDialog);
-	m_ui->antialiasCheckBox->setCheckState(m_antialias ? Qt::Checked : Qt::Unchecked);
-	m_ui->roundedCheckBox->setCheckState(m_rounded ? Qt::Checked : Qt::Unchecked);
-	m_ui->replotOnResizeCheckBox->setCheckState(m_replotOnResize ? Qt::Checked : Qt::Unchecked);
-	QPixmap samplePixmap(m_ui->sampleColorLabel->size());
-	samplePixmap.fill(m_backgroundColor);
-	m_ui->sampleColorLabel->setPixmap(samplePixmap);
-	m_chosenBackgroundColor = m_backgroundColor;
-	connect(m_ui->backgroundButton, SIGNAL(clicked()), this, SLOT(settingsSelectBackgroundColor()));
-	settingsDialog->exec();
-
-	if (settingsDialog->result() == QDialog::Accepted)
-	{
-		m_backgroundColor = m_chosenBackgroundColor;
-		m_antialias = (m_ui->antialiasCheckBox->checkState() == Qt::Checked);
-		m_rounded = (m_ui->roundedCheckBox->checkState() == Qt::Checked);
-		m_replotOnResize = (m_ui->replotOnResizeCheckBox->checkState() == Qt::Checked);
-		applySettings();
-		saveSettings();
-	}
-}
-
-void QtGnuplotWidget::settingsSelectBackgroundColor()
-{
-	m_chosenBackgroundColor = QColorDialog::getColor(m_chosenBackgroundColor, this);
-	QPixmap samplePixmap(m_ui->sampleColorLabel->size());
-	samplePixmap.fill(m_chosenBackgroundColor);
-	m_ui->sampleColorLabel->setPixmap(samplePixmap);
-}

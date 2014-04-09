@@ -1,5 +1,5 @@
 /*
- * $Id: util.h,v 1.39 2013/01/26 00:40:26 sfeam Exp $
+ * $Id: util.h,v 1.42 2014/03/23 12:17:59 markisch Exp $
  */
 
 /* GNUPLOT - util.h */
@@ -117,6 +117,7 @@ void graph_error __PROTO(());
 void squash_spaces __PROTO((char *));
 
 TBOOLEAN existdir __PROTO((const char *));
+TBOOLEAN existfile(const char *);
 
 char *getusername __PROTO((void));
 
@@ -126,5 +127,13 @@ size_t strlen_utf8 __PROTO((const char *s));
 size_t gp_strlen __PROTO((const char *s));
 char * gp_strchrn __PROTO((const char *s, int N));
 TBOOLEAN streq __PROTO((const char *a, const char *b));
+char *strappend(char **dest, size_t *size, char *src);
+
+char *num_to_str(double r);
+char *value_to_str(struct value *val, TBOOLEAN need_quotes);
+
+/* To disallow 8-bit characters in variable names, set this to */
+/* #define ALLOWED_8BITVAR(c) FALSE */
+#define ALLOWED_8BITVAR(c) ((c)&0x80)
 
 #endif /* GNUPLOT_UTIL_H */

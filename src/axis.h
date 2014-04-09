@@ -1,5 +1,5 @@
 /*
- * $Id: axis.h,v 1.83 2013/04/08 00:16:01 sfeam Exp $
+ * $Id: axis.h,v 1.101 2014/03/16 22:03:04 sfeam Exp $
  *
  */
 
@@ -56,7 +56,8 @@
  * FIRST_X_AXIS & SECOND_AXES == 0
  */
 typedef enum AXIS_INDEX {
-    FIRST_Z_AXIS,
+    ALL_AXES = -1,
+    FIRST_Z_AXIS = 0,
 #define FIRST_AXES FIRST_Z_AXIS
     FIRST_Y_AXIS,
     FIRST_X_AXIS,
@@ -69,10 +70,14 @@ typedef enum AXIS_INDEX {
     T_AXIS,
     U_AXIS,
     V_AXIS,
+    PARALLEL_AXES,	/* The first of up to MAX_PARALLEL_AXES */
     NO_AXIS = 99
 } AXIS_INDEX;
 
-# define AXIS_ARRAY_SIZE 11
+#ifndef MAX_PARALLEL_AXES
+# define MAX_PARALLEL_AXES MAX_NUM_VAR
+#endif
+# define AXIS_ARRAY_SIZE (11 + MAX_PARALLEL_AXES)
 # define SAMPLE_AXIS SECOND_Z_AXIS
 # define LAST_REAL_AXIS  POLAR_AXIS
 
@@ -126,16 +131,17 @@ typedef struct ticdef {
  * simply test bit 0 to see if it must do the minitics automatically.
  * similarly, conventional plot can test bit 1 to see if minitics are
  * required */
-enum en_minitics_status {
+typedef enum en_minitics_status {
     MINI_OFF,
     MINI_DEFAULT,
     MINI_USER,
     MINI_AUTO
-};
+} t_minitics_status;
 
 /* Function pointer type for callback functions doing operations for a
  * single ticmark */
-typedef void (*tic_callback) __PROTO((AXIS_INDEX, double, char *, struct lp_style_type,
+typedef void (*tic_callback) __PROTO((AXIS_INDEX, double, char *, int, 
+					struct lp_style_type,
 					struct ticmark *));
 
 /* Values to put in the axis_tics[] variables that decides where the
@@ -149,6 +155,11 @@ typedef void (*tic_callback) __PROTO((AXIS_INDEX, double, char *, struct lp_styl
 #define TICS_MASK      3
 #define TICS_MIRROR    4
 
+/* Tic levels 0 and 1 are maintained in the axis structure.
+ * Tic levels 2 - MAX_TICLEVEL have only one property - scale.
+ */
+#define MAX_TICLEVEL 5
+extern double ticscale[MAX_TICLEVEL];
 
 #if 0 /* HBB 20010806 --- move GRID flags into axis struct */
 /* Need to allow user to choose grid at first and/or second axes tics.
@@ -197,10 +208,9 @@ typedef struct axis {
     t_autoscale set_autoscale;	/* what does 'set' think autoscale to be? */
     int range_flags;		/* flag bits about autoscale/writeback: */
     /* write auto-ed ranges back to variables for autoscale */
-#define RANGE_WRITEBACK 1
-#define RANGE_SAMPLED   2
-    /* allow auto and reversed ranges */
-    TBOOLEAN range_is_reverted;	/* range [high:low] silently reverted? */
+#define RANGE_WRITEBACK   1
+#define RANGE_SAMPLED     2
+#define RANGE_IS_REVERSED 4
     double min;			/* 'transient' axis extremal values */
     double max;
     double set_min;		/* set/show 'permanent' values */
@@ -236,10 +246,8 @@ typedef struct axis {
 
 /* time/date axis control */
     td_type datatype;		/* DT_NORMAL | DT_TIMEDATE | DT_DMS */
-    TBOOLEAN format_is_numeric;	/* format string looks like numeric??? */
-    char timefmt[MAX_ID_LEN+1];	/* format string for input */
-    char formatstring[MAX_ID_LEN+1];
-				/* the format string for output */
+    char *formatstring;		/* the format string for output */
+    char *timefmt;		/* format string for time input */
 
 /* ticmark control variables */
     int ticmode;		/* tics on border/axis? mirrored? */
@@ -247,7 +255,7 @@ typedef struct axis {
     int tic_rotate;		/* ticmarks rotated by this angle */
     TBOOLEAN gridmajor;		/* Grid lines wanted on major tics? */
     TBOOLEAN gridminor;		/* Grid lines for minor tics? */
-    int minitics;		/* minor tic mode (none/auto/user)? */
+    t_minitics_status minitics;	/* minor tic mode (none/auto/user)? */
     double mtic_freq;		/* minitic stepsize */
     double ticscale;		/* scale factor for tic marks (was (0..1])*/
     double miniticscale;	/* and for minitics */
@@ -256,15 +264,15 @@ typedef struct axis {
 /* other miscellaneous fields */
     text_label label;		/* label string and position offsets */
     TBOOLEAN manual_justify;	/* override automatic justification */
-    lp_style_type zeroaxis;	/* drawing style for zeroaxis, if any */
+    lp_style_type *zeroaxis;	/* usually points to default_axis_zeroaxis */
 } AXIS;
 
 #define DEFAULT_AXIS_TICDEF {TIC_COMPUTED, NULL, {TC_DEFAULT, 0, 0.0}, {NULL, {0.,0.,0.}, FALSE},  { character, character, character, 0., 0., 0. }, FALSE }
-#define DEFAULT_AXIS_ZEROAXIS {0, LT_NODRAW, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
+#define DEFAULT_AXIS_ZEROAXIS {0, LT_AXIS, 0, DASHTYPE_AXIS, 0, 1.0, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}
 
 #define DEFAULT_AXIS_STRUCT {						    \
 	AUTOSCALE_BOTH, AUTOSCALE_BOTH, /* auto, set_auto */		    \
-	0, FALSE,		/* range_flags, rev_range */		    \
+	0, 			/* range_flags for autoscaling */	    \
 	-10.0, 10.0,		/* 3 pairs of min/max for axis itself */    \
 	-10.0, 10.0,							    \
 	-10.0, 10.0,							    \
@@ -276,8 +284,8 @@ typedef struct axis {
 	0,        		/* zero axis position */		    \
 	FALSE, 0.0, 0.0,	/* log, base, log(base) */		    \
 	FALSE, NULL,		/* linked_to_primary, link function */      \
-	DT_NORMAL, TRUE,	/* datatype, format_numeric */	            \
-	DEF_FORMAT, TIMEFMT,	/* output format, timefmt */		    \
+	DT_NORMAL,		/* datatype */			            \
+	NULL, NULL,     	/* output format, timefmt */		    \
 	NO_TICS,		/* tic output positions (border, mirror) */ \
 	DEFAULT_AXIS_TICDEF,	/* tic series definition */		    \
 	0, FALSE, FALSE, 	/* tic_rotate, grid{major,minor} */	    \
@@ -285,7 +293,7 @@ typedef struct axis {
         1.0, 0.5, TRUE,		/* ticscale, miniticscale, tic_in */	    \
 	EMPTY_LABELSTRUCT,	/* axis label */			    \
 	FALSE,			/* override automatic justification */	    \
-	DEFAULT_AXIS_ZEROAXIS	/* zeroaxis line style */		    \
+	NULL			/* NULL means &default_axis_zeroaxis */	    \
 }
 
 /* This much of the axis structure is cloned by the "set x2range link" command */
@@ -313,7 +321,8 @@ extern const struct gen_table axisname_tbl[AXIS_ARRAY_SIZE+1];
 extern const struct ticdef default_axis_ticdef;
 
 /* default format for tic mark labels */
-#define DEF_FORMAT "% g"
+#define DEF_FORMAT "% h"
+#define DEF_FORMAT_LATEX "$%h$"
 
 /* default parse timedata string */
 #define TIMEFMT "%d/%m/%y,%H:%M"
@@ -447,7 +456,7 @@ do {									\
     this->data_max = -VERYLARGE;					\
 } while(0)
 
-#ifdef VOLATILE_REFRESH
+/* AXIS_INIT2D_REFRESH and AXIS_UPDATE2D_REFRESH(axis) are for volatile data */
 #define AXIS_INIT2D_REFRESH(axis, infinite)				\
 do {									\
     AXIS *this = axis_array + axis;					\
@@ -466,10 +475,8 @@ do {									\
     if ((this_axis->set_autoscale & AUTOSCALE_MIN) == 0)		\
 	this_axis->min = AXIS_LOG_VALUE(axis, this_axis->set_min);	\
     if ((this_axis->set_autoscale & AUTOSCALE_MAX) == 0)		\
-	this_axis->max = AXIS_LOG_VALUE(axis, this_axis->set_max);				\
+	this_axis->max = AXIS_LOG_VALUE(axis, this_axis->set_max);	\
 } while (0)
-
-#endif
 
 /* parse a position of the form
  *    [coords] x, [coords] y {,[coords] z}
@@ -509,8 +516,9 @@ do {							\
  * Note: see the particular implementation for COLOR AXIS below.
  */
 
-#define STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,	  \
-				NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	  \
+#define ACTUAL_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,  \
+					       NOAUTOSCALE, OUT_ACTION,   \
+					       UNDEF_ACTION, is_cb_axis)  \
 do {									  \
     struct axis *axis = &axis_array[AXIS];				  \
     double curval = VALUE;						  \
@@ -541,7 +549,7 @@ do {									  \
 	break;  /* this plot is not being used for autoscaling */	  \
     if (TYPE != INRANGE)						  \
 	break;  /* don't set y range if x is outrange, for example */	  \
-    if ((AXIS != COLOR_AXIS) && axis->linked_to_primary) {	  	  \
+    if ((! is_cb_axis) && axis->linked_to_primary) {	  		  \
 	axis -= SECOND_AXES;						  \
 	if (axis->link_udf->at) 					  \
 	    curval = eval_link_function(AXIS - SECOND_AXES, curval);	  \
@@ -593,6 +601,9 @@ do {									  \
     }									  \
 } while(0)
 
+/* normal calls go though this macro, marked as not being a color axis */
+#define STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS, NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	 \
+ ACTUAL_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS, NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION, 0)
 
 /* Implementation of the above for the color axis. It should not change
  * the type of the point (out-of-range color is plotted with the color
@@ -602,8 +613,8 @@ do {									  \
 			       NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	  \
 {									  \
     coord_type c_type_tmp = TYPE;					  \
-    STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, c_type_tmp, AXIS,	  \
-			       NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION);	  \
+    ACTUAL_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, c_type_tmp, AXIS,	  \
+					   NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION, 1); \
 }
 
 /* Empty macro arguments triggered NeXT cpp bug       */
@@ -612,7 +623,7 @@ do {									  \
 #define NOOP ((void)0)
 
 /* HBB 20000506: new macro to automatically build initializer lists
- * for arrays of AXIS_ARRAY_SIZE equal elements */
+ * for arrays of AXIS_ARRAY_SIZE=11 equal elements */
 #define AXIS_ARRAY_INITIALIZER(value) {			\
     value, value, value, value, value,			\
 	value, value, value, value, value, value }
@@ -620,8 +631,8 @@ do {									  \
 /* used by set.c */
 #define SET_DEFFORMAT(axis, flag_array)				\
 	if (flag_array[axis]) {					\
-	    (void) strcpy(axis_array[axis].formatstring,DEF_FORMAT);	\
-	    axis_array[axis].format_is_numeric = 1;		\
+	    free(axis_array[axis].formatstring);		\
+	    axis_array[axis].formatstring = gp_strdup(DEF_FORMAT);	\
 	}
 
 /* FIXME: replace by a subroutine? */
@@ -636,7 +647,6 @@ do {									  \
 /* (DFK) Watch for cancellation error near zero on axes labels */
 /* FIXME HBB 20000521: these seem not to be used much, anywhere... */
 #define CheckZero(x,tic) (fabs(x) < ((tic) * SIGNIF) ? 0.0 : (x))
-
 
 /* ------------ functions exported by axis.c */
 t_autoscale load_range __PROTO((AXIS_INDEX, double *, double *, t_autoscale));
@@ -666,7 +676,7 @@ void parse_skip_range __PROTO((void));
 void check_axis_reversed __PROTO((AXIS_INDEX axis));
 
 /* set widest_tic_label: length of the longest tics label */
-void widest_tic_callback __PROTO((AXIS_INDEX, double place, char *text, 
+void widest_tic_callback __PROTO((AXIS_INDEX, double place, char *text, int ticlevel,
 			struct lp_style_type grid, struct ticmark *));
 
 void get_position __PROTO((struct position *pos));
@@ -679,11 +689,19 @@ void clone_linked_axes __PROTO((AXIS_INDEX axis2, AXIS_INDEX axis1));
 int map_x __PROTO((double value));
 int map_y __PROTO((double value));
 
-/* ------------ autoscaling of the color axis */
-#define NEED_PALETTE(plot) \
-   (PM3DSURFACE == (plot)->plot_style \
-    || PM3D_IMPLICIT == pm3d.implicit \
-    || 1 == (plot)->lp_properties.use_palette)
 int set_cbminmax __PROTO((void));
+
+#if (defined MAX_PARALLEL_AXES) && (MAX_PARALLEL_AXES > 0)
+char * axis_name __PROTO((AXIS_INDEX));
+#else
+#define axis_name(axis) axis_defaults[axis].name
+#endif
+
+/* macro for tic scale, used in all tic_callback functions */
+#define TIC_SCALE(ticlevel, axis) \
+    (ticlevel <= 0 ? axis_array[axis].ticscale : \
+     ticlevel == 1 ? axis_array[axis].miniticscale : \
+     ticlevel < MAX_TICLEVEL ? ticscale[ticlevel] : \
+     0)
 
 #endif /* GNUPLOT_AXIS_H */

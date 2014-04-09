@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("gadgets.c,v 1.1.3.1 2000/05/03 21:47:15 hbb Exp"); }
+static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.109 2014/03/17 16:26:57 juhaszp Exp $"); }
 #endif
 
 /* GNUPLOT - gadgets.c */
@@ -94,6 +94,9 @@ t_position tmargin = DEFAULT_MARGIN_POSITION;
 FILE *table_outfile = NULL;
 TBOOLEAN table_mode = FALSE;
 
+/* Pointer to first 'set dashtype' definition in linked list */
+struct custom_dashtype_def *first_custom_dashtype = NULL;
+
 /* Pointer to the start of the linked list of 'set label' definitions */
 struct text_label *first_label = NULL;
 
@@ -103,6 +106,9 @@ struct linestyle_def *first_perm_linestyle = NULL;
 
 /* Pointer to first 'set style arrow' definition in linked list */
 struct arrowstyle_def *first_arrowstyle = NULL;
+
+/* Holds the properties from 'set style parallelaxis' */
+struct pa_style parallel_axis_style = DEFAULT_PARALLEL_AXIS_STYLE;
 
 /* set arrow */
 struct arrow_def *first_arrow = NULL;
@@ -134,15 +140,17 @@ double pointintervalbox = 1.0;
 int draw_border = 31;	/* The current settings */
 int user_border = 31;	/* What the user last set explicitly */
 int border_layer = 1;
-# define DEFAULT_BORDER_LP { 0, LT_BLACK, 0, 0, 1.0, 1.0, FALSE, BLACK_COLORSPEC }
+# define DEFAULT_BORDER_LP { 0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, 1.0, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN }
 struct lp_style_type border_lp = DEFAULT_BORDER_LP;
 const struct lp_style_type default_border_lp = DEFAULT_BORDER_LP;
-const struct lp_style_type background_lp = {0, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, BACKGROUND_COLORSPEC};
+const struct lp_style_type background_lp = {0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, 0, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN};
 
 /* set clip */
 TBOOLEAN clip_lines1 = TRUE;
 TBOOLEAN clip_lines2 = FALSE;
 TBOOLEAN clip_points = FALSE;
+
+static int clip_line __PROTO((int *, int *, int *, int *));
 
 /* set samples */
 int samples_1 = SAMPLES;
@@ -159,12 +167,10 @@ TBOOLEAN parametric = FALSE;
 /* If last plot was a 3d one. */
 TBOOLEAN is_3d_plot = FALSE;
 
-#ifdef VOLATILE_REFRESH
 /* Flag to signal that the existing data is valid for a quick refresh */
 TRefresh_Allowed refresh_ok = E_REFRESH_NOT_OK;
 /* FIXME: do_plot should be able to figure this out on its own! */
 int refresh_nplots = 0;
-#endif /* VOLATILE_REFRESH */
 /* Flag to show that volatile input data is present */
 TBOOLEAN volatile_data = FALSE;
 
@@ -181,8 +187,13 @@ struct object default_ellipse = DEFAULT_ELLIPSE_STYLE;
 filledcurves_opts filledcurves_opts_data = EMPTY_FILLEDCURVES_OPTS;
 filledcurves_opts filledcurves_opts_func = EMPTY_FILLEDCURVES_OPTS;
 
+#ifdef BACKWARDS_COMPATIBLE
 /* Prefer line styles over plain line types */
 TBOOLEAN prefer_line_styles = FALSE;
+#endif
+
+/* If current terminal claims to be monochrome, don't try to send it colors */
+#define monochrome_terminal ((t->flags & TERM_MONOCHROME) != 0)
 
 histogram_style histogram_opts = DEFAULT_HISTOGRAM_STYLE;
 
@@ -190,6 +201,10 @@ boxplot_style boxplot_opts = DEFAULT_BOXPLOT_STYLE;
 
 /* WINDOWID to be filled by terminals running on X11 (x11, wxt, qt, ...) */
 int current_x11_windowid = 0;
+
+#ifdef EAM_BOXED_TEXT
+textbox_style textbox_opts = DEFAULT_TEXTBOX_STYLE;
+#endif
 
 /*****************************************************************/
 /* Routines that deal with global objects defined in this module */
@@ -242,6 +257,53 @@ draw_clip_line(int x1, int y1, int x2, int y2)
     (*t->vector) (x2, y2);
 }
 
+/* Draw a contiguous line path which may be clipped. Compared to
+ * draw_clip_line(), this routine moves to a coordinate only when
+ * necessary.
+ */
+void 
+draw_clip_polygon(int points, gpiPoint *p) 
+{
+    int i;
+    int x1, y1, x2, y2;
+    int pos1, pos2, clip_ret;
+    struct termentry *t = term;
+
+    if (points <= 1) 
+	return;
+
+    x1 = p[0].x;
+    y1 = p[0].y;
+    pos1 = clip_point(x1, y1);
+    if (!pos1) /* move to first point if it is inside */
+	(*t->move)(x1, y1);
+
+    for (i = 1; i < points; i++) {
+	x2 = p[i].x;
+	y2 = p[i].y;
+	pos2 = clip_point(x2, y2);
+	clip_ret = clip_line(&x1, &y1, &x2, &y2);
+
+	if (clip_ret) {
+	    /* there is a line to draw */
+	    if (pos1) /* first vertex was recalculated, move to new start point */
+		(*t->move)(x1, y1);
+	    (*t->vector)(x2, y2);
+	}
+
+	x1 = p[i].x;
+	y1 = p[i].y;
+	/* The end point and the line do not necessarily have the same
+	 * status. The end point can be 'inside', but the whole line is
+	 * 'outside'. Do not update pos1 in this case.  Bug #1268.
+	 * FIXME: This is papering over an inconsistency in coordinate
+	 * calculation somewhere else!
+	 */
+	if (!(clip_ret == 0 && pos2 == 0))
+	    pos1 = pos2;
+    }
+}
+
 void
 draw_clip_arrow( int sx, int sy, int ex, int ey, int head)
 {
@@ -281,9 +343,7 @@ clip_line(int *x1, int *y1, int *x2, int *y2)
      * of this segment with the 4 boundaries for hopefully 2 intersections
      * in. If none are found segment is totaly out.
      * Under rare circumstances there may be up to 4 intersections (e.g.
-     * when the line passes directly through at least one corner). In
-     * this case it is sufficient to take any 2 intersections (e.g. the
-     * first two found).
+     * when the line passes directly through at least one corner).
      */
     count = 0;
     dx = *x2 - *x1;
@@ -316,6 +376,12 @@ clip_line(int *x1, int *y1, int *x2, int *y2)
     }
     if (count < 2)
 	return 0;
+
+    /* check which intersections to use, for more than two intersections the first two may be identical */
+    if ((count > 2) && (x_intr[0] == x_intr[1]) && (y_intr[0] == y_intr[1])) {
+	x_intr[1] = x_intr[2];
+	y_intr[1] = y_intr[2];
+    }	
 
     if (*x1 < *x2) {
 	x_min = *x1;
@@ -376,6 +442,115 @@ clip_line(int *x1, int *y1, int *x2, int *y2)
     return -1;
 }
 
+/* test if coordinates of a vertex are inside boundary box. The start
+   and end points for the clip_boundary must be in correct order for
+   this to work properly (see respective definitions in clip_polygon()). */
+TBOOLEAN
+vertex_is_inside(gpiPoint test_vertex, gpiPoint *clip_boundary)
+{
+    if (clip_boundary[1].x > clip_boundary[0].x)              /*bottom edge*/
+	if (test_vertex.y >= clip_boundary[0].y) return TRUE;
+    if (clip_boundary[1].x < clip_boundary[0].x)              /*top edge*/
+	if (test_vertex.y <= clip_boundary[0].y) return TRUE;
+    if (clip_boundary[1].y > clip_boundary[0].y)              /*right edge*/
+	if (test_vertex.x <= clip_boundary[1].x) return TRUE;
+    if (clip_boundary[1].y < clip_boundary[0].y)              /*left edge*/
+	if (test_vertex.x >= clip_boundary[1].x) return TRUE;
+    return FALSE;
+} 
+
+void
+intersect_polyedge_with_boundary(gpiPoint first, gpiPoint second, gpiPoint *intersect, gpiPoint *clip_boundary)
+{
+    /* this routine is called only if one point is outside and the other
+       is inside, which implies that clipping is needed at a horizontal
+       boundary, that second.y is different from first.y and no division
+       by zero occurs. Same for vertical boundary and x coordinates. */
+    if (clip_boundary[0].y == clip_boundary[1].y) { /* horizontal */
+	(*intersect).y = clip_boundary[0].y;
+	(*intersect).x = first.x + (clip_boundary[0].y - first.y) * (second.x - first.x)/(second.y - first.y);
+    } else { /* vertical */
+	(*intersect).x = clip_boundary[0].x;
+	(*intersect).y = first.y + (clip_boundary[0].x - first.x) * (second.y - first.y)/(second.x - first.x);
+    }
+}
+
+/* Clip the given polygon to a single edge of the bounding box. */
+void 
+clip_polygon_to_boundary(gpiPoint *in, gpiPoint *out, int in_length, int *out_length, gpiPoint *clip_boundary)
+{
+    gpiPoint prev, curr; /* start and end point of current polygon edge. */
+    int j;
+
+    *out_length = 0;
+    if (in_length <= 0)
+	return;
+    else
+	prev = in[in_length - 1]; /* start with the last vertex */
+
+    for (j = 0; j < in_length; j++) {
+	curr = in[j];
+	if (vertex_is_inside(curr, clip_boundary)) {
+	    if (vertex_is_inside(prev, clip_boundary)) {
+		/* both are inside, add current vertex */
+		out[*out_length] = in[j];
+		(*out_length)++;
+	    } else {
+		/* changed from outside to inside, add intersection point and current point */
+		intersect_polyedge_with_boundary(prev, curr, out+(*out_length), clip_boundary);
+		out[*out_length+1] = curr;
+		*out_length += 2;
+	    }
+	} else {
+	    if (vertex_is_inside(prev, clip_boundary)) {
+		/* changed from inside to outside, add intersection point */
+		intersect_polyedge_with_boundary(prev, curr, out+(*out_length), clip_boundary);
+		(*out_length)++;
+	    }
+	}
+	prev = curr;
+    }
+}
+
+/* Clip the given polygon to drawing coords defined by BoundingBox.
+ * This routine uses the Sutherland-Hodgman algorithm.  When calling
+ * this function, you must make sure that you reserved enough
+ * memory for the output polygon. out_length can be as big as
+ * 2*(in_length - 1)
+ */
+void
+clip_polygon(gpiPoint *in, gpiPoint *out, int in_length, int *out_length)
+{
+    int i;
+    gpiPoint clip_boundary[5];
+    static gpiPoint *tmp_corners = NULL;
+
+    if (!clip_area) {
+	memcpy(out, in, in_length * sizeof(gpiPoint));
+	*out_length = in_length;
+	return;
+    }
+    tmp_corners = gp_realloc(tmp_corners, 2 * in_length * sizeof(gpiPoint), "clip_polygon");
+
+    /* vertices of the rectangular clipping window starting from
+       top-left in counterclockwise direction */
+    clip_boundary[0].x = clip_area->xleft;  /* top left */
+    clip_boundary[0].y = clip_area->ytop;
+    clip_boundary[1].x = clip_area->xleft;  /* bottom left */
+    clip_boundary[1].y = clip_area->ybot;
+    clip_boundary[2].x = clip_area->xright; /* bottom right */
+    clip_boundary[2].y = clip_area->ybot;
+    clip_boundary[3].x = clip_area->xright; /* top right */
+    clip_boundary[3].y = clip_area->ytop;
+    clip_boundary[4] = clip_boundary[0];
+
+    memcpy(tmp_corners, in, in_length * sizeof(gpiPoint));
+    for(i = 0; i < 4; i++) {
+	clip_polygon_to_boundary(tmp_corners, out, in_length, out_length, clip_boundary+i);
+	memcpy(tmp_corners, out, *out_length * sizeof(gpiPoint));
+	in_length = *out_length;
+    }
+}
 
 /* Two routines to emulate move/vector sequence using line drawing routine. */
 static unsigned int move_pos_x, move_pos_y;
@@ -413,17 +588,17 @@ apply_pm3dcolor(struct t_colorspec *tc, const struct termentry *t)
 	return;
     }
     if (tc->type == TC_LT) {
-	if (t->set_color)
+	if (!monochrome_terminal)
 	    t->set_color(tc);
-	else
-	    (*t->linetype)(tc->lt);
 	return;
     }
-    if (tc->type == TC_RGB && t->set_color) {
-	t->set_color(tc);
+    if (tc->type == TC_RGB) {
+	/* Monochrome terminals are still allowed to display rgb variable colors */
+	if (!monochrome_terminal || tc->value < 0)
+	    t->set_color(tc);
 	return;
     }
-    if (!is_plot_with_palette() || !t->set_color) {
+    if (!is_plot_with_palette()) {
 	(*t->linetype)(LT_BLACK);
 	return;
     }
@@ -457,13 +632,15 @@ default_arrow_style(struct arrow_style_type *arrow)
     arrow->head_lengthunit = first_axes;
     arrow->head_angle = 15.0;
     arrow->head_backangle = 90.0;
-    arrow->head_filled = 0;
+    arrow->headfill = AS_NOFILL;
+    arrow->head_fixedsize = FALSE;
 }
 
 void
 apply_head_properties(struct arrow_style_type *arrow_properties)
 {
-    curr_arrow_headfilled = arrow_properties->head_filled;
+    curr_arrow_headfilled = arrow_properties->headfill;
+    curr_arrow_headfixedsize = arrow_properties->head_fixedsize;
     curr_arrow_headlength = 0;
     if (arrow_properties->head_length > 0) {
 	/* set head length+angle for term->arrow */
@@ -556,6 +733,11 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 	} else {
 	    /* A normal label (always print text) */
 	    get_offsets(this_label, term, &htic, &vtic);
+#ifdef EAM_BOXED_TEXT
+	    /* Initialize the bounding box accounting */
+	    if (this_label->boxed && term->boxed_text)
+		(*term->boxed_text)(x + htic, y + vtic, TEXTBOX_INIT);
+#endif
 	    if (this_label->rotate && (*term->text_angle) (this_label->rotate)) {
 		write_multiline(x + htic, y + vtic, this_label->text,
 				this_label->pos, justify, this_label->rotate,
@@ -566,6 +748,34 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 				this_label->pos, justify, 0, this_label->font);
 	    }
 	}
+#ifdef EAM_BOXED_TEXT
+	/* Adjust the bounding box margins */
+	if (this_label->boxed && term->boxed_text)
+	    (*term->boxed_text)((int)(textbox_opts.xmargin * 100.),
+		(int)(textbox_opts.ymargin * 100.), TEXTBOX_MARGINS);
+
+	if (this_label->boxed && term->boxed_text && textbox_opts.opaque) {
+	    /* Blank out the box and reprint the label */
+	    (*term->boxed_text)(0,0, TEXTBOX_BACKGROUNDFILL);
+	    if (this_label->rotate && (*term->text_angle) (this_label->rotate)) {
+		write_multiline(x + htic, y + vtic, this_label->text,
+			    this_label->pos, justify, this_label->rotate,
+			    this_label->font);
+		(*term->text_angle) (0);
+	    } else {
+		write_multiline(x + htic, y + vtic, this_label->text,
+			    this_label->pos, justify, 0, this_label->font);
+	    }
+	}
+
+	/* Draw the bounding box - FIXME should set line properties first */
+	if (this_label->boxed && term->boxed_text) {
+	    if (!textbox_opts.noborder)
+		(*term->boxed_text)(0,0, TEXTBOX_OUTLINE);
+	    else
+		(*term->boxed_text)(0,0, TEXTBOX_FINISH);
+	}
+#endif
 
 	/* The associated point, if any */
 	/* write_multiline() clips text to on_page; do the same for any point */

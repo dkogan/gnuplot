@@ -1,5 +1,5 @@
 #
-# $Id: all.dem,v 1.53 2012/11/24 21:54:29 sfeam Exp $
+# $Id: all.dem,v 1.57 2014/01/13 20:16:20 sfeam Exp $
 #
 # Executes all demos (OK, MOST demos) in this directory.
 # This serves as a series of unit tests for non-interactive capabilities.
@@ -205,8 +205,12 @@ print "********************** file textrotate.dem *********************"
 load "textrotate.dem"
 reset
 
-print "********************** file enhanced_utf8.dem *********************"
-load "enhanced_utf8.dem"
+print "********************** enhanced text *********************"
+if (GPVAL_TERM eq "postscript") {
+    load "enhancedtext.dem"
+} else {
+    load "enhanced_utf8.dem"
+}
 reset
 
 print "********************** file arrowstyle.dem *********************"
@@ -219,6 +223,10 @@ reset
 
 print "********************** file tics.dem *********************"
 load "tics.dem"
+reset
+
+print "********************** file callargs.dem *********************"
+load "callargs.dem"
 reset
 
 print "********************** file datastrings.dem *********************"
@@ -290,8 +298,16 @@ print "********************** file rectangle.dem *********************"
 load "rectangle.dem"
 reset
 
+print "********************** file clipobject.dem *********************"
+load "clipobject.dem"
+reset
+
 print "********************** file approximate.dem *********************"
 load "approximate.dem"
+reset
+
+print "********************** file parallel.dem *********************"
+load "parallel.dem"
 reset
 
 print "********************** file transparent.dem *********************"

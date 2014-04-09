@@ -46,13 +46,6 @@
 
 #include <QObject>
 
-extern "C" {
-#include "../mousecmn.h"
-#ifndef GNUPLOT_TERM_API_H
-typedef enum t_fillstyle { FS_EMPTY, FS_SOLID, FS_PATTERN, FS_DEFAULT, FS_TRANSPARENT_SOLID, FS_TRANSPARENT_PATTERN } t_fillstyle;
-#endif
-}
-
 // Defines events used to communicate from qt_term.cpp to the GUI elements
 
 enum QtGnuplotEventType {
@@ -68,7 +61,14 @@ GEFillBox, GEPutText, GEFilledPolygon, GETextAngle, GETextAlignment, GEPoint, GE
 GEZoomStart, GEZoomStop, GERuler, GECopyClipboard, GEMove, GEVector, GELineTo,
 GESetFont, GEEnhancedFlush, GEEnhancedFinish, GEImage, GESetSceneSize, GERaise,
 GEWrapCursor, GEScale, GEActivate, GEDesactivate, GELayer, GEPlotNumber, GEHypertext,
+GETextBox, GEModPlots, GEAfterPlot, GEFontMetricRequest,
 GEDone
+};
+
+enum QtGnuplotModPlots {
+	QTMODPLOTS_SET_VISIBLE,
+	QTMODPLOTS_SET_INVISIBLE,
+	QTMODPLOTS_INVERT_VISIBILITIES
 };
 
 enum QtGnuplotLayer {
@@ -78,6 +78,7 @@ QTLAYER_BEGIN_KEYSAMPLE, QTLAYER_END_KEYSAMPLE, QTLAYER_BEFORE_ZOOM
 class QLocalServer;
 class QLocalSocket;
 class QtGnuplotEventHandler;
+class QtGnuplotWidget;
 
 /**
 * A GUI object that wishes to receive gnuplot events has to inherit from
@@ -114,7 +115,7 @@ public:
 
 public:
 	/// Send an event from the GUI elements to gnuplot core
-	bool postTermEvent(int type, int mx, int my, int par1, int par2, int winid);
+	bool postTermEvent(int type, int mx, int my, int par1, int par2, QtGnuplotWidget* widget);
 	QString serverName();
 
 signals:

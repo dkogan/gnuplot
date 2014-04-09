@@ -1,5 +1,5 @@
 /*
- * $Id: wgnuplib.h,v 1.57 2012/06/24 00:39:20 markisch Exp $
+ * $Id: wgnuplib.h,v 1.63 2014/01/18 16:14:50 markisch Exp $
  */
 
 /* GNUPLOT - win/wgnuplib.h */
@@ -44,6 +44,11 @@
 #define WGNUPLIB_H
 
 #include <windows.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "screenbuf.h"
 #include "term_api.h"
 
@@ -205,6 +210,8 @@ int WDPROC TextGetChE(LPTW);
 LPSTR WDPROC TextGetS(LPTW lptw, LPSTR str, unsigned int size);
 int WDPROC TextPutCh(LPTW, BYTE);
 int WDPROC TextPutS(LPTW lptw, LPSTR str);
+void TextStartEditing(LPTW lptw);
+void TextStopEditing(LPTW lptw);
 #if 0
 /* The new screen buffer currently does not support these */
 void WDPROC TextGotoXY(LPTW lptw, int x, int y);
@@ -297,6 +304,7 @@ struct GWOPBLK {			/* kept in local memory */
 #define W_layer 46
 #define W_text_encoding 47
 #define W_hypertext 48
+#define W_boxedtext 49
 
 typedef struct tagGW {
 	GP_LPPRINT	lpr;		/* must be first */
@@ -318,7 +326,8 @@ typedef struct tagGW {
 	int		ToolbarHeight;
 	HMENU	hPopMenu;	/* popup menu */
 	HBITMAP	hBitmap;	/* bitmap of current graph */
-	BOOL	buffervalid;	/* indicates of hBitmap is valid */
+	BOOL	buffervalid;	/* indicates if hBitmap is valid */
+	BOOL	rotating;	/* are we currently rotating the graph? */
 
 	struct GWOPBLK *gwopblk_head;
 	struct GWOPBLK *gwopblk_tail;
@@ -332,9 +341,11 @@ typedef struct tagGW {
 	BOOL	rounded;	/* rounded line caps and joins? */
 	BOOL	doublebuffer;	/* double buffering? */
 	BOOL	oversample;	/* oversampling? */
-	BOOL	antialiasing;
+	BOOL	gdiplus;	/* Use GDI+ only backend? */
+	BOOL	antialiasing;	/* anti-aliasing? */
 	BOOL	polyaa;		/* anti-aliasing for polygons ? */
 	BOOL	patternaa;	/* anti-aliasing for polygons ? */
+	BOOL	fastrotation;	/* rotate without anti-aliasing? */
 
 	BOOL	*hideplot;
 	unsigned int maxhideplots;
@@ -368,6 +379,9 @@ typedef struct tagGW {
 	int		encoding_error; /* last unknown encoding */
 	double	fontscale;	/* scale factor for font sizes */
 	enum set_encoding_id encoding;	/* text encoding */
+	LONG	tmHeight;	/* text metric of current font */
+	LONG	tmAscent;
+	LONG	tmDescent;
 
 	HPEN	hapen;		/* stored current pen */
 	HPEN	hsolid;		/* solid sibling of current pen */
@@ -380,7 +394,7 @@ typedef struct tagGW {
 	COLORREF background;		/* background color */
 	HBRUSH	hbrush;				/* background brush */
 	HBRUSH	hcolorbrush;		/* */
-	int		sampling;	/* current sampling factor */
+	int		sampling;			/* current sampling factor */
 
 	struct tagGW * next;		/* pointer to next window */
 } GW;
@@ -408,8 +422,10 @@ void WDPROC GraphOp(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str);
 void WDPROC GraphOpSize(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str, DWORD size);
 void WDPROC GraphPrint(LPGW lpgw);
 void WDPROC GraphRedraw(LPGW lpgw);
+void WDPROC GraphModifyPlots(LPGW lpgw, unsigned int operations);
 void WDPROC win_close_terminal_window(LPGW lpgw);
 TBOOLEAN GraphHasWindow(LPGW lpgw);
+char * GraphDefaultFont(void);
 
 #ifdef USE_MOUSE
 void WDPROC Graph_set_cursor(LPGW lpgw, int c, int x, int y);
@@ -427,5 +443,9 @@ void WIN_update_options __PROTO((void));
 
 
 /* ================================== */
+
+#ifdef __cplusplus
+};
 #endif
 
+#endif

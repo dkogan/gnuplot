@@ -1,5 +1,5 @@
 ## Process this file with automake to produce Makefile.in -*-Makefile-*-
-AUTOMAKE_OPTIONS = foreign
+AUTOMAKE_OPTIONS = foreign subdir-objects
 
 # in the spirit of automake ...
 pkglibexecdir = $(libexecdir)/@PACKAGE@/@VERSION_MAJOR@
@@ -45,10 +45,11 @@ AM_CPPFLAGS = -I../term -I$(top_srcdir)/term -DBINDIR=\"$(bindir)\" -DX11_DRIVER
 gnuplot_SOURCES = alloc.c alloc.h axis.c axis.h breaders.c breaders.h bitmap.h \
 boundary.c boundary.h color.c color.h command.c command.h contour.c contour.h \
 datablock.c datablock.h datafile.c datafile.h dynarray.c dynarray.h \
-eval.c eval.h fit.c fit.h gadgets.c gadgets.h getcolor.c getcolor.h gp_hist.h \
-gp_time.h gp_types.h gplt_x11.h graph3d.c graph3d.h graphics.c graphics.h \
+eval.c eval.h external.c external.h fit.c fit.h gadgets.c gadgets.h getcolor.c getcolor.h \
+gp_hist.h gp_time.h gp_types.h gplt_x11.h graph3d.c graph3d.h graphics.c graphics.h \
 help.c help.h hidden3d.c hidden3d.h history.c internal.c internal.h \
-interpol.c interpol.h matrix.c matrix.h misc.c misc.h mouse.c mouse.h \
+interpol.c interpol.h libcerf.c libcerf.h \
+matrix.c matrix.h misc.c misc.h mouse.c mouse.h \
 mousecmn.h national.h parse.c parse.h plot.c plot.h plot2d.c plot2d.h \
 plot3d.c plot3d.h pm3d.c pm3d.h readline.c readline.h save.c \
 save.h scanner.c scanner.h set.c setshow.h show.c specfun.c specfun.h \
@@ -79,13 +80,15 @@ endif
 
 SUBDIRS = $(d_beos) wxterminal qtterminal
 
-EXTRA_gnuplot_SOURCES = corplot.c strftime.c vms.c
+EXTRA_gnuplot_SOURCES = strftime.c vms.c
 
-EXTRA_DIST = GNUmakefile Makefile.maint NeXT OpenStep README \
-corgraph.asm genopt.com gnuplot.opt header.mac \
-hrcgraph.asm lineproc.mac linkopt.vms \
-makefile.all makefile.awc os2 pcgraph.asm win x11.opt \
+EXTRA_DIST = GNUmakefile Makefile.maint NeXT OpenStep \
+genopt.com gnuplot.opt x11.opt linkopt.vms \
+makefile.all makefile.awc os2 win \
 $(EXTRA_gnuplot_SOURCES)
+
+# Hercules and original pc graphics driver code
+# corgraph.asm header.mac hrcgraph.asm pcgraph.asm lineproc.mac
 
 if BUILD_WXWIDGETS
 gnuplot_SOURCES += wxterminal/wxt_gui.cpp
@@ -99,14 +102,24 @@ if BUILD_BITMAP
 gnuplot_SOURCES += bitmap.c
 endif
 
+DISTCLEANFILES = timestamp.h
+BUILT_SOURCES = timestamp.h
+timestamp.h: $(top_srcdir)/ChangeLog Makefile
+	@echo Making $@
+	@echo "#ifndef GNUPLOT_TIMEBASE_H_INCLUDED" >$@t
+	@echo "#define GNUPLOT_TIMEBASE_H_INCLUDED" >>$@t
+	@head -1 $< | sed -e 's,\(^[0-9-]* \).*$$,const char gnuplot_date[] = "\1";,' >>$@t
+	@echo "#endif /* GNUPLOT_TIMEBASE_H_INCLUDED */" >> $@t
+	@if cmp -s $@ $@t; then rm -f $@t; else mv $@t $@; fi
+
 if BUILD_QT
 
 # Call the moc preprocessor
-moc_%.cpp : qtterminal/%.h
+qtterminal/moc_%.cpp : qtterminal/%.h
 	$(MOC) -o $@ $<
 
 # Call the Qt resource compiler
-qrc_%.cpp: qtterminal/%.qrc
+qtterminal/qrc_%.cpp: qtterminal/%.qrc
 	$(RCC) -name QtGnuplotResource -o $@ $<
 
 # Call the Qt ui compiler
@@ -131,7 +144,7 @@ endif # HAVE_LRELEASE
 
 # Clean moc & qrc files
 clean-qt-extra:
-	rm -vf moc_*.cpp qrc_*.cpp qrc_*.o ui_*.h qtgnuplot*.qm
+	rm -vf qtterminal/moc_*.cpp qtterminal/qrc_*.cpp qtterminal/qrc_*.o ui_*.h qtgnuplot*.qm
 
 # Clean transform gnuplot_x11 for demo
 clean-demo:
@@ -143,17 +156,14 @@ clean-local: clean-qt-extra clean-demo
 
 gnuplot_SOURCES += qtterminal/qt_term.cpp
 
-if BUILD_ON_APPLE 
-gnuplot_SOURCES += qtterminal/qt_term_mac.m 
-endif 
-
 pkglibexec_PROGRAMS += gnuplot_qt
 
 $(gnuplot_qt_OBJECTS) : ui_QtGnuplotSettings.h
 
-nodist_gnuplot_qt_SOURCES = moc_QtGnuplotWindow.cpp moc_QtGnuplotApplication.cpp \
-                            moc_QtGnuplotWidget.cpp moc_QtGnuplotScene.cpp \
-                            moc_QtGnuplotEvent.cpp qrc_QtGnuplotResource.cpp
+nodist_gnuplot_qt_SOURCES = \
+        qtterminal/moc_QtGnuplotWindow.cpp qtterminal/moc_QtGnuplotApplication.cpp \
+        qtterminal/moc_QtGnuplotWidget.cpp qtterminal/moc_QtGnuplotScene.cpp \
+        qtterminal/moc_QtGnuplotEvent.cpp qtterminal/qrc_QtGnuplotResource.cpp
 
 gnuplot_qt_SOURCES = qtterminal/gnuplot_qt.cpp qtterminal/QtGnuplotWindow.cpp \
 qtterminal/QtGnuplotApplication.cpp qtterminal/QtGnuplotWidget.cpp \

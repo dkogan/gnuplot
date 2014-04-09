@@ -1,5 +1,5 @@
 /*
- * $Id: winmain.c,v 1.60 2012/11/29 00:33:47 broeker Exp $
+ * $Id: winmain.c,v 1.73 2014/03/20 00:58:36 markisch Exp $
  */
 
 /* GNUPLOT - win/winmain.c */
@@ -49,12 +49,8 @@
 /* and Russell Lang (rjl@monu1.cc.monash.edu.au) 30 Nov 1992          */
 /*                                                                    */
 
-#ifdef HAVE_CONFIG_H
-# include "config.h"
-#endif
+#include "syscfg.h"
 #define STRICT
-/* required for MinGW64 */
-#define _WIN32_IE 0x0501
 #include <windows.h>
 #include <windowsx.h>
 #include <commctrl.h>
@@ -136,7 +132,7 @@ CheckMemory(LPSTR str)
 {
         if (str == (LPSTR)NULL) {
                 MessageBox(NULL, "out of memory", "gnuplot", MB_ICONSTOP | MB_OK);
-                exit(1);
+                gp_exit(EXIT_FAILURE);
         }
 }
 
@@ -180,6 +176,10 @@ WinExit(void)
 
 #ifndef WGP_CONSOLE
     TextMessage();  /* process messages */
+# ifndef __WATCOMC__
+    /* revert C++ stream redirection */
+    RedirectOutputStreams(FALSE);
+# endif
 #else
 #ifdef CONSOLE_SWITCH_CP
     /* restore console codepages */
@@ -202,7 +202,7 @@ ShutDown()
 {
 	/* First chance for wgnuplot to close help system. */
 	WinCloseHelp();
-	exit(0);
+	gp_exit(EXIT_SUCCESS);
 	return 0;
 }
 
@@ -330,14 +330,6 @@ GetLanguageCode()
 }
 
 
-static BOOL
-FileExists(const char * filename)
-{
-	struct stat buffer;
-	return stat(filename, &buffer) == 0;
-}
-
-
 static char *
 LocalisedFile(const char * name, const char * ext, const char * defaultname)
 {
@@ -356,7 +348,7 @@ LocalisedFile(const char * name, const char * ext, const char * defaultname)
 		strcat(filename, name);
 		strcat(filename, lang);
 		strcat(filename, ext);
-		if (!FileExists(filename)) {
+		if (!existfile(filename)) {
 			strcpy(filename, szModuleName);
 			strcat(filename, defaultname);
 		}
@@ -368,7 +360,7 @@ LocalisedFile(const char * name, const char * ext, const char * defaultname)
 static void
 ReadMainIni(LPSTR file, LPSTR section)
 {
-    char profile[81] = "";
+	char profile[81] = "";
 	const char hlpext[] = ".chm";
 	const char name[] = "wgnuplot-";
 
@@ -409,22 +401,27 @@ ReadMainIni(LPSTR file, LPSTR section)
 
 #ifndef WGP_CONSOLE
 int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                LPSTR lpszCmdLine, int nCmdShow)
+                   LPSTR lpszCmdLine, int nCmdShow)
 #else
 int main(int argc, char **argv)
 #endif
 {
-        LPSTR tail;
+	LPSTR tail;
+	int i;
 
 #ifdef WGP_CONSOLE
-# define _argv argv
-# define _argc argc
-        HINSTANCE hInstance = GetModuleHandle(NULL), hPrevInstance = NULL;
-#else
-#if defined(__MSC__) || defined(__WATCOMC__) || defined(__MINGW32__)
-#  define _argv __argv
-#  define _argc __argc
+	HINSTANCE hInstance = GetModuleHandle(NULL), hPrevInstance = NULL;
 #endif
+
+
+#ifndef WGP_CONSOLE
+# if defined( __MINGW32__) && !defined(_W64)
+#  define argc _argc
+#  define argv _argv
+# else /* MSVC, WATCOM, MINGW-W64 */
+#  define argc __argc
+#  define argv __argv
+# endif
 #endif /* WGP_CONSOLE */
 
         szModuleName = (LPSTR)malloc(MAXSTR+1);
@@ -459,7 +456,7 @@ int main(int argc, char **argv)
 #endif
 
 		/* create structure of first graph window */
-		graphwin = calloc(1, sizeof(GW));
+		graphwin = (LPGW) calloc(1, sizeof(GW));
 		listgraphs = graphwin;
 
 		/* locate ini file */
@@ -531,22 +528,38 @@ int main(int argc, char **argv)
 	}
 
 #ifndef WGP_CONSOLE
-        if (TextInit(&textwin))
-                exit(1);
-        textwin.hIcon = LoadIcon(hInstance, "TEXTICON");
-        SetClassLong(textwin.hWndParent, GCL_HICON, (DWORD)textwin.hIcon);
-	if (_argc > 1) {
-		if (persist_cl)
-			ShowWindow(textwin.hWndParent, textwin.nCmdShow);
-	} else {
-		ShowWindow(textwin.hWndParent, textwin.nCmdShow);
+	if (TextInit(&textwin))
+		gp_exit(EXIT_FAILURE);
+	textwin.hIcon = LoadIcon(hInstance, "TEXTICON");
+	SetClassLongPtr(textwin.hWndParent, GCLP_HICON, (LONG_PTR)textwin.hIcon);
+
+	/* Note: we want to know whether this is an interactive session so that we can
+	 * decide whether or not to write status information to stderr.  The old test
+	 * for this was to see if (argc > 1) but the addition of optional command line
+	 * switches broke this.  What we really wanted to know was whether any of the
+	 * command line arguments are file names or an explicit in-line "-e command".
+	 * (This is a copy of a code snippet from plot.c)
+	 */
+	for (i = 1; i < argc; i++) {
+		if (!stricmp(argv[i], "/noend"))
+			continue;
+		if ((argv[i][0] != '-') || (argv[i][1] == 'e')) {
+			interactive = FALSE;
+			break;
+		}
 	}
-        if (IsIconic(textwin.hWndParent)) { /* update icon */
-                RECT rect;
-                GetClientRect(textwin.hWndParent, (LPRECT) &rect);
-                InvalidateRect(textwin.hWndParent, (LPRECT) &rect, 1);
-                UpdateWindow(textwin.hWndParent);
-        }
+	if (interactive)
+		ShowWindow(textwin.hWndParent, textwin.nCmdShow);
+	if (IsIconic(textwin.hWndParent)) { /* update icon */
+		RECT rect;
+		GetClientRect(textwin.hWndParent, (LPRECT) &rect);
+		InvalidateRect(textwin.hWndParent, (LPRECT) &rect, 1);
+		UpdateWindow(textwin.hWndParent);
+	}
+# ifndef __WATCOMC__
+	/* Finally, also redirect C++ standard output streams. */
+	RedirectOutputStreams(TRUE);
+# endif
 #else /* WGP_CONSOLE */
 #ifdef CONSOLE_SWITCH_CP
         /* Change codepage of console to match that of the graph window.
@@ -565,17 +578,18 @@ int main(int argc, char **argv)
 #endif
 #endif
 
-        atexit(WinExit);
+	gp_atexit(WinExit);
 
-        if (!isatty(fileno(stdin)))
-            setmode(fileno(stdin), O_BINARY);
+	if (!isatty(fileno(stdin)))
+		setmode(fileno(stdin), O_BINARY);
 
-        gnu_main(_argc, _argv);
+	gnu_main(argc, argv);
 
-        /* First chance to close help system for console gnuplot,
-        second for wgnuplot */
-        WinCloseHelp();
-        return 0;
+	/* First chance to close help system for console gnuplot,
+	   second for wgnuplot */
+	WinCloseHelp();
+	gp_exit_cleanup();
+	return 0;
 }
 
 
@@ -708,78 +722,72 @@ MyPutS(char *str)
 int
 MyFPrintF(FILE *file, const char *fmt, ...)
 {
-    int count;
-    va_list args;
+	int count;
+	va_list args;
 
-    va_start(args, fmt);
-    if (isterm(file)) {
-        char *buf;
-#ifdef __MSC__
-        count = _vscprintf(fmt, args) + 1;
-#else
-        count = vsnprintf(NULL,0,fmt,args) + 1;
-        if (count == 0) count = MAXPRINTF;
-#endif
-        va_end(args);
-        va_start(args, fmt);
-        buf = (char *)malloc(count * sizeof(char));
-        count = vsnprintf(buf, count, fmt, args);
-        TextPutS(&textwin, buf);
-        free(buf);
-    } else
-        count = vfprintf(file, fmt, args);
-    va_end(args);
-    return count;
+	va_start(args, fmt);
+	if (isterm(file)) {
+		char *buf;
+
+		count = vsnprintf(NULL, 0, fmt, args) + 1;
+		if (count == 0)
+			count = MAXPRINTF;
+		va_end(args);
+		va_start(args, fmt);
+		buf = (char *) malloc(count * sizeof(char));
+		count = vsnprintf(buf, count, fmt, args);
+		TextPutS(&textwin, buf);
+		free(buf);
+	} else {
+		count = vfprintf(file, fmt, args);
+	}
+	va_end(args);
+	return count;
 }
 
 int
 MyVFPrintF(FILE *file, const char *fmt, va_list args)
 {
-    int count;
+	int count;
 
-    if (isterm(file)) {
-        char *buf;
+	if (isterm(file)) {
+		char *buf;
+		va_list args_copied;
 
-#ifdef __MSC__
-        count = _vscprintf(fmt, args) + 1;
-#else
-        va_list args_copied;
-        va_copy(args_copied, args);
-        count = vsnprintf(NULL, 0U, fmt, args_copied) + 1;
-        if (count == 0) count = MAXPRINTF;
-        va_end(args_copied);
-#endif
-        buf = (char *)malloc(count * sizeof(char));
-        count = vsnprintf(buf, count, fmt, args);
-        TextPutS(&textwin, buf);
-        free(buf);
-    } else
-        count = vfprintf(file, fmt, args);
-    return count;
+		va_copy(args_copied, args);
+		count = vsnprintf(NULL, 0U, fmt, args) + 1;
+		if (count == 0)
+			count = MAXPRINTF;
+		va_end(args_copied);
+		buf = (char *) malloc(count * sizeof(char));
+		count = vsnprintf(buf, count, fmt, args);
+		TextPutS(&textwin, buf);
+		free(buf);
+	} else {
+		count = vfprintf(file, fmt, args);
+	}
+	return count;
 }
 
 int
 MyPrintF(const char *fmt, ...)
 {
-    int count;
-    char *buf;
-    va_list args;
+	int count;
+	char *buf;
+	va_list args;
 
-    va_start(args, fmt);
-#ifdef __MSC__
-    count = _vscprintf(fmt, args) + 1;
-#else
-    count = vsnprintf(NULL, 0, fmt, args) + 1;
-    if (count == 0) count = MAXPRINTF;
-#endif
-    va_end(args);
-    va_start(args, fmt);
-    buf = (char *)malloc(count * sizeof(char));
-    count = vsnprintf(buf, count, fmt, args);
-    TextPutS(&textwin, buf);
-    free(buf);
-    va_end(args);
-    return count;
+	va_start(args, fmt);
+	count = vsnprintf(NULL, 0, fmt, args) + 1;
+	if (count == 0)
+		count = MAXPRINTF;
+	va_end(args);
+	va_start(args, fmt);
+	buf = (char *) malloc(count * sizeof(char));
+	count = vsnprintf(buf, count, fmt, args);
+	TextPutS(&textwin, buf);
+	free(buf);
+	va_end(args);
+	return count;
 }
 
 size_t
@@ -912,6 +920,7 @@ int fake_pclose(FILE *stream)
 
 #else /* WGP_CONSOLE */
 
+
 DWORD WINAPI stdin_pipe_reader(LPVOID param)
 {
 #if 0
@@ -929,71 +938,81 @@ DWORD WINAPI stdin_pipe_reader(LPVOID param)
 #endif
 }
 
+
 int ConsoleGetch()
 {
-    int fd = fileno(stdin);
-    HANDLE h;
-    DWORD waitResult;
+	int fd = fileno(stdin);
+	HANDLE h;
+	DWORD waitResult;
 
-    if (!isatty(fd))
-        h = CreateThread(NULL, 0, stdin_pipe_reader, NULL, 0, NULL);
-    else
-        h = (HANDLE)_get_osfhandle(fd);
+	if (!isatty(fd))
+		h = CreateThread(NULL, 0, stdin_pipe_reader, NULL, 0, NULL);
+	else
+		h = (HANDLE)_get_osfhandle(fd);
 
-    do
-    {
-        waitResult = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
-        if (waitResult == WAIT_OBJECT_0)
-        {
-            if (isatty(fd))
-            {
-                INPUT_RECORD rec;
-                DWORD recRead;
-
-                ReadConsoleInput(h, &rec, 1, &recRead);
-                if (recRead == 1 && rec.EventType == KEY_EVENT && rec.Event.KeyEvent.bKeyDown &&
-                        (rec.Event.KeyEvent.wVirtualKeyCode < VK_SHIFT ||
-                         rec.Event.KeyEvent.wVirtualKeyCode > VK_MENU))
-                {
-                    if (rec.Event.KeyEvent.uChar.AsciiChar)
-                        return rec.Event.KeyEvent.uChar.AsciiChar;
-                    else
-                        switch (rec.Event.KeyEvent.wVirtualKeyCode)
-                        {
-                            case VK_UP: return 020;
-                            case VK_DOWN: return 016;
-                            case VK_LEFT: return 002;
-                            case VK_RIGHT: return 006;
-                            case VK_HOME: return 001;
-                            case VK_END: return 005;
-                            case VK_DELETE: return 0117;
-                        }
-                }
-            }
-            else
-            {
-                DWORD c;
-                GetExitCodeThread(h, &c);
-                CloseHandle(h);
-                return c;
-            }
-        }
-        else if (waitResult == WAIT_OBJECT_0+1)
-        {
-            MSG msg;
-
-            while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
-            {
-                TranslateMessage(&msg);
-                DispatchMessage(&msg);
-            }
-        }
-        else
-            break;
-    } while (1);
+	do {
+		waitResult = MsgWaitForMultipleObjects(1, &h, FALSE, INFINITE, QS_ALLINPUT);
+		if (waitResult == WAIT_OBJECT_0) {
+				DWORD c;
+			if (isatty(fd)) {
+				c = ConsoleReadCh();
+				if (c != NUL)
+					return c;
+			} else {
+				GetExitCodeThread(h, &c);
+				CloseHandle(h);
+				return c;
+			}
+		} else if (waitResult == WAIT_OBJECT_0+1) {
+			WinMessageLoop();
+			if (ctrlc_flag)
+				return '\r';
+		} else
+			break;
+	} while (1);
 }
 
 #endif /* WGP_CONSOLE */
+
+
+int ConsoleReadCh()
+{
+	INPUT_RECORD rec;
+	DWORD recRead;
+	HANDLE h;
+
+	h = GetStdHandle(STD_INPUT_HANDLE);
+	if (h == NULL)
+		return NUL;
+
+	ReadConsoleInput(h, &rec, 1, &recRead);
+	/* FIXME: We should handle rec.Event.KeyEvent.wRepeatCount > 1, too. */
+	if (recRead == 1 && rec.EventType == KEY_EVENT && rec.Event.KeyEvent.bKeyDown &&
+			(rec.Event.KeyEvent.wVirtualKeyCode < VK_SHIFT ||
+				rec.Event.KeyEvent.wVirtualKeyCode > VK_MENU)) {
+		if (rec.Event.KeyEvent.uChar.AsciiChar) {
+			if ((rec.Event.KeyEvent.dwControlKeyState == SHIFT_PRESSED) && (rec.Event.KeyEvent.wVirtualKeyCode == VK_TAB))
+				return 034; /* remap Shift-Tab */
+			else
+				return rec.Event.KeyEvent.uChar.AsciiChar;
+		} else {
+			switch (rec.Event.KeyEvent.wVirtualKeyCode) {
+				case VK_UP: return 020;
+				case VK_DOWN: return 016;
+				case VK_LEFT: return 002;
+				case VK_RIGHT: return 006;
+				case VK_HOME: return 001;
+				case VK_END: return 005;
+				case VK_DELETE: return 0117;
+			}
+		}
+	}
+
+	/* Error reading event or, key up or, one of the following event records:
+	   MOUSE_EVENT_RECORD, WINDOW_BUFFER_SIZE_RECORD, MENU_EVENT_RECORD, FOCUS_EVENT_RECORD */
+	return NUL;
+}
+
 
 /* public interface to printer routines : Windows PRN emulation
  * (formerly in win.trm)
@@ -1008,17 +1027,17 @@ open_printer()
     char *temp;
 
     if ((temp = getenv("TEMP")) == (char *)NULL)
-        *win_prntmp='\0';
+        *win_prntmp = '\0';
     else  {
-        strncpy(win_prntmp,temp,MAX_PRT_LEN);
+        strncpy(win_prntmp, temp, MAX_PRT_LEN);
         /* stop X's in path being converted by mktemp */
-        for (temp=win_prntmp; *temp; temp++)
+        for (temp = win_prntmp; *temp; temp++)
             *temp = tolower(*temp);
-        if ( strlen(win_prntmp) && (win_prntmp[strlen(win_prntmp)-1]!='\\') )
+        if ((strlen(win_prntmp) > 0) && (win_prntmp[strlen(win_prntmp) - 1] != '\\'))
             strcat(win_prntmp,"\\");
     }
-    strncat(win_prntmp, "_gptmp",MAX_PRT_LEN-strlen(win_prntmp));
-    strncat(win_prntmp, "XXXXXX",MAX_PRT_LEN-strlen(win_prntmp));
+    strncat(win_prntmp, "_gptmp", MAX_PRT_LEN - strlen(win_prntmp));
+    strncat(win_prntmp, "XXXXXX", MAX_PRT_LEN - strlen(win_prntmp));
     mktemp(win_prntmp);
     return fopen(win_prntmp, "w");
 }
@@ -1081,7 +1100,7 @@ win_lower_terminal_group(void)
 }
 
 
-/* return the number of graph windows (win terminal)*/
+/* returns true if there are any graph windows open (win terminal) */
 TBOOLEAN
 WinWindowOpened(void)
 {
@@ -1123,5 +1142,21 @@ WinMessageLoop(void)
 			return;
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
+	}
+}
+
+
+void
+WinRaiseConsole(void)
+{
+	HWND console = NULL;
+#ifndef WGP_CONSOLE
+	console = textwin.hWndParent;
+#else
+	console = GetConsoleWindow();
+#endif
+	if (console != NULL) {
+		ShowWindow(console, SW_SHOWNORMAL);
+		BringWindowToTop(console);
 	}
 }

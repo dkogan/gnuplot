@@ -1,3 +1,2634 @@
+2014-03-23 Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/command.c src/command.h src/datablock.c src/datablock.h 
+	src/set.c src/show.c src/unset.c docs/gnuplot.doc demo/ellipse.dem
+	demo/fitmulti.dem demo/gen-random.inc demo/rugplot.dem:
+	Implement 'set print $datablock' which redirects 'print' output to
+	an in-memory datablock.
+	Patch #662
+
+	* src/setshow.h src/show.c src/util.c src/util.h:  Factor out new
+	routine value_to_str() which returns a string representation of a
+	struct value from disp_value().
+
+	* demo/tango_colors.dem:  set linetype cycle.
+
+	* docs/plotstyles.gnu:  Encoding is utf8.
+
+	* src/win/wcommon.h src/win/wgraph.c:  Fix const-ness for
+	enhanced_recursion().
+
+	* src/util.c (gprintf):  Skip leading zeroes of negative exponents.
+
+2014-03-22  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* docs/gnuplot.doc docs/doc2tex.c docs/titlepag.tex:
+	Update documentation New Features, Changes for version 5.
+
+	* src/plot.c (init_session) src/set.c (set_colorsequence) src/setshow.h
+	src/show.c src/tables.c src/tables.h src/term_api.h:
+	New command:
+		set colorsequence {default | classic | podo}
+	Built-in command to select one of the linetype color sequences provided
+	in .../share.  The default sequence is visibly changed from the old
+	red/green/blue ugliness, which should make users immediately aware that
+	the colors can be customized.
+
+	* src/set.c (set_linestyle):  Dash type of newly created linetype should
+	by solid unless otherwise specified.
+
+	* src/misc.c:  Allow `black` as a colorspec or linetype, analogous to
+	`bgnd`.
+
+2014-03-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/parse.c (check_for_iteration next_iteration):
+	Replace overly clever checks for end condition already satisfied with
+	one that doesn't fail due to overflow of integer multiplication.
+	Bug #1358
+
+	* src/term.c (enhanced_recursion) term/post.trm(ENHPS_OPEN):
+	The bold/italic support code has revealed a problem with PostScript
+	output. The core code assumes that passing a blank font name means
+	"keep the previous font" or at worst "use the default font". post.trm
+	failed to do this for some command sequences. Fix it in two places.
+	In term.c pass the previous font if we already know it.
+	In post.trm fall back to the default rather than place a blank
+	string in the ouput *.ps file.
+	Bug #1359
+
+2014-03-20  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/set.c src/term.c src/term_api.h src/util.c src/win/wgraph.c
+	src/wxterminal/gp_cairo.c term/aquaterm.trm term/pdf.trm term/post.trm
+	term/pslatex.trm term/svg.trm:  Add support for codepage 1252, the
+	standard Western European encoding on Windows.
+
+	* src/set.c:  "set encoding locale" only handles utf8 and sjis. Extend
+	this to all supported encodings on Windows, probably the only platform
+	where this is still relevant.
+	Bug #1270
+
+	* demo/dashcolor.dem:  UTF-8 encoding.
+
+	* src/fit.c (show_results):  Do not try to print parameter errors if
+	the covariance matrix is unavailable or invalid.
+
+2014-03-20  Thomas Henlich  <thenlich@users.sourceforge.net>
+
+	* term/PostScript/cp1252.ps:  CP1252 encoding support for PostScript
+	terminal. Based on Patch #341, but with non-standard characters
+	removed.
+
+2014-03-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/svg.trm:  svg was losing the current linetype (i.e. dash type)
+	between drawing the key sample and drawing the main plot.
+
+2014-03-19  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/stdfn.c src/stdfn.h src/internal.c src/win/winmain.c
+	src/win/wtext.h config/config.nt:  Standard compliant replacements
+	of snprintf() and vsnprintf() for MSVC.  Note that _snprintf does set
+	errno=ERANGE if the destination buffer is too small.
+
+2014-03-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c: Fix parsing error for "with lp pt 'X', ..."
+
+	* src/boundary.c src/boundary.h src/graphics.c:  Refactor code that
+	draws key samples for point plots.
+
+	* configure.in term/gpic.trm src/term.h:
+	Add configuration option --with-gpic
+
+	* configure.in src/term.h:  FrameMaker now allows import of svg, so the
+	utility of the ancient mif v3 support is dubious. Disable by default.
+	Add configuration option --with-mif
+
+	* demo/lines_arrows.dem demo/stringvar.dem demo/html/Makefile
+	demo/html/index.* demo/html/webify.pl: Update demos for version 5.
+
+2014-03-19  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* src/misc.c (parse_dashtype): Avoid warning about assignment used
+	as a condition value.  Some reindentation.
+
+2014-03-19  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotScene.cpp
+	src/qtterminal/QtGnuplotItems.h src/qtterminal/qt_term.cpp:
+	Implement image clipping for the Qt terminal.  Fix issue with
+	unsigned variables in terminal coordinates.  Bug #1349
+
+2014-03-18  Peter Juhasz  <juhaszp@users.sourceforge.net>
+
+	* src/term.c src/set.c: Fix leaks and invalid reads associated
+	with dashtype strings.
+
+2014-03-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/wxterminal/gp_cairo.c:  PANGO_WEIGHT_NORMAL is not the same as 0.
+
+	* term/x11.trm:  Make the "persist" flag local to x11 and remember
+	what is was the last time we set the terminal to x11.
+	Bug #1348
+
+2014-03-18  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotEvent.* src/qtterminal/QtGnuplotWindow.cpp
+	src/qtterminal/QtGnuplotWidget.cpp src/qtterminal/QtGnuplotScene.cpp:
+	Block events that come from inactive plot widgets.
+
+2014-03-17  Peter Juhasz  <juhaszp@users.sourceforge.net>
+
+	* src/term_api.h src/misc.c src/misc.h src/save.c src/save.h:
+	Parse and save dashtype specification in the form of "-_. " or 
+	"(1.0, 0.3, 1.5, 2.0)". In the latter form alternating numbers 
+	specify dash lengths and spaces between them.
+
+	* src/gadgets.c src/gadgets.h:
+	Added new type custom_dashtype_def and global variable 
+	first_custom_dashtype in preparation of new "set dashtype" command.
+
+	* src/gadgets.h src/misc.c src/set.c src/setshow.h src/show.c
+	src/tables.c src/tables.h src/term_api.h src/unset.c:
+	New commands 'set|show|unset dashtype <N> <dashtype_spec>' to
+	specify permanent, user-defined dashtypes.
+
+	* src/termp_api.h src/term.c src/misc.c: lp_parse() loads dashtype
+	from the list of user-defined dashtypes if the absence of an explicit
+	definition.
+
+2014-03-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c src/axis.h src/gadgets.c src/gadgets.h src/graphics.c
+	src/misc.c src/plot2d.c src/set.c src/term_api.h docs/gnuplot.doc
+	docs/plotstyles.gnu:
+	New point type that consists of a single character (possibly a
+	multibyte character).  This is particularly useful as
+	    plot $FOO with linespoints pointtype "#" pointinterval -1
+	where # is the desired character drawn at each point.
+
+2014-03-16  Peter Juhasz  <juhaszp@users.sourceforge.net>
+
+	* src/term_api.h src/term.c src/misc.c src/plot2d.c src/plot2d.c
+	src/set.c src/save.c src/graphics.c src/gadgets.c src/gadgets.h:
+	Introduce new "dashtype" line property that controls dot/dash 
+	pattern independently. Allow it in "set|show linetype|linestyle",
+	"plot", etc., display it in "save".
+	Only numeric "dashtype N" supported for now. 
+	New function dashtype() added to termentry struct, but none of the
+	terminals use it yet.
+
+	* src/set.c (set_linestyle): Set pm3d_color.type to TC_LT and
+	pm3d_color.lt to line number by default. This is necessary because
+	since the use_palette flag was removed, pm3d_color information is
+	used everywhere, yet, it was not set properly. This resulted,
+	among others, a broken "show linetype" output with empty "linecolor"
+	spec.
+
+2014-03-16  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* src/axis.h (en_minitics_status): Give enum a typedef name, too.
+	(axis): Use new type for element of AXIS struct, instead of int.
+
+	* src/axis.c (gen_tics): Simplify by using local OO-like "this"
+	pointer variable.  Remove pointless local variable "minifreq".
+	Treat "minitics" variable as a proper enum everywhere (no
+	set/compare to zero).
+
+2014-03-15  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in VERSION PATCHLEVEL share/gnuplotrc src/version.c
+	demo/html/index.canvas demo/html/index.save demo/html/index.svg
+	docs/doc2texi.el docs/gnuplot.doc docs/titlepag.tex:
+
+	>>>>> Bump version to 5.0 alpha <<<<<
+
+2014-03-15  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgraph.c (MakeFonts) src/win/wgdiplus.c (SetFont_gdiplus):
+	Implement boldface and italic markup for enhanced text. The windows
+	terminal already accepted "Fontface Bold Italic" in font specifiers,
+	now it also accepts "Fontface:Bold:Italic".
+
+	* win/gnuplot.iss:  Include directories share and demo/games in
+	GNUPLOT_LIB
+
+	* src/fit.c src/fit.h:  Always call error_ex() to abort, which now does
+	the proper memory cleanup. Fixes the (most obvious) memory leaks.
+
+	* src/fit.c (regress):  The fit converged if chisq == 0.
+
+	* src/fit.c (regress_finalize):  fit did not converge if the covariance
+	matrix is invalid.
+
+	* src/fit.c (fit_command):  Warn about zero initial parameter values.
+	Help message taken from patch #230 by T. Mattison.
+
+	* src/fit.c src/unset.c:  Default to "set fit errorvar" as was the
+	intent of a change on 2010-05-02.
+	Feature Request #230
+
+2014-03-14  Dieter Ries  <dieter.ries@psi.ch>
+
+	* src/qtterminal/QtGnuplotItems.* src/qtterminal/QtGnuplotScene.cpp:
+	Use the current linewidth to draw point symbols.
+
+2014-03-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_parse_string_field):  Memory allocation for column
+	header strings had O(n^2) dependence on the length of the first line.
+	Replace this with an O(n) scheme.  This should also improve performance
+	when handling string-value data columns in long input lines.
+	Bug #1355
+
+	* src/fit.c:  The bottleneck in the fitting code was lookup of dummy
+	variables by name (4x10^9 lookups in fit.dem). All but the first lookup
+	is unnecessary. Saving a pointer after the first lookup for later
+	direct access speeds up fit.dem by a factor of 3x.
+
+2014-03-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (enhanced_recursion):  Bugfix for bold/italic.
+
+	* demo/enhanced_utf8.dem:  Add bold/italic markup to demo.
+
+	* docs/gnuplot.doc:  Add bold/italic examples to the section on
+	enhanced text.
+
+	* term/js/gnuplot_svg.js:  Work around a Firefox bug (incorrect
+	text length calculation affects alignment of multiline hypertext).
+
+2014-03-10  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c src/qtterminal/qt_term.cpp src/wxterminal/gp_cairo.c
+	src/term_api.h term/svg.trm demo/bolditalic.dem:
+
+	Revised syntax for bold/italic markup of text as per suggestions on
+	gnuplot-beta list. Rather than the TeX-like \bf and \it it now accepts
+	    {/font=size:Bold:Italic  text}
+	    {/font:Bold:Italic=size  text}
+	    {/:Bold text_{:/Normal text}}
+	Tested on wxt, qt, svg, cairo terminals, libgd terminals, and PostScript.
+	I don't know how it manages to work on libgd or PostScript (I did
+	not modify the existing code), but suspect that it depends on having
+	a clever system font manager.  Still needed: documentation and support
+	for more terminals.
+
+	* term/post.trm: Not all "set term post" commands were correctly
+	defaulting to enhanced text mode.
+
+	* src/plot2d.c src/plot3d.c: Auto-increment point types strictly in
+	sync with line types.  This removes the oddity that automatically
+	generated point types would not necessarily match the plot number.
+
+2014-03-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/eval.c src/eval.h src/internal.c src/parse.c src/scanner.c
+	src/internal.h demo/rgba_lines.dem docs/gnuplot.doc:
+	Bit shifting binary operators << and >>.
+
+	* src/term.c:  boldface or italic markup can be in either order.
+
+2014-03-09  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* demo/arrowstyle.dem:  Simplify by using loops and the special
+	file '+'.
+
+2014-03-09  Alexander Täschner  <taschna@users.sourceforge.net>
+
+	* src/fit.c src/fit.h src/save.c src/setshow.h src/set.c src/show.c
+	src/unset.c docs/gnuplot.doc:  Optionally store final covariance
+	matrix to user variables named "FIT_COV_a_b", where 'a', 'b' are
+	parameter names.
+	Patch #654
+
+2014-03-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (enhanced_recursion): Add LaTeX-like markup for boldface
+	and italic in enhanced text mode:
+		'{\it italic} {/Times=12 \bf boldface}'
+	The backslash is a bit annoying because in double quotes you need to
+	escape it: "{\\it italic}".  We may want to change it.
+
+	* src/qtterminal/QtGnuplotItems.* src/qtterminal/QtGnuplotScene.cpp
+	src/qtterminal/qt_term.cpp:  Implement boldface and italic markup for
+	enhanced text.
+
+	* src/wxterminal/gp_cairo.c: Implement boldface and italic markup for
+	cairo terminals.
+
+2014-03-08  Christoph Bersch <usenet@bersch.net>
+
+	* src/set.c src/boundary.c: Allow changing textcolor of the timestamp.
+
+2014-03-08  Alexander Täschner  <taschna@users.sourceforge.net>
+
+	* src/fit.c (print_function_definitions):  Print a list of function
+	definitions used by the fit command to fit.log. Limit maximum number
+	of functions and recursions (changes by BM).
+	Patch #654
+
+	* src/fit.c (fit_command):  Include name of the parameter file in
+	error message.
+
+2014-03-08  Dima Kogan  <dima@secretsauce.net>
+
+	* docs/doc2texi.el docs/gpcard.tex: Remove last traces of cgi.trm
+
+	* src/term.c: Print a warning if someone tries to plot while the
+	terminal type is "unknown".
+
+2014-03-07  Alexander Täschner  <taschna@users.sourceforge.net>
+
+	src/stats.c docs/gnuplot.doc:  Add the calculation of the skewness,
+	the kurtosis, and the standard errors of mean, stddev, skewness,
+	and kurtosis to the stats command. Change the calculation formula
+	for the variance to the "corrected two-pass algorithm" to avoid
+	round-off errors. Re-indent printed output to accommodate the
+	longer descriptions of the new values. In case values cannot be
+	calculated set corresponding user variables to NaN and print
+	"undefined".
+	Patch #656
+
+2014-03-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (parse_color_name) src/set.c (set_palette_defined):
+	Accept quoted hexadecimal constant as a color name.
+	E.g.  plot $foo linecolor rgb "0xFFAABB"
+
+2014-03-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* Makefile.am Makefile.maint aclocal.m4 configure.in docs/Makefile.am
+	lisp/* README.emacs:
+
+	Bruce Ravel's gnuplot-mode package for emacs is now maintained 
+	elsewhere.  Remove the outdated copy (2002 era) from the gnuplot
+	repository, since it causes more confusion than help for people
+	wanting to install gnuplot-mode.  README.emacs documents the
+	removal and provides a pointer to the project's own repository.
+
+	* docs/Makefile.am: Include figures in the pdf manual by default.
+	If you really don't want figures, say `make nofigures pdf`.
+
+2014-03-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in:  More compact summary of terminal configuration.
+
+	* term/pdf.trm:  Fix crash on point size = 0.
+
+	* src/qtterminal/qt_term.cpp:  More friendly warning if fonts are
+	slow to initialize. May only be relevant to OSX + Qt5.
+
+	* src/datafile.c: Allow pseudofile '+' for polar plots.
+
+	* src/scanner.c (get_num): The parser has trouble reading hexadecimal
+	constants with the top bit set since strtol treats this as an overflow.
+	Use strtoll instead and mask the result back to 32 bits.
+	Bug #1344
+
+	* src/stdfn.h:  Provide MSVC alias for strtoll.
+
+2014-03-04  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.c (regress) src/fit.h:  Facilitate the inclusion of
+	alternative minimization algorithms: Move code from regress()
+	to new functions regress_init(), regress_finalize(),
+	regress_check_stop(), and fit_progress(). Rename show_fit1() to
+	show_fit_brief().
+
+	* docs/gnuplot.doc (stats):  Document variables which hold the
+	errors of linear regression analysis.
+
+	* src/fit.c:  Dead code removal.
+
+2014-03-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/fit.c src/matrix.c src/matrix.h:  Dead code removal.
+	src/plot2d.c: Dead comment removal.
+
+	* configure.in:  Build qt terminal by default if either qt5 or qt4
+	libraries are detected.
+
+	* docs/Makefile.am:  "make dist" should not trigger build of gnuplot.pdf
+	if it is current (it gets confused by regenerated file pdffigures.tex).
+
+2014-03-03  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* src/Makefile.am (DISTCLEANFILES): Clean off timestamp.h for
+	distcheck.
+
+	* demo/plugin/Makefile.am: New file.
+	* demo/plugin/Makefile: Dropped.
+	* configure.in: generate demo/plugin/Makefile in build directory.
+
+2014-03-02  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotWidget.* src/qtterminal/QtGnuplotWindow.*
+	src/qtterminal/QtGnuplotSettings.ui: New settings option for displaying
+	mouse coordinates. Possible choices are Status bar, Tool bar, Inline or
+	None.
+
+2014-03-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* demo/Makefile.am.in:  Fix a typo, but the plugin subdir is still
+	not being properly created by "make distcheck".
+
+2014-02-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c src/axis.c src/parse.c src/parse.h src/internal.c
+	src/color.c src/boundary.c src/command.c src/contour.c src/datafile.c:
+	Trivial removal of dead code and old comments. Flag unused parameters.
+	
+	* term/js/gnuplot_svg.js: Do not let hypertext box run off the bottom
+	or right edge of the svg viewBox.
+	Bug #1340
+
+2014-02-28  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/config.mgw config/mingw/Makefile config/msvc/Makefile:
+	Build support for plugins. Build demo plugin.
+
+	* config/mingw/Makefile: New target 'maint' to recreate makefile.all.
+
+	* src/makefile.all src/makefile.awc:  Recreate to include external.c.
+
+	* src/fit.dem:  fit always requires decent initial parameter values.
+	Never initialize them to zero.
+
+	* src/matrix.c (free_matr):  Accept NULL pointers.
+
+2014-02-28  Alexander Täschner  <taschna@users.sourceforge.net>
+
+	* src/fit.c demo/fit.dem:  Optionally take errors of independent
+	variables into account.
+	Patch #585
+
+2014-02-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c src/command.h src/eval.c src/eval.h src/external.c
+	src/external.h src/gp_types.h src/Makefile.am src/show.c src/tables.c:
+	New command `import func(x) from "sharedobject"` extends gnuplot
+	expression evaluation to allow calling functions exported by an
+	external shared object (a.k.a. plugins). 
+	- original patch  2002 Stephan Boettcher <boettcher@physik.uni-kiel.de>
+	- updated for 4.7 2014 Alexander Täschner <taschna@users.sf.net>
+	- revised syntax and error handling 2014 Ethan A Merritt
+
+	* config/config.nt configure.in demo/Makefile.am.in:
+	./configure --disable-plugins [enabled by default]
+	
+	* demo/plugin/demo_plugin.c demo/plugin/gnuplot_plugin.h
+	demo/plugin/Makefile demo/plugin/plugin.dem docs/gnuplot.doc:
+	Template files demonstrating the creation of custom plugin libraries.
+
+2014-02-27  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	src/fit.c demo/fit.dem docs/gnuplot.doc:  New syntax to specify errors.
+	The new parameter 'errors' accepts a comma separated list of (dummy)
+	variable names to specify which (in-)dependent variable has associated
+	errors. 'z' always denotes the indep. variable. 'noerrors' tells fit
+	to use equal (1) weights for the fit. The new syntax removes the 
+	ambiguity between x:y:z:(1) and x:z:s. The old syntax is still
+	accepted but deprecated.
+	Patch #621
+
+	src/fit.c src/unset.c:  Default to prescaling of fit parameters.
+
+2014-02-26  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	src/stats.c:  Calculate errors of linear regression parameters.
+	Results saved to user variables STATS_slope_err and
+	STATS_intercept_err.
+
+	src/mouse.c (xDateTimeFormat):  gmtime() might return NULL for
+	invalid arguments.
+
+	src/datablock.c (datablock_command):  Strip trailing newline character.
+
+2014-02-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/qt_term.cpp(qt_sendFont):  Work-around possibly very
+	slow response to font metrics query on OSX. May only be needed for Qt5.
+
+	* src/qtterminal/qt_term.cpp(qt_connectToServer qt_waitforinput):
+	If the outboard server gnuplot_qt is killed while gnuplot is connected
+	to it, it gets restarted with a different server name.  Don't waste
+	time trying to connect to a server with the old name.
+
+2014-02-24  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/qtterminal/qt_term.cpp (qt_waitforinput):  Avoid unnecessary
+	timeouts on Windows when only checking for mouse interaction. These
+	would slow down drawing considerably in some cases.
+
+2014-02-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/qt_term.cpp(qt_flushOutBuffer):
+	Check for valid socket before flushing.
+
+	* configure.in:  --with-qt=qt5 forces qt5 even if auto-detection
+	would otherwise choose qt4.
+
+2014-02-23  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* term/caca.trm:  No longer expect the name of the backend driver to be
+	specified in quotes. Fix some initialization issues found by the VS11
+	code analysis tool.
+
+	src/command.c:  Fix another case of conditional compilation with
+	USE_MOUSE on Windows.
+
+	config/mingw/Makefile:  gcc's -pipe option seems to speed up
+	compilation with MinGW considerably.
+
+2014-02-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in: The interactive terminals wxt, qt, etc, no longer build
+	correctly if mousing support is not configured.  So force mouse support
+	if any of these terminals are selected during configuration.
+
+2014-02-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c (timed_pause): Fix conditional compilation when
+	./configure --disable-mouse
+
+2014-02-16  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/qtterminal/qt_term.cpp (qt_waitforinput):  Safeguard the test
+	of the return value of MsgWaitForMultipleObjects against accidental
+	matches when it returns WAIT_FAILED==-1. Disable the recursion test
+	for now as it seems no longer necessary.
+
+2014-02-16  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotWidget.*: Correctly handle the size of the
+	plot window on the first plot and after the plot window has been closed
+
+2014-02-15  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/qtterminal/qt_term.cpp (qt_flushOutBuffer):  Avoid dead-locking
+	when no more data is available after flushing the socket.
+
+	* src/win/wpause.c (win_sleep):  Handle terminal "mousing" events by
+	calling term->waitforinput. Fixes mouse interaction for the qt terminal
+	during pause.
+
+2014-02-14  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/qtterminal/qt_term.cpp (qt_waitforinput):  Windows 
+	implementation. Instead of using select(), which on Windows only works
+	on network sockets, we use MsgWaitForMultiple objects to wait for
+	stdin, console, qt pipe and message queue events. Works for console
+	mode gnuplot and wgnuplot. In principle this scheme could be used for
+	all interactive terminals on Windows. Probably we should eventually
+	replace the individual term->waitforinput routines by a common 
+	WinWaitForInput routine to reduce code duplication.
+	Patch #645
+
+2014-02-14  Thomas Bleher
+
+	* src/qtterminal/qt_term.cpp (ScopeCounter, qt_waitforinput):  Avoid
+	recursion in qt_waitforinput (TERM_ONLY_CHECK_MOUSING) which causes
+	the routine to incorrectly wait for user input. Applied to Windows
+	code only at the moment.
+	Patch #642
+
+2014-02-12  Mojca Miklavec  <mojca.miklavec.lists@gmail.com>
+
+	* configure.in src/Makefile.am src/qtterminal/qt_term.cpp
+	src/qtterminal/qt_term_mac.m:  Revert special handling of dock icons
+	on OSX (2012-06-23).
+
+2014-02-12  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/qt_term.cpp (qt_sendFont qt_waitforinput):
+	If the amount of data available via the socket from gnuplot_qt is too
+	small to be an event structure, issue an error and continue rather than
+	spinning futilely.  Suggested by Yuriy Kaminskiy <yumkam@gmail.com>
+
+	* src/qtterminal/QtGnuplotScene.cpp: Remove dead code.
+
+2014-02-12  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/msvc/Makefile:  cairo/pango terminals can be included in build
+	without wxt. Support building with Qt5. Build qt files out of tree.
+	Install gnuplot_qt. Required libraries can be installed in a common
+	directory tree, referenced by LIBDIR. The individual package references
+	GDDIR, LUADIR, CACADIR, CAIRODIR, and PDFDIR are now optional. Make
+	the install target more similar to MinGW installs.
+
+	* src/qtterminal/qt_term.cpp:  Add some more checks if the qt object
+	is actually available. This is needed if some other terminal continues
+	to send events even though it is no longer active.
+
+	* src/win/winmain.c|h (ConsoleReadCh, stdin_pipe_reader):  Extract the 
+	code to read a character from console and mapping it to a gnuplot code
+	from ConsoleGetCh. Export stdin_pipe_reader.
+
+	* src/win/wtext.c (TextStartEditing, TextStopEditing):  Make sure that
+	calls to ShowCaret/HideCaret are balanced even if called if calls to
+	these routines are not.
+
+	* src/readline.c (msdos_getch):  Handle extended key codes returned
+	from term->waitforinput.
+
+2014-02-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/qt_term.cpp (qt_connectToServer):
+	The timeout parameter in socket.waitForConnected() cannot be used to
+	wait for an unready socket, as that returns an error immediately.
+	Rewrite the delay loop using an explicit GP_SLEEP() instead.
+	Also increase the overall timeout for the retry loop.
+
+2014-02-09  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotWidget.*:  QtGnuplotWidget emits a signal
+	after a plot is done
+
+2014-02-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in src/wxterminal/wxt_gui.h:  New configure option
+	--with-wx-single-threaded forces the WXT_MONOTHREADED code option even
+	if the platform otherwise would default to WXT_MULTITHREADED.
+	This provides a workaround for reported problems using the wxt terminal
+	on Haswell CPUs, where apparently gnuplot's use of a mutex to
+	synchronize communication with the gui can fail badly.
+
+	* term/svg.trm:  Remove "horrible kludge" added in 2011 to work around
+	a bug in Firefox 3.x rendering.  Now it is causing more problems than it
+	solves.
+
+2014-01-31  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_tokenise):  Fix off-by-one allocation error
+	affecting cvs files.
+	Bug #1333
+
+2014-01-31  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotScene.* src/qtterminal/QtGnuplotItems.*:
+	introduce a new QGraphicsItem type that gathers consecutive points, lines
+	and polygons. It greatly improves the rendering speed of plots with a large
+	number of these elements by reducing the number of QGraphicsItem that the
+	scene has to manage.
+	Patch #651
+
+2014-01-30  Jon Gjengset <jon@thesquareplanet.com>
+
+	* src/gp_types.h src/interpol.c src/interpol.h src/plot2d.c
+	src/tables.c docs/gnuplot.doc:  New smoothing option "unwrap" adjusts
+	input y values by multiples of 2pi so that the difference between two
+	successive y values is never more than pi.
+
+2014-01-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (store2d_point parametric_fixup): Fix several problems
+	with autoscaling of plots in polar mode.  One side effect was that the
+	polar grid lines did not work in parametric plots.
+	Bug #1323
+
+2014-01-29  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/gnuplot-ja.doc term-ja.diff:  Sync translation to version 1.848
+
+2014-01-29  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgraph.c:  Horizontal scroll wheel support.
+
+2014-01-29  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/command.c: Update GPVAL_* variables after a refresh command.
+	Bug #1327
+
+	* src/qtterminal/QtGnuplotWidget.* src/qtterminal/QtGnuplotApplication.cpp:
+	Only show the QtGnuplotWindow after a size event is received from gnuplot.
+	It avoids a visible fast resize of the window after the first plot command,
+	and it also avoids that the plot window infrequently sticks to a wrong size.
+
+2014-01-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/time.c (xstrftime):  Explicit use of (double) when processing
+	fractional seconds.
+
+	* src/Makefile.am:  Build *.moc and *.qrc files for qt terminal in the
+	same subdirectory as the *.o files.
+
+	* src/datafile.c:  [xyz]ticlabels were losing resolution due to being
+	passed through a float rather than a double.
+
+	* src/datafile.c:  Handle error case of ticlabel function not returning
+	a string.
+
+2014-01-26  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/qt_term.cpp: Implement font metric caching. This solves
+	a flickering issue when a large number of font changes are called (for
+	example when rotating the world plot in world2.dem).
+
+	* src/qtterminal/QtGnuplotInstance.*: New public function that sends a
+	command to gnuplot and blocks until it receives the answer.
+
+2014-01-21  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/qt_term.cpp: Fixed a regression introduced on 2014-01-18
+	that caused glitches in font rendering when GE_fontprops events are missed.
+
+2014-01-18  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* configure.in config/mingw/Makefile config/msvc/Makefile
+	src/show.c src/term.h src/win/wgnuplib.h src/win/wpause.c
+	term/caca.trm:  New utterly useless, interactive color character art
+	terminal driver "caca" using libcaca. Supports (RGB) colors, filled
+	boxes and polygons, images, enhanced and rotated text, boxed labels,
+	hypertext and mouse interaction. Export to different file formats is
+	supported.
+	Patch #605
+
+2014-01-18  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/qt_term.cpp: Replace calls to fork and execlp by
+	the portable QProcess::startDetached function.
+
+	* src/qtterminal/qt_term.cpp: Delegate the font metric calculation to
+	QtGnuplotScene. This eliminates the need of a QApplication in the main
+	gnuplot program and thus significantly reduce the initialization time of
+	the Qt terminal.
+
+	* src/qtterminal/QtGnuplot*: Move the inclusion of gnuplot headers from
+	QtGnuplotEvent.h to .cpp files. With this, QtGnuplot*.h files can be
+	included out of the gnuplot tree.
+
+2014-01-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/help.c:  Allocate help file path dynamically.
+
+	* src/qtterminal/QtGnuplotEvent.h src/qtterminal/QtGnuplotScene.cpp
+	src/qtterminal/qt_term.cpp:  Better tracking of current plot number in
+	the case of multiple passes through a set of plots, e.g. when the key
+	samples in an opaque key box are drawn in a separate pass.
+
+2014-01-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (load_file lf_pop):  Provide a user-visible copy of the
+	current line number GPVAL_LINENO when executing commands from a file.
+
+	* src/datafile.c (df_open df_readascii):  New keyword "skip" tells the
+	program to skip lines at the start of an ascii data file.  Note this is
+	different from "every ::N", which skips lines at the start of the data
+	file but also at the start of each subsequent data block in the file.
+
+2014-01-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c (set_allzeroaxis set_palette_defined set_clip set_encoding):
+	Fuzz-testing found improper handling of END_OF_COMMAND cases.
+
+2014-01-12  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c (link_command):  Enforce a consistent linkage state;
+	we must either have both a forward and a reverse ("via" and "inverse")
+	function or neither.
+	Bug #1318
+
+	* src/plot3d.c (plot3drequest) src/graph3d.c ([x|y]tick_callback):
+	Support x2 and y2 axis labels in 3D plots ('set view map' mode only).
+	In order for this to work, the secondary axis must be linked to the
+	primary axis first ("set link").
+
+	* src/color.c (draw_inside_color_smooth_*): remove unnecessary parameter
+
+	* src/README -> docs/old/README.internals:
+	Delete ancient comments on code refactoring circa 2000
+
+2014-01-11  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/mingw/Makefile:  Automatically update version numbers for
+	installer.
+
+	* src/win/wgraph.c (drawgraph):  When drawing to the screen, point
+	symbols are drawn to a memory bitmap first, which is then copied to
+	the target device. That way subsequent draws of the same point symbol
+	just need to copy the bitmap. This speeds up drawing of graphs with
+	a large number of point symbols.
+
+	* src/win/wgdiplus.cpp (drawgraph_gdiplus):  The GDI+ backend uses
+	the same technique, but was missing a case when to invalidate the
+	cached bitmap.
+
+	* src/win/wgnuplib.h src/win/wgdiplus.cpp src/win/wgraph.c:  Using
+	MinGW 4.8.1, FontFamily::GenericSansSerif() results in unresolved
+	externals during linking. This is a bug in MinGW's runtime.
+
+	* src/win/winmain.c:  Current version of MinGW does not offer working
+	version of __argc/__argv, but _argv/_argv. A web search shows that
+	MinGW-w64 is different. This is a bug in MinGW's runtime.
+
+	* win/gnuplot.iss (MinVersion):  Minimum required version of the
+	installer is XP.
+
+2014-01-10  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c:  Fix iteration over parametric function plots.
+	Bug #1314
+
+	* src/datafile.c (df_generate_pseudodata):  Allow use of '++' pseudofile
+	to sample the parametric variables U and V in 3D parametric mode.
+
+2014-01-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c src/datafile.h src/plot2d.c:  Only include support for
+	"thru" if configured with --enable-backwards-compatibility
+
+	* src/datafile.c src/gp_types.h src/graph3d.c src/plot2d.c src/plot3d.c
+	src/tables.c src/tabulate.c:
+
+	New keyword pair "with table" that bypasses all style-specific input
+	processing, column restrictions, smoothing, etc.  For example:
+	    set table "table.dat"
+	    plot FOO using 1:2:3:4:5:($6+$7):8:9:10 with table
+
+2014-01-08  Thomas Bleher <tbleher@gmx.de>
+
+	* config/msvc/Makefile:  Add configuration option for compiling the qt
+	terminal on Windows/MSVC.  Note that the terminal itself does not work
+	yet on Windows, but this patch makes it easier to work on fixing that.
+
+2014-01-04  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wcommon.h src/win/wgdiplus.cpp|h src/win/wgnuplib.h
+	src/win/wgraph.c src/win/resourc.h term/win.trm:  New (optional)
+	variant of the windows terminal backend which draws using the GDI+ API
+	whenever possible. This is much faster in some cases than the old
+	backend which switches between GDI and GDI+ to support antialiasing
+	and RGBA colors. Images are drawn using GDI since GDI+ always uses some
+	sort of interpolation when scaling images. Enhanced text is currently
+	still drawn using GDI. Adjacent polygons of the same color are merged
+	in order to avoid "seams" between them caused by antialiasing. See also
+	Bug #1096.
+
+	* src/term_api.h src/graphics (plot_image_or_update_axes):  Wrap
+	the fallback image output with term->layer() commands using
+	TERM_LAYER_BEGIN_IMAGE and TERM_LAYER_END_IMAGE. This can be
+	used by terminals to optimize output.
+
+	* src/win/wgraph.c (drawgraph):  Move GDI image drawing code from
+	drawgraph() to a new routine draw_image().
+
+	* src/command.c src/fit.c|h src/plot.c|h src/term.c src/win/wgraph.c 
+	src/win/winmain.c src/win/wtext.c term/win.trm:  Handle Ctrl-C
+	asynchronously on Windows (GUI and console mode). This is done by
+	setting ctrlc_flag and testing it in check_for_mouse_event(). Thus,
+	scripts etc. can now finally be interrupted by pressing Ctrl-C in
+	console mode gnuplot or Ctrl-Break in wgnuplot.
+
+	* src/win/winmain.c (ConsoleGetch):  Remap Shift-Tab key-code in
+	console mode, too.
+
+2014-01-03  Christoph Bersch <usenet@bersch.net>
+
+	* src/gadgets.c (clip_polygon):  Handle the case of a NULL clipping box,
+	possible for terminal types that do external clipping (e.g. epslatex).
+	Bug #1316
+
+	* src/boundary.c (do_key_sample):  Apply requested border around filled
+	circle or ellipse used as a key sample.
+	Bug #1315
+
+2014-01-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_generate_pseudodata):  Allow use of '+' pseudofile
+	to sample the parametric variable T in 2D parametric mode.
+
+2014-01-02  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotWidget.* src/qtterminal/QtGnuplotWindow.cpp:
+	The Qt guidelines state that the "parent" variable should be the last
+	argument of the contructor of a class derived from QWidget. Revert the
+	QtGnuplotWidget constructor declaration to respect this rule. Add a second
+	contructor with a single argument to enable loading from a ui file.
+
+2014-01-01  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/readline.c (readline, ansi_getc) src/win/wtext.c (WndTextProc):
+	Builtin-readline: Shift-Tab cycles through the list of completions
+	in reverse direction.
+
+	* src/graphics.c (get_arrow, do_ellipse) src/graph3d.c (get_arrow3d)
+	src/term.c (do_arc):  The aspect ratio of the internal coordinates
+	of the windows terminal is always one. 
+	Bug #1253
+
+	* src/win/wtext.c (WndTextProc) src/fit.c (regress):  The ctrlc_flag
+	got clobbered due to a missing break statement.
+
+2013-12-29  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgraph.c (drawgraph) term/win.trm (WIN_filled_polygon):
+	Rectangular filled polygons are drawn using boxfill. This routine
+	contained a bug in the allocation of an internal bitmap which prevented
+	those polygons from being drawn under certain circumstances. The 
+	routine was also sensitive to the order of the corner points.
+	Bug #1279
+
+	* unset.c (reset_command):  Reinitialize axis labels after copying the
+	default axis structure. Fixes default text orientation of y- and color-
+	axes.
+
+2013-12-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in:  Restore the --enable-backwards-compatibility 
+	configuration option and apply it to syntax that has been deprecated but
+	can still be supported for running old scripts (i.e. scripts that do not
+	also use recent syntax that would conflict with the deprecated commands).
+
+	* src/datafile.c:  backwards compatibility support for "thru"
+
+	* src/set.c src/gadgets.c src/gadgets.h src/save.c src/unset.c:
+	backwards compatibility support for "set style increment user"
+
+	* src/misc.c src/scanner.c src/command.h:  New mechanism for call
+	arguments (ARG0 ... ARGN) replaces old mechanism ($0 $1 ... $N).
+	The old method is still available via --enable-backwards-compatibility
+
+	* demo/callargs.dem demo/all.dem docs/gnuplot.doc: docs and demo for
+	new call argument method
+
+2013-12-28  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/stdfn.c config/mingw/Makefile:  Some versions of MinGW are missing
+	a cexp() implementation. Supply our own.
+
+	* config/mingw/Makefile:  Create timestamp.h for non-release builds.
+	
+2013-12-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/internal.c (f_call):  Repair odd side effect of recent "notitle"
+	patch.  "plot FOO notitle lw (1/2)"  contains what looks like an
+	undefined string function lw().  Explicitly ignore this just as we 
+	would an undefined string variable.
+
+2013-12-27  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/gnuplot-ja.doc term-ja.diff:  Sync translation to version 1.840
+
+2013-12-27  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wcommon.h src/win/wgraph.c src/win/winmain.c src/win/wmenu.c
+	src/win/wprinter.c src/win/wtext.c:  No need to have separate code
+	for win32 and win64 since minimal supported platform is XP.  System 
+	headers deal with that already. Also include Allin Cottrell's patch to
+	the dialog callbacks. The correct return type is indeed INT_PTR.
+
+	* src/win/wgnuplib.h src/win/wgraph.c term/win.trm:  Implement
+	modify_plots() terminal interface.
+
+	* term/win.trm (WIN_layer):  Ignore TERM_LAYER_RESET in multiplot
+	mode.
+
+2013-12-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c src/axis.h src/gadgets.c src/gadgets.h src/gp_types.h
+	src/graph3d.c src/graphics.c src/graphics.h src/mouse.c src/parse.c
+	src/plot2d.c src/save.c src/save.h src/set.c src/show.c src/tables.c
+	src/tables.h src/unset.c:
+
+	New plot style "with parallelaxes".
+
+	* configure.in demo/parallel.dem docs/gnuplot.doc docs/plotstyles.gnu:
+
+	Documentation and demo for parallel axis plots. Default configuration
+	is to support up to 7 parallel axes.  This can be increased by editing
+	MAX_PARALLEL_AXES, but MAX_PARALLEL_AXES must be <= MAX_NUM_VAR.
+
+2013-12-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gp_types.h src/plot2d.c src/tables.c src/interpol.c:
+
+	New smoothing option "mcsplines" - piecewise monotonic cubic splines
+	calculated using the algorithm of FN Fritsch & RE Carlson (1980),
+	SIAM Journal on Numerical Analysis 17: 238-246.
+
+2013-12-23  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c src/plot3d.c:  Make "title foo ..." and "notitle foo ..."
+	truly identical in terms of what options they accept.
+	Bug #1313
+
+	* configure.in src/axis.h src/command.c src/command.h src/gadgets.c
+	src/gadgets.h src/mouse.c src/plot2d.c src/plot3d.c src/tables.c:
+	Remove conditional compilation test from the volatile data code.
+
+2013-12-22  Erik Olofsen  <olofsen@users.sf.net>
+
+	* configure.vms src/command.c src/hidden3d.c src/stdfn.c src/stdfn.h
+	src/syscfg.h src/term.c src/term.h term/tek.trm:
+
+	Update VMS build support. Tested using HP C V7.1-015 OpenVMS Alpha V8.3
+	on an AlphaServer DS10.
+
+2013-12-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/Makefile.am: automake 1.14 wants an option subdir-objects
+	* src/set.c (set_zeroaxis): memory leak
+	* src/unset.c (unset_histogram): memory leak
+	* src/parse.c (next_iteration): survive clobbered iteration variable
+	  Bug #1312
+
+2013-12-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.h src/axis.c src/graph3d.c src/show.c src/set.c src/unset.c
+	src/save.c:  Reduce size of the AXIS structure.
+
+2013-12-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c src/gp_hist.h src/history.c src/plot.c src/set.c
+	src/show.c src/tables.c src/tables.h src/unset.c docs/gnuplot.doc:
+
+	New command `set history` to control history output
+	Syntax:
+	    set history {size <N>} {quiet|numbers} {full|trim} {default}
+
+	set history size N	replaces "set historysize N"
+	set history size -1	replaces "unset historysize"
+	set history quiet	subsequent `history` commands will not show numbers
+	set history numbers	subsequent `history` commands will show numbers
+	set history trim	[old default] remove duplicate history entries
+	set history full	do not alter list by removing old duplicate entries
+	set history default	equivalent to "set history size 500, numbers, trim"
+
+2013-12-15  Jyrki Yli-Nokari  <jyrkiylinokari@gmail.com>
+
+	* src/bitmap.c configure.in:
+	Jyrki Yli-Nokari, the original author of the code in bitmap.c,
+	has agreed to relicense it as dual license (gnuplot + BSD).
+	This removes a restriction to non-commercial use imposed by the
+	license terms that appeared in earlier versions of file bitmap.c.
+
+2013-12-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c src/history.c src/gp_hist.h docs/gnuplot.doc:
+	New: "history !N" reexecutes the command at history entry numbered N.
+	The current entry ("history !...") in the history list is replaced
+	with the command found by searching.
+
+2013-12-12  Erik Olofsen  <olofsen@users.sf.net>
+
+	* term/tek.trm:  New terminal driver "sixel" for old DEC terminals
+	and printers, emulated by some versions of xterm.
+
+2013-12-12  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in:  Simplify tests for libgd support libraries.
+
+	* src/wxterminal/gp_cairo.c src/wxterminal/wxt_gui.*:
+	Modify vertical centering of enhanced text to match default case.
+	Bug #1309
+
+	* term/emf.trm:  Invalidate font name at start of each plot.
+	Bug #1306
+
+2013-12-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c (key_text):  Apply key title font to key entries.
+	Bug #1309
+
+	* src/qtterminal/qt_term.cpp (qt_options):  qt structure has not yet
+	been initialized at the time qt_options is first called.
+
+2013-12-11  Thomas Bleher <tbleher@gmx.de>
+
+	* src/qtterminal/QtGnuplotScene.cpp src/qtterminal/QtGnuplotWidget.*
+ 	src/qtterminal/QtGnuplotWindow.*:
+
+	QtGnuplotWidget can be used to embed gnuplot into an existing Qt
+	application. This patch makes integration easier.
+	- QtGnuplotWidget gets the parent QWidget pointer as its first parameter
+	  so that QtGnuplotWidget can be loaded from ui files.
+	- The export functions in QtGnuplotWidget get the target filename from a
+	  parameter, enabling the embedding application to query for the
+	  filename in some other way.
+	- loadSettings and saveSettings can use a configurable path for their
+	  settings, so different plot windows can have different settings.
+
+2013-12-11  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* term/emf.trm: Support true pattern-fill. Apply global linewidth.
+
+	* src/util.c (gprintf):  C compiler in SJIS locale does not like
+	in-line UTF-8 string constants.
+
+2013-11-22  Christoph Bersch <usenet@bersch.net>
+
+	* src/axis.h (ALL_AXES = -1) src/unset.c (unset_tics):
+	unset_tics() requires a defined ENUM parameter.
+	Bug #1305
+
+2013-11-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/embed_example.h:
+	Support for building qt terminal with either Qt4 or Qt5
+
+	* src/plot2d.c src/plot3d.c:
+	Allowed enhanced/noenhanced key word after individual plot titles.
+
+	* src/eval.c src/parse.c docs/gnuplot.doc:
+	Restore backwards-compatibility by continuing to accept deprecated
+	function defined(FOO).  Remove help entry so that the deprecation
+	is taken more seriously.
+
+2013-11-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/qt_term.cpp (qt_set_color) term/gd.trm (PNG_set_color):
+	Do not change line type just because a color request specifies a
+	linetype color.
+	Bugfix.
+
+	* src/qtterminal/QtGnuplotScene.cpp (mouseReleaseEvent):
+	Revert mouse click timing change of 27-Oct-2013 but add a check for
+	valid timer status.  This greatly reduces the number of spurious events
+	that are passed through to the main program.
+	Bug #1300
+
+2013-11-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c src/axis.h src/eval.c src/save.c src/set.c src/show.c:
+	Replace axis_defaults[index].name with axis_name(index) everywhere.
+	Currently this is a macro that expands to the same thing, but now
+	it is ready to be replaced by something more complicated.
+
+	* src/unset.c (unset_tics): Change the flag for unset all to -1.
+
+	* src/set.c (set_range):  We already accept "set xrange [*:*] noextend"
+	as a more intuitive alternative to "set auto xfix".  Now we also accept
+	"set xrange [*:*] extend" to go back to the default behavior.
+
+	* src/save.c (save_range): Due to a typo, the fix/nofix extend/noextend
+	axis property was not written by the "save" command.
+
+2013-10-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot3d.c (get_3ddata): Pass through Inf and NaN to image code when
+	the pixel value is presented in column 4. The column 3 (z) case was
+	already handled.
+
+2013-10-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c(lp_parse): Fix bug involving color assignment to contours.
+	Unfortunately this negates a previous fix that allowed explicit surface
+	colors in a hidden3d plot to implicitly do "set hidden3d offset 0".
+
+	* src/qtterminal/QtGnuplotScene.cpp: gnuplot_qt can handle hotkey 'i'
+	in persist mode.  Revise the timing code for responding to mouse button
+	press/release (needed for Qt5).
+
+2013-10-26  Thomas Bleher <tbleher@gmx.de>
+
+	* src/qtterminal/qt_term.cpp:  Change the Qt terminal to only create its
+	data when initialized (to avoid the Static Initialization Order Fiasco)
+	and to destroy its data in a gnuplot atexit handler.
+
+2013-10-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_readascii df_readmatrix):  If the first field of a
+	tab-separated csv file was empty, it would be incorrectly ignored when
+	processing that input line.
+	Bugfix. 
+
+	* src/wxterminal/wxt_gui.cpp:  Extend toggling active region in key box
+	to include enhanced text as well as non-enhanced text.
+	Bugfix. 
+
+2013-10-25  Thomas Bleher <tbleher@gmx.de>
+
+	* src/stdfn.c(gp_atexit gp_exit) src/stdfn.h src/command.c(exit_command)
+	src/plot.c(main) src/qtterminal/qt_term.cpp src/win/winmain.c
+	src/wxterminal/gp_cairo.c src/wxterminal/gp_cairo_helpers.c
+	src/wxterminal/wxt_gui.cpp term/be.trm term/x11.trm:
+
+	Create gnuplot atexit handlers that are called before exit(3)
+	
+	Normal atexit-handlers are called in the reverse order of registration.
+	This causes problems when a library has its own global destructors which
+	do not handle the case that objects of the library may still be active
+	and destroyed in the atexit handler. This has been observed with Qt.
+	
+	Introduce a new function gp_exit() which calls the gnuplot atexit handlers
+	and then calls exit(3). Also create gp_atexit() to register gnuplot exit
+	handlers.
+
+	* src/getcolor.c (quantize_gray):  Windows compile error ("small" is not
+	accepted as a variable name).
+
+	* config/msvc/Makefile:  DEBUG option when compiling with MSVC
+
+2013-10-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/corgraph.asm  src/hrcgraph.asm  src/pcgraph.asm src/corplot.c:
+	Remove vestigial files from the era of 16-bit DOS.	
+
+	* configure.in term/unixpc.trm src/term.c src/term.h src/syscfg.h
+	src/makefile.all src/makefile.awc config/makefile.* docs/doc2texi.el:
+	Remove vestigial driver and makefile entries for the AT&T 3b1 "unix pc".
+	Early M6800-based tiny (256Kb) machine.
+
+2013-10-23  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot.c (main):  If commands are being executed interactively
+	because the user said something like "gnuplot -", then execution should
+	continue after an error message just as in a normal interactive session.
+	Bug #1295
+
+	* src/mouse.c (event_reset) src/term.c (check_for_mouse_events):  
+	Must not send commands to the terminal if it has not yet been
+	initialized.
+
+	* term/gd.trm src/wxterminal/gp_cairo.c:
+	Inboard terminal drivers should not write errors to stdout and normally
+	should not call exit() themselves.
+
+2013-10-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/color.h src/set.c src/getcolor.c (quantize_gray):
+	Change the algorithm used to assign palette colors in the case
+	   set palette defined (...) maxcolors N
+	where the gradient boundaries are unevenly spaced. Previous versions
+	of quantize_gray() have shown a variety of bad outcomes.  This version
+	has fewer, less ugly, bad outcomes but it is still sensitive to the
+	choice of maxcolors.  Try changing maxcolors by +/- one if the generated
+	palette is bad.
+	Bug #1140 and others
+
+	* src/command.c (test_palette_subcommand):  The "test palette" command
+	does not need to zero the current input line, and hasn't needed to since
+	lf_push/lf_pop were introduced 5 years ago.
+
+2013-10-18  Christoph Bersch <usenet@bersch.net>
+
+	* src/gadgets.h  src/graphics.c  src/graphics.h src/save.c src/set.c 
+	demo/all.dem demo/clipobject.dem docs/gnuplot.doc:
+	New object attribute clip/noclip.  "clip" retains the current default,
+	clip to plot boundary unless one or more vertices are given in screen
+	coordinates.  "noclip" clips to the canvas.
+
+2013-10-18  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/gnuplot-ja.doc term-ja.diff:  Sync translation to version 1.830
+
+2013-10-17  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (place_objects):  Make clipping of various objects
+	more consistent.  Clip to graph unless the center or some vertex is
+	specified in screen coordinates.
+
+	* src/save.c (save_object):  "show object N" was incorrectly printing
+	lines for other objects as well.
+
+2013-10-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c: DEFAULT_GRID_LP
+
+	* src/plot2d.c: Issue warning if "smooth" option causes columns in the
+	using spec to be ignored.
+
+	* src/axis.c (gen_tics): Suppress log-scaled mtics and minor grid lines 
+	that would lie on top of the major tic/grid.
+	Bug #1292
+
+	* src/pm3d.c: Allow "set pm3d top/bottom" and "set pm3d interpolate N,M"
+	to be active at the same time.
+
+	* src/unset.c (reset_key): Don't leak memory when resetting key title.
+
+2013-10-11  Craig DeForest  <deforest@boulder.swri.edu>
+
+	* src/wxterminal/wxt_gui.cpp (wxt_waitforinput):
+	Handle TERM_ONLY_CHECK_MOUSING in the single-threaded code path.
+	Bug #1293
+
+2013-10-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/wxterminal/wxt_gui.cpp (wxt_waitforinput):  One code path followed
+	in the case of piped input to a script with mousing enabled failed to 
+	test for the new TERM_ONLY_CHECK_MOUSING flag.
+	Bug #1293
+
+2013-10-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/util.c (gprintf) axis.h: (REVERTED)
+
+2013-10-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/aquaterm.trm term/cairo.trm term/canvas.trm term/emf.trm
+	term/gd.trm term/pdf.trm term/post.trm term/svg.trm term/win.trm
+	term/wxt.trm term/x11.trm term/qt.trm src/qtterminal/qt_term.cpp:
+
+	Default to enhanced text mode in terminals that support it.
+	This mode can still be disabled by "set term FOO noenhenced" or
+	"set termoption noenhanced".
+
+2013-10-06  Craig DeForest  <deforest@boulder.swri.edu>
+
+	* src/axis.h src/util.c (gprintf) docs/gnuplot.doc:
+	New format specifier %h expands to the same as %g except that the
+	exponential term, if any, is written using enhanced text or LaTeX markup
+	to generate "x10^{foo}" rather than "E+foo". The default format for axis
+	tics is now "% h" ("$%h$" for LaTeX terminals).
+
+2013-10-02  Ethan A Merritt  <merritt@u.washington.edu>
+
+        * src/command.c (expand_1level_macros):  Never try to expand an 
+	undefined variable as a macro.
+
+2013-10-02  Ethan A Merritt  <merritt@u.washington.edu>
+
+        * src/graphics.c (plot_steps plot_fsteps plot_histeps):
+	Replace 350 lines of ad hoc clipping with calls to draw_clip_line.
+
+	* src/gadgets.c src/gadgets.h:  There are no longer any external callers
+	of clip_line(), so make it local to gadgets.
+
+2013-10-01  Christoph Bersch <usenet@bersch.net>
+
+	* src/plot2d.c (store_label):  Plots with labels should accept variable
+	color both for the label text and for the associated point symbol.
+        Bug #1281
+
+2013-09-30  Ethan A Merritt  <merritt@u.washington.edu>
+
+        * src/graphics.c (plot_bars):  Draw error bars using draw_clip_line
+	rather than performing ad hoc clipping on the spot.
+	Bug #1289
+
+2013-09-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c src/axis.h src/save.c src/set.c src/stdfn.h src/unset.c:
+	Consolidate axis range flags from two fields into a single field.
+
+	* src/axis.c src/axis.h src/boundary.c src/gadgets.c src/gadgets.h
+	src/graph3d.c src/graphics.c src/hidden3d.c src/misc.c src/plot2d.c
+	src/plot3d.c src/pm3d.c src/save.c src/set.c src/show.c src/term_api.h
+	src/term.c src/util3d.c src/color.c:
+
+	Simplify the historical redundancy of color properties stored in struct
+	lp_style_type by removing the TBOOLEAN use_palette. FALSE meant generate
+	color from l_type; TRUE meant take color from t_colorspec pm3d_color.
+	Now we always use the t_colorspec.  This means that l_type refers only
+	to the dot/dash pattern, not color, so it becomes easier to map it to a
+	user-visible property "dashtype" in the future.  It also has the side
+	effect of creating a single decision point in apply_pm3dcolor() where
+	[almost] all color commands are filtered against the current terminal 
+	setting monochrome/color.  Before this, colors could slip erroneously
+	into a "monochrome" plot.  Now we limit this to an explicit set of
+	conditions, currently plots with rgbimage, rgb variable, or certain
+	user-defined color palettes.  That 3rd category is a bit loose and may
+	need to be more carefully defined.
+
+	* src/axis.c src/axis.h src/set.c src/unset.c:
+	Dynamically allocate axis->formatstring and axis->timefmt.
+
+2013-09-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.h src/plot3d.c:  plot3d.c is the only user of NEED_PALETTE,
+	so move it there.
+
+	* src/color.c (set_rgbcolor_var set_rgbcolor_const) src/color.h
+	src/pm3d.c src/hidden3d.c src/graphics.c src/graph3d.c:
+	Provide two parallel routines for passing RGB color information to a
+	terminal. set_rgbcolor_const sets the color immediately.
+	set_rgbcolor_var flags that this came from a plot with "rgb variable"
+	and passes it to apply_pm3dcolor for possible additional filtering
+	(e.g. decide whether to pass it to a monochrome terminal or not).
+
+2013-09-23  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (null_set_color) src/term_api.h (TERM_NULL_SET_COLOR)
+	src/boundary.c src/color.c src/gadgets.c src/graph3d.c src/graphics.c:
+	Provide a null_set_color() routine to cover all terminals that do not
+	provide their own term->set_color() routine.  This removes the need to
+	check for term->set_color before trying to call it.  It also makes the
+	behavior of non-RGB terminals more consistent, although still imperfect.
+
+	* src/graph3d.c src/boundary.c:  Don't try to use opaque (background)
+	fill if the terminal does not support RGB colors.
+
+	* src/graph3d.c: Always color contour lines via set_color, even for
+	terminals that do not support RGB colors.
+	Bug #1284
+
+	* src/command.c src/graph3d.c: Set can_pm3d based on TERM_NULL_SET_COLOR
+
+2013-09-20  Per Persson  <persquare@users.sourceforge.net>
+
+	* configure.in m4/apple.m4 src/term.c src/term.h:
+	Modify configuration tests to look for aquaterm as a framework rather
+	than as a library.
+
+2013-09-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gadgets.h: Initialize histogram_opts to HT_CLUSTERED.
+	Bug #1285
+
+	* src/graphics.c (place_grid):  Must initialize tic_direction when
+	drawing r-axis tics.  Otherwise we get whatever the last set of 
+	x or y tics used, or if they have not been used then nothing at all.
+	Bug #1286
+
+	* src/boundary.c (draw_key) src/graph3d.c (do_3dplot):
+	If the terminal doesn't support term->set_color() then we can't
+	background-fill an opaque key box.
+
+2013-09-17  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/emf.trm (EMF_point): filled circles (pointtype 7) were
+	incorrectly being drawn with a black border.
+
+	* src/plot2d.c (polar_range_fiddling):  In a polar mode plot, if x, y,
+	and r are all auto-scaled then prefer a symmetric plot centered at the
+	orgin with radius rmax over an asymmetric plot produced by treating the
+	data ranges on x and y independently.
+
+	* src/util.c (equals almost_equals):  Additional sanity checking of
+	c_token on entry.
+
+2013-09-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/internal.c (f_push) src/parse.c src/parse.h src/command.c:
+	The routine try_to_get_string() was intended to safely return FALSE if
+	the current syntax cannot be evaluated as a string.  But f_push()
+	triggered a fatal error if an unrecognized token was encountered during
+	evaluation.  Now it quietly returns NaN and try_to_get_string() returns
+	FALSE.
+
+	* src/misc.c (prepare_call):  When parsing arguments to "call", treat
+	the next bit of the input line as a string if at all possible.  This
+	includes taking the contents of a string variable or evaluating the
+	result of a string expression.  Only fall back to wrapping each token
+	in quotes if this fails.  This is a CHANGE made in preparation for a
+	re-implementation of the `call` command argument passing mechanism.
+
+2013-09-12  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/eval.c (clear_udf_list) src/eval.h src/unset.c:  Provide a routine
+	that deletes all currently defined user functions. This is invoked as
+	part of "reset session".
+
+	* src/plot.c (init_constants) src/plot.h src/unset.c:  "reset session"
+	reinitializes variables NaN and pi since bad user code can clobber them.
+
+2013-09-11  Christoph Bersch <usenet@bersch.net>
+
+	* src/set.c src/unset.c: Sanity check "set style increment foo" command,
+	reset to default on "reset" command.
+	Bug #1282
+
+2013-09-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/cairo.trm (cairopng_write_cropped_image): Must free cropped image
+	and the structure that holds it, otherwise there is a memory leak.
+	Bug #1278
+
+	* axis.h (TIC_SCALE):  tics generated from data (e.g. xticlabels(COL))
+	get same size tic marks as major tics.
+	Bug #1280
+
+	* pm3d.c (set_plot_with_palette): "tc variable" was incorrectly causing
+	the color bar to be drawn by default.
+
+	* graphics.c (check_for_variable_color): "lc variable" should index the
+	line _type_ (not _style_) colors unless "set style increment user".
+	Bug #1281
+
+	* plot2d.c (store_label):  Same fix for "with labels tc variable".
+	Bug #1281
+
+2013-09-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c src/misc.c src/misc.h src/plot.c:  Clean up code,
+	remove unused variables, add comments, new parameter to load_file(),
+	all in preparation for a revision to the "call" mechanism.
+
+	* src/scanner.c (scanner):  The syntactic entity $# (number of arguments
+	in a call statment) has been mishandled as introducing a comment since
+	sometime in version 4.5.  Trap it as a special case in the scanner.
+
+	* src/misc.c src/plot.c:  New command line option 
+	"gnuplot -c scriptfile ARG1 ARG2 ... " executes scriptfile using 
+	"call" rather "load" and passes arguments ARG1 ARG2 etc.  
+	This patch leaves the old call argument convention in place
+	$0 = ARG1,  $1 = ARG2, etc, $# = number of arguments
+	but a future patch series will introduce a more C-like convention
+	for the arguments.  Modified from an original patch by Shige Takeno.
+
+2013-09-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/color.c src/color.h src/eval.c src/eval.h src/plot.c src/plot.h
+	src/set.c src/show.c src/unset.c docs/gnuplot.doc:
+
+	- Consolidate code called on program entry and during "reset".
+	- Group program-defined variables (pi, NaN, GNUTERM) at the start of the
+	  udv list and protect them from deletion.
+	- New command "reset session" does a reset followed by loading gnuplotrc
+	  and ~/.gnuplot.  It also deletes (actually undefines) all user-defined
+	  variables. This puts the program in approximately the same state as it
+	  was on first entry.
+	- Fixes memory leak; palette functions were reset without being freed.
+
+2013-09-01  Peter Juhasz  <juhaszp@users.sourceforge.net>
+
+	* src/mouse.h src/mouse.c src/unset.c (reset_command):
+	'reset' command restores default mouse settings, warns on bogus 
+	options, no longer accepts 'x' or similar axis options
+
+2013-08-28  Christoph Bersch <usenet@bersch.net>
+
+	* src/save.c (save_set_all): Emit a "unset object" command before
+	saving objects.  Bug #1251
+
+2013-08-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c src/graphics.h src/plot2d.c src/save.c src/save.h
+	src/set.c src/show.c src/unset.c docs/gnuplot.doc demo/histograms2.dem:
+	Accept an explicit title font and text color in "set style histogram"
+	and "newhistogram" commands.
+
+2013-08-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c src/term_api.h term/x11.trm
+	src/qtterminal//qt_term.cpp src/wxterminal//wxt_gui.cpp:
+	Peter Juhasz's game demos show that the 1 msec timeout in 
+	term->waitforinput(TERM_ONLY_CHECK_MOUSING) may be a mistake.
+	This patch #defines it as TERM_EVENT_POLL_TIMEOUT in term_api.h
+	and sets it to 0 by default.
+
+2013-08-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/x11.trm (x11_waitforinput) term/xlib.trm:   Handle the case of
+	input from a file, output to x11, and TERM_ONLY_CHECK_MOUSING.
+	xlib output should never expect mouse events.
+
+2013-08-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gplt_x11.c term/x11.trm:  Use more precision when writing out
+	the axis dimensions and scale at the end of a plot.  This prevents
+	rounding errors in the mouse coordinates reported in -persist mode.
+	Bug #1276
+
+2013-08-23  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c src/qtterminal/qt_term.cpp src/qtterminal/qt_term.h
+	src/readline.c src/term_api.h src/term.c src/wxterminal/wxt_gui.cpp
+	src/wxterminal/wxt_term.h term/ggi.trm term/win.trm term/x11.trm
+	term/README:
+
+	Gnuplot handles mouse events and hotkeys by multiplexing them with
+	terminal input via the interface term->waitforinput(). That means no
+	events are handled if the program is not waiting for terminal input,
+	as in "load", "pause <time>", "eval" or other such commands.
+	Now we add an option term->waitforinput(TERM_ONLY_CHECK_MOUSING)
+	that handles mouse events but does not block waiting for terminal
+	input, and a wrapper routine check_for_mouse_events() that can be
+	called during "load", "pause", etc. However this patch does not yet
+	add such calls, so there should not yet be any change in behavior.
+
+	* src/command.c (do_line timed_pause):
+	This patch adds a call to check_for_mouse_events() in two places.
+	The call in do_line() is invoked once for each line processed by
+	load/eval/while and other commands.  The timed_pause() routine polls
+	for events 20 times per second while counting down the time given in a
+	"pause <time>" command.
+
+	* term/vgagl.trm term/ggi.trm 
+	src/mouse.c (UpdateStatuslineWithMouseSetting):
+	The ^C interrupt handling code sets term_initialised to FALSE.
+	The mousing update code was interpreting this as meaning that no mouse
+	updates were possible.  This patch adds internal checks to the only two
+	drivers that might have a problem and removes the global suppression of
+	mouse coordinate updates after an interrupt.
+
+2013-08-23  Petr Mikulik  <mikulik@physics.muni.cz>
+
+	* src/term.c (test_term): "test" was not respecting "set origin".
+
+2013-08-20  Kyle <elconquistador@users.sourceforge.net>
+
+	* src/fit.c (regress): The value of chisq was corrupted in the process
+	of scaling the parameter errors.  This isn't a problem by itself, but a
+	patch applied in April 2013 introduced a call to show_results() that
+	passed in the corrupted value.
+	Bug #1275
+
+2013-08-20  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c src/tables.c src/tables.h src/unset.c src/axis.c src/show.c
+	src/save.c docs/gnuplot.doc:  Support minor tics on polar axis.
+
+2013-08-20  Jon Gjengset <jon@thesquareplanet.com>
+
+	* src/term_api.h src/gplt_x11.c src/mouse.c term/x11.trm term/qt.trm
+	term/wxt.trm term/README src/wxterminal/wxt_gui.cpp
+	src/wxterminal/wxt_term.h src/qtterminal/QtGnuplotEvent.h
+	src/qtterminal/QtGnuplotScene.cpp src/qtterminal/qt_term.cpp
+	src/qtterminal/qt_term.h:
+	Add term->modify_plots() interface (and implementations for wxt, qt and
+	x11) for applying operations to every plot in a graph. Current use cases
+	include hiding and showing all plots and inverting plot visibility.
+	Useful in situations where many sets of data are plotted initially, but
+	the user only wishes to focus on a few.
+
+2013-08-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/win/wgraph.c:  Must honor TERM_LAYER_RESET.
+
+	* term/x11.trm (X11_layer):  ignore TERM_LAYER_RESET in multiplot.
+
+	* src/term.c (term_start_multiplot):  Several terminals (qt, wxt, x11)
+	ignore TERM_LAYER_RESET during multiplot.  Thus in order to correctly 
+	initialize the plot structures, the reset must happen before the
+	multiplot flag is set.  Without this change, mouse toggle of 
+	multiplots can trigger an access violation.  Bug fix.
+
+2013-08-16  Allin Cottrell  <cottrell@wfu.edu>
+
+	* src/internal.c (GP_MATHERR): 1st part of win64 compatibility patch.
+	The matherr() mechanism is not used by win64. It's also not used by
+	current linux but it doesn't hurt to leave it in place for now.
+
+	* src/win/wprinter.c src/win/winmain.c src/win/wtext.c src/win/wmenu.c
+	src/win/wpause.c src/win/wgraph.c:
+	2nd part of win64 compatability patch.  All changes are #ifdef _WIN64.
+
+	src/win/wgnuplot.rc src/win/wgnuplot.exe.manifest64:
+	The file win/wgnuplot.exe.manifest specifies the processorArchitecture
+	as "X86". For an x86_64 build this must be changed to "amd64"
+	(or wgnuplot.exe won't start). The manifest file is included by
+	win/wgnuplot.rc. The modified wgnuplot.rc includes an alternative file
+	wgnuplot.exe.manifest64 if the symbol _WIN64 is defined. This file 
+	simply substitutes "amd64" for "X86" in two places.
+
+2013-08-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/eval.c (update_gpval_variables):  Missing GPVAL_* entry
+	for R_AXIS.max.
+
+2013-08-12  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* src/Makefile.maint (version, patchlevel, last_change)
+	(makefile.all, version.c): Prepare for possible use out-of-tree.
+
+	* src/Makefile.am (timestamp.h): New rule for timestamp.h that
+	cooperates with automake that should work for non-GNU make and
+	out-of-tree builds.
+	(BUILT_SOURCES): Add timestamp.h to be built before anything else.
+
+	* src/Makefile.maint: timestamp.h rule removed again.
+
+	* src/.cvsignore: Ignore timestamp.h and *.o files.
+
+	* src/version.c [DEVELOPMENT_VERSION]: Include new timestamp.h
+	instead of using fixed time stamp.
+
+	* src/Makefile.maint (version.c): Remove timestamp update
+	mechanism.
+	(timestamp.h): Create new, separate header file that only holds
+	the current timestamp.
+
+2013-08-09  Mojca Miklavec  <mojca.miklavec.lists@gmail.com>
+
+	* configure.in:  Change configuration option from --with-wx-config=PATH
+	to --with-wx=DIR.  The is more consistent both with other gnuplot
+	configuration options and with the upstream documentation for wx.
+
+2013-08-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in src/command.c src/command.h src/save.c src/set.c
+	src/show.c src/tables.c src/unset.c demo/macros.dem:
+	Remove configuration option for command line macros.
+	It's cheap. People use it. It doesn't conflict with anything else.
+	There seems little reason to carry along extra code to disable it.
+
+2013-08-09  Christoph Bersch <usenet@bersch.net>
+
+	* src/gadgets.c src/misc.c src/save.c src/term_api.h src/term.c:
+	New arrow style option "fixed" disables the re-sizing of arrow heads
+	for short arrows.
+
+2013-08-08  Christoph Bersch <usenet@bersch.net>
+
+	* src/gadgets.c (draw_clip_polygon):  Sometimes the clipping status of
+	the current point and the line segment it is supposedly the end of do
+	not match.  This probably indicates a bug somewhere else, but in any
+	case we need to adjust the clipping to match the line segment.
+	Bug #1268
+
+ 	* src/gadgets.c src/misc.c src/save.c src/set.c src/show.c src/term.c
+	src/term_api.h:  New arrow style option "noborder" requests a filled 
+	arrowhead with no line drawn around the outside.  This has the effect
+	of guaranteeing that the tip of the arrow head is exactly on the
+	coordinate of the end of the vector;  otherwise the linewidth of the
+	border causes the tip to extend beyond this coordinate.
+	Bug #1109
+
+ 	* demo/arrowstyle.dem docs/gnuplot.doc:  Document and illustrate.
+
+2013-08-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c:  Add comment noting that axis_position_zeroaxis() must
+	be called for each axis before plotting in order to set axis->term_zero.
+
+	* src/graphics.c:  It is incorrect to skip the initial calls to
+	axis_draw_2d_zeroaxis even if we know the zero axes will be drawn
+	again later (e.g. grid is off or front).
+	Bug #1267
+
+	* src/datafile.c:  Fix segfault if we try to store strlen of a NULL
+	column header string.
+
+2013-08-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/eval.c (pop_or_convert_from_string):  Context-dependent 
+	conversion of a string containing a number to an actual number is
+	documented as evaluating to either an integer or a complex variable as
+	appropriate.  However up to now it has always produced a complex in
+	practice.  Now we really do evaluate to an integer if the string
+	contains only digits and whitespace.
+	Bug #1269
+
+	* src/datafile.c:  Generalize the substitution of columnheaders into
+	a string during evaluation of 'using' or 'title' in a plot command.
+	This allows inclusion of more than one columnheader into a single
+	resulting string.
+	Bug #1271
+
+	* src/gadgets.c:  The annoying crypto-definition of RCSid() at the
+	top of the file has been wrong since 2000!?
+
+2013-07-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/pslatex.trm:  Make the definition of \gptboxtext and friends 
+	conditional on their not being defined already.  This prevents latex
+	from complaining if multiple gnuplot graphs are included in the same
+	*.tex document.  Another possibility would be to move the definition
+	into gnuplot.cfg.
+	Bug #1266
+
+2013-07-22  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.h src/command.c (string_expand_macros do_line)
+	src/misc.c (load_file):  Under some conditions, e.g. inside a multi-line
+	clause in curly brackets, the input command line can be extended after
+	it has already been checked for the presence of macros.  This caused any
+	macros in the new part of the input line to be unrecognized.
+	Now we recheck for macros whenever the input line is extended.
+	Bug #1264
+
+2013-07-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in:  Allow for the case that pkg-config is needed in order
+	to find libcerf (which Mojca Miklavec reports is the case on OSX).
+
+	* term/svg.trm:  The svg terminal should not rely on 'set fontpath',
+	which was written and documented to apply only to the postscript
+	terminal.
+
+2013-07-15  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/makefile.all src/makefile.awc:  Recreate to include libcerf.
+
+	* demo/cerf.dem:  UTF8 encoding
+
+	* docs/gnuplot.doc:  HTML table for libcerf functions.
+
+	* config/mingw/Makefile:  Build option to use libcerf.
+
+2013-07-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/show.c (show_version):  Report +LIBCERF in 'show version long'.
+
+	* demo/cerf.dem:  Exercise functions imported from libcerf, if present.
+
+2013-07-12  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/specfun.c (f_airy):  The implementation of the Airy function 
+	used in 4.6 has poor precision (up to 2% relative error).  Replace it
+	with code from the Cephes library, the source of other routines
+	already in specfun.c.
+
+	*  configure.in docs/gnuplot.doc src/Makefile.am src/eval.c
+	src/libcerf.c src/libcerf.h src/specfun.c src/specfun.h:
+
+	The MIT-licensed libcerf library provides a set of special functions
+	related to the complex error function cerf(z).  If it is found during
+	./configure, we compile user-callable wrappers for the routines
+	Complex error function
+		   cerf(z) = 2/sqrt(pi) * int[0,z] exp(-t^2) dt
+	Complex Dawson's Integral
+		   cdawson(z) = exp(-z^2) int[0,z] exp(t^2) dt
+		              = sqrt(pi)/2 * exp(-z^2) * erfi(z)
+	Imaginary error function (real valued)
+		   erfi(x) = -i * erf(i * x)
+	Faddeeva rescaled complex error function (Abramowitz & Stegun 7.1.3)
+		   faddeeva(z) = w(z) = exp(-z^2) * erfc(-i*z)
+	Voigt Profile 
+		   VP(x, sigma, gamma) = integral G(t;sigma) L(x-t;gamma) dt
+		corresponding to convolution of
+		Gaussian 
+		   G(x;sigma) = 1/sqrt(2*pi)/|sigma| * exp(-x^2/2/sigma^2)
+		with Lorentzian
+		   L(x;gamma) = |gamma| / pi / ( x^2 + gamma^2 )
+	The libcerf routine re_w_of_z(x,y) is used to provide a higher accuracy
+	version of voigt(x,y).
+
+2013-07-06  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgraph.c (luma_from_color):  New function.
+
+	* src/win/wgraph.c:  Avoid unnecessary tracking of text size for
+	non-boxed text.
+
+	* src/win/wtext.c:  Accept Ctrl-C to copy to clipboard.  Fix index out
+	of range error if text selection extends beyond the end of line.
+
+	* config/cygwin/Makefile config/msvc/Makefile config/mingw/Makefile
+	config/watcom/Makefile win/gnuplot.iss:  All Windows binaries now 
+	support some sort of pipes.  Consequently remove pgnuplot from 
+	default build and installation.
+
+2013-07-05  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* term/tgif.trm:  Reduce the point size by 50% to match other terminals.
+	Use the generic do_arrow() routine.
+
+2013-07-05  Dima Kogan  <dima@secretsauce.net>
+
+	* configure.in:  Test for incomplete installation of wxWidgets
+	development environment.
+
+2013-07-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gadgets.c src/term_api.h term/cairo.trm term/pslatex.trm:
+	Boxed text support for epslatex and cairolatex terminals.
+
+	* docs/Makefile.am:  --without-lisp-files should also control whether
+	or not gnuplot-eldoc.el and gnuplot-eldoc.elc are installed.
+
+2013-07-04  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/README.ja docs/term-ja.diff:  Update Japanese help texts.
+
+2013-07-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/time.c (gstrptime): Beware of time in seconds specified as an
+	exponential; e.g. 123.456e7 seconds does not end in 456 usec.
+
+	* src/graph3d.c: Better fix for	Bug #1252, inverted parallel axis labels
+
+2013-07-02  Mojca Miklavec  <mojca.miklavec.lists@gmail.com>
+
+	* src/command.c src/plot.c src/plot.h src/variable.c:
+	Remove obsolete instances of #ifdef (_Macintosh)
+
+2013-07-02  Ulrich Müller  <ulimueller@users.sf.net>
+
+	* docs/doc2texi.el:  Provide a substitute for the lisp routine
+	replace-regexp-in-string, which is missing in xemacs prior to version
+	25.1.something.
+
+	* docs/Makefile.am:  Modify build commands for gnuplot.texi so that
+	xemacs and newer emacs (25.1) are happy.
+
+	* docs/doc2texi.el:  Map terminal HELP sections to level 3 (subsection)
+	and level 4 (subsubsection) rather than levels 4 and 5.
+	Bug #1226
+
+2013-07-02  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/gnuplot-ja.doc:  Sync translation to version 1.810
+	* docs/gnuplot.doc:  Fix typos.
+	Correct the documentation for the order of elements in a binary matrix
+	or ascii nonuniform matrix.
+	Bug #1248
+
+2013-07-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/Makefile.am:  Drop original PC assembly files from the source
+	tarball (corgraph.asm header.mac hrcgraph.asm pcgraph.asm lineproc.mac)
+
+	* src/hidden3d.c src/contour.c src/gplt_x11.c src/qtterminal/qt_term.cpp
+	term/cairo.trm:  Reduce the number of annoying compiler warnings.
+
+	* src/datafile.c (plot_ticlabel_using):  Explicit error message if
+	required parentheses are missing from using spec.
+	Bug #1256
+
+	* src/command.c (print_command): Print \n after each line of a datablock
+
+	* src/time.c (gstrptime): Pass through fractional seconds read with
+	time format "%s".
+
+2013-06-30  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/axis.c src/axis.h src/set.c src/unset.c src/show.c src/save.c
+	docs/gnuplot.doc:  Extend "set tics scale" to control the size of tics
+	at levels 2 and above.
+
+2013-06-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c (draw3d_graphbox):  "set [xy]label rotate parallel"
+	is affected by the direction of the complementary axis.
+	Bug #1252
+
+2013-06-29  Peter Juhasz  <juhaszp@users.sourceforge.net>
+
+	* src/axis.h src/axis.c src/graphics.c src/graph3d.c src/color.c 
+	doc/gnuplot.doc:
+	Allow minor tic levels 2 or higher to have labels. 
+
+2013-06-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (load_file): Expand macros up to 3 levels deep when 
+	stepping through a "load" operation.  This matches the depth allowed
+	for use at the top level command line.
+	Bug #1246
+
+2013-06-28  Christoph Bersch <usenet@bersch.net>
+
+	* src/gadgets.c(clip_polygon): Use a temporary copy of the input 
+	vertices rather than overwriting them during clipping.
+	Bug #1255
+
+2013-06-28  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/QtGnuplotScene.cpp:  Fixed the text transformation
+	origin.
+
+2013-06-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c src/hidden3d.c src/hidden3d.h demo/contours.dem:
+	Apply hidden3d processing to contour labels.
+
+	* src/datafile.h src/fit.c src/show.c demo/fitmulti.dem
+	docs/gnuplot.doc:  Increase the number of independent parameters
+	(dimensions) handled by "fit" from 5 to MAX_NUM_VAR, which is currently
+	12.  MAXDATACOLS is correspondingly increased to MAX_NUM_VAR+2 = 14.
+	NB: Only the first 2 dimensions, "x" and "y" by default, use the axis
+	structures.  So calling 'set xrange' or 'set yrange' can affect the
+	fit by limiting the range of coordinates that are accepted, just as
+	with previous versions.  However, there is no connection between
+	independent parameters 3, 4, ... and any axis ranges or structures.
+	Therefore time data can be given for the first and second dimensions
+	but not for any additional dimensions.
+
+2013-06-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c: Bug fix for contour line colors. If the base linetypes
+	have no color assigned (i.e. "set linetype" has never been done), then
+	we must explicitly set use_palette in order to generate color from the
+	line type.  Since the hidden3d code currently uses the linetype itself
+	rather than the value in TC_LT, we set a new linetype also
+	(bug fix from Don Tabor).
+
+2013-06-24  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* config/makefile.cyg config/cygwin/Makefile config/mingw/Makefile
+	config/msvc/Makefile config/watcom/Makefile:  Define WINDOWS_NO_GUI
+	when building text mode tools instead of undefining _Windows.
+
+2013-06-23  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/syscfg.h src/win/wgraph.c src/win/winmain.c src/win/wmenu.c
+	src/win/wtext.c:  Move definition of flags for windows.h.  Minimal
+	required platform is still Windows XP.
+
+	* src/fit.c (is_empty, get_next_word):  Accept '\r' as end-of-line
+	character of parameter files.  Necessary since files are now always
+	opened in binary mode on Windows, see change on 2013-06-02.
+
+2013-06-22  Mojca Miklavec  <mojca.miklavec.lists@gmail.com>
+
+	* term/context.trm: Explicitly disable color in standalone ConTeXt
+	documents when monochrome option is chosen.
+
+2013-06-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/boundary.c src/gadgets.h src/graph3d.c src/set.c src/show.c
+	src/unset.c src/tables.c src/tables.h:  Dynamic allocation of key title.
+	Deprecate undocumented commands "set|show|unset keytitle".
+	Redirect "set keytitle foo" to "set key title foo".
+
+2013-06-18  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* src/datafile.c (plot_option_every):  Treat negative numbers as
+	indicating "default value".
+
+2013-06-16  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gplt_x11.c:  Replace call to deprecated XKeycodeToKeysym with a
+	call to XkbKeycodeToKeysym.  This introduces a dependence on the XKB
+	extension but it's not clear there is any alternative.
+
+2013-06-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/fit.c:  Use dummy variable names from `set dummy` in preference
+	to the default sequence x y t u v z.
+	Do not ask df_readline() to process more columns than necessary.
+
+	* src/datafile.c:  Replace an assertion (MAXDATACOLS == 7) with the
+	specifically relevant test (<number of requested format terms> <= 7).
+	I.e. the limit is due to applying a fixed format statement to the 
+	current request for data, not from a cap on the number of columns
+	that might hypothetically be requested.  Similarly replace assertion
+	(max_using <= MAXDATACOLS) with a check for whether the limit is
+	actually exceeded by the current using spec.
+
+	* demo/fitmulti.dem:  Include a test script written by Hanno Hoffstadt
+	that exercises multidimensional fitting.  The fit routine currently
+	handles up to 5 independent dimensions, but the script tries up to six.
+	It incidentally exercises the `set dummy` command and `while {...}`.
+
+	* src/show.c (show_fit):  Report previous 'fit' command.
+
+	* src/datafile.c (df_tokenise):  Get rid of erroneous test against
+	axis_array[foo].timefmt (always evaluates as TRUE).
+
+2013-06-12  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in:  More complete autoconfigure tests for qt5.
+
+	* src/save.c (save_dummy) src/set.c (set_dummy) src/show.c
+	src/unset.c (unset_dumm) docs/gnuplot.doc demo/fit.dem:
+	"fit" can use more dummy variable names than plot or splot, but these
+	were not being shown/reset/saved.  Document "unset dummy".
+	Now we handle the full set of possible dummy variables (MAX_NUM_VAR).
+
+2013-06-11  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wgnuplib.h src/win/wgraph.c term/win.trm:  Support boxed
+	labels.  Includes support for rotated text.
+
+	* src/win/wgdiplus.cpp (gdiplusPolylineEx):  Properly close polygons
+	by using DrawPolygon if the first and last point of the polyline are
+	equal.
+
+	* src/win/wgraph.c:  Tweak layer support.
+
+2013-06-10  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* src/show.c src/unset.c:  show/unset individual datafile options.
+
+	* docs/gnuplot.doc src/specfun.c:  Documentation shows incorrect sign
+	in the exponent of the Voigt function.  
+
+	* docs/gnuplot.doc: typos
+
+2013-06-06  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.c (fit_command):  Log file contained the wrong variable name
+	for axis restrictions.  Reported by Victor Slabinski on gnuplot-bugs.
+
+	* src/fit.c:  Make Ctrl-C interrupt fits in Windows console mode gnuplot
+	again.
+
+2013-06-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in:  Allow building against either Qt4 or Qt5.
+	./configure --with-qt		# Try Qt5 first, fall back to Qt4
+	./configure --with-qt=qt4	# Prefer Qt4 to Qt5 even if present
+	Note: On my machine use of Qt5 also requires compiler option -fPIC, but
+	I have not added this to configure.in.
+
+	* src/qtterminal/{qt_term.cpp QtGnuplotWindow.h QtGnuplotWidget.cpp
+	QtGnuplotWidget.h}:  Trivial changes to #include statements required by 
+	Qt4->Qt5 module organization. 
+	QString::toAscii is deprecated.  Use toUtf8 or toLatin1 as appropriate.
+
+	* src/qtterminal/QtGnuplotScene.cpp (processEvent positionText):
+	Older APIs for transformations (rotate/translate/scale) have been removed
+	in Qt5.  The new ones seem to work OK in 4.6 also, so I have replaced the
+	old ones unconditionally.  If this causes problems we could choose old or
+	new based on QT_VERSION.
+
+	* src/scanner.c src/util.c src/util.h:  Allow UTF8 identifiers.
+
+	* src/internal.c (f_range): Allow "string"[x:x] where x is real rather
+	than int.   This makes it more convenient to use column data as an index.
+
+2013-06-02  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/win/wprinter.c (PrintDlgProc):  Safeguard against unavailable
+	printer info.
+	Bug 1152.
+
+	* src/win/wprinter.c (DumpPrinter):  Make this similar to the code in 
+	CopyPrint (wgraph.c) which is supposed to work more reliably.
+
+	* src/win/wgraph.c (SaveAsEMF, CopyClip):  Turn off antialiasing during
+	export to EMF or clipboard in order not to mix GDI and GDI+ calls.  See
+	also change on 2012-07-24.
+
+	* src/misc.c (loadpath_fopen):  Always open files in binary mode on
+	Windows.  If this should happen to cause side effects for text inline
+	data, there should still be enough time to correct those before the next
+	release.
+	Bug #880.
+
+	* src/win/wredirect.cpp src/win/winmain.c src/win/wtext.h
+	config/mingw/Makefile config/msvc/Makefile:  Redirect C++ cout and cerr
+	to Windows text window.
+
+	* src/fit.c (analyze) src/matrix.c|h (sumsq_vec):  Use the Neumaier
+	variant of the Kahan and Babuska algorithm to sum up the chisq in order
+	to reduce rounding errors.
+
+2013-05-31  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/wxterminal/wxt_gui.cpp (wxt_sigint_handler):  The wxt terminal
+	deadlocks if connection to the X-server is lost (Bug #991).  Ctrl-C
+	doesn't break the deadlock because this interrupt handler simply flags
+	the signal and waits for the parent process to handle it.  Parent and
+	child are thus waiting on each other -> deadlock.  Now we add a test
+	for Ctrl-C arriving when the Ctrl-C flag is already set, and exit if
+	it happens. Thus hitting Ctrl-C twice breaks the deadlock.
+	Not great but better than hanging.
+	Bug #991.
+
+	* src/plot3d.c:  If a surface plot or contour is requested using a funky
+	style (histogram? errorbars?) print a warning and then ignore it rather
+	than plotting with style "points".
+
+	* docs/titlepag.tex docs/plotstyles.gnu docs/gnuplot.doc:
+	Add a sample figure illustrating use of `with labels` to define a set
+	of point types as character glyphs and then select which one is used
+	based on column data.
+
+	* docs/doc2tex.c docs/gnuplot.doc:
+	Tweak page layout of the document produced by 'make pdffigures'.
+
+2013-05-27  Thomas Mattison  <mattison <at> phas.ubc.ca>
+
+	* src/fit.c (regress):  Update all user variables after the fit converges
+	or aborts in order to always return the "best" set. Patchset #230.
+
+2013-05-23  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.c (update):  Replace splitpath() by a call to gp_basename().
+	Avoid potentially invalid access dicovered by Ethan with the help of
+	valgrind.
+
+	* src/fit.c (show_fit1):  Use fputs instead of fprintf when no formatting
+	is done.
+
+2013-05-23  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c (get_data): Treating timedata columns as strings allows
+	functions column(N) and column("HEADER") to work on time data.
+	Bug #1161
+
+	* src/graphics.c: Fix two errors in the linetypes used by plot style
+	columnstacked histograms.  The key sample ignored "newhist lt N" and
+	also was off by one in the fillstyle used.  "set style increment user"
+	caused an off-by-one error in the choice of initial line style.
+
+2013-05-22  Christoph Bersch <usenet@bersch.net>
+
+	* src/gadgets.c(draw_clip_polygon) src/term.c(do_arc):
+	Fix polygon clipping code when intersections are degenerate.
+	Bugs #1237 #1242
+
+2013-05-22  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c src/stdfn.c (gp_strtod):
+	The code that skips leading whitespace in a data file must match the
+	behaviour of strtod(), implicitly the same as isspace().
+	It is not sufficient to skip space and tab, we must also skip embedded
+	\r \v and so on.  This same problem would hit the private implementation 
+	gp_strtod(), which fortunately is never used.  So just get rid of it.
+	Bug #1243 
+
+2013-05-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/README src/wxterminal/gp_cairo.c src/qtterminal/QtGnuplotScene.cpp
+	Clarify comments about use of term->boxed_text().
+	Tweak the bounding box used for regular text in Qt to agree better with
+	the bounding box used for enhanced text.
+
+	* src/gadgets.c src/qtterminal/QtGnuplotScene.cpp src/term_api.h
+	src/wxterminal/gp_cairo.c term/README term/cairo.trm term/gd.trm
+	term/post.trm term/svg.trm term/x11.trm:  Define an enum TEXTBOX_* for
+	the options parameter to term->boxed_text().
+
+2013-05-20  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* term/emf.trm:  It doesn't work to call EMF_setfont() before we
+	enter graphics state.  Bugfix.
+
+2013-05-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in src/gadgets.c src/gadgets.h src/save.c src/set.c
+	src/show.c src/tables.c src/tables.h src/term_api.h src/unset.c
+	docs/gnuplot.doc:
+
+	New text label attribute `boxed`. The appearance of boxed labels is
+	controlled by a new command	
+	   set style textbox {opaque|transparent} {{no}border}
+	The style options are applied both to individual labels (`set label`)
+	and labels generated by a plot command (`with labels`).
+	This patchset dates back to 2005, but at that time so few terminals
+	could support it (gd, post, x11) that it did not seem worth applying.
+	Now we can support Qt and the full range of cairo-based terminals.
+	It should be possible to add support for the win and canvas terminals
+	as well.  I am not certain about svg or the various latex terminals.
+
+	* term/README term/gd.trm term/post.trm term/PostScript/prologue.ps:
+	PostScript and libgd terminal support for boxed text.
+
+	* src/gplt_x11.c term/x11.trm term/xlib.trm: X11 support for boxed text.
+
+	* src/qtterminal/{QtGnuplotEvent.h QtGnuplotScene.cpp QtGnuplotScene.h
+	qt_term.cpp qt_term.h} term/qt.trm:  qt terminal support for boxed text.
+
+	* src/wxterminal{gp_cairo.c gp_cairo.h wxt_gui.cpp wxt_gui.h wxt_term.h}
+	term/wxt.trm term/cairo.trm: wxt/cairo terminal support for boxed text.
+
+	* term/svg.trm: SVG support for opaque fill behind text. I don't know
+	how to stroke the bounding box outline, so no support yet for "border".
+
+	* demo/contours.dem demo/datastrings.dem: Illustrate boxed text labels.
+
+2013-05-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c (do_3dplot): For 'set contour; splot ... with labels'
+	do not generate extra blank lines in the key box.
+
+	* src/show.c:  Treat "show cntrlabel" as "show contour".
+
+	* src/plot3d.c (eval_3dplots): Give a more informative error message
+	on "splot with labels" without a prior "set contour".
+
+	* src/qtterminal/QtGnuplotScene.cpp: Enhanced text elements were not
+	being added to the current plot group so that they could be toggled.
+	"center" justification was not being tracked.
+
+	* src/graphics.c (finish_filled_curve): Don't try to process an
+	empty filled polygon.
+
+2013-05-18  Peter Juhasz  <juhaszp@users.sourceforge.net>
+
+	* src/datafile.c (f_column f_stringcolumn):
+	f_stringcolumn now issues a warning if a named column was not found 
+	in the header, just as f_column does. Additionally, if there is a
+	partial match, print the name in the warning between double quotes.
+
+2013-05-17  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/wxterminal/gp_cairo.c (gp_cairo_enhanced_flush):  Empirical fix
+	for y coordinate after save/restore sequence (enhanced text mode '@').
+	I'm not convinced this is correct, but it does seem to work in practice.
+
+2013-05-15  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c src/graph3d.h src/plot3d.c src/save.c src/set.c
+	src/show.c src/unset.c:
+
+	Contour styles other than `with lines` are already supported, although
+	most styles are treated as either lines or impulses.  We now add support
+	for `set contour; splot ... with labels`, which places contour labels on
+	the plot itself.  Up till now this has been possible only by using an
+	external script to generate and place labels (label_contours.awk).
+ 
+	Format and placement options are controlled by a new command
+	    set cntrlabel {start <int>} {interval <int>} {onecolor}
+	    set cntrlabel {format "format-spec"} {font "font-spec"}
+	`set cntrlabel onecolor` produces the same result as `unset clabel`.
+	`set cntrlabel format "foo"` similarly replaces `set clabel "foo"`.
+	The old command `set/unset clabel` is retained but is now deprecated.
+	Precise layout of the contour labels can be further tweaked by using the
+	usual label options in the splot command itself.  E.g.
+	    splot $FOO with labels textcolor rgb "blue" point offset -1,1
+
+	Known limitations:  The labels are not handled by hidden3d.  Setting
+	large values of samples and/or isosamples can lead to unreasonably
+	dense labels even if the repeat interval is disabled by setting to 0.
+	Hypertext contour labels are possible, but are uglified by an 
+	unnecessary point symbol at each anchor position.
+
+	* docs/gnuplot.doc demo/contours.dem:  Update to illustrate new command.
+
+2013-05-14  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/set.c src/unset.c src/show.c src/save.c src/fit.c|h:  Long brief
+	reports can be wrapped using 'set fit wrap <column>'.
+
+	* src/set.c (set_fit):  Need to advance to next token after
+	'set fit ... default'.
+
+2013-05-12  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.c:  Setting of user error variables needs to be done in
+	regress() since show_results() is not called if 'set fit quiet'.
+	Bugfix.
+
+2013-05-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graph3d.c src/graph3d.h src/save.c src/set.c src/show.c 
+ 	src/tables.c src/tables.h src/unset.c:  Preparation for new command
+	set cntrlabels
+
+2013-05-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c: Remove order dependence of hypertext/point type options.
+	Initialize entire text_label structure when allocated.
+
+2013-05-09  Thomas Mattison  <mattison <at> phas.ubc.ca>
+
+	* src/fit.c|h src/save.c src/show.c src/set.c src/unset.c
+	docs/gnuplot.doc:  New convergence criterion. The new simpler criterion
+	in regress() is absolute reduction in chisquare for an iteration of less
+	than epsilon*chisquare plus epsilon_abs (new setting).  The default
+	convergence criterion is thus always relative no matter what the
+	chisquare is, but users now have the flexibility of adding an absolute
+	convergence criterion through `set fit limit_abs`.
+	Patch #230.
+
+2013-05-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/canvas.trm:  Pattern-fill support for the canvas terminal.
+
+	* demo/html/webify_canvas.pl:  Re-order main loop to avoid trailing
+	cruft in the output HTML page.  Include support for pattern fill.
+
+	* src/datafile.c:  Remove use of isblank(), since too many of our
+	supported platforms are mired back in the pre-C99 era.
+
+	* src/graph3d.c: this_plot->hidden3d_top_linetype is a better start
+	point for calculating contour linetypes than the apparent plot l_type,
+	because that may have been overwritten by previous definitions.
+	This way, splot ... lt N  will always get contour linetypes starting
+	with N+1.
+
+	* src/datafile.c:  Valgrind found a case where df_column[foo].position
+	had never been initialized.  Boom.
+
+2013-05-08  Thomas Mattison  <mattison <at> phas.ubc.ca>
+
+	* src/fit.c (marquardt):  Zero-change in chisquare is now "BETTER"
+	rather than "WORSE" to avoid extra iterations which would only
+	increase lambda. 
+	Patch #230.
+
+	* src/fit.c (call_gnuplot):  Print useful info on undefined-function
+	error. Derived from patchset #230.
+
+	* src/fit.c (fit_command):  If the user supplies errors but any of them 
+	are zero, there will be a divide by zero, trashing the fit.  Add a check 
+	which prints info about the offending data point before aborting.
+	Derived from patchset #230.
+
+2013-05-08  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.c (show_fit1):  Print asterisk instead of magic number -1 for
+	iterations which increase the chisquare.
+
+	* src/set.c (set_fit) docs/gnuplot.doc:  Options logfile, limit
+	maxiter, start_lambda, lambda_factor, and script accept setting 'default'
+	to restore default values or behaviour.  Avoid usage of magic constants.
+
+	* src/fit.c|h:  Cleanup declarations.
+
+	* src/fit.c|h src/save.c src/set.c src/show.c:  The command which can be
+	executed by fit when it is interrupted can be changed with
+	`set fit script`.
+
+	* src/fit.c src/stdfun.c|h docs/gnuplot.doc:  Print p-value of the fit
+	according to the chisquare-distribution.  Saved to user variable FIT_P.
+
+	* src/fit.c (fit_command):  Discard data which contains NaN.  Necessary
+	since df_readline() does not return DF_UNDEFINED in that case.  Now
+	excluding data from the fit works the same for expressions with e.g. 1/0
+	and NaN.
+
+	* src/fit.c (pack_float):  Do not try to dereference NULL result from
+	strchr().
+
+	* src/fit.c (fit_command):  New user variable GPVAL_LAST_FIT.
+
+	* src/config/msvc/Makefile:  MSVC does not have isblank() so use
+	isspace() instead.
+
+2013-05-06  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c (replotrequest):  Do not trust is_3d_plot as an 
+	indicator of whether a replot request should be 2d or 3d; instead 
+	check the command itself to see if it is "splot ..." or "plot ...".
+	Bug #1235
+
+	* src/qtterminal/QtGnuplotScene.cpp:  fillbox(FS_EMPTY, ...) should
+	draw in background color, not necessarily white.
+
+	* demo/html/webify_canvas.pl term/canvas.trm term/js/gnuplot_mouse.js:
+	Do not redraw a plot canvas on mouseover if no intervening plot canvas
+	has been drawn since the mouse left.  This prevents unnecessary redraws
+	if the mouse leaves and then immediately reenters.
+	Bug #1220
+
+2013-05-05  Dima Kogan  <dima@secretsauce.net>
+
+	* src/gplt_x11.c src/gplt_x11.h term/x11.trm:
+	Previously it was possible for gnuplot to call display() before all
+	chunks in an image had been received. This resulted in corrupted plots.
+	Now we block display() calls while in the middle of an image transfer.
+	Bugfix.
+
+2013-05-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/eval.c (evaluate_at) demo/imageNaN.dem:  Remove old hackish code
+	causing inconsistent treatment of Inf and NaN input values depending on 
+	platform and undefined behaviour of the C compiler.  Now both
+	`using 1:2` and `using 1:($2)` should have the same result, as shown by
+	revised imageNaN demo.
+
+2013-05-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (do_arc):  The new routine draw_clip_polygon() is not
+	working correctly here.  Revert to the previous explicit loop over
+	arc segments using draw_clip_line();
+
+	* src/term.c (term_start_multiplot) docs/gnuplot.doc:
+	New command "set multiplot next|previous" skips forward or back one
+	position in a multiplot autolayout grid.  I.e. "next" leaves a blank
+	area instead of a plot, while "prev" would overwrite the plot that
+	was just drawn.
+
+2013-04-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/save.c (save_variables__sub):  Ignore datablocks when saving
+	variables to file.
+
+2013-04-27  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.c src/setshow.h src/show.c:  Extend 'update' so that it
+	does no longer require the parameter file to already exist.  Docs
+	implied this feature since before the start of the CVS.  'fit' now
+	saves the names of parameters and independent variables and this
+	info is used by 'update' to create a new parameter file if it does
+	not exist yet.  Bug #1156.
+
+	* src/fit.c (backup_file):  Backup files will not get overwritten.
+	Add error message for that case.
+
+	* src/util.c|h (existfile) src/win/winmain.c:  New routine.
+
+2013-04-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_tokenise): Because the individual lines of an
+	internal data block ("here data") end in \n rather than \0, the test
+	for termination of the final field on the line could fail.  This led
+	to attempted memory access beyond the end of the block.
+
+	* src/datafile.c (df_tokenise check_missing):  Treat empty fields in
+	a csv file as "missing" rather than "bad".  This allows generating
+	stacked histogram plots from a csv spreadsheet of sparse data.
+
+	* src/datafile.c (df_tokenise):  Since we now test for an unwanted \n
+	at the end of a line of data, we might as well test for \r also.
+	That means DOS format *.csv files can be read without conversion.
+
+2013-04-25  Lars Hecking  <lhecking@users.sourceforge.net>
+
+	* Makefile.am docs/Makefile.am man/Makefile.am: Clean up processing
+	of lisp files gnuplot-gui.elc and gnuplot.elc, packaging of file
+	figure_missing.pdf.
+
+2013-04-25  Christoph Bersch <usenet@bersch.net>
+
+	* src/gadgets.c src/gadgets.h src/graphics.c src/term.c:
+	Implement the Sutherland-Hodgman algorithm for clipping a general
+	polygon against a rectangular bounding box.  Apply this to clip
+	polygon objects (including circles and ellipses) and arrowheads.
+
+	* src/graphics.c (plot_filledcurves finish_filled_curve):
+	Use new polygon clipping code for filledcurves.
+
+2013-04-24  Thomas Mattison  <mattison <at> phas.ubc.ca>
+
+	* src/fit.c:  Optional one-line progress reports. Move code to output
+	status reports and final results to new routines.
+	Patchset #230.
+
+	* src/fit.c (regress):  Fit did not converge if maximum lambda was
+	exceeded.  Add new message for this case.
+
+2013-04-24  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.c|h src/save.c src/set.c src/show.c src/unset.c docs/gnuplot.doc:
+	New options quiet|results|brief|verbose for `set fit` to select verbosity
+	of fit's output.  Default to brief one-line reports.  'verbose' selects the
+	traditional full report.
+
+	* src/fit.c (backup_file):  Remove code path for Win32s.
+
+	* src/fit.c (show_results):  Print correlation matrix only if there is
+	more than one parameter.
+
+	* demo/fit.dem:  Update to new syntax. Reduce number of pause statements,
+	remove plots which show only the data or duplicate techniques already
+	demonstrated.  Add some more comments and plot titles.
+
+	* src/show.c (show_variables):  Avoid extra newline in output.
+
+	* src/win/wgnuplib.h src/win/wgraph.c src/win/wresourc.h term/win.trm:
+	Speed up rotating graphs with the mouse by temporarily disabling
+	antialiasing.  Add user interface and ini file setting.
+
+2013-04-22  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* term/win.trm (WIN_options):  Validate argument to title option.
+
+	* term/dumb.trm (DUMB_options):  New option to change aspect ratio of 
+	the plot by setting tic lengths. Change default to 2:1, which corresponds
+	more to the default fonts found on the systems I tested.
+
+	* src/fit.c|h src/win/wgraph.c src/win/wtext.c:  Unlike on any other
+	platform, long fit runs cannot be interrupted on Windows. Fix this
+	long standing issue at least for wgnuplot by handling Ctrl-Break.
+
+	* docs/gnuplot.doc:  Update help texts for `fit`.
+
+	* src/win/winmain.c|h (WinRaiseConsole) src/fit.c src/win/wgraph.c
+	src/wxterminal/wxt_gui.cpp: Consolidate code to raise console in new
+	routine.
+
+2013-04-22  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/wxterminal/wxt_gui.cpp (wxt_init):  Exit cleanly if initialization
+	fails.
+
+	* src/wxterminal/gp_cairo.c (gp_cairo_set_font):  Allow backslash ('\\')
+	to be treated as an escape character in font names.  This can be 
+	necessary if the font name contains a hyphen, which would otherwise be
+	converted to a space.
+
+	* src/qtterminal/QtGnuplotScene.cpp (processEvent):  Add pixmaps to 
+	current plot group so that image plots can be toggled.
+
+	* src/set.c src/unset.c:  Repair a small memory leak from the sequence
+	set key font 'something'; reset
+
+2013-04-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gplt_x11.c term/x11.trm:  X11 terminal support for toggling plots
+	on/off by left clicking on the corresponding key entry.  The toggle
+	works for all x11 plot windows, not just the currently active one.
+
+	* docs/gnuplot.doc src/datafile.c src/datafile.h src/plot2d.c src/save.c
+	src/set.c src/show.c src/unset.c src/util.c:  Allow more than one 
+	character to be specified as a data field separator.  For example:
+	    set datafile separator "|:\t"
+	means that a field may be terminated by either | or : or tab.
+
+2013-04-20  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.c|h src/save.c src/set.c src/show.c src/unset.c demo/fit.dem
+	docs/gnuplot.doc:  New options for `set fit`. These options will replace
+	the FIT_* user variables to be consistent with how the rest of gnuplot's
+	options are controlled. For now the `set fit` commands simply set (or
+	undefine) the corresponding FIT_ variable to keep backwards compatibility.
+
+2013-04-12  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/stats.c:  Fix incorrect memory allocation for large matrices.
+
+2013-04-10  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/pslatex.trm (EPSLATEX_set_color):  Revert a portion of the patch
+	from 2013-01-08 (Tracker #1199).  Repairs overzealous removal of
+	redundant color commands.  Bug #1185.
+
+	* Makefile.am:  Add lisp subdirectory to the list of files in EXTRA_DIST.
+	This forces the subdirectory to be recreated even if it is currently
+	disabled, and thus allows "make dist" from inside a tree that has been
+	configured --without-lisp-files.
+
+2013-04-09  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/plot2d.c src/plot3d.c src/set.c(parse_label_options) src/setshow.h
+	parse_label_options() is called both from "set label ..." and from
+	"plot ... with labels". The latter case should not accept keywords "at",
+	"front", "back".
+
+2013-04-08  Dima Kogan  <dima@secretsauce.net>
+
+	* src/gplt_x11.c: Calculate window resizing based on gheight (plot only)
+	rather than height (full window).
+
+2013-04-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in src/term.h:  Remove gpic (minimal line art sent to groff)
+	hp2623a (mid 1980s graphics terminal a.k.a. "the ET-head") and
+	hp2648 (1979 720x360 dot graphics terminal) from the set of terminals
+	configured in by default.
+
 2013-04-07  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* src/axis.c (make_tics):  Test for an autoscaled axis that is enabled
@@ -39,13 +2670,12 @@
 	corresponding time calculation in the javascript files.
 
 	* src/mouse.c src/time.c docs/gnuplot.doc:  Remove unused code
-	and comments specific to the older use of a private epoch 
-	boundary.
+	and comments specific to the older use of a private epoch.
 
 2013-04-04  Bastian Maerkisch  <bmaerkisch@web.de>
 
 	* src/wxterminal/wxt_gui.cpp (wxtPanel::RaiseConsoleWindow),
-	src/wxterminal/wxt_gui.h: Implement space-raises-console for 
+	src/wxterminal/wxt_gui.h: Implement space-raises-console for
 	Windows console mode gnuplot.
 
 2013-04-04  Shigeharu Takeno  <shige@iee.niit.ac.jp>
@@ -84,8 +2714,8 @@
 
 	* src/plot3d.c:  Incomplete initialization of sample range variable.
 
-	* src/plot2d.c docs/gnuplot.doc:  Provide an indexed example of using 
-	"smooth frequency" to generate a histogram.  Do not let this plot mode 
+	* src/plot2d.c docs/gnuplot.doc:  Provide an indexed example of using
+	"smooth frequency" to generate a histogram.  Do not let this plot mode
 	override the user's data style.
 
 2013-03-29  Ethan A Merritt  <merritt@u.washington.edu>
@@ -176,7 +2806,7 @@
 	command as if it were a refresh command.  This is a change, but is
 	consistent with the documentation for the "volatile" keyword.
 
-	* src/plot2d.c (eval_plots):  The range check on functions with a 
+	* src/plot2d.c (eval_plots):  The range check on functions with a
 	private sampling range did not allow for log scaling.
 	Bug #1215
 
@@ -239,14 +2869,14 @@
 
 2013-02-21  Ethan A Merritt  <merritt@u.washington.edu>
 
-	*  src/plot.c:  The old test for whether a session was interactive 
+	*  src/plot.c:  The old test for whether a session was interactive
 	assumed that everything on the command line was either an input file
 	name or an x11 option parsed by X11_args. This broke because
 	(1) x11 is no longer the only interactive terminal.
 	(2) there are options that occupy space on the command line but are
 	not file names.  Some indicate non-interactive; some don't.
 	Replace this test with one that only enters a non-interactive session
-	if there are command line arguments that do not begin with '-' 
+	if there are command line arguments that do not begin with '-'
 	(filename) or _do_ begin with '-e' (inline command).
 	Bug #1212
 
@@ -329,7 +2959,7 @@
 2013-02-02  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* src/command.c (read_line):  Reset the token count to zero when
-	starting to read a new line of input.  Otherwise if the read is 
+	starting to read a new line of input.  Otherwise if the read is
 	interrupted by a mouse event requesting a replot then the internal
 	state is not valid.  Test case:   cat | ./gnuplot      plot and zoom
 	Bug #3602388 (new #1203)
@@ -825,7 +3455,7 @@
 	New user-visible function hsv2rgb(H,S,V) creates a 24-bit RGB value
 	from real H,S,V values in the range [0:1]. This allows use of hsv colors
 	in plots with coloring style "rgb variable".  The new function can be
-	used to implement the capability suggested by Shige Takeno:
+	used to implement the capability suggested by Shigeharu Takeno:
 	  hsv(h,s,v) = sprintf("#%06x",hsv2rgb(h,s,v))
 	  plot FOO lc rgb hsv(H,S,V)
 

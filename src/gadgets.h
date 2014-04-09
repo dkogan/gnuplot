@@ -79,9 +79,10 @@ typedef struct text_label {
     struct text_label *next;	/* pointer to next label in linked list */
     int tag;			/* identifies the label */
     t_position place;
-    enum JUSTIFY pos;
+    enum JUSTIFY pos;		/* left/center/right horizontal justification */
     int rotate;
     int layer;
+    int boxed;			/* EAM_BOXED_TEXT */
     char *text;
     char *font;			/* Entry font added by DJL */
     struct t_colorspec textcolor;
@@ -98,6 +99,7 @@ typedef struct text_label {
 #define EMPTY_LABELSTRUCT \
     {NULL, NONROTATABLE_LABEL_TAG, \
      {character, character, character, 0.0, 0.0, 0.0}, CENTRE, 0, 0, \
+     0, \
      NULL, NULL, {TC_LT, -2, 0.0}, DEFAULT_LP_STYLE_TYPE, \
      {character, character, character, 0.0, 0.0, 0.0}, FALSE, \
      FALSE}
@@ -155,12 +157,19 @@ typedef struct polygon {
     t_position *vertex;		/* Array of vertices */
 } t_polygon;
 
+typedef enum en_clip_object {
+    OBJ_CLIP,		/* Clip to graph unless coordinate type is screen */
+    OBJ_NOCLIP,	/* Clip to canvas, never to graph */
+    OBJ_ALWAYS_CLIP	/* Not yet implemented */
+} t_clip_object;
+
 /* Datastructure for 'set object' */
 typedef struct object {
     struct object *next;
     int tag;
     int layer;			/* behind or back or front */
     int object_type;		/* OBJ_RECTANGLE */
+    t_clip_object clip;         
     fill_style_type fillstyle;
     lp_style_type lp_properties;
     union o {t_rectangle rectangle; t_circle circle; t_ellipse ellipse; t_polygon polygon;} o;
@@ -170,6 +179,14 @@ typedef struct object {
 #define OBJ_ELLIPSE (3)
 #define OBJ_POLYGON (4)
 #endif
+
+/* Datastructure implementing 'set dashtype' */
+struct custom_dashtype_def {
+    struct custom_dashtype_def *next;	/* pointer to next linestyle in linked list */
+    int tag;			/* identifies the dashtype */
+    int d_type;                 /* for DASHTYPE_SOLID or CUSTOM */
+    struct t_dashtype dashtype;
+};
 
 /* Datastructure implementing 'set style line' */
 struct linestyle_def {
@@ -184,6 +201,14 @@ struct arrowstyle_def {
     int tag;			/* identifies the arrowstyle */
     struct arrow_style_type arrow_properties;
 };
+
+/* For 'set style parallelaxis' */
+struct pa_style {
+    lp_style_type lp_properties;/* used to draw the axes themselves */
+    int layer;			/* front/back */
+};
+#define DEFAULT_PARALLEL_AXIS_STYLE \
+	{{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 2.0, 0.0, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, LAYER_FRONT }
 
 /* The stacking direction of the key box: (vertical, horizontal) */
 typedef enum en_key_stack_direction {
@@ -245,7 +270,7 @@ typedef enum histogram_type {
 	HT_CLUSTERED,
 	HT_ERRORBARS
 } t_histogram_type;
-#define DEFAULT_HISTOGRAM_STYLE { HT_NONE, 2, 1, 0.0, 0.0, LT_UNDEFINED, LT_UNDEFINED, 0, NULL, EMPTY_LABELSTRUCT }
+#define DEFAULT_HISTOGRAM_STYLE { HT_CLUSTERED, 2, 1, 0.0, 0.0, LT_UNDEFINED, LT_UNDEFINED, 0, NULL, EMPTY_LABELSTRUCT }
 
 typedef enum en_boxplot_factor_labels {
 	BOXPLOT_FACTOR_LABELS_OFF,
@@ -266,6 +291,16 @@ typedef struct boxplot_style {
 } boxplot_style;
 extern boxplot_style boxplot_opts;
 #define DEFAULT_BOXPLOT_STYLE { 0, 1.5, TRUE, 6, CANDLESTICKS, 1.0, BOXPLOT_FACTOR_LABELS_AUTO, FALSE }
+
+#ifdef EAM_BOXED_TEXT
+typedef struct textbox_style {
+    TBOOLEAN opaque;	/* True if the box is background-filled before writing into it */
+    TBOOLEAN noborder;	/* True if you want fill only, no lines */
+    double xmargin;	/* fraction of default margin to use */
+    double ymargin;	/* fraction of default margin to use */
+} textbox_style;
+#define DEFAULT_TEXTBOX_STYLE { FALSE, FALSE, 1.0, 1.0 }
+#endif
 
 /***********************************************************/
 /* Variables defined by gadgets.c needed by other modules. */
@@ -305,7 +340,7 @@ typedef struct {
     TBOOLEAN invert;		/* key top to bottom */
     TBOOLEAN enhanced;		/* enable/disable enhanced text of key titles */
     struct lp_style_type box;	/* linetype of box around key:  */
-    char title[MAX_LINE_LEN+1];	/* title line for the key as a whole */
+    char *title;		/* title line for the key as a whole */
     char *font;			/* Will be used for both key title and plot titles */
     struct t_colorspec textcolor;	/* Will be used for both key title and plot titles */
     BoundingBox bounds;
@@ -315,7 +350,7 @@ typedef struct {
 
 extern legend_key keyT;
 
-#define DEFAULT_KEYBOX_LP {0, LT_NODRAW, 0, 0, 1.0, PTSZ_DEFAULT, FALSE, DEFAULT_COLORSPEC}
+#define DEFAULT_KEYBOX_LP {0, LT_NODRAW, 0, DASHTYPE_SOLID, 0, 1.0, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}
 
 #define DEFAULT_KEY_POSITION { graph, graph, graph, 0.9, 0.9, 0. }
 
@@ -329,7 +364,7 @@ extern legend_key keyT;
 		FILENAME_KEYTITLES, \
 		FALSE, FALSE, FALSE, TRUE, \
 		DEFAULT_KEYBOX_LP, \
-		"", \
+		NULL, /* No title */ \
 		NULL, {TC_LT, LT_BLACK, 0.0}, \
 		{0,0,0,0}, 0, 0 }
 
@@ -382,6 +417,8 @@ extern t_position lmargin, bmargin, rmargin, tmargin;
 extern FILE *table_outfile;
 extern TBOOLEAN table_mode;
 
+extern struct custom_dashtype_def *first_custom_dashtype;
+
 extern struct arrow_def *first_arrow;
 
 extern struct text_label *first_label;
@@ -390,6 +427,8 @@ extern struct linestyle_def *first_linestyle;
 extern struct linestyle_def *first_perm_linestyle;
 
 extern struct arrowstyle_def *first_arrowstyle;
+
+extern struct pa_style parallel_axis_style;
 
 #ifdef EAM_OBJECTS
 extern struct object *first_object;
@@ -462,20 +501,12 @@ typedef enum E_Refresh_Allowed {
    E_REFRESH_OK_3D = 3
 } TRefresh_Allowed;
 
-#ifdef VOLATILE_REFRESH
 extern TRefresh_Allowed refresh_ok;
 # define SET_REFRESH_OK(ok, nplots) do { \
    refresh_ok = (ok); \
    refresh_nplots = (nplots); \
 } while(0)
 extern int refresh_nplots;
-#else /* VOLATILE_REFRESH */
-# define refresh_ok E_REFRESH_NOT_OK
-# define SET_REFRESH_OK(ok, nplots) do { \
-   (void)(ok); \
-   (void)(nplots); \
-} while(0)
-#endif /* VOLATILE_REFRESH */
 
 extern TBOOLEAN volatile_data;
 
@@ -493,8 +524,9 @@ extern int current_x11_windowid;
 
 /* moved here from util3d: */
 void draw_clip_line __PROTO((int, int, int, int));
+void draw_clip_polygon __PROTO((int , gpiPoint *));
 void draw_clip_arrow __PROTO((int, int, int, int, int));
-int clip_line __PROTO((int *, int *, int *, int *));
+void clip_polygon __PROTO((gpiPoint *, gpiPoint *, int , int *));
 int clip_point __PROTO((unsigned int, unsigned int));
 void clip_put_text __PROTO((unsigned int, unsigned int, char *));
 
@@ -511,26 +543,26 @@ extern fill_style_type default_fillstyle;
 #ifdef EAM_OBJECTS
 /*       Warning: C89 does not like the union initializers     */
 extern struct object default_rectangle;
-#define DEFAULT_RECTANGLE_STYLE { NULL, -1, 0, OBJ_RECTANGLE,	\
+#define DEFAULT_RECTANGLE_STYLE { NULL, -1, 0, OBJ_RECTANGLE, OBJ_CLIP,	\
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{0, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, BACKGROUND_COLORSPEC}, \
+	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, 0, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
 	{.rectangle = {0, {0,0,0,0.,0.,0.}, {0,0,0,0.,0.,0.}, {0,0,0,0.,0.,0.}, {0,0,0,0.,0.,0.}}} }
 
 extern struct object default_circle;
-#define DEFAULT_CIRCLE_STYLE { NULL, -1, 0, OBJ_CIRCLE,       \
+#define DEFAULT_CIRCLE_STYLE { NULL, -1, 0, OBJ_CIRCLE, OBJ_CLIP, \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{0, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, BACKGROUND_COLORSPEC},			\
+	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, 0, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
 	{.circle = {1, {0,0,0,0.,0.,0.}, {graph,0,0,0.02,0.,0.}, 0., 360., TRUE }} }
 
 extern struct object default_ellipse;
-#define DEFAULT_ELLIPSE_STYLE { NULL, -1, 0, OBJ_ELLIPSE,       \
+#define DEFAULT_ELLIPSE_STYLE { NULL, -1, 0, OBJ_ELLIPSE, OBJ_CLIP, \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{0, LT_BACKGROUND, 0, 0, 1.0, 0.0, FALSE, BACKGROUND_COLORSPEC}, \
+	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, 0, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
 	{.ellipse = {ELLIPSEAXES_XY, {0,0,0,0.,0.,0.}, {graph,graph,0,0.05,0.03,0.}, 0. }} }
 
-#define DEFAULT_POLYGON_STYLE { NULL, -1, 0, OBJ_POLYGON,       \
+#define DEFAULT_POLYGON_STYLE { NULL, -1, 0, OBJ_POLYGON, OBJ_CLIP, \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{0, LT_BLACK, 0, 0, 1.0, 0.0, FALSE, BLACK_COLORSPEC}, \
+	{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
 	{.polygon = {0, NULL} } }
 
 #endif
@@ -540,9 +572,17 @@ extern filledcurves_opts filledcurves_opts_data;
 extern filledcurves_opts filledcurves_opts_func;
 
 /* Prefer line styles over plain line types */
+#ifdef BACKWARDS_COMPATIBLE
 extern TBOOLEAN prefer_line_styles;
+#else
+#define prefer_line_styles FALSE
+#endif
 
 extern histogram_style histogram_opts;
+
+#ifdef EAM_BOXED_TEXT
+extern textbox_style textbox_opts;
+#endif
 
 void default_arrow_style __PROTO((struct arrow_style_type *arrow));
 void apply_head_properties __PROTO((struct arrow_style_type *arrow_properties));

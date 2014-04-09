@@ -1,5 +1,5 @@
 ﻿;
-; $Id: gnuplot.iss,v 1.4 2012/03/12 06:17:10 markisch Exp $
+; $Id: gnuplot.iss,v 1.8 2014/03/23 13:34:19 markisch Exp $
 ;
 ; GNUPLOT - gnuplot.iss
 ;
@@ -38,13 +38,13 @@
 ;
 
 #define MyAppName "gnuplot"
-#define MyAppVersionShort "4.7"
-#define MyAppVersion "4.7 patchlevel 0"
-#define MyAppNumVersion "4.7.0"
+#define MyAppVersionShort "5.0"
+#define MyAppVersion "5.0 patchlevel alpha"
+#define MyAppNumVersion "5.0.0"
 #define MyAppPublisher "gnuplot development team"
 #define MyAppURL "http://www.gnuplot.info/"
 #define MyAppExeName "wgnuplot.exe"
-#define MyInstallerName "gp470-win32-setup"
+#define MyInstallerName "gp50alpha-win32-setup"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
@@ -71,13 +71,13 @@ OutputBaseFilename={#MyInstallerName}
 SetupIconFile=bin\grpicon.ico
 Compression=lzma2/Max
 SolidCompression=true
-MinVersion=,5.0.2195
+MinVersion=0,5.01
 Uninstallable=true
 ChangesEnvironment=true
 PrivilegesRequired=admin
 UseSetupLdr=true
 WindowStartMaximized=true
-VersionInfoVersion={#MyappNumVersion}
+VersionInfoVersion={#MyAppNumVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Famous scientific plotting package.
 VersionInfoProductName=gnuplot
@@ -117,7 +117,6 @@ Source: "bin\gnuplot.exe"; DestDir: "{app}\bin\"; Flags: ignoreversion; Componen
 Source: "bin\*.dll"; DestDir: "{app}\bin\"; Flags: skipifsourcedoesntexist ignoreversion; Components: core
 Source: "bin\wgnuplot.mnu"; DestDir: {app}\bin\; Components: core
 Source: "bin\wgnuplot.chm"; DestDir: {app}\bin\; Components: core
-Source: bin\pgnuplot.exe; DestDir: {app}\bin\; Flags: skipifsourcedoesntexist; Components: core;
 Source: "share\*"; DestDir: {app}\share\; Flags: recursesubdirs; Components: core
 Source: "etc\*"; DestDir: {app}\etc\; Flags: skipifsourcedoesntexist recursesubdirs;  Components: core
 ; demo files / contrib
@@ -178,7 +177,7 @@ Filename: "{app}\bin\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringC
 Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUTERM; ValueData: windows; Flags: NoError UninsDeleteValue; Tasks: defaulttermwin;
 Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUTERM; ValueData: wxt; Flags: NoError UninsDeleteValue; Tasks: defaulttermwxt;
 ; include demo directory in gnuplot's search path
-Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUPLOT_LIB; ValueData: {app}\demo; Flags: CreateValueIfDoesntExist NoError UninsDeleteValue; Components: demo;
+Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUPLOT_LIB; ValueData: "{app}\demo;{app}\demo\games;{app}\share"; Flags: CreateValueIfDoesntExist NoError UninsDeleteValue; Components: demo;
 ; easy start in explorer's run dialog
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\wgnuplot.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\bin\wgnuplot.exe"; Flags: uninsdeletekey
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\gnuplot.exe"; ValueType: string; ValueName: ""; ValueData: "{app}\bin\gnuplot.exe"; Flags: uninsdeletekey

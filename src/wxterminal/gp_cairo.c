@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.69 2013/03/07 22:06:33 sfeam Exp $
+ * $Id: gp_cairo.c,v 1.81 2014/03/20 20:50:10 markisch Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -196,6 +196,12 @@ void gp_cairo_initialize_plot(plot_struct *plot)
 	plot->interrupt = FALSE;
 }
 
+#ifdef EAM_BOXED_TEXT
+/* Boxed text support */
+static int bounding_box[4];
+static double bounding_xmargin = 1.0;
+static double bounding_ymargin = 1.0;
+#endif
 
 /* set the transformation matrix of the context, and other details */
 /* NOTE : depends on the setting of xscale and yscale */
@@ -302,22 +308,28 @@ void gp_cairo_set_font(plot_struct *plot, const char *name, int fontsize)
 
 	/* Split out Bold and Italic attributes from font name */
 	fname = strdup(name);
-	for (c=fname; *c; c++)
-	    if (*c == '-') *c = ' ';
+	for (c=fname; *c; c++) {
+	    if (*c == '\\') {
+		char *d = c;
+		do { *d = *(d+1); } while (*d++);
+	    } else {
+		if (*c == '-') *c = ' ';
+		if (*c == ':') *c = ' ';
+	    }
+	}
 	if ((c = strstr(fname, " Bold"))) {
 	    do { *c = *(c+5); } while (*c++);
 	    plot->fontweight = PANGO_WEIGHT_BOLD;
 	} else
-	    plot->fontweight = 0;
+	    plot->fontweight = PANGO_WEIGHT_NORMAL;
 	if ((c = strstr(fname, " Italic"))) {
 	    do { *c = *(c+7); } while (*c++);
 	    plot->fontstyle = PANGO_STYLE_ITALIC;
 	} else
-	    plot->fontstyle = 0;
+	    plot->fontstyle = PANGO_STYLE_NORMAL;
 
 	strncpy( plot->fontname, fname, sizeof(plot->fontname) );
 	plot->fontsize = fontsize;
-
 	free(fname);
 }
 
@@ -793,11 +805,11 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 #endif /*MAP_SYMBOL*/
 	pango_font_description_set_size (desc, (int) (plot->fontsize*PANGO_SCALE*plot->oversampling_scale) );
 
-	pango_font_description_set_weight (desc,
-		plot->fontweight ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+	pango_font_description_set_weight (desc, plot->fontweight);
 	pango_font_description_set_style (desc,
 		plot->fontstyle ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
 	pango_layout_set_font_description (layout, desc);
+	FPRINTF((stderr, "pango font description: %s\n", pango_font_description_to_string(desc)));
 	pango_font_description_free (desc);
 
 	pango_layout_get_extents(layout, &ink_rect, &logical_rect);
@@ -811,7 +823,6 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 	/* EAM Dec 2012 - The problem is that avg_vchar is not kept in sync with the	*/
 	/* font size.  It is changed when the set_font command is received, not when	*/
 	/* it is executed in the display list. Try basing off plot->fontsize instead. 	*/
-
 	/* vert_just = ((double)ink_rect.height/2 +(double)ink_rect.y) / PANGO_SCALE;	*/
 	/* vert_just = avg_vchar/2;							*/
 	vert_just = 0.8 * (float)(plot->fontsize * plot->oversampling_scale);
@@ -857,7 +868,7 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 	 * Do it by ourselves, or we can get spurious lines on future calls. */
 	cairo_new_path(plot->cr);
 
-#if 0 /* helper boxes to understand how text is positionned */
+#ifdef EAM_BOXED_TEXT
 	cairo_set_line_width(plot->cr, plot->linewidth*plot->oversampling_scale);
 	cairo_rotate(plot->cr, arg);
 	cairo_translate(plot->cr, x, y);
@@ -865,26 +876,19 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 
 	{
 	PangoRectangle ink, logical;
-	double lw = cairo_get_line_width (plot->cr);
-	pango_layout_get_extents (layout, &ink, &logical);
+	pango_layout_get_pixel_extents (layout, &ink, &logical);
 
-	cairo_set_source_rgba (plot->cr, 1.0, 0.0, 0.0, 0.75);
-	cairo_rectangle (plot->cr,
-			(double)logical.x / PANGO_SCALE - lw / 2,
-			(double)logical.y / PANGO_SCALE - lw / 2,
-			(double)logical.width / PANGO_SCALE + lw,
-			(double)logical.height / PANGO_SCALE + lw);
-	cairo_stroke (plot->cr);
-
-	cairo_set_source_rgba (plot->cr, 0.0, 1.0, 0.0, 0.75);
-	cairo_rectangle (plot->cr,
-			(double)ink.x / PANGO_SCALE - lw / 2,
-			(double)ink.y / PANGO_SCALE - lw / 2,
-			(double)ink.width / PANGO_SCALE + lw,
-			(double)ink.height / PANGO_SCALE + lw);
-	cairo_stroke (plot->cr);
+	/* Would it look better to use logical bounds rather than ink? */
+	if (bounding_box[0] > x + ink.x)
+	    bounding_box[0] = x + ink.x;
+	if (bounding_box[2] < x + ink.x + ink.width)
+	    bounding_box[2] = x + ink.x + ink.width;
+	if (bounding_box[1] > y + ink.y)
+	    bounding_box[1] = y + ink.y;
+	if (bounding_box[3] < y + ink.y + ink.height)
+	    bounding_box[3] = y + ink.y + ink.height;
 	}
-#endif /* helper boxes to understand how text is positionned */
+#endif
 
 	/* free the layout object */
 	g_object_unref (layout);
@@ -1135,6 +1139,7 @@ void gp_cairo_draw_image(plot_struct *plot, unsigned int * image, int x1, int y1
 void gp_cairo_add_attr(plot_struct *plot, PangoAttrList * AttrList, int start, int end )
 {
 	PangoAttribute *p_attr_rise, *p_attr_size, *p_attr_family;
+	PangoAttribute *p_attr_weight, *p_attr_style;
 
 	p_attr_size = pango_attr_size_new ((int) (gp_cairo_enhanced_fontsize*PANGO_SCALE));
 	p_attr_size->start_index = start;
@@ -1150,6 +1155,16 @@ void gp_cairo_add_attr(plot_struct *plot, PangoAttrList * AttrList, int start, i
 	p_attr_family->start_index = start;
 	p_attr_family->end_index = end;
 	pango_attr_list_insert (AttrList, p_attr_family);
+
+	p_attr_weight = pango_attr_weight_new (plot->fontweight);
+	p_attr_weight->start_index = start;
+	p_attr_weight->end_index = end;
+	pango_attr_list_insert (AttrList, p_attr_weight);
+
+	p_attr_style = pango_attr_style_new (plot->fontstyle);
+	p_attr_style->start_index = start;
+	p_attr_style->end_index = end;
+	pango_attr_list_insert (AttrList, p_attr_style);
 }
 
 /* add a blank character to the text string with a custom shape */
@@ -1203,14 +1218,16 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 	if (!gp_cairo_enhanced_opened_string)
 		return;
 
-	FPRINTF((stderr, "enhanced flush str=\"%s\" font=%s op=%d sf=%d wf=%d base=%f os=%d\n",
+	FPRINTF((stderr, "enhanced flush str=\"%s\" font=%s op=%d sf=%d wf=%d base=%f os=%d wt=%d sl=%d\n",
 		enhanced_text,
 		gp_cairo_enhanced_font,
 		gp_cairo_enhanced_overprint,
 		gp_cairo_enhanced_showflag,
 		gp_cairo_enhanced_widthflag,
 		gp_cairo_enhanced_base,
-		gp_cairo_enhanced_opened_string ));
+		gp_cairo_enhanced_opened_string,
+		plot->fontweight,
+		plot->fontstyle ));
 
 	gp_cairo_enhanced_opened_string = FALSE;
 
@@ -1255,6 +1272,8 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		pango_attr_list_unref( gp_cairo_enhanced_save_AttrList );
 		/* invert the size, so we will go back to the saved state */
 		save_logical_rect.width = -save_logical_rect.width;
+		/* EAM FIXME:  Zero height necessary but I don't understand why */
+		save_logical_rect.height = 0;
 		/* adding a blank character with the corresponding shape */
 		gp_cairo_add_shape(save_logical_rect,start);
 
@@ -1287,8 +1306,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		current_desc = pango_font_description_new ();
 		pango_font_description_set_family (current_desc, gp_cairo_enhanced_get_fontname(plot));
 		pango_font_description_set_size(current_desc,(int) gp_cairo_enhanced_fontsize*PANGO_SCALE);
-		pango_font_description_set_weight (current_desc,
-			plot->fontweight ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+		pango_font_description_set_weight (current_desc, plot->fontweight);
 		pango_font_description_set_style (current_desc,
 			plot->fontstyle ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
 
@@ -1333,8 +1351,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		hide_desc = pango_font_description_new ();
 		pango_font_description_set_family (hide_desc, gp_cairo_enhanced_get_fontname(plot));
 		pango_font_description_set_size(hide_desc,(int) gp_cairo_enhanced_fontsize*PANGO_SCALE);
-		pango_font_description_set_weight (hide_desc,
-			plot->fontweight ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+		pango_font_description_set_weight (hide_desc, plot->fontweight);
 		pango_font_description_set_style (hide_desc,
 			plot->fontstyle ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
 		pango_layout_set_font_description (hide_layout, hide_desc);
@@ -1364,8 +1381,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		zerowidth_desc = pango_font_description_new ();
 		pango_font_description_set_family (zerowidth_desc, gp_cairo_enhanced_get_fontname(plot));
 		pango_font_description_set_size(zerowidth_desc,(int) gp_cairo_enhanced_fontsize*PANGO_SCALE);
-		pango_font_description_set_weight (zerowidth_desc,
-			plot->fontweight ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+		pango_font_description_set_weight (zerowidth_desc, plot->fontweight);
 		pango_font_description_set_style (zerowidth_desc,
 			plot->fontstyle ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
 		pango_layout_set_font_description (zerowidth_layout, zerowidth_desc);
@@ -1452,9 +1468,16 @@ void gp_cairo_enhanced_open(plot_struct *plot, char* fontname, double fontsize, 
 	}
 
 	if (!gp_cairo_enhanced_opened_string) {
+		// Strip off Bold or Italic and apply immediately
+		// Is it really necessary to preserve plot->fontname?
+		char *save_plot_font = strdup(plot->fontname);
+		gp_cairo_set_font(plot, fontname, plot->fontsize);
+		strncpy(gp_cairo_enhanced_font, plot->fontname, sizeof(gp_cairo_enhanced_font));
+		strcpy(plot->fontname, save_plot_font);
+		free(save_plot_font);
+
 		gp_cairo_enhanced_opened_string = TRUE;
 		gp_cairo_enhanced_char = gp_cairo_enhanced_string;
-		strncpy(gp_cairo_enhanced_font, fontname, sizeof(gp_cairo_enhanced_font));
 		gp_cairo_enhanced_fontsize = fontsize*plot->oversampling_scale;
 		gp_cairo_enhanced_base = base*plot->oversampling_scale;
 		gp_cairo_enhanced_showflag = showflag;
@@ -1500,8 +1523,9 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 	pango_layout_set_attributes (layout, gp_cairo_enhanced_AttrList);
 
 	pango_layout_get_extents(layout, &ink_rect, &logical_rect);
-	/* vert_just = ((double)ink_rect.height/2 +(double)ink_rect.y) / PANGO_SCALE; */
-	vert_just = avg_vchar/2;
+	
+	/* NB: See explanatory comments in gp_cairo_draw_text() */
+	vert_just = 0.8 * (float)(plot->fontsize * plot->oversampling_scale);
 
 	arg = plot->text_angle * M_PI/180;
 	enh_x = x - vert_just * sin(arg);
@@ -1539,6 +1563,21 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 	 * Do it by ourselves, or we can get spurious lines on future calls. */
 	cairo_new_path(plot->cr);
 
+#ifdef EAM_BOXED_TEXT
+	/* Update bounding box for boxed label text */
+	pango_layout_get_pixel_extents (layout, &ink_rect, &logical_rect);
+
+	/* Would it look better to use logical bounds rather than ink_rect? */
+	if (bounding_box[0] > enh_x + ink_rect.x)
+	    bounding_box[0] = enh_x + ink_rect.x;
+	if (bounding_box[2] < enh_x + ink_rect.x + ink_rect.width)
+	    bounding_box[2] = enh_x + ink_rect.x + ink_rect.width;
+	if (bounding_box[1] > enh_y + ink_rect.y)
+	    bounding_box[1] = enh_y + ink_rect.y;
+	if (bounding_box[3] < enh_y + ink_rect.y + ink_rect.height)
+	    bounding_box[3] = enh_y + ink_rect.y + ink_rect.height;
+#endif
+	
 	/* free the layout object */
 	pango_attr_list_unref( gp_cairo_enhanced_AttrList );
 	g_object_unref (layout);
@@ -1601,6 +1640,58 @@ void gp_cairo_fill(plot_struct *plot, int fillstyle, int fillpar)
 	}
 }
 
+#ifdef EAM_BOXED_TEXT
+void gp_cairo_boxed_text(plot_struct *plot, int x, int y, int option)
+{
+	int dx, dy;
+
+	switch (option) {
+	case TEXTBOX_INIT:
+		/* Initialize bounding box for this text string */
+		bounding_box[0] = bounding_box[2] = x;
+		bounding_box[1] = bounding_box[3] = y;
+		break;
+
+	case TEXTBOX_OUTLINE:
+		/* Stroke the outline of the bounding box for previous text */
+	case TEXTBOX_BACKGROUNDFILL:
+		/* Fill the bounding box with background color */
+		/* begin by stroking any open path */
+		gp_cairo_stroke(plot);
+		gp_cairo_end_polygon(plot);
+
+		cairo_save(plot->cr);
+		dx = 0.5 * bounding_xmargin * (float)(plot->fontsize * plot->oversampling_scale);
+		dy = 0.5 * bounding_ymargin * (float)(plot->fontsize * plot->oversampling_scale);
+		gp_cairo_move(plot,   bounding_box[0]-dx, bounding_box[1]-dy); 
+		gp_cairo_vector(plot, bounding_box[0]-dx, bounding_box[3]+dy); 
+		gp_cairo_vector(plot, bounding_box[2]+dx, bounding_box[3]+dy); 
+		gp_cairo_vector(plot, bounding_box[2]+dx, bounding_box[1]-dy); 
+		gp_cairo_vector(plot, bounding_box[0]+dx, bounding_box[1]-dy); 
+		cairo_close_path(plot->cr);
+		if (option == TEXTBOX_BACKGROUNDFILL) {
+		    rgb_color *background = &gp_cairo_colorlist[0];
+		    cairo_set_source_rgb(plot->cr, background->r, background->g, background->b);
+		    cairo_fill(plot->cr);
+		} else {
+		    cairo_set_line_width(plot->cr, 1.0*plot->oversampling_scale);
+		    cairo_set_source_rgb(plot->cr,
+			plot->color.r, plot->color.g, plot->color.b);
+		    cairo_stroke(plot->cr);
+		}
+		cairo_restore(plot->cr);
+		break;
+
+	case 3: /* Change the margin between text and box */
+		bounding_xmargin = (double)x/100.;
+		bounding_ymargin = (double)y/100.;
+		break;
+
+	default:
+		break;
+	}
+}
+#endif
 
 #define PATTERN_SIZE 8
 
@@ -1722,8 +1813,7 @@ void gp_cairo_set_termvar(plot_struct *plot, unsigned int *v_char,
 	desc = pango_font_description_new ();
 	pango_font_description_set_family (desc, plot->fontname);
 	pango_font_description_set_size(desc,(int) (plot->fontsize*PANGO_SCALE*plot->oversampling_scale));
-	pango_font_description_set_weight (desc,
-		plot->fontweight ? PANGO_WEIGHT_BOLD : PANGO_WEIGHT_NORMAL);
+	pango_font_description_set_weight (desc, plot->fontweight);
 	pango_font_description_set_style (desc,
 		plot->fontstyle ? PANGO_STYLE_ITALIC : PANGO_STYLE_NORMAL);
 	pango_layout_set_font_description (layout, desc);
@@ -1752,9 +1842,9 @@ void gp_cairo_set_termvar(plot_struct *plot, unsigned int *v_char,
 void gp_cairo_solid_background(plot_struct *plot)
 {
 	if (cairo_status (plot->cr)) {
-		printf("Cairo is unhappy: %s\n",
+		fprintf(stderr, "Cairo is unhappy: %s\n",
 			cairo_status_to_string (cairo_status (plot->cr)));
-		exit(0);
+		gp_exit(EXIT_FAILURE);
 	}
 	cairo_set_source_rgb(plot->cr, plot->background.r, plot->background.g, plot->background.b);
 	cairo_paint(plot->cr);
@@ -1763,9 +1853,9 @@ void gp_cairo_solid_background(plot_struct *plot)
 void gp_cairo_clear_background(plot_struct *plot)
 {
 	if (cairo_status (plot->cr)) {
-		printf("Cairo is unhappy: %s\n",
+		fprintf(stderr, "Cairo is unhappy: %s\n",
 			cairo_status_to_string (cairo_status (plot->cr)));
-		exit(0);
+		gp_exit(EXIT_FAILURE);
 	}
 	cairo_set_source_rgba(plot->cr, 0.0, 0.0, 0.0, 0.0);
 	cairo_paint(plot->cr);
@@ -1848,6 +1938,7 @@ const char* gp_cairo_get_encoding(plot_struct *plot)
 	case S_ENC_CP850 :  return "cp850";
 	case S_ENC_CP852 :  return "cp852";
 	case S_ENC_CP1250 : return "windows-1250";
+	case S_ENC_CP1252 : return "windows-1252";
 	case S_ENC_KOI8_R : return "KOI8-R";
 	case S_ENC_KOI8_U :  return "KOI8-U";
 	case S_ENC_ISO8859_1 : return "ISO-8859-1";

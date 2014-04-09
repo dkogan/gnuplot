@@ -1,5 +1,5 @@
 %
-% $Id: titlepag.tex,v 1.33 2012/03/09 18:26:39 sfeam Exp $
+% $Id: titlepag.tex,v 1.38 2014/03/22 19:35:23 sfeam Exp $
 %
 
 \ifx\LaTeXe\undefined
@@ -16,7 +16,8 @@
 % see below if you add 11pt or 12pt
    \documentclass[twoside]{article}
    \usepackage{toc_entr}
-   \usepackage[utf8]{inputenc}
+   \usepackage{latexsym}
+   \usepackage[utf8x]{inputenc}
 
   \usepackage[
 % We've given up trying to understand pdftex vs. normal latex.
@@ -31,6 +32,13 @@
   %     ,pdfcreator={}
   %     ,pdfkeywords={...}
   ]{hyperref}
+
+% This replaces the default ugly red boxes around hyperlinks
+   \hypersetup{
+     colorlinks   = true, %Colours links instead of ugly boxes
+     linkcolor    = blue, %Colour of internal links
+     urlcolor     = blue %Colour for external hyperlinks
+   }
 
   \usepackage{fancyhdr}
 
@@ -117,28 +125,30 @@
 
   Version
     \gnuplotVersion
-  organized by: Hans-Bernhard Bröker, Ethan A Merritt, and others\\
+  organized by: Ethan A Merritt and many others\\
 
    \vspace{2ex}
 
   Major contributors (alphabetic order):\\
 
-  Hans-Bernhard Bröker,
-  John Campbell,\\
-  Robert Cunningham,
-  David Denholm,\\
-  Gershon Elber,
-  Roger Fearick,\\
-  Carsten Grammes,
-  Lucas Hart, \\
+  Christoph Bersch,
+  Hans-Bernhard Bröker,\\
+  John Campbell,
+  Robert Cunningham,\\
+  David Denholm,
+  Gershon Elber,\\
+  Roger Fearick,
+  Carsten Grammes,\\
+  Lucas Hart,
   Lars Hecking,
-  Péter Juhász, \\
+  Péter Juhász,\\
   Thomas Koenig,
   David Kotz,\\
   Ed Kubaitis,
-  Russell Lang,\\
-  Timothée Lecomte,
-  Alexander Lehmann,\\
+  Russell Lang,
+  Timothée Lecomte,\\
+  Alexander Lehmann,
+  Jérôme Lodewyck,\\
   Alexander Mai,
   Bastian Märkisch, \\
   Ethan A Merritt,
@@ -151,7 +161,7 @@
   Alex Woo,
   Johannes Zellner\\
   Copyright {\copyright} 1986 - 1993, 1998, 2004   Thomas Williams, Colin Kelley\\
-  Copyright {\copyright} 2004 - 2011  various authors\\
+  Copyright {\copyright} 2004 - 2014  various authors\\
 
   \vspace{2ex}
 
@@ -164,8 +174,8 @@
 
   \vspace{2ex}
 
-%  8 March 2012  Version 4.7
- 2012  Version 4.7 (cvs)
+%  1 April 2014  Version 5.0
+   Version 5.0 (cvs snapshot Mar 2014)
 
    \end{center}
 \newpage

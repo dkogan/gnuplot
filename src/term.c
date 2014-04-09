@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: term.c,v 1.251 2013/03/22 04:46:55 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: term.c,v 1.282 2014/03/21 21:00:10 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - term.c */
@@ -147,7 +147,7 @@ enum set_encoding_id encoding;
 /* table of encoding names, for output of the setting */
 const char *encoding_names[] = {
     "default", "iso_8859_1", "iso_8859_2", "iso_8859_9", "iso_8859_15",
-    "cp437", "cp850", "cp852", "cp950", "cp1250", "cp1251", "cp1254",
+    "cp437", "cp850", "cp852", "cp950", "cp1250", "cp1251", "cp1252", "cp1254",
     "koi8r", "koi8u", "sjis", "utf8", NULL };
 /* 'set encoding' options */
 const struct gen_table set_encoding_tbl[] =
@@ -164,6 +164,7 @@ const struct gen_table set_encoding_tbl[] =
     { "cp950", S_ENC_CP950 },
     { "cp1250", S_ENC_CP1250 },
     { "cp1251", S_ENC_CP1251 },
+    { "cp1252", S_ENC_CP1252 },
     { "cp1254", S_ENC_CP1254 },
     { "koi8$r", S_ENC_KOI8_R },
     { "koi8$u", S_ENC_KOI8_U },
@@ -223,6 +224,7 @@ static void do_point __PROTO((unsigned int x, unsigned int y, int number));
 static void do_pointsize __PROTO((double size));
 static void line_and_point __PROTO((unsigned int x, unsigned int y, int number));
 static void do_arrow __PROTO((unsigned int sx, unsigned int sy, unsigned int ex, unsigned int ey, int head));
+static void null_dashtype __PROTO((int type, t_dashtype *custom_dash_pattern));
 
 static int null_text_angle __PROTO((int ang));
 static int null_justify_text __PROTO((enum JUSTIFY just));
@@ -230,12 +232,15 @@ static int null_scale __PROTO((double x, double y));
 static void null_layer __PROTO((t_termlayer layer));
 static int null_set_font __PROTO((const char *font));
 static void options_null __PROTO((void));
+static void graphics_null __PROTO((void));
 static void UNKNOWN_null __PROTO((void));
 static void MOVE_null __PROTO((unsigned int, unsigned int));
 static void LINETYPE_null __PROTO((int));
 static void PUTTEXT_null __PROTO((unsigned int, unsigned int, const char *));
 
 static int strlen_tex __PROTO((const char *));
+
+static char *stylefont __PROTO((const char *fontname, TBOOLEAN isbold, TBOOLEAN isitalic));
 
 /* Used by terminals and by shared routine parse_term_size() */
 typedef enum {
@@ -246,12 +251,13 @@ typedef enum {
 static size_units parse_term_size __PROTO((float *xsize, float *ysize, size_units def_units));
 
 /*
- * Bookkeeping and support routine for 'set multiplot layout <rows>, <cols>'
+ * Bookkeeping and support routines for 'set multiplot layout <rows>, <cols>'
  * July 2004
  * Volker Dobler <v.dobler@web.de>
  */
 
 static void mp_layout_size_and_offset __PROTO((void));
+static void term_multiplot_next __PROTO((void));
 
 enum set_multiplot_id {
     S_MULTIPLOT_LAYOUT,
@@ -579,6 +585,67 @@ term_start_plot()
 
 }
 
+/* Helper routines */
+void
+term_multiplot_next()
+{
+    mp_layout.current_panel++;
+    if (mp_layout.auto_layout) {
+	if (mp_layout.row_major) {
+	    mp_layout.act_row++;
+	    if (mp_layout.act_row == mp_layout.num_rows) {
+		mp_layout.act_row = 0;
+		mp_layout.act_col++;
+		if (mp_layout.act_col == mp_layout.num_cols) {
+		    /* int_warn(NO_CARET,"will overplot first plot"); */
+		    mp_layout.act_col = 0;
+		}
+	    }
+	} else { /* column-major */
+	    mp_layout.act_col++;
+	    if (mp_layout.act_col == mp_layout.num_cols ) {
+		mp_layout.act_col = 0;
+		mp_layout.act_row++;
+		if (mp_layout.act_row == mp_layout.num_rows ) {
+		    /* int_warn(NO_CARET,"will overplot first plot"); */
+		    mp_layout.act_row = 0;
+		}
+	    }
+	}
+	mp_layout_size_and_offset();
+    }
+}
+
+void
+term_multiplot_previous()
+{
+    mp_layout.current_panel--;
+    if (mp_layout.auto_layout) {
+	if (mp_layout.row_major) {
+	    mp_layout.act_row--;
+	    if (mp_layout.act_row < 0) {
+		mp_layout.act_row = mp_layout.num_rows-1;
+		mp_layout.act_col--;
+		if (mp_layout.act_col < 0) {
+		    /* int_warn(NO_CARET,"will overplot first plot"); */
+		    mp_layout.act_col = mp_layout.num_cols-1;
+		}
+	    }
+	} else { /* column-major */
+	    mp_layout.act_col--;
+	    if (mp_layout.act_col < 0) {
+		mp_layout.act_col = mp_layout.num_cols-1;
+		mp_layout.act_row--;
+		if (mp_layout.act_row < 0) {
+		    /* int_warn(NO_CARET,"will overplot first plot"); */
+		    mp_layout.act_row = mp_layout.num_rows-1;
+		}
+	    }
+	}
+	mp_layout_size_and_offset();
+    }
+}
+
 void
 term_end_plot()
 {
@@ -595,31 +662,7 @@ term_end_plot()
 	(*term->text) ();
 	term_graphics = FALSE;
     } else {
-	mp_layout.current_panel++;
-	if (mp_layout.auto_layout) {
-	    if (mp_layout.row_major) {
-		mp_layout.act_row++;
-		if (mp_layout.act_row == mp_layout.num_rows ) {
-		    mp_layout.act_row = 0;
-		    mp_layout.act_col++;
-		    if (mp_layout.act_col == mp_layout.num_cols ) {
-			/* int_warn(NO_CARET,"will overplot first plot"); */
-			mp_layout.act_col = 0;
-		    }
-		}
-	    } else { /* column-major */
-		mp_layout.act_col++;
-		if (mp_layout.act_col == mp_layout.num_cols ) {
-		    mp_layout.act_col = 0;
-		    mp_layout.act_row++;
-		    if (mp_layout.act_row == mp_layout.num_rows ) {
-			/* int_warn(NO_CARET,"will overplot first plot"); */
-			mp_layout.act_col = 0;
-		    }
-		}
-	    }
-	    mp_layout_size_and_offset();
-	}
+	term_multiplot_next();
     }
 #ifdef VMS
     if (opened_binary)
@@ -641,8 +684,26 @@ term_start_multiplot()
     FPRINTF((stderr, "term_start_multiplot()\n"));
 
     c_token++;
-    if (multiplot)
-	term_end_multiplot();
+
+    /* Only a few options are possible if we are already in multiplot mode */
+    /* So far we have "next".  Maybe also "previous", "clear"? */
+    if (multiplot) {
+	if (equals(c_token, "next")) {
+	    c_token++;
+	    if (!mp_layout.auto_layout)
+		int_error(c_token, "only valid inside an auto-layout multiplot");
+	    term_multiplot_next();
+	    return;
+	} else if (almost_equals(c_token, "prev$ious")) {
+	    c_token++;
+	    if (!mp_layout.auto_layout)
+		int_error(c_token, "only valid inside an auto-layout multiplot");
+	    term_multiplot_previous();
+	    return;
+	} else {
+	    term_end_multiplot();
+	}
+    }
 
     /* FIXME: more options should be reset/initialized each time */
     mp_layout.auto_layout = FALSE;
@@ -715,7 +776,7 @@ term_start_multiplot()
 
 	/* The remaining options are only valid for auto-layout mode */
 	if (!mp_layout.auto_layout)
-	    int_error(c_token, "only valid as part of an auto-layout command");
+	    int_error(c_token, "only valid in the context of an auto-layout command");
 
 	switch(lookup_table(&set_multiplot_tbl[0],c_token)) {
 	    case S_MULTIPLOT_COLUMNSFIRST:
@@ -764,11 +825,14 @@ term_start_multiplot()
 	}
     }
 
-    /* If we reach here, then the command has been successfully parsed */
+    /* If we reach here, then the command has been successfully parsed.
+     * Aug 2013: call term_start_plot() before setting multiplot so that
+     * the wxt and qt terminals will reset the plot count to 0 before
+     * ignoring subsequent TERM_LAYER_RESET requests. 
+     */
+    term_start_plot();
     multiplot = TRUE;
     fill_gpval_integer("GPVAL_MULTIPLOT", 1);
-
-    term_start_plot();
 
     /* Place overall title before doing anything else */
     if (mp_layout.title.text) {
@@ -905,6 +969,8 @@ term_apply_lp_properties(struct lp_style_type *lp)
      */
     t_colorspec colorspec = lp->pm3d_color;
     int lt = lp->l_type;
+	int dt = lp->d_type;
+	t_dashtype custom_dash_pattern = lp->custom_dash_pattern;
 
     if (lp->pointflag) {
 	/* change points, too
@@ -930,13 +996,11 @@ term_apply_lp_properties(struct lp_style_type *lp)
     else
 	(*term->linetype) (lt);
 
-    /* Possibly override the linetype color with a fancier colorspec */
-    if (!lp->use_palette) {
-	if ((term->flags & TERM_MONOCHROME) != 0)
-	    return;
-	colorspec.type = TC_LT;
-	colorspec.lt = lt;
-    }
+    /* Apply dashtype, which may override dot/dash pattern defined by 
+	 * linetype, possibly with a custom dash pattern */
+
+    (*term->dashtype) (dt, (dt == DASHTYPE_CUSTOM) ? &custom_dash_pattern : NULL);
+
     apply_pm3dcolor(&colorspec, term);
 }
 
@@ -1183,7 +1247,8 @@ line_and_point(unsigned int x, unsigned int y, int number)
 int curr_arrow_headlength; /* access head length + angle without changing API */
 double curr_arrow_headangle;    /* angle in degrees */
 double curr_arrow_headbackangle;  /* angle in degrees */
-int curr_arrow_headfilled;      /* arrow head filled or not */
+arrowheadfill curr_arrow_headfilled;      /* arrow head filled or not */
+TBOOLEAN curr_arrow_headfixedsize;        /* Adapt the head size for short arrows or not */
 
 static void
 do_arrow(
@@ -1204,7 +1269,7 @@ do_arrow(
     double dx = sx - ex;
     double dy = sy - ey;
     double len_arrow = sqrt(dx * dx + dy * dy);
-    gpiPoint filledhead[5];
+    gpiPoint head_points[5];
     int xm = 0, ym = 0;
     BoundingBox *clip_save;
     t_arrow_head head = (t_arrow_head)((headstyle < 0) ? -headstyle : headstyle);
@@ -1249,7 +1314,7 @@ do_arrow(
 	    double dx2, dy2;
 
 	    effective_length = curr_arrow_headlength;
-	    if (curr_arrow_headlength > len_arrow/2.) {
+	    if (!curr_arrow_headfixedsize && (curr_arrow_headlength > len_arrow/2.)) {
 		effective_length = len_arrow/2.;
 		alpha = atan(tan(alpha)*((double)curr_arrow_headlength/effective_length));
 		beta = atan(tan(beta)*((double)curr_arrow_headlength/effective_length));
@@ -1269,64 +1334,54 @@ do_arrow(
 	    ym = (int) (dy2 + backlen*effective_length * sin( phi + beta ));
 	}
 
-	if (head & END_HEAD) {
-	    if (curr_arrow_headfilled==2 && !clip_point(ex,ey)) {
+	if ((head & END_HEAD) && !clip_point(ex, ey)) {
+	    head_points[0].x = ex + xm;
+	    head_points[0].y = ey + ym;
+	    head_points[1].x = ex + x1;
+	    head_points[1].y = ey + y1;
+	    head_points[2].x = ex;
+	    head_points[2].y = ey;
+	    head_points[3].x = ex + x2;
+	    head_points[3].y = ey + y2;
+	    head_points[4].x = ex + xm;
+	    head_points[4].y = ey + ym;
+	    if (curr_arrow_headfilled >= AS_FILLED) {
 		/* draw filled forward arrow head */
-		filledhead[0].x = ex + xm;
-		filledhead[0].y = ey + ym;
-		filledhead[1].x = ex + x1;
-		filledhead[1].y = ey + y1;
-		filledhead[2].x = ex;
-		filledhead[2].y = ey;
-		filledhead[3].x = ex + x2;
-		filledhead[3].y = ey + y2;
-		filledhead[4].x = ex + xm;
-		filledhead[4].y = ey + ym;
-		filledhead->style = FS_OPAQUE;
+		head_points->style = FS_OPAQUE;
 		if (t->filled_polygon)
-		    (*t->filled_polygon) (5, filledhead);
+		    (*t->filled_polygon) (5, head_points);
 	    }
 	    /* draw outline of forward arrow head */
-	    if (clip_point(ex,ey))
-		;
-	    else if (curr_arrow_headfilled!=0) {
-		draw_clip_line(ex+xm, ey+ym, ex+x1, ey+y1);
-		draw_clip_line(ex+x1, ey+y1, ex, ey);
-		draw_clip_line(ex, ey, ex+x2, ey+y2);
-		draw_clip_line(ex+x2, ey+y2, ex+xm, ey+ym);
-	    } else {
-		draw_clip_line(ex+x1, ey+y1, ex, ey);
-		draw_clip_line(ex, ey, ex+x2, ey+y2);
+	    if (curr_arrow_headfilled == AS_NOFILL) {
+		draw_clip_polygon(3, head_points+1);
+	    } else if (curr_arrow_headfilled != AS_NOBORDER) {
+		draw_clip_polygon(5, head_points);
 	    }
 	}
 
 	/* backward arrow head */
 	if ((head & BACKHEAD) && !clip_point(sx,sy)) {
-	    if (curr_arrow_headfilled==2) {
+	    head_points[0].x = sx - xm;
+	    head_points[0].y = sy - ym;
+	    head_points[1].x = sx - x1;
+	    head_points[1].y = sy - y1;
+	    head_points[2].x = sx;
+	    head_points[2].y = sy;
+	    head_points[3].x = sx - x2;
+	    head_points[3].y = sy - y2;
+	    head_points[4].x = sx - xm;
+	    head_points[4].y = sy - ym;
+	    if (curr_arrow_headfilled >= AS_FILLED) {
 		/* draw filled backward arrow head */
-		filledhead[0].x = sx - xm;
-		filledhead[0].y = sy - ym;
-		filledhead[1].x = sx - x1;
-		filledhead[1].y = sy - y1;
-		filledhead[2].x = sx;
-		filledhead[2].y = sy;
-		filledhead[3].x = sx - x2;
-		filledhead[3].y = sy - y2;
-		filledhead[4].x = sx - xm;
-		filledhead[4].y = sy - ym;
-		filledhead->style = FS_OPAQUE;
+		head_points->style = FS_OPAQUE;
 		if (t->filled_polygon)
-		    (*t->filled_polygon) (5, filledhead);
+		    (*t->filled_polygon) (5, head_points);
 	    }
 	    /* draw outline of backward arrow head */
-	    if (curr_arrow_headfilled!=0) {
-		draw_clip_line(sx-xm, sy-ym, sx-x2, sy-y2);
-		draw_clip_line(sx-x2, sy-y2, sx, sy);
-		draw_clip_line(sx, sy, sx-x1, sy-y1);
-		draw_clip_line(sx-x1, sy-y1, sx-xm, sy-ym);
-	    } else {
-		draw_clip_line(sx-x2, sy-y2, sx, sy);
-		draw_clip_line(sx, sy, sx-x1, sy-y1);
+	    if (curr_arrow_headfilled == AS_NOFILL) {
+		draw_clip_polygon(3, head_points+1);
+	    } else if (curr_arrow_headfilled != AS_NOBORDER) {
+		draw_clip_polygon(5, head_points);
 	    }
 	}
     }
@@ -1334,12 +1389,12 @@ do_arrow(
     /* Draw the line for the arrow. */
     if (headstyle >= 0) {
 	if ((head & BACKHEAD)
-	&&  (fabs(len_arrow) >= DBL_EPSILON) && (curr_arrow_headfilled!=0) ) {
+	&&  (fabs(len_arrow) >= DBL_EPSILON) && (curr_arrow_headfilled != AS_NOFILL) ) {
 	    sx -= xm;
 	    sy -= ym;
 	}
 	if ((head & END_HEAD)
-	&&  (fabs(len_arrow) >= DBL_EPSILON) && (curr_arrow_headfilled!=0) ) {
+	&&  (fabs(len_arrow) >= DBL_EPSILON) && (curr_arrow_headfilled != AS_NOFILL) ) {
 	    ex += xm;
 	    ey += ym;
 	}
@@ -1388,6 +1443,10 @@ do_arc(
 
     /* Calculate the vertices */
     aspect = (double)term->v_tic / (double)term->h_tic;
+#ifdef WIN32
+    if (strcmp(term->name, "windows") == 0)
+	aspect = 1.;
+#endif
     for (i=0; i<segments; i++) {
 	vertex[i].x = cx + cos(DEG2RAD * (arc_start + i*INC)) * radius;
 	vertex[i].y = cy + sin(DEG2RAD * (arc_start + i*INC)) * radius * aspect;
@@ -1407,23 +1466,10 @@ do_arc(
 	complete_circle = TRUE;
 
     if (style) { /* Fill in the center */
-	/* EAM DEBUG - Do proper clipping */
 	gpiPoint fillarea[250];
-	int xcent, ycent, in;
-	for (i=0, in=0; i<segments; i++) {
-	    xcent = cx; ycent = cy;
-	    fillarea[in] = vertex[i];
-	    if (clip_line(&xcent, &ycent, &fillarea[in].x, &fillarea[in].y))
-		in++;
-	}
-	if (clip_point(cx,cy))
-	    for (i=segments-1; i>=0; i--) {
-		fillarea[in+1] = vertex[i];
-		fillarea[in].x = cx; fillarea[in].y = cy;
-		if (0 > clip_line(&fillarea[in+1].x, &fillarea[in+1].y,
-				  &fillarea[in].x, &fillarea[in].y))
-		    in++;
-	    }
+	int in;
+
+	clip_polygon(vertex, fillarea, segments, &in);
 	fillarea[0].style = style;
 	if (term->filled_polygon)
 	    term->filled_polygon(in, fillarea);
@@ -1431,9 +1477,7 @@ do_arc(
     } else { /* Draw the arc */
 	if (!wedge && !complete_circle)
 	    segments -= 2;
-	for (i=0; i<segments; i++)
-	    draw_clip_line( vertex[i].x, vertex[i].y,
-		vertex[i+1].x, vertex[i+1].y );
+	draw_clip_polygon(segments+1, vertex);
     }
 }
 #endif /* EAM_OBJECTS */
@@ -1501,6 +1545,14 @@ options_null()
 }
 
 static void
+graphics_null()
+{
+    fprintf(stderr,
+            "WARNING: Plotting with an 'unknown' terminal.\n"
+            "No output will be generated. Please select a terminal with 'set terminal'.\n");
+}
+
+static void
 UNKNOWN_null()
 {
 }
@@ -1540,6 +1592,20 @@ null_set_font(const char *font)
     return FALSE;		/* Never used!! */
 }
 
+static void
+null_set_color(struct t_colorspec *colorspec)
+{
+    if (colorspec->type == TC_LT)
+	term->linetype(colorspec->lt);
+}
+
+static void
+null_dashtype(int type, t_dashtype *custom_dash_pattern)
+{
+	(void) type;
+	(void) custom_dash_pattern;
+}
+
 /* setup the magic macros to compile in the right parts of the
  * terminal drivers included by term.h
  */
@@ -1557,7 +1623,7 @@ static struct termentry term_tbl[] =
     {"unknown", "Unknown terminal type - not a plotting device",
      100, 100, 1, 1,
      1, 1, options_null, UNKNOWN_null, UNKNOWN_null,
-     UNKNOWN_null, null_scale, UNKNOWN_null, MOVE_null, MOVE_null,
+     UNKNOWN_null, null_scale, graphics_null, MOVE_null, MOVE_null,
      LINETYPE_null, PUTTEXT_null}
 
 #include "term.h"
@@ -1640,13 +1706,13 @@ set_term()
 
     if (!END_OF_COMMAND) {
 	input_name = gp_input_line + token[c_token].start_index;
-    	t = change_term(input_name, token[c_token].length);
+	t = change_term(input_name, token[c_token].length);
 	if (!t && isstringvalue(c_token)) {
 	    input_name = try_to_get_string();  /* Cannot fail if isstringvalue succeeded */
 	    t = change_term(input_name, strlen(input_name));
 	    free(input_name);
 	} else {
-    	    c_token++;
+	    c_token++;
 	}
     }
 
@@ -1729,6 +1795,12 @@ change_term(const char *origname, int length)
 	term->tscale = 1.0;
     if (term->set_font == 0)
 	term->set_font = null_set_font;
+    if (term->set_color == 0) {
+	term->set_color = null_set_color;
+	term->flags |= TERM_NULL_SET_COLOR;
+    }
+    if (term->dashtype == 0)
+	term->dashtype = null_dashtype;
 
     if (interactive)
 	fprintf(stderr, "Terminal type set to '%s'\n", term->name);
@@ -1809,7 +1881,7 @@ init_terminal()
 		term_name = "win";
 #endif /* _Windows */
 
-#if defined(__APPLE__) && defined(__MACH__) && defined(HAVE_LIBAQUATERM)
+#if defined(__APPLE__) && defined(__MACH__) && defined(HAVE_FRAMEWORK_AQUATERM)
 	/* Mac OS X with AquaTerm installed */
 	term_name = "aqua";
 #endif
@@ -1825,12 +1897,6 @@ init_terminal()
 	if (X11_Display)
 	    term_name = "x11";
 #endif /* x11 */
-
-#ifdef UNIXPC
-	if (iswind() == 0) {
-	    term_name = "unixpc";
-	}
-#endif /* unixpc */
 
 #ifdef DJGPP
 	term_name = "svga";
@@ -1903,7 +1969,7 @@ test_term()
     struct termentry *t = term;
     const char *str;
     int x, y, xl, yl, i;
-    unsigned int xmax_t, ymax_t;
+    unsigned int xmax_t, ymax_t, x0, y0;
     char label[MAX_ID_LEN];
     int key_entry_height;
     int p_width;
@@ -1917,6 +1983,8 @@ test_term()
     screen_ok = FALSE;
     xmax_t = (unsigned int) (t->xmax * xsize);
     ymax_t = (unsigned int) (t->ymax * ysize);
+    x0 = (unsigned int) (xoffset * t->xmax);
+    y0 = (unsigned int) (yoffset * t->ymax);
 
     p_width = pointsize * t->h_tic;
     key_entry_height = pointsize * t->v_tic * 1.25;
@@ -1930,11 +1998,11 @@ test_term()
     (*t->linewidth) (1.0);
     (*t->linetype) (LT_BLACK);
     newpath();
-    (*t->move) (0, 0);
-    (*t->vector) (xmax_t - 1, 0);
-    (*t->vector) (xmax_t - 1, ymax_t - 1);
-    (*t->vector) (0, ymax_t - 1);
-    (*t->vector) (0, 0);
+    (*t->move) (x0, y0);
+    (*t->vector) (x0 + xmax_t - 1, y0);
+    (*t->vector) (x0 + xmax_t - 1, y0 + ymax_t - 1);
+    (*t->vector) (x0, y0 + ymax_t - 1);
+    (*t->vector) (x0, y0);
     closepath();
     (*t->linetype)(0);
 
@@ -1946,39 +2014,39 @@ test_term()
 	strcpy(tbuf,term->name);
 	strcat(tbuf,"  terminal test");
 	(void) (*t->justify_text) (LEFT);
-	(*t->put_text) (t->h_char * 2, ymax_t - t->v_char * 0.5, tbuf);
+	(*t->put_text) (x0 + t->h_char * 2, y0 + ymax_t - t->v_char * 0.5, tbuf);
     }
 
 #ifdef USE_MOUSE
     if (t->set_ruler) {
-	(*t->put_text) (t->h_char * 5, ymax_t - t->v_char * 3, "Mouse and hotkeys are supported, hit: h r m 6");
+	(*t->put_text) (x0 + t->h_char * 5, y0 + ymax_t - t->v_char * 3, "Mouse and hotkeys are supported, hit: h r m 6");
     }
 #endif
     (*t->linetype)(LT_BLACK);
     (*t->linetype) (LT_AXIS);
-    (*t->move) (xmax_t / 2, 0);
-    (*t->vector) (xmax_t / 2, ymax_t - 1);
-    (*t->move) (0, ymax_t / 2);
-    (*t->vector) (xmax_t - 1, ymax_t / 2);
+    (*t->move) (x0 + xmax_t / 2, y0);
+    (*t->vector) (x0 + xmax_t / 2, y0 + ymax_t - 1);
+    (*t->move) (x0, y0 + ymax_t / 2);
+    (*t->vector) (x0 + xmax_t - 1, y0 + ymax_t / 2);
     /* test width and height of characters */
     (*t->linetype) (3);
     newpath();
-    (*t->move) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 + t->v_char / 2);
-    (*t->vector) (xmax_t / 2 + t->h_char * 10, ymax_t / 2 + t->v_char / 2);
-    (*t->vector) (xmax_t / 2 + t->h_char * 10, ymax_t / 2 - t->v_char / 2);
-    (*t->vector) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 - t->v_char / 2);
-    (*t->vector) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 + t->v_char / 2);
+    (*t->move) (x0 + xmax_t / 2 - t->h_char * 10, y0 + ymax_t / 2 + t->v_char / 2);
+    (*t->vector) (x0 + xmax_t / 2 + t->h_char * 10, y0 + ymax_t / 2 + t->v_char / 2);
+    (*t->vector) (x0 + xmax_t / 2 + t->h_char * 10, y0 + ymax_t / 2 - t->v_char / 2);
+    (*t->vector) (x0 + xmax_t / 2 - t->h_char * 10, y0 + ymax_t / 2 - t->v_char / 2);
+    (*t->vector) (x0 + xmax_t / 2 - t->h_char * 10, y0 + ymax_t / 2 + t->v_char / 2);
     closepath();
-    (*t->put_text) (xmax_t / 2 - t->h_char * 10, ymax_t / 2,
+    (*t->put_text) (x0 + xmax_t / 2 - t->h_char * 10, y0 + ymax_t / 2,
 		    "12345678901234567890");
-    (*t->put_text) (xmax_t / 2 - t->h_char * 10, ymax_t / 2 + t->v_char * 1.4,
+    (*t->put_text) (x0 + xmax_t / 2 - t->h_char * 10, y0 + ymax_t / 2 + t->v_char * 1.4,
 		    "test of character width:");
     (*t->linetype) (LT_BLACK);
 
     /* Test for enhanced text */
     if (t->flags & TERM_ENHANCED_TEXT) {
 	char *tmptext = gp_strdup("Enhanced text:   {x@_{0}^{n+1}}");
-	(*t->put_text) (xmax_t * 0.5, ymax_t * 0.40, tmptext);
+	(*t->put_text) (x0 + xmax_t * 0.5, y0 + ymax_t * 0.40, tmptext);
 	free(tmptext);
 	if (!already_in_enhanced_text_mode)
 	    do_string("set termopt noenh");
@@ -1986,42 +2054,42 @@ test_term()
 
     /* test justification */
     (void) (*t->justify_text) (LEFT);
-    (*t->put_text) (xmax_t / 2, ymax_t / 2 + t->v_char * 6, "left justified");
+    (*t->put_text) (x0 + xmax_t / 2, y0 + ymax_t / 2 + t->v_char * 6, "left justified");
     str = "centre+d text";
     if ((*t->justify_text) (CENTRE))
-	(*t->put_text) (xmax_t / 2,
-			ymax_t / 2 + t->v_char * 5, str);
+	(*t->put_text) (x0 + xmax_t / 2,
+			y0 + ymax_t / 2 + t->v_char * 5, str);
     else
-	(*t->put_text) (xmax_t / 2 - strlen(str) * t->h_char / 2,
-			ymax_t / 2 + t->v_char * 5, str);
+	(*t->put_text) (x0 + xmax_t / 2 - strlen(str) * t->h_char / 2,
+			y0 + ymax_t / 2 + t->v_char * 5, str);
     str = "right justified";
     if ((*t->justify_text) (RIGHT))
-	(*t->put_text) (xmax_t / 2,
-			ymax_t / 2 + t->v_char * 4, str);
+	(*t->put_text) (x0 + xmax_t / 2,
+			y0 + ymax_t / 2 + t->v_char * 4, str);
     else
-	(*t->put_text) (xmax_t / 2 - strlen(str) * t->h_char,
-			ymax_t / 2 + t->v_char * 4, str);
+	(*t->put_text) (x0 + xmax_t / 2 - strlen(str) * t->h_char,
+			y0 + ymax_t / 2 + t->v_char * 4, str);
     /* test text angle */
     (*t->linetype)(1);
     str = "rotated ce+ntred text";
     if ((*t->text_angle) (TEXT_VERTICAL)) {
 	if ((*t->justify_text) (CENTRE))
-	    (*t->put_text) (t->v_char,
-			    ymax_t / 2, str);
+	    (*t->put_text) (x0 + t->v_char,
+			    y0 + ymax_t / 2, str);
 	else
-	    (*t->put_text) (t->v_char,
-			    ymax_t / 2 - strlen(str) * t->h_char / 2, str);
+	    (*t->put_text) (x0 + t->v_char,
+			    y0 + ymax_t / 2 - strlen(str) * t->h_char / 2, str);
 	(*t->justify_text) (LEFT);
 	str = " rotated by +45 deg";
 	(*t->text_angle)(45);
-	(*t->put_text)(t->v_char * 3, ymax_t / 2, str);
+	(*t->put_text)(x0 + t->v_char * 3, y0 + ymax_t / 2, str);
 	(*t->justify_text) (LEFT);
 	str = " rotated by -45 deg";
 	(*t->text_angle)(-45);
-	(*t->put_text)(t->v_char * 2, ymax_t / 2, str);
+	(*t->put_text)(x0 + t->v_char * 2, y0 + ymax_t / 2, str);
     } else {
 	(void) (*t->justify_text) (LEFT);
-	(*t->put_text) (t->h_char * 2, ymax_t / 2 - t->v_char * 2, "can't rotate text");
+	(*t->put_text) (x0 + t->h_char * 2, y0 + ymax_t / 2 - t->v_char * 2, "can't rotate text");
     }
     (void) (*t->justify_text) (LEFT);
     (void) (*t->text_angle) (0);
@@ -2029,30 +2097,30 @@ test_term()
 
     /* test tic size */
     (*t->linetype)(4);
-    (*t->move) ((unsigned int) (xmax_t / 2 + t->h_tic * (1 + axis_array[FIRST_X_AXIS].ticscale)), (unsigned int) ymax_t - 1);
-    (*t->vector) ((unsigned int) (xmax_t / 2 + t->h_tic * (1 + axis_array[FIRST_X_AXIS].ticscale)),
-		  (unsigned int) (ymax_t - axis_array[FIRST_X_AXIS].ticscale * t->v_tic));
-    (*t->move) ((unsigned int) (xmax_t / 2), (unsigned int) (ymax_t - t->v_tic * (1 + axis_array[FIRST_X_AXIS].ticscale)));
-    (*t->vector) ((unsigned int) (xmax_t / 2 + axis_array[FIRST_X_AXIS].ticscale * t->h_tic),
-		  (unsigned int) (ymax_t - t->v_tic * (1 + axis_array[FIRST_X_AXIS].ticscale)));
+    (*t->move) ((unsigned int) (x0 + xmax_t / 2 + t->h_tic * (1 + axis_array[FIRST_X_AXIS].ticscale)), y0 + (unsigned int) ymax_t - 1);
+    (*t->vector) ((unsigned int) (x0 + xmax_t / 2 + t->h_tic * (1 + axis_array[FIRST_X_AXIS].ticscale)),
+		  (unsigned int) (y0 + ymax_t - axis_array[FIRST_X_AXIS].ticscale * t->v_tic));
+    (*t->move) ((unsigned int) (x0 + xmax_t / 2), y0 + (unsigned int) (ymax_t - t->v_tic * (1 + axis_array[FIRST_X_AXIS].ticscale)));
+    (*t->vector) ((unsigned int) (x0 + xmax_t / 2 + axis_array[FIRST_X_AXIS].ticscale * t->h_tic),
+		  (unsigned int) (y0 + ymax_t - t->v_tic * (1 + axis_array[FIRST_X_AXIS].ticscale)));
     /* HBB 19990530: changed this to use right-justification, if possible... */
     str = "show ticscale";
     if ((*t->justify_text) (RIGHT))
-	(*t->put_text) ((unsigned int) (xmax_t / 2 - 1* t->h_char),
-			(unsigned int) (ymax_t - (t->v_tic * 2 + t->v_char / 2)),
+	(*t->put_text) (x0 + (unsigned int) (xmax_t / 2 - 1* t->h_char),
+			y0 + (unsigned int) (ymax_t - (t->v_tic * 2 + t->v_char / 2)),
 		    str);
     else
-	(*t->put_text) ((unsigned int) (xmax_t / 2 - (strlen(str)+1)     * t->h_char),
-			(unsigned int) (ymax_t - (t->v_tic * 2 + t->v_char / 2)),
+	(*t->put_text) (x0 + (unsigned int) (xmax_t / 2 - (strlen(str)+1) * t->h_char),
+			y0 + (unsigned int) (ymax_t - (t->v_tic * 2 + t->v_char / 2)),
 			str);
     (void) (*t->justify_text) (LEFT);
     (*t->linetype)(LT_BLACK);
 
     /* test line and point types */
-    x = xmax_t - t->h_char * 6 - p_width;
-    y = ymax_t - key_entry_height;
+    x = x0 + xmax_t - t->h_char * 6 - p_width;
+    y = y0 + ymax_t - key_entry_height;
     (*t->pointsize) (pointsize);
-    for (i = -2; y > key_entry_height; i++) {
+    for (i = -2; y > y0 + key_entry_height; i++) {
 	struct lp_style_type ls = DEFAULT_LP_STYLE_TYPE;
 	ls.l_width = 1;
 	load_linetype(&ls,i+1);
@@ -2073,33 +2141,33 @@ test_term()
     /* test some arrows */
     (*t->linewidth) (1.0);
     (*t->linetype) (0);
-    x = xmax_t * .375;
-    y = ymax_t * .250;
+    x = x0 + xmax_t * .375;
+    y = y0 + ymax_t * .250;
     xl = t->h_tic * 7;
     yl = t->v_tic * 7;
     i = curr_arrow_headfilled;
-    curr_arrow_headfilled = 0;
+    curr_arrow_headfilled = AS_NOFILL;
     (*t->arrow) (x, y, x + xl, y, END_HEAD);
     curr_arrow_headfilled = 1;
     (*t->arrow) (x, y, x - xl, y, END_HEAD);
     curr_arrow_headfilled = 2;
     (*t->arrow) (x, y, x, y + yl, END_HEAD);
-    curr_arrow_headfilled = 1;		/* Was 3, but no terminals implement it */
+    curr_arrow_headfilled = AS_EMPTY;
     (*t->arrow) (x, y, x, y - yl, END_HEAD);
     curr_arrow_headfilled = i;
     xl = t->h_tic * 5;
     yl = t->v_tic * 5;
     (*t->arrow) (x - xl, y - yl, x + xl, y + yl, END_HEAD | BACKHEAD);
     (*t->arrow) (x - xl, y + yl, x, y, NOHEAD);
-    curr_arrow_headfilled = 1;		/* Was 3, but no terminals implement it */
+    curr_arrow_headfilled = AS_EMPTY;
     (*t->arrow) (x, y, x + xl, y - yl, BACKHEAD);
 
     /* test line widths */
     (void) (*t->justify_text) (LEFT);
     xl = xmax_t / 10;
     yl = ymax_t / 25;
-    x = xmax_t * .075;
-    y = yl;
+    x = x0 + xmax_t * .075;
+    y = y0 + yl;
 
     for (i=1; i<7; i++) {
 	(*t->linewidth) ((float)(i)); (*t->linetype)(LT_BLACK);
@@ -2111,14 +2179,14 @@ test_term()
     (*t->put_text) (x, y, "linewidth");
 
     /* test fill patterns */
-    x = xmax_t * 0.5;
-    y = 0;
+    x = x0 + xmax_t * 0.5;
+    y = y0;
     xl = xmax_t / 40;
     yl = ymax_t / 8;
     (*t->linewidth) ((float)(1));
     (*t->linetype)(LT_BLACK);
     (*t->justify_text) (CENTRE);
-    (*t->put_text)(x+xl*7, yl+t->v_char*1.5, "pattern fill");
+    (*t->put_text)(x+xl*7, y + yl+t->v_char*1.5, "pattern fill");
     for (i=0; i<10; i++) {
 	int style = ((i<<4) + FS_PATTERN);
 	if (t->fillbox)
@@ -2136,8 +2204,8 @@ test_term()
     }
 
     {
-	int cen_x = (int)(0.70 * xmax_t);
-	int cen_y = (int)(0.83 * ymax_t);
+	int cen_x = x0 + (int)(0.70 * xmax_t);
+	int cen_y = y0 + (int)(0.83 * ymax_t);
 	int radius = xmax_t / 20;
 
 	/* test pm3d -- filled_polygon(), but not set_color() */
@@ -2208,8 +2276,10 @@ vms_init()
     /* Save terminal characteristics in old_char_buf and
        initialise cur_char_buf to current settings. */
     int i;
+#ifdef X11
     if (getenv("DECW$DISPLAY"))
 	return ("x11");
+#endif
     atexit(vms_reset);
     sys$assign(&sysoutput_desc, &chan, 0, 0);
     sys$qiow(0, chan, IO$_SENSEMODE, 0, 0, 0, old_char_buf, 12, 0, 0, 0, 0);
@@ -2411,9 +2481,9 @@ do_enh_writec(int c)
  *              (overprinted text is centered horizontally on underprinted text
  */
 
-char *
+const char *
 enhanced_recursion(
-    char *p,
+    const char *p,
     TBOOLEAN brace,
     char *fontname,
     double fontsize,
@@ -2422,7 +2492,14 @@ enhanced_recursion(
     TBOOLEAN showflag,
     int overprint)
 {
-    ENH_DEBUG(("RECURSE WITH [%p] \"%s\", %d %s %.1f %.1f %d %d %d\n", p, p, brace, fontname, fontsize, base, widthflag, showflag, overprint));
+    TBOOLEAN wasitalic, wasbold;
+
+    /* Keep track of the style of the font passed in at this recursion level */
+    wasitalic = (strstr(fontname, ":Italic") != NULL);
+    wasbold = (strstr(fontname, ":Bold") != NULL);
+
+    FPRINTF((stderr, "RECURSE WITH \"%s\", %d %s %.1f %.1f %d %d %d",
+		p, brace, fontname, fontsize, base, widthflag, showflag, overprint));
 
     /* Start each recursion with a clean string */
     (term->enhanced_flush)();
@@ -2489,9 +2566,15 @@ enhanced_recursion(
 	    /*}}}*/
 	case '{'  :
 	    {
-		char *savepos = NULL, save = 0;
-		char *localfontname = fontname, ch;
+		TBOOLEAN isitalic = FALSE, isbold = FALSE, isnormal = FALSE;
+		const char *start_of_fontname = NULL;
+		const char *end_of_fontname = NULL;
+		char *localfontname = NULL;
+		char ch;
 		float f = fontsize, ovp;
+
+		/* Mar 2014 - this will hold "fontfamily{:Italic}{:Bold}" */
+		char *styledfontname = NULL;
 
 		/*{{{  recurse (possibly with a new font) */
 
@@ -2500,7 +2583,9 @@ enhanced_recursion(
 		/* get vertical offset (if present) for overprinted text */
 		while (*++p == ' ');
 		if (overprint == 2) {
-		    ovp = (float)strtod(p,&p);
+		    char *end;
+		    ovp = (float)strtod(p,&end);
+		    p = end;
 		    if (term->flags & TERM_IS_POSTSCRIPT)
 			base = ovp*f;
 		    else
@@ -2516,65 +2601,87 @@ enhanced_recursion(
 			while (*++p == ' ')
 			    ;   /* do nothing */
 		    }
-		    localfontname = p;
-		    while ((ch = *p) > ' ' && ch != '=' && ch != '*' && ch != '}')
+		    start_of_fontname = p;
+		    while ((ch = *p) > ' ' && ch != '=' && ch != '*' && ch != '}' && ch != ':')
 			++p;
-		    save = *(savepos=p);
-		    if (ch == '=') {
-			*p++ = '\0';
-			/*{{{  get optional font size*/
-			ENH_DEBUG(("Calling strtod(\"%s\") ...", p));
-			f = (float)strtod(p, &p);
-			ENH_DEBUG(("Returned %.1f and \"%s\"\n", f, p));
+		    end_of_fontname = p;
+		    do {
+			if (ch == '=') {
+			    /* get optional font size */
+			    char *end;
+			    p++;
+			    ENH_DEBUG(("Calling strtod(\"%s\") ...", p));
+			    f = (float)strtod(p, &end);
+			    p = end;
+			    ENH_DEBUG(("Returned %.1f and \"%s\"\n", f, p));
 
-			if (f == 0)
-			    f = fontsize;
-			else
-			    f *= enhanced_fontscale;  /* remember the scaling */
+			    if (f == 0)
+				f = fontsize;
+			    else
+				f *= enhanced_fontscale;  /* remember the scaling */
 
-			ENH_DEBUG(("Font size %.1f\n", f));
-			/*}}}*/
-		    } else if (ch == '*') {
-			*p++ = '\0';
-			/*{{{  get optional font size scale factor*/
-			ENH_DEBUG(("Calling strtod(\"%s\") ...", p));
-			f = (float)strtod(p, &p);
-			ENH_DEBUG(("Returned %.1f and \"%s\"\n", f, p));
+			    ENH_DEBUG(("Font size %.1f\n", f));
+			} else if (ch == '*') {
+			    /* get optional font size scale factor */
+			    char *end;
+			    p++;
+			    ENH_DEBUG(("Calling strtod(\"%s\") ...", p));
+			    f = (float)strtod(p, &end);
+			    p = end;
+			    ENH_DEBUG(("Returned %.1f and \"%s\"\n", f, p));
 
-			if (f)
-			    f *= fontsize;  /* apply the scale factor */
-			else
-			    f = fontsize;
+			    if (f)
+				f *= fontsize;  /* apply the scale factor */
+			    else
+				f = fontsize;
 
-			ENH_DEBUG(("Font size %.1f\n", f));
-			/*}}}*/
-		    } else if (ch == '}') {
+			    ENH_DEBUG(("Font size %.1f\n", f));
+			} else if (ch == ':') {
+			    /* get optional style markup attributes */
+			    p++;
+			    if (!strncmp(p,"Bold",4))
+				isbold = TRUE;
+			    if (!strncmp(p,"Italic",6))
+				isitalic = TRUE;
+			    if (!strncmp(p,"Normal",6))
+				isnormal = TRUE;
+			    while (isalpha(*p)) {p++;}
+			}
+		    } while (((ch = *p) == '=') || (ch == ':') || (ch == '*'));
+
+		    if (ch == '}')
 			int_warn(NO_CARET,"bad syntax in enhanced text string");
-			*p++ = '\0';
-		    } else {
-			*p++ = '\0';
-			f = fontsize;
-		    }
 
 		    while (*p == ' ')
 			++p;
-		    if (! *localfontname)
-			localfontname = fontname;
+		    if (!start_of_fontname || (start_of_fontname == end_of_fontname)) {
+			/* Use the font name passed in to us */
+			localfontname = gp_strdup(fontname);
+		    } else {
+			/* We found a new font name {/Font ...} */
+			int len = end_of_fontname - start_of_fontname;
+			localfontname = gp_alloc(len+1,"localfontname");
+			strncpy(localfontname, start_of_fontname, len);
+			localfontname[len] = '\0';
+		    }
 		}
 		/*}}}*/
 
-		ENH_DEBUG(("Before recursing, we are at [%p] \"%s\"\n", p, p));
+		/* Collect cumulative style markup before passing it in the font name */
+		isitalic = (wasitalic || isitalic) && !isnormal;
+		isbold = (wasbold || isbold) && !isnormal;
 
-		p = enhanced_recursion(p, TRUE, localfontname, f, base,
+		styledfontname = stylefont(localfontname ? localfontname : fontname,
+					    isbold, isitalic);
+
+		p = enhanced_recursion(p, TRUE, styledfontname, f, base,
 				  widthflag, showflag, overprint);
-
-		ENH_DEBUG(("BACK WITH \"%s\"\n", p));
 
 		(term->enhanced_flush)();
 
-		if (savepos)
-		    /* restore overwritten character */
-		    *savepos = save;
+		free(styledfontname);
+		free(localfontname);
+
 		break;
 	    } /* case '{' */
 	case '@' :
@@ -2708,6 +2815,26 @@ enhanced_recursion(
 
     (term->enhanced_flush)();
     return p;
+}
+
+/* Strip off anything trailing the requested font name,
+ * then add back markup requests.
+ */
+char *
+stylefont(const char *fontname, TBOOLEAN isbold, TBOOLEAN isitalic)
+{
+    char *div;
+    char *markup = gp_alloc( strlen(fontname) + 16, "font markup");
+    strcpy(markup, fontname);
+    if ((div = strchr(markup,':')))
+	*div = '\0';
+    if (isbold)
+	strcat(markup, ":Bold");
+    if (isitalic)
+	strcat(markup, ":Italic");
+
+    FPRINTF((stderr, "MARKUP FONT: %s -> %s\n", fontname, markup));
+    return markup;
 }
 
 /* Called after the end of recursion to check for errors */
@@ -2919,6 +3046,35 @@ style_from_fill(struct fill_style_type *fs)
 }
 
 
+/*
+ * Load dt with the properties of a user-defined dashtype
+ * return d_type (can be SOLID or CUSTOM, 
+ * or a positive number if no user-defined dashtype was found)
+ */
+int
+load_dashtype(struct t_dashtype *dt, int tag)
+{
+    struct custom_dashtype_def *this;
+	struct t_dashtype loc_dt = DEFAULT_DASHPATTERN;
+
+    this = first_custom_dashtype;
+    while (this != NULL) {
+	if (this->tag == tag) {
+	    *dt = this->dashtype;
+	    if (this->dashtype.str) {
+			dt->str = gp_strdup(this->dashtype.str);
+	    }
+	    return this->d_type;
+	} else {
+	    this = this->next;
+	}
+    }
+	/* not found, fall back to default, terminal-dependent dashtype */
+	*dt = loc_dt;
+	return tag - 1;
+}
+
+
 void
 lp_use_properties(struct lp_style_type *lp, int tag)
 {
@@ -2934,14 +3090,6 @@ lp_use_properties(struct lp_style_type *lp, int tag)
 	if (this->tag == tag) {
 	    *lp = this->lp_properties;
 	    lp->pointflag = save_pointflag;
-	    /* FIXME - It would be nicer if this were always true already */
-	    if (!lp->use_palette) {
-		if (lp->pm3d_color.type != TC_LT || lp->pm3d_color.lt != lp->l_type)
-			FPRINTF((stderr,"lp_use_properties: uninitialized linetype %d\n",
-				lp->l_type));
-		lp->pm3d_color.type = TC_LT;
-		lp->pm3d_color.lt = lp->l_type;
-	    }
 	    return;
 	} else {
 	    this = this->next;
@@ -2968,17 +3116,8 @@ recycle:
 	if (this->tag == tag) {
 	    *lp = this->lp_properties;
 	    lp->pointflag = save_pointflag;
-	    if (term->flags & TERM_MONOCHROME) {
+	    if (term->flags & TERM_MONOCHROME)
 		lp->l_type = tag;
-		lp->use_palette = FALSE;
-		return;
-	    }
-	    /* FIXME - It would be nicer if this were always true already */
-	    if (!lp->use_palette) {
-		FPRINTF((stderr,"load_linetype: uninitialized linetype\n"));
-		lp->pm3d_color.type = TC_LT;
-		lp->pm3d_color.lt = lp->l_type;
-	    }
 	    return;
 	} else {
 	    this = this->next;
@@ -2998,6 +3137,7 @@ recycle:
     lp->pm3d_color.type = TC_LT;
     lp->pm3d_color.lt = lp->l_type;
     lp->p_type = tag - 1;
+	lp->d_type = tag - 1;
 }
 
 /*
@@ -3046,4 +3186,35 @@ strlen_tex(const char *str)
 
     FPRINTF((stderr,"strlen_tex(\"%s\") = %d\n",str,len));
     return len;
+}
+
+/* The check for asynchronous events such as hotkeys and mouse clicks is
+ * normally done in term->waitforinput() while waiting for the next input
+ * from the command line.  If input is currently coming from a file or 
+ * pipe instead, as with a "load" command, then this path would not be
+ * triggered automatically and these events would back up until input
+ * returned to the command line.  These code paths can explicitly call
+ * check_for_mouse_events() so that event processing is handled sooner.
+ */
+void
+check_for_mouse_events()
+{
+#ifdef USE_MOUSE
+    if (term_initialised && term->waitforinput) {
+	term->waitforinput(TERM_ONLY_CHECK_MOUSING);
+    }
+#endif
+#ifdef WIN32
+    /* Process windows GUI events (e.g. for text window, or wxt and windows terminals) */
+    WinMessageLoop();
+    /* On Windows, Ctrl-C only sets this flag. */
+    /* The next block duplicates the behaviour of inter(). */
+    if (ctrlc_flag) {
+    ctrlc_flag = FALSE;
+	term_reset();
+	putc('\n', stderr);
+	fprintf(stderr, "Ctrl-C detected!\n");
+	bail_to_command_line();	/* return to prompt */
+    }
+#endif
 }

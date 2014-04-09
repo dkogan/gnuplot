@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.91 2013/01/21 17:45:44 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.97 2013/12/22 20:47:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - hidden3d.c */
@@ -722,7 +722,7 @@ intersect_line_plane(p_vertex v1, p_vertex v2, t_plane p)
 	return 0;
     else {
 	double denominator = p[0]*(v1->x - v2->x) + p[1]*(v1->y - v2->y) + p[2]*(v1->z - v2->z);
-	return numerator/denominator;
+	return (denominator==0 ? (numerator>0?VERYLARGE:-VERYLARGE) : numerator/denominator);
     }
 }
 
@@ -737,7 +737,7 @@ intersect_line_line(p_vertex v1, p_vertex v2, p_vertex w1, p_vertex w2)
 	return 0;
     else {
 	double denominator = (w2->y - w1->y)*(v2->x - v1->x) - (w2->x - w1->x)*(v2->y - v1->y);
-	return numerator/denominator;
+	return (denominator==0 ? (numerator>0?VERYLARGE:-VERYLARGE) : numerator/denominator);
     }
 }
 
@@ -1650,9 +1650,9 @@ draw_vertex(p_vertex v)
 	    apply_pm3dcolor(tc, term);
 	}
 	else if (tc->type == TC_RGB && tc->lt == LT_COLORFROMCOLUMN)
-	    set_rgbcolor((unsigned int)v->real_z);
+	    set_rgbcolor_var((unsigned int)v->real_z);
 	else if (tc->type == TC_RGB)
-	    set_rgbcolor(tc->lt);
+	    set_rgbcolor_const(tc->lt);
 	else if (tc->type == TC_CB)
 	    set_color( cb2gray(v->real_z) );
 	else if (tc->type == TC_Z)
@@ -1733,7 +1733,6 @@ draw_edge(p_edge e, p_vertex v1, p_vertex v2)
 	color = lptemp.pm3d_color;
 	lptemp = *(e->lp);
 	lptemp.pm3d_color = color;
-	lptemp.use_palette = TRUE;
 	if (arrow)
 	    lptemp.p_type = e->style;
     }
@@ -1836,7 +1835,7 @@ in_front(
 
     coordval xmin, xmax;	/* all of these are for the edge */
     coordval ymin, ymax;
-    coordval zmin, zmax;
+    coordval zmin;
 #if HIDDEN3D_GRIDBOX
     unsigned int xextent;	/* extent bitmask in x direction */
     unsigned int yextent;	/* same, in y direction */
@@ -1882,7 +1881,7 @@ in_front(
 	}					\
 	vnum1 = v1 - vlist;			\
 	vnum2 = v2 - vlist;			\
-	zmax = v1->z;	zmin = v2->z;		\
+	zmin = v2->z;				\
 						\
 	if (v1->x > v2->x) {			\
 	    xmin = v2->x;	xmax = v1->x;	\
@@ -2192,6 +2191,40 @@ draw_line_hidden(
     if (v2)
 	droplast_dynarray(&vertices);
 }
+
+
+/* Externally callable function to draw a label, but hide it behind any
+ * visible occluding surfaces. */
+void
+draw_label_hidden(p_vertex v, struct lp_style_type *lp, int x, int y)
+{
+    long int thisvertex, edgenum, temp_pfirst;
+
+    /* If there is no surface to hide behind, just draw the label */
+    if (!polygons.end) {
+	write_label(x, y, v->label);
+	return;
+    }
+
+    nextfrom_dynarray(&vertices);
+    thisvertex = vertices.end - 1;
+    vlist[thisvertex] = *v;
+    vlist[thisvertex].lp_style = lp; /* Not sure this is necessary */
+
+    lp->pointflag = 1; /* Labels can use the code for hidden points */
+
+    edgenum = make_edge(thisvertex, thisvertex, lp, lp->l_type, -1);
+
+    FPRINTF((stderr,"label: \"%s\" at [%d %d]  vertex %ld edge %ld\n", 
+    	v->label->text, x, y, thisvertex, edgenum));
+
+    temp_pfirst = pfirst;
+    in_front(edgenum, elist[edgenum].v1, elist[edgenum].v2, &temp_pfirst);
+
+    droplast_dynarray(&edges);
+    droplast_dynarray(&vertices);
+}
+
 
 /***********************************************************************
  * and, finally, the 'mother function' that uses all these lots of tools

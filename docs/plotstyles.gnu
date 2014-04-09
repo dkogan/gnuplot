@@ -29,6 +29,8 @@ demo = "../demo/"
 if (GPVAL_TERM eq "pngcairo" || GPVAL_TERM eq "png") ext=".png"
 if (GPVAL_TERM eq "pdfcairo" || GPVAL_TERM eq "pdf") ext=".pdf"
 
+set encoding utf8
+
 #
 # Line and point type plots  (same data plotted)
 # ==============================================
@@ -51,10 +53,13 @@ plot demo . 'silver.dat' u 1:($2-10.):(1+rand(0)) title 'with points ps variable
      with points ps variable pt 6
 #
 set output out . 'figure_linespoints' . ext
+set key opaque height 1
 f(x) = 8 + 8*sin(x/20)
 plot demo . 'silver.dat' u 1:($2-10.) title 'with linespoints' \
      with linespoints pt 6 ps 1, \
-     '' u 1:($2) title 'pointinterval -2' with lp pt 4 ps 1 pi -2
+     '' u 1:($2) title 'pointinterval -2' with lp pt 4 ps 1 pi -2, \
+     '' u 1:($2+10.) with lp pt "α" pi -1 font ",18" title 'with lp pt "α" pi -1'
+set key noopaque
 #
 set output out . 'figure_fsteps' . ext
 plot demo . 'silver.dat' u 1:($2-10.) title 'with fsteps' with fsteps
@@ -66,6 +71,11 @@ plot demo . 'silver.dat' u 1:($2-10.) title 'with fillsteps' with fillsteps, \
 #
 set output out . 'figure_histeps' . ext
 plot demo . 'silver.dat' u 1:($2-10.) title 'with histeps' with histeps
+#
+symbol(z) = "●□+⊙♠♣♡♢"[int(z):int(z)]
+set output out . 'figure_labels2' . ext
+plot demo . 'silver.dat' u 1:($2-10.):(symbol(1+int($0)%8)) \
+     with labels font ",18" title "with labels"
 
 #
 # Simple bar charts  (same data plotted)
@@ -286,14 +296,15 @@ e
 #
 reset
 set view 75, 33, 1.0, 0.82
-set bmargin screen 0.40
+set view 69, 200, 1.18, 0.82
+set bmargin at screen 0.3
 unset key
 set samples 20, 20
 set isosamples 21, 21
-set xlabel "X axis" rotate parallel offset 0,-1
-set ylabel "Y axis" rotate parallel offset 0,-1
-set zlabel "Z axis" 
-set zlabel  offset 2,0 rotate by -90
+#set xlabel "X axis" rotate parallel offset 0,-1
+#set ylabel "Y axis" rotate parallel offset 0,-1
+#set zlabel "Z axis" 
+#set zlabel  offset 2,0 rotate by -90
 unset xtics
 unset ytics
 unset ztics
@@ -317,17 +328,22 @@ splot sin(x) * cos(y) with lines lt -1
 
 unset view
 set view map
+set xrange [-3:2]
+set yrange [-2:3]
 unset surface
 unset grid
-set bmargin screen 0.15
 set xlabel "X axis" offset 0,2 
+set ylabel "Y axis" rotate
 set tmargin
 set rmargin
-set lmargin
+set lmargin at screen .1
+set bmargin at screen .15
 set title "projected contours using 'set view map'" offset 0,-1
 
 set output out . 'figure_mapcontours' . ext
-splot sin(x) * cos(y)
+set style textbox opaque noborder margins 0.25,0.25
+set cntrlabel font ",8"
+splot sin(x) * cos(y), sin(x) * cos(y) with labels boxed
 
 reset
 set output out . 'figure_rgb3D' . ext
@@ -375,7 +391,7 @@ Scale(size) = 0.25*sqrt(sqrt(column(size)))
 CityName(String,Size) = sprintf("{/=%d %s}", Scale(Size), stringcolumn(String))
 
 set termoption enhanced
-set output out . 'figure_labels' . ext
+set output out . 'figure_labels1' . ext
 unset xtics
 unset ytics
 unset key
@@ -402,6 +418,23 @@ butterfly(x)=exp(cos(x))-2*cos(4*x)+sin(x/12)**5
 GPFUN_butterfly = "butterfly(x)=exp(cos(x))-2*cos(4*x)+sin(x/12)**5"
 plot 3.+sin(t)*cos(5*t) with filledcurve above r=2.5 notitle, \
      3.+sin(t)*cos(5*t) with line
+reset
+
+# Parallel axis plot
+if (GPVAL_TERM eq "pdfcairo") \
+    set term pdfcairo color font fontspec size 3.5,2.0 dashlength 0.2
+set output out . 'figure_parallel' . ext
+unset border
+unset key
+set xrange [] noextend
+unset ytics
+set xtics 1 format "axis %g" scale 0,0
+set for [axis=1:4] paxis axis tics
+set paxis 2 range [0:30]
+set paxis 4 range [-1:15]
+set paxis 4 tics  auto 1 left offset 5
+
+plot 'silver.dat' using 2:3:1:($3/2):(int($0/25)) with parallel lt 1 lc variable
 
 reset
 #
@@ -418,7 +451,7 @@ fourier(k, x) = sin(3./2*k)/k * 2./3*cos(k*x)
 do for [power = 0:3] {
     TERMS = 10**power
     set xlabel sprintf("%g term Fourier series",TERMS)
-    plot 0.5 + sum [k=1:TERMS] fourier(k,x) notitle 
+    plot 0.5 + sum [k=1:TERMS] fourier(k,x) notitle lt -1
 }
 unset multiplot
 

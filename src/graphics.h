@@ -1,5 +1,5 @@
 /*
- * $Id: graphics.h,v 1.58 2013/02/28 06:43:00 sfeam Exp $
+ * $Id: graphics.h,v 1.61 2013/12/26 17:58:29 sfeam Exp $
  */
 
 /* GNUPLOT - graphics.h */
@@ -77,6 +77,8 @@ typedef struct curve_points {
     int x_axis;			/* FIRST_X_AXIS or SECOND_X_AXIS */
     int y_axis;			/* FIRST_Y_AXIS or SECOND_Y_AXIS */
     int z_axis;			/* same as either x_axis or y_axis, for 5-column plot types */
+    int n_par_axes;		/* Only used for parallel axis plots */
+    double **z_n;		/* Only used for parallel axis plots */
     double *varcolor;		/* Only used if plot has variable color */
     struct coordinate GPHUGE *points;
 } curve_points;
@@ -97,7 +99,7 @@ void map_position __PROTO((struct position * pos, int *x, int *y, const char *wh
 void map_position_r __PROTO((struct position* pos, double* x, double* y,
 			     const char* what));
 
-void init_histogram __PROTO((struct histogram_style *hist, char *title));
+void init_histogram __PROTO((struct histogram_style *hist, text_label *title));
 void free_histlist __PROTO((struct histogram_style *hist));
 
 void plot_image_or_update_axes __PROTO((void *plot, TBOOLEAN update_axes));
@@ -105,7 +107,7 @@ void plot_image_or_update_axes __PROTO((void *plot, TBOOLEAN update_axes));
 #ifdef EAM_OBJECTS
 void place_objects __PROTO((struct object *listhead, int layer, int dimensions));
 void do_ellipse __PROTO((int dimensions, t_ellipse *e, int style, TBOOLEAN do_own_mapping ));
-void do_polygon __PROTO((int dimensions, t_polygon *p, int style ));
+void do_polygon __PROTO((int dimensions, t_polygon *p, int style, t_clip_object clip ));
 #else
 #define place_objects(listhead,layer,dimensions) /* void() */
 #endif

@@ -94,6 +94,9 @@
 /* Define to 1 if you have the <errno.h> header file. */
 #define HAVE_ERRNO_H 1
 
+/* Define if external function plugins are to be supported.  */
+#define HAVE_EXTERNAL_FUNCTIONS 1
+
 /* Define to 1 if you have the <float.h> header file. */
 #define HAVE_FLOAT_H 1
 
@@ -507,6 +510,9 @@
 /* Define if you want to use the sunview terminal (sun). */
 /* #undef SUN */
 
+/* Define to support boxed labels. */
+#define EAM_BOXED_TEXT 1
+
 /* Define to use thin plate spines. */
 /* #undef THIN_PLATE_SPLINES_GRID */
 
@@ -588,10 +594,12 @@
 #define GP_INLINE __inline
 #define GP_EXCEPTION_NAME _exception
 #define GP_MATHERR _matherr
-#define snprintf _snprintf
-/*#define vsnprintf _vsnprintf*/
 #define isnan _isnan
 #define ftruncate _chsize
+#define isblank isspace
+#if _MSC_VER <= 1800
+# define va_copy(dest, src) (dest = src)
+#endif
 
 /* Emulated pipe support for wgnuplot */
 #ifdef USE_FAKEPIPES

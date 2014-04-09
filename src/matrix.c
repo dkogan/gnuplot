@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: matrix.c,v 1.11 2012/08/29 18:58:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: matrix.c,v 1.14 2014/03/03 04:09:30 sfeam Exp $"); }
 #endif
 
 /*  NOTICE: Change of Copyright Status
@@ -82,8 +82,10 @@ matr(int rows, int cols)
 void
 free_matr(double **m)
 {
-    free(m[0]);
-    free(m);
+    if (m != NULL) {
+	free(m[0]);
+	free(m);
+    }
 }
 
 
@@ -112,14 +114,10 @@ fsign(double x)
 
      Solve least squares Problem C*x+d = r, |r| = min!, by Given rotations
      (QR-decomposition). Direct implementation of the algorithm
-     presented in H.R.Schwarz: Numerische Mathematik, 'equation'
-     number (7.33)
+     presented in H.R.Schwarz: Numerische Mathematik, Equation 7.33
 
      If 'd == NULL', d is not accesed: the routine just computes the QR
      decomposition of C and exits.
-
-     If 'want_r == 0', r is not rotated back (\hat{r} is returned
-     instead).
 
 *****************************************************************/
 
@@ -128,10 +126,8 @@ Givens(
     double **C,
     double *d,
     double *x,
-    double *r,
     int N,
-    int n,
-    int want_r)
+    int n)
 {
     int i, j, k;
     double w, gamma, sigma, rho, temp;
@@ -185,37 +181,11 @@ Givens(
     for (i = n - 1; i >= 0; i--) {
 	double s = d[i];
 
-	r[i] = 0;		/* ... and also set r[i] = 0 for i<n */
 	for (k = i + 1; k < n; k++)
 	    s += C[i][k] * x[k];
 	if (C[i][i] == 0)
 	    Eex("Singular matrix in Givens()");
 	x[i] = -s / C[i][i];
-    }
-
-    for (i = n; i < N; i++)
-	r[i] = d[i];		/* set the other r[i] to d[i] */
-
-    if (!want_r)		/* if r isn't needed, stop here */
-	return;
-
-    /* rotate back the r vector */
-    for (j = n - 1; j >= 0; j--) {
-	for (i = N - 1; i >= 0; i--) {
-	    if ((rho = C[i][j]) == 1) {		/* reconstruct gamma, sigma from stored rho */
-		gamma = 0;
-		sigma = 1;
-	    } else if (fabs(rho) < 1) {
-		sigma = rho;
-		gamma = sqrt(1 - sigma * sigma);
-	    } else {
-		gamma = 1 / fabs(rho);
-		sigma = fsign(rho) * sqrt(1 - gamma * gamma);
-	    }
-	    temp = gamma * r[j] + sigma * r[i];		/* rotate back indices (i,j) */
-	    r[i] = -sigma * r[j] + gamma * r[i];
-	    r[j] = temp;
-	}
     }
 }
 
@@ -358,4 +328,51 @@ lu_backsubst(double **a, int n, int *indx, double *b)
 	    *bip -= *ac++ * *bp++;
 	*bip /= (*ar--)[i];
     }
+}
+
+
+/*****************************************************************
+
+    Sum up squared components of a vector
+    In order to reduce rounding errors in summing up the entries
+    of a vector, we employ the Neumaier variant of the Kahan and
+    Babuska algorithm:
+    A. Neumaier, Rundungsfehleranalyse einiger Verfahren zur
+    Summation endlicher Summen, Z. angew. Math. Mechanik, 54:39-51, 1974
+
+*****************************************************************/
+double
+sumsq_vec(int n, const double *x)
+{
+    int i;
+    double s;
+    double c = 0.0;
+
+    if ((x == NULL) || (n == 0))
+	return 0;
+
+    s =  x[0] * x[0];
+    for (i = 1; i < n; i++) {
+	double xi = x[i] * x[i];
+	double t  = s + xi;
+	if (fabs(s) >= fabs(xi))
+	    c += ((s - t) + xi);
+	else
+	    c += ((xi - t) + s);
+	s = t;
+    };
+    s += c;
+    return s;
+}
+
+
+/*****************************************************************
+
+    Euclidean norm of a vector
+
+*****************************************************************/
+double
+enorm_vec(int n, const double *x)
+{
+    return sqrt(sumsq_vec(n, x));
 }

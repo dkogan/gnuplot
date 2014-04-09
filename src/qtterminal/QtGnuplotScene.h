@@ -44,6 +44,8 @@
 #ifndef QTGNUPLOTSCENE_H
 #define QTGNUPLOTSCENE_H
 
+#define EAM_BOXED_TEXT 1
+
 #include "QtGnuplotEvent.h"
 #include "QtGnuplotItems.h"
 
@@ -60,6 +62,7 @@ Q_OBJECT
 
 public:
 	QtGnuplotScene(QtGnuplotEventHandler* eventHandler, QObject* parent = 0);
+	~QtGnuplotScene();
 
 public:
 	virtual void mouseMoveEvent(QGraphicsSceneMouseEvent* event);
@@ -76,6 +79,7 @@ private:
 	void setBrushStyle(int style);
 	void updateRuler(const QPoint& point);
 	void flushCurrentPolygon();
+	void flushCurrentPointsItem();
 	QPolygonF& clipPolygon(QPolygonF& polygon, bool checkDiag = true) const;
 	QPointF&   clipPoint(QPointF& point) const;
 	QRectF&    clipRect(QRectF& point) const;
@@ -103,7 +107,10 @@ private:
 	int     m_currentPlotNumber;
 	bool    m_inKeySample;
 	bool    m_preserve_visibility;
+	bool	m_inTextBox;
+	QRectF	m_currentTextBox;
 	QList<QGraphicsItem*> m_currentGroup;
+	QtGnuplotPoints* m_currentPointsItem;
 
 	// User events data
 	QPointF m_lastMousePos;

@@ -1,5 +1,5 @@
 /*
- * $Id: command.h,v 1.59 2013/01/04 22:03:54 broeker Exp $
+ * $Id: command.h,v 1.65 2014/03/23 13:27:27 markisch Exp $
  */
 
 /* GNUPLOT - command.h */
@@ -78,12 +78,9 @@ extern int paused_for_mouse;	/* Flag the end condition we are paused until */
 #define PAUSE_ANY       077		/* Terminate on any of the above */
 #endif
 
-#ifdef GP_MACROS
-extern TBOOLEAN expand_macros;
-#endif
-
 /* output file for the print command */
 extern FILE *print_out;
+extern struct udvt_entry * print_out_var;
 extern char *print_out_name;
 
 extern struct udft_entry *dummy_func;
@@ -109,6 +106,11 @@ extern char HelpFile[];         /* patch for do_help  - AP */
 /* wrapper for calling kill_pending_Pause_dialog() from win/winmain.c */
 #ifdef _Windows
 void call_kill_pending_Pause_dialog(void);
+#endif
+
+/* Include code to support deprecated "call" syntax. */
+#ifdef BACKWARDS_COMPATIBLE
+#define OLD_STYLE_CALL_ARGS
 #endif
 
 /* input data, parsing variables */
@@ -139,9 +141,7 @@ extern void wxt_raise_terminal_group __PROTO((void));
 extern void wxt_lower_terminal_window __PROTO((int));
 extern void wxt_lower_terminal_group __PROTO((void));
 #endif
-#ifdef GP_MACROS
-extern int string_expand_macros __PROTO((void));
-#endif
+extern void string_expand_macros __PROTO((void));
 
 #ifdef USE_MOUSE
 void bind_command __PROTO((void));
@@ -149,10 +149,8 @@ void restore_prompt __PROTO((void));
 #else
 #define bind_command()
 #endif
-#ifdef VOLATILE_REFRESH
 void refresh_request __PROTO((void));
 void refresh_command __PROTO((void));
-#endif
 void call_command __PROTO((void));
 void changedir_command __PROTO((void));
 void clear_command __PROTO((void));
@@ -163,6 +161,7 @@ void history_command __PROTO((void));
 void do_command __PROTO((void));
 void if_command __PROTO((void));
 void else_command __PROTO((void));
+void import_command __PROTO((void));
 void invalid_command __PROTO((void));
 void link_command __PROTO((void));
 void load_command __PROTO((void));
@@ -206,7 +205,7 @@ void define __PROTO((void));
 
 void replotrequest __PROTO((void)); /* used in command.c & mouse.c */
 
-void print_set_output __PROTO((char *, TBOOLEAN)); /* set print output file */
+void print_set_output __PROTO((char *, TBOOLEAN, TBOOLEAN)); /* set print output file */
 char *print_show_output __PROTO((void)); /* show print output file */
 
 /* Activate/deactive effects of 'set view map' before 'splot'/'plot',

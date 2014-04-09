@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: contour.c,v 1.30 2012/08/27 20:23:21 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: contour.c,v 1.32 2014/02/28 19:23:52 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - contour.c */
@@ -530,8 +530,6 @@ update_cntr_pt(edge_struct *p_edge, double z_level)
 
 /* Simple routine to decide if two contour points are equal by
  * calculating the relative error (< EPSILON).  */
-/* HBB 20010121: don't use absolute value 'zero' to compare to data
- * values. */
 static int
 fuzzy_equal(cntr_struct *p_cntr1, cntr_struct *p_cntr2)
 {
@@ -554,10 +552,8 @@ gen_triangle(
     edge_struct **p_edges)	/* list of edges output */
 {
     int i, j, grid_x_max = iso_lines->p_count;
-    edge_struct *p_edge1, *p_edge2, *edge0, *edge1, *edge2, *pe_tail,
-	   *pe_tail2, *pe_temp;
-    poly_struct *pp_tail, *lower_tri, *upper_tri;
-    /* HBB 980308: need to tag *each* of them as GPHUGE! */
+    edge_struct *p_edge1, *p_edge2, *edge0, *edge1, *edge2, *pe_tail, *pe_tail2, *pe_temp;
+    poly_struct *pp_tail;
     struct coordinate GPHUGE *p_vrtx1, GPHUGE * p_vrtx2;
 
     (*p_polys) = pp_tail = NULL;	/* clear lists */
@@ -642,7 +638,7 @@ gen_triangle(
 		edge1->position = DIAGONAL;
 
 	    /* generate lower triangle */
-	    lower_tri = add_poly(edge0, edge1, edge2, p_polys, &pp_tail);
+	    add_poly(edge0, edge1, edge2, p_polys, &pp_tail);
 
 	    /* copy diagonal edge for upper triangle */
 	    edge0 = edge1;
@@ -654,7 +650,7 @@ gen_triangle(
 	    edge2 = add_edge(p_vrtx1 + j + 1, p_vrtx2 + j + 1, p_edges, &pe_tail);
 
 	    /* generate upper triangle */
-	    upper_tri = add_poly(edge0, edge1, edge2, p_polys, &pp_tail);
+	    add_poly(edge0, edge1, edge2, p_polys, &pp_tail);
 	}
 
 	if (p_edge2) {

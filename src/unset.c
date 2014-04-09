@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.162 2013/03/12 18:06:58 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.202 2014/03/23 13:27:27 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -66,10 +66,11 @@ static void unset_border __PROTO((void));
 static void unset_boxplot __PROTO((void));
 static void unset_boxwidth __PROTO((void));
 static void unset_fillstyle __PROTO((void));
-static void unset_clabel __PROTO((void));
 static void unset_clip __PROTO((void));
 static void unset_cntrparam __PROTO((void));
+static void unset_cntrlabel __PROTO((void));
 static void unset_contour __PROTO((void));
+static void unset_dashtype __PROTO((void));
 static void unset_dgrid3d __PROTO((void));
 static void unset_dummy __PROTO((void));
 static void unset_encoding __PROTO((void));
@@ -78,10 +79,12 @@ static void unset_fit __PROTO((void));
 static void unset_grid __PROTO((void));
 static void unset_hidden3d __PROTO((void));
 static void unset_histogram __PROTO((void));
+#ifdef EAM_BOXED_TEXT
+static void unset_textbox_style __PROTO((void));
+#endif
 static void unset_historysize __PROTO((void));
 static void unset_isosamples __PROTO((void));
 static void unset_key __PROTO((void));
-static void unset_keytitle __PROTO((void));
 static void unset_label __PROTO((void));
 static void delete_label __PROTO((struct text_label * prev, struct text_label * this));
 static void unset_linestyle __PROTO((struct linestyle_def **head));
@@ -97,9 +100,6 @@ static void unset_loadpath __PROTO((void));
 static void unset_locale __PROTO((void));
 static void reset_logscale __PROTO((AXIS_INDEX));
 static void unset_logscale __PROTO((void));
-#ifdef GP_MACROS
-static void unset_macros __PROTO((void));
-#endif
 static void unset_mapping __PROTO((void));
 static void unset_margin __PROTO((t_position *));
 static void unset_missing __PROTO((void));
@@ -130,7 +130,6 @@ static void unset_surface __PROTO((void));
 static void unset_table __PROTO((void));
 static void unset_terminal __PROTO((void));
 static void unset_tics __PROTO((AXIS_INDEX));
-static void unset_ticscale __PROTO((void));
 static void unset_ticslevel __PROTO((void));
 static void unset_timefmt __PROTO((void));
 static void unset_timestamp __PROTO((void));
@@ -150,6 +149,7 @@ unset_command()
 {
     int found_token;
     int save_token;
+    int i;
 
     c_token++;
 
@@ -183,17 +183,23 @@ unset_command()
     case S_BOXWIDTH:
 	unset_boxwidth();
 	break;
-    case S_CLABEL:
-	unset_clabel();
-	break;
     case S_CLIP:
 	unset_clip();
 	break;
     case S_CNTRPARAM:
 	unset_cntrparam();
 	break;
+    case S_CNTRLABEL:
+	unset_cntrlabel();
+	break;
+    case S_CLABEL:	/* deprecated command */
+	clabel_onecolor = TRUE;
+	break;
     case S_CONTOUR:
 	unset_contour();
+	break;
+    case S_DASHTYPE:
+	unset_dashtype();
 	break;
     case S_DGRID3D:
 	unset_dgrid3d();
@@ -220,7 +226,9 @@ unset_command()
     case S_HIDDEN3D:
 	unset_hidden3d();
 	break;
-    case S_HISTORYSIZE:
+    case S_HISTORY:
+	break; /* FIXME: reset to default values? */
+    case S_HISTORYSIZE:	/* Deprecated */
 	unset_historysize();
 	break;
     case S_ISOSAMPLES:
@@ -228,9 +236,6 @@ unset_command()
 	break;
     case S_KEY:
 	unset_key();
-	break;
-    case S_KEYTITLE:
-	unset_keytitle();
 	break;
     case S_LABEL:
 	unset_label();
@@ -251,11 +256,9 @@ unset_command()
     case S_LOGSCALE:
 	unset_logscale();
 	break;
-#ifdef GP_MACROS
     case S_MACROS:
-	unset_macros();
+	/* Aug 2013 - macros are always enabled */
 	break;
-#endif
     case S_MAPPING:
 	unset_mapping();
 	break;
@@ -276,10 +279,33 @@ unset_command()
 	    df_fortran_constants = FALSE;
 	    c_token++;
 	    break;
+	} else if (almost_equals(c_token,"miss$ing")) {
+	    unset_missing();
+	    c_token++;
+	    break;
+	} else if (almost_equals(c_token,"sep$arators")) {
+	    free(df_separators);
+	    df_separators = NULL;
+	    c_token++;
+	    break;
+	} else if (almost_equals(c_token,"com$mentschars")) {
+	    free(df_commentschars);
+	    df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
+	    c_token++;
+	    break;
+	} else if (almost_equals(c_token,"bin$ary")) {
+	    df_unset_datafile_binary();
+	    c_token++;
+	    break;
+	} else if (almost_equals(c_token,"nofpe_trap")) {
+	    df_nofpe_trap = FALSE;
+	    c_token++;
+	    break;
 	}
 	df_fortran_constants = FALSE;
 	unset_missing();
-	df_separator = '\0';
+	free(df_separators);
+	df_separators = NULL;
 	free(df_commentschars);
 	df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
 	df_unset_datafile_binary();
@@ -336,6 +362,15 @@ unset_command()
     case S_RTICS:
 	unset_tics(POLAR_AXIS);
 	break;
+    case S_PAXIS:
+	i = int_expression();
+	if (i <= 0 || i > MAX_PARALLEL_AXES)
+	    int_error(c_token, "expecting parallel axis number");
+	if (almost_equals(c_token, "tic$s")) {
+	    unset_tics(PARALLEL_AXES+i-1);
+	    c_token++;
+	}
+	break;
     case S_SAMPLES:
 	unset_samples();
 	break;
@@ -355,10 +390,10 @@ unset_command()
 	unset_terminal();
 	break;
     case S_TICS:
-	unset_tics(AXIS_ARRAY_SIZE);
+	unset_tics(ALL_AXES);
 	break;
     case S_TICSCALE:
-	unset_ticscale();
+	int_warn(c_token, "Deprecated syntax - use 'set tics scale default'");
 	break;
     case S_TICSLEVEL:
     case S_XYPLANE:
@@ -439,6 +474,9 @@ unset_command()
     case S_CBDTICS:
     case S_CBMTICS:
 	unset_month_day_tics(FIRST_X_AXIS);
+	break;
+    case S_MRTICS:
+	unset_minitics(POLAR_AXIS);
 	break;
     case S_XDATA:
 	unset_timedata(FIRST_X_AXIS);
@@ -578,7 +616,6 @@ unset_arrow()
 		return;		/* exit, our job is done */
 	    }
 	}
-	int_error(c_token, "arrow not found");
     }
 }
 
@@ -689,15 +726,6 @@ unset_fillstyle()
 }
 
 
-/* process 'unset clabel' command */
-static void
-unset_clabel()
-{
-    /* FIXME? reset_command() uses TRUE */
-    label_contours = FALSE;
-}
-
-
 /* process 'unset clip' command */
 static void
 unset_clip()
@@ -730,12 +758,47 @@ unset_cntrparam()
     contour_levels_kind = LEVELS_AUTO;
 }
 
+/* process 'unset cntrlabel' command */
+static void
+unset_cntrlabel()
+{
+    clabel_onecolor = FALSE;
+    clabel_start = 5;
+    clabel_interval = 20;
+    strcpy(contour_format, "%8.3g");
+    free(clabel_font);
+    clabel_font = NULL;
+}
+
 
 /* process 'unset contour' command */
 static void
 unset_contour()
 {
     draw_contour = CONTOUR_NONE;
+}
+
+
+/* process 'unset dashtype' command */
+static void
+unset_dashtype()
+{
+    struct custom_dashtype_def *this, *prev;
+    if (END_OF_COMMAND) {
+	/* delete all */
+	while (first_custom_dashtype != NULL)
+	    delete_dashtype((struct custom_dashtype_def *) NULL, first_custom_dashtype);
+	}
+    else {		
+	int tag = int_expression();
+	for (this = first_custom_dashtype, prev = NULL; this != NULL;
+	 prev = this, this = this->next) {
+	    if (this->tag == tag) {
+		delete_dashtype(prev, this);
+		break;
+	    }
+	}
+    }
 }
 
 
@@ -757,8 +820,11 @@ unset_dgrid3d()
 static void
 unset_dummy()
 {
+    int i;
     strcpy(set_dummy_var[0], "x");
     strcpy(set_dummy_var[1], "y");
+    for (i=2; i<MAX_NUM_VAR; i++)
+	*set_dummy_var[i] = '\0';
 }
 
 
@@ -786,13 +852,21 @@ unset_decimalsign()
 static void
 unset_fit()
 {
-    if (fitlogfile != NULL)
-	free(fitlogfile);
+    free(fitlogfile);
     fitlogfile = NULL;
-    fit_errorvariables = FALSE;
+    fit_errorvariables = TRUE;
+    fit_covarvariables = FALSE;
     fit_errorscaling = TRUE;
-    fit_prescale = FALSE;
-    fit_quiet = FALSE;
+    fit_prescale = TRUE;
+    fit_verbosity = BRIEF;
+    del_udv_by_name((char *)FITLIMIT, FALSE);
+    epsilon_abs = 0.;
+    del_udv_by_name((char *)FITMAXITER, FALSE);
+    del_udv_by_name((char *)FITSTARTLAMBDA, FALSE);
+    del_udv_by_name((char *)FITLAMBDAFACTOR, FALSE);
+    free(fit_script);
+    fit_script = NULL;
+    fit_wrap = 0;
 }
 
 /* process 'unset grid' command */
@@ -822,19 +896,26 @@ unset_hidden3d()
 static void
 unset_histogram()
 {
-    histogram_opts.type = HT_CLUSTERED;
-    histogram_opts.gap = 2;
+    histogram_style foo = DEFAULT_HISTOGRAM_STYLE;
+    free(histogram_opts.title.font);
+    free_histlist(&histogram_opts);
+    histogram_opts = foo;
 }
 
-/* process 'unset historysize' command */
+#ifdef EAM_BOXED_TEXT
+static void
+unset_textbox_style()
+{
+    textbox_style foo = DEFAULT_TEXTBOX_STYLE;
+    textbox_opts = foo;
+}
+#endif
+
+/* process 'unset historysize' command DEPRECATED */
 static void
 unset_historysize()
 {
-#ifdef GNUPLOT_HISTORY
     gnuplot_history_size = -1; /* don't ever truncate the history. */
-#else
-    int_error(c_token, "Command 'unset historysize' requires history support.");
-#endif
 }
 
 
@@ -857,6 +938,8 @@ void
 reset_key()
 {
     legend_key temp_key = DEFAULT_KEY_PROPS;
+    free(keyT.font);
+    free(keyT.title);
     memcpy(&keyT, &temp_key, sizeof(keyT));
 }
 
@@ -866,15 +949,6 @@ unset_key()
 {
     legend_key *key = &keyT;
     key->visible = FALSE;
-}
-
-
-/* process 'unset keytitle' command */
-static void
-unset_keytitle()
-{
-    legend_key *key = &keyT;
-    key->title[0] = '\0';	/* empty string */
 }
 
 
@@ -903,7 +977,6 @@ unset_label()
 		return;		/* exit, our job is done */
 	    }
 	}
-	/* int_warn(c_token, "label not found"); */
     }
 }
 
@@ -954,7 +1027,6 @@ unset_linetype()
 }
 
 #ifdef EAM_OBJECTS
-/* process 'unset rectangle' command */
 static void
 unset_object()
 {
@@ -979,9 +1051,6 @@ unset_object()
 		return;		/* exit, our job is done */
 	    }
 	}
-	/*
-	int_warn(c_token, "object %d not found", tag);
-	 */
     }
 }
 
@@ -1071,15 +1140,6 @@ unset_logscale()
     SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);
 }
 
-#ifdef GP_MACROS
-/* process 'unset macros' command */
-static void
-unset_macros()
-{
-    expand_macros = FALSE;
-}
-#endif
-
 /* process 'unset mapping3d' command */
 static void
 unset_mapping()
@@ -1135,7 +1195,7 @@ unset_tics(AXIS_INDEX axis)
     unsigned int iend = AXIS_ARRAY_SIZE;
     unsigned int i;
 
-    if (axis < AXIS_ARRAY_SIZE) {
+    if (axis != ALL_AXES) {
 	istart = axis;
 	iend = axis + 1;
     }
@@ -1151,7 +1211,7 @@ unset_tics(AXIS_INDEX axis)
 	axis_array[i].ticdef.textcolor.lt = 0;
 	axis_array[i].ticdef.textcolor.value = 0;
 	axis_array[i].ticdef.offset = tics_nooffset;
-	axis_array[i].ticdef.rangelimited = FALSE;
+	axis_array[i].ticdef.rangelimited = (i >= PARALLEL_AXES) ? TRUE : FALSE;
 	axis_array[i].tic_rotate = 0;
 	axis_array[i].ticscale = 1.0;
 	axis_array[i].miniticscale = 0.5;
@@ -1208,7 +1268,7 @@ unset_output()
 static void
 unset_print()
 {
-    print_set_output(NULL, FALSE);
+    print_set_output(NULL, FALSE, FALSE);
 }
 
 /* process 'unset psdir' command */
@@ -1350,6 +1410,9 @@ unset_style()
 #endif
 	unset_histogram();
 	unset_boxplot();
+#ifdef EAM_BOXED_TEXT
+	unset_textbox_style();
+#endif
 	c_token++;
 	return;
     }
@@ -1398,12 +1461,18 @@ unset_style()
 	c_token++;
 	break;
 #endif
+#ifdef EAM_BOXED_TEXT
+    case SHOW_STYLE_TEXTBOX:
+	unset_textbox_style();
+	c_token++;
+	break;
+#endif
     case SHOW_STYLE_BOXPLOT:
 	unset_boxplot();
 	c_token++;
 	break;
     default:
-	int_error(c_token, "expecting 'data', 'function', 'line', 'fill' or 'arrow'");
+	int_error(c_token, "unrecognized style");
     }
 }
 
@@ -1447,22 +1516,6 @@ unset_terminal()
 }
 
 
-/* process 'unset ticscale' command */
-static void
-unset_ticscale()
-{
-    unsigned int i;
-
-    int_warn(c_token,
-	     "Deprecated syntax - please use 'set tics scale default'");
-
-    for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
-	axis_array[i].ticscale = 1.0;
-	axis_array[i].miniticscale = 0.5;
-    }
-}
-
-
 /* process 'unset ticslevel' command */
 static void
 unset_ticslevel()
@@ -1479,10 +1532,13 @@ unset_timefmt()
     int axis;
 
     if (END_OF_COMMAND)
-	for (axis=0; axis < AXIS_ARRAY_SIZE; axis++)
-	    strcpy(axis_array[axis].timefmt,TIMEFMT);
+	for (axis=0; axis < AXIS_ARRAY_SIZE; axis++) {
+	    free(axis_array[axis].timefmt);
+	    axis_array[axis].timefmt = gp_strdup(TIMEFMT);
+	}
     else if ((axis=lookup_table(axisname_tbl, c_token)) >= 0) {
-	strcpy(axis_array[axis].timefmt, TIMEFMT);
+	free(axis_array[axis].timefmt);
+	axis_array[axis].timefmt = gp_strdup(TIMEFMT);
 	c_token++;
     }
     else
@@ -1537,20 +1593,21 @@ unset_range(AXIS_INDEX axis)
 {
     axis_array[axis].set_autoscale = AUTOSCALE_BOTH;
     axis_array[axis].writeback_min = axis_array[axis].set_min
-	= axis_defaults[axis].min;
+	= axis_defaults[GPMIN(axis,PARALLEL_AXES)].min;
     axis_array[axis].writeback_max = axis_array[axis].set_max
-	= axis_defaults[axis].max;
+	= axis_defaults[GPMIN(axis,PARALLEL_AXES)].max;
     axis_array[axis].min_constraint = CONSTRAINT_NONE;
     axis_array[axis].max_constraint = CONSTRAINT_NONE;
     axis_array[axis].range_flags = 0;
-    axis_array[axis].range_is_reverted = FALSE;
 }
 
 /* process 'unset {x|y|x2|y2|z}zeroaxis' command */
 static void
 unset_zeroaxis(AXIS_INDEX axis)
 {
-    axis_array[axis].zeroaxis = default_axis_zeroaxis;
+    if (axis_array[axis].zeroaxis != &default_axis_zeroaxis)
+	free(axis_array[axis].zeroaxis);
+    axis_array[axis].zeroaxis = NULL;
 }
 
 
@@ -1602,12 +1659,19 @@ unset_axislabel(AXIS_INDEX axis)
 void
 reset_command()
 {
+    int i;
     AXIS_INDEX axis;
     TBOOLEAN save_interactive = interactive;
-    TBOOLEAN save_state;
-    static TBOOLEAN set_for_axis[AXIS_ARRAY_SIZE] = AXIS_ARRAY_INITIALIZER(TRUE);
 
     c_token++;
+
+    /* Reset session state as well as internal graphics state */
+    if (equals(c_token, "session")) {
+	clear_udf_list();
+	init_constants();
+	init_session();
+	return;
+    }
 
     /* Reset error state (only?) */
     update_gpval_variables(4);
@@ -1624,6 +1688,12 @@ reset_command()
 	return;
     }
 #endif
+
+    if (!(END_OF_COMMAND)) {
+	int_warn(c_token, "invalid option, expecting 'bind' or 'errorstate'");
+	while (!(END_OF_COMMAND))
+	    c_token++;
+    }
 
     /* Kludge alert, HBB 20000506: set to noninteractive mode, to
      * suppress some of the commentary output by the individual
@@ -1661,30 +1731,49 @@ reset_command()
     unset_axislabel_or_title(&title);
 
     reset_key();
-    unset_keytitle();
 
-    unset_timefmt();
     unset_view();
 
     for (axis=0; axis<AXIS_ARRAY_SIZE; axis++) {
-	SET_DEFFORMAT(axis, set_for_axis);
-	unset_timedata(axis);
+
+	AXIS default_axis_state = DEFAULT_AXIS_STRUCT;
+
+	/* Free contents before overwriting with default values */
+	free(axis_array[axis].formatstring);
+	free(axis_array[axis].timefmt);
+	if (axis_array[axis].link_udf)
+	    free(axis_array[axis].link_udf->at);
+	free_marklist(axis_array[axis].ticdef.def.user);
+	free(axis_array[axis].ticdef.font);
 	unset_zeroaxis(axis);
+	unset_axislabel_or_title(&axis_array[axis].label);
+
+	memcpy(axis_array+axis, &default_axis_state, sizeof(AXIS));
+
 	unset_axislabel(axis);
+	axis_array[axis].formatstring = gp_strdup(DEF_FORMAT);
+	unset_timedata(axis);
 	unset_range(axis);
 
 	/* 'tics' default is on for some, off for the other axes: */
 	unset_tics(axis);
-	axis_array[axis].ticmode = axis_defaults[axis].ticmode;
+	axis_array[axis].ticmode = axis_defaults[GPMIN(axis,PARALLEL_AXES)].ticmode;
 	unset_minitics(axis);
 	axis_array[axis].ticdef = default_axis_ticdef;
 	axis_array[axis].minitics = MINI_DEFAULT;
+	if (axis >= PARALLEL_AXES) {
+	    axis_array[axis].ticdef.rangelimited = TRUE;
+	    axis_array[axis].set_autoscale |= AUTOSCALE_FIXMIN | AUTOSCALE_FIXMAX;
+	}
 
 	axis_array[axis].linked_to_primary = FALSE;
 
 	reset_logscale(axis);
     }
     raxis = TRUE;
+    for (i=2; i<MAX_TICLEVEL; i++)
+	ticscale[i] = 1;
+    unset_timefmt();
 
     unset_boxplot();
     unset_boxwidth();
@@ -1720,9 +1809,6 @@ reset_command()
     reset_hidden3doptions();
     hidden3d = FALSE;
 
-    label_contours = TRUE;
-    strcpy(contour_format, "%8.3g");
-
     unset_angles();
     unset_mapping();
 
@@ -1734,6 +1820,7 @@ reset_command()
     unset_offsets();
     unset_contour();
     unset_cntrparam();
+    unset_cntrlabel();
     unset_zero();
     unset_dgrid3d();
     unset_ticslevel();
@@ -1749,13 +1836,30 @@ reset_command()
     df_unset_datafile_binary();
     unset_fillstyle();
     unset_histogram();
+#ifdef EAM_BOXED_TEXT
+    unset_textbox_style();
+#endif
+#ifdef BACKWARDS_COMPATIBLE
+    prefer_line_styles = FALSE;
+#endif
+
+#ifdef USE_MOUSE
+    mouse_setting = default_mouse_setting;
+#endif
 
     unset_missing();
-    df_separator = '\0';
+    free(df_separators);
+    df_separators = NULL;
     free(df_commentschars);
     df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
 
-    save_state = fit_quiet; unset_fit(); fit_quiet = save_state;
+    { /* Preserve some settings for `reset`, but not for `unset fit` */
+	verbosity_level save_verbosity = fit_verbosity;
+	TBOOLEAN save_errorscaling = fit_errorscaling;
+	unset_fit();
+	fit_verbosity = save_verbosity;
+	fit_errorscaling = save_errorscaling;
+    }
 
     update_gpval_variables(0); /* update GPVAL_ inner variables */
 

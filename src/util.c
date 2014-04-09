@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util.c,v 1.109 2013/02/08 23:01:02 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util.c,v 1.123 2014/03/23 14:10:02 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - util.c */
@@ -42,14 +42,18 @@ static char *RCSid() { return RCSid("$Id: util.c,v 1.109 2013/02/08 23:01:02 sfe
 #include "internal.h"		/* for eval_reset_after_error */
 #include "misc.h"
 #include "plot.h"
-#include "term_api.h"		/* for term_end_plot() used by graph_error() */
+#include "term_api.h"		/* for term_end_plot() used by graph_error(), also to detect enhanced mode */
 #include "variable.h" /* For locale handling */
+#include "setshow.h"		/* for conv_text() */
 
 #if defined(HAVE_DIRENT_H)
 # include <sys/types.h>
 # include <dirent.h>
 #elif defined(_Windows)
 # include <windows.h>
+#endif
+#if defined(__MSC__) || defined (__WATCOMC__)
+# include <io.h>
 #endif
 
 /* Exported (set-table) variables */
@@ -84,7 +88,7 @@ equals(int t_num, const char *str)
 {
     int i;
 
-    if (t_num >= num_tokens)	/* safer to test here than to trust all callers */
+    if (t_num < 0 || t_num >= num_tokens)	/* safer to test here than to trust all callers */
 	return (FALSE);
     if (!token[t_num].is_token)
 	return (FALSE);		/* must be a value--can't be equal */
@@ -107,13 +111,17 @@ almost_equals(int t_num, const char *str)
 {
     int i;
     int after = 0;
-    int start = token[t_num].start_index;
-    int length = token[t_num].length;
+    int start, length;
 
+    if (t_num < 0 || t_num >= num_tokens)	/* safer to test here than to trust all callers */
+	return FALSE;
     if (!str)
 	return FALSE;
     if (!token[t_num].is_token)
 	return FALSE;		/* must be a value--can't be equal */
+
+    start = token[t_num].start_index;
+    length = token[t_num].length;
     for (i = 0; i < length + after; i++) {
 	if (str[i] != gp_input_line[start + i]) {
 	    if (str[i] != '$')
@@ -173,9 +181,9 @@ isanumber(int t_num)
 int
 isletter(int t_num)
 {
+    unsigned char c = gp_input_line[token[t_num].start_index];
     return (token[t_num].is_token &&
-	    ((isalpha((unsigned char) gp_input_line[token[t_num].start_index])) ||
-	     (gp_input_line[token[t_num].start_index] == '_')));
+	    (isalpha(c) || (c == '_') || ALLOWED_8BITVAR(c)));
 }
 
 
@@ -552,13 +560,15 @@ gprintf(
 
     set_numeric_locale();
 
+    /* Oct 2013 - default format is now expected to be "%h" */
+    if (((term->flags & TERM_IS_LATEX)) && !strcmp(format, DEF_FORMAT))
+	format = DEF_FORMAT_LATEX;
+
     for (;;) {
 	/*{{{  copy to dest until % */
 	while (*format != '%')
 	    if (!(*dest++ = *format++) || (remaining_space == 0)) {
-		safe_strncpy(outstring,tempdest,count);
-		reset_numeric_locale();
-		return;		/* end of format */
+		goto done;
 	    }
 	/*}}} */
 
@@ -616,6 +626,70 @@ gprintf(
 	    t[1] = 0;
 	    snprintf(dest, remaining_space, temp, x);
 	    break;
+	case 'h':
+	case 'H':
+	    /* g/G with enhanced formating (if applicable) */
+	    t[0] = (*format == 'h') ? 'g' : 'G';
+	    t[1] = 0;
+
+	    if ((term->flags & (TERM_ENHANCED_TEXT | TERM_IS_LATEX)) == 0) {
+		/* Not enhanced, not latex, just print it */
+	    	snprintf(dest, remaining_space, temp, x);
+
+	    } else if (table_mode) {
+		/* Tabular output should contain no markup */
+	    	snprintf(dest, remaining_space, temp, x);
+
+	    } else {
+	    	/* in enhanced mode -- convert E/e to x10^{foo} or *10^{foo} */
+	    	char tmp[256];
+	    	char tmp2[256];
+	    	int i,j;
+	    	TBOOLEAN bracket_flag = FALSE;
+	    	snprintf(tmp, 240, temp, x);
+	    	for (i=j=0; tmp[i] && i<256; i++) {
+	      	    if (tmp[i]=='E' || tmp[i]=='e') {
+			if ((term-> flags & TERM_IS_LATEX)) {
+			    if (*format == 'h') {
+				strcpy(&tmp2[j], "\\times");
+				j+= 6;
+			    } else {
+				strcpy(&tmp2[j], "\\cdot");
+				j+= 5;
+			    }
+			} else if (encoding == S_ENC_UTF8) {
+			    strcpy(&tmp2[j], "\xc3\x97"); /* UTF character '×' */
+			    j+= 2;
+			} else if (encoding == S_ENC_CP1252) {
+			    tmp2[j++] = (*format=='h') ? 0xd7 : 0xb7;
+			} else {
+			    tmp2[j++] = (*format=='h') ? 'x' : '*';
+			}
+			strcpy(&tmp2[j], "10^{");
+			j += 4;
+			bracket_flag = TRUE;
+
+			/* Skip + and leading 0 in exponent */
+			i++; /* skip E */
+			if (tmp[i] == '+')
+		  	    i++;
+			else if (tmp[i] == '-') /* copy sign */
+			    tmp2[j++] = tmp[i++];
+			while (tmp[i] == '0')
+		  	    i++;
+			i--; /* undo following loop increment */
+		    } else {
+			tmp2[j++] = tmp[i];
+		    }
+		}
+		if (bracket_flag)
+		    tmp2[j++] = '}';
+		tmp2[j] = '\0';
+		strncpy(dest, tmp2, remaining_space);
+	    }
+
+	    break;
+
 	    /*}}} */
 	    /*{{{  l --- mantissa to current log base */
 	case 'l':
@@ -861,6 +935,19 @@ gprintf(
 	dest += strlen(dest);
 	++format;
     } /* for ever */
+
+done:
+
+#if (0)
+    /* Oct 2013 - Not safe because it fails to recognize LaTeX macros.	*/
+    /* For LaTeX terminals, if the user has not already provided a   	*/
+    /* format in math mode, wrap whatever we got by default in $...$ 	*/
+    if (((term->flags & TERM_IS_LATEX)) && !strchr(tempdest, '$')) {
+	*(outstring++) = '$';
+	strcat(tempdest, "$");
+	count -= 2;
+    }
+#endif
 
     /* Copy as much as fits */
     safe_strncpy(outstring, tempdest, count);
@@ -1207,7 +1294,7 @@ parse_esc(char *instr)
 		    *t++ = *s++;
 		}
 	    }
-	} else if (df_separator && *s == '\"' && *(s+1) == '\"') {
+	} else if (df_separators && *s == '\"' && *(s+1) == '\"') {
 	/* EAM Mar 2003 - For parsing CSV strings with quoted quotes */
 	    *t++ = *s++; s++;
 	} else {
@@ -1249,6 +1336,18 @@ existdir (const char *name)
     return FALSE;
 #endif
 }
+
+
+TBOOLEAN
+existfile(const char *name)
+{
+#ifdef __MSC__
+    return (_access(name, 0) == 0);
+#else
+    return (access(name, F_OK) == 0);
+#endif
+}
+
 
 char *
 getusername()
@@ -1396,6 +1495,7 @@ gp_strchrn(const char *s, int N)
 	return (char *)&s[N];
 }
 
+
 /* TRUE if strings a and b are identical save for leading or trailing whitespace */
 TBOOLEAN
 streq(const char *a, const char *b)
@@ -1417,3 +1517,113 @@ streq(const char *a, const char *b)
 
     return (enda == endb) ? !strncmp(a,b,++enda) : FALSE;
 }
+
+
+/* append string src to dest, re-allocate memory if necessary */
+char *
+strappend(char **dest, size_t *size, char *src)
+{
+    if (strlen(*dest) + strlen(src) + 1 > *size) {
+	*size *= 2;
+	*dest = (char *) gp_realloc(*dest, *size, "strappend");
+    }
+    strcat(*dest, src);
+    return *dest;
+}
+
+
+/* convert a struct value to a string */
+char *
+value_to_str(struct value *val, TBOOLEAN need_quotes)
+{
+    static int i = 0;
+    static char * s[4] = {NULL, NULL, NULL, NULL};
+    static size_t c[4] = {0, 0, 0, 0};
+    static const int minbufsize = 54;
+    int j = i;
+
+    i = (i + 1) % 4;
+    if (s[j] == NULL) {
+	s[j] = (char *) gp_alloc(minbufsize, "value_to_str");
+	if (s[j] == NULL) 
+	    int_error(NO_CARET, "out of memory");
+	c[j] = minbufsize;
+    }
+
+    switch (val->type) {
+    case INTGR:
+	sprintf(s[j], "%d", val->v.int_val);
+	break;
+    case CMPLX:
+	if (isnan(val->v.cmplx_val.real))
+	    sprintf(s[j], "NaN");
+	else if (val->v.cmplx_val.imag != 0.0)
+	    sprintf(s[j], "{%s, %s}",
+	            num_to_str(val->v.cmplx_val.real),
+	            num_to_str(val->v.cmplx_val.imag));
+	else
+	    return num_to_str(val->v.cmplx_val.real);
+	break;
+    case STRING:
+	if (val->v.string_val) {
+	    if (!need_quotes) {
+		return val->v.string_val;
+	    } else {
+		char * cstr = conv_text(val->v.string_val);
+		size_t reqsize = strlen(cstr) + 3;
+		if (reqsize > c[j])
+		    s[j] = (char *) gp_realloc(s[j], reqsize + 20, "value_to_str");
+		if (s[j] != NULL) {
+		    c[j] = reqsize + 20;
+		    sprintf(s[j], "\"%s\"", cstr);
+		} else {
+		    c[j] = 0;
+		    int_error(NO_CARET, "out of memory");
+		}
+	    }
+	} else {
+	    s[j][0] = NUL;
+	}
+	break;
+    case DATABLOCK:
+	{
+	char **dataline = val->v.data_array;
+	int nlines = 0;
+	if (dataline != NULL) {
+	    while (*dataline++ != NULL)
+		nlines++;
+	}
+	sprintf(s[j], "<%d line data block>", nlines);
+	break;
+	}
+    default:
+	int_error(NO_CARET, "unknown type in value_to_str()");
+    }
+
+    return s[j];
+}
+
+
+/* Helper for value_to_str(): convert a single number to decimal
+ * format. Rotates through 4 buffers 's[j]', and returns pointers to
+ * them, to avoid execution ordering problems if this function is
+ * called more than once between sequence points. */
+char *
+num_to_str(double r)
+{
+    static int i = 0;
+    static char s[4][25];
+    int j = i++;
+
+    if (i > 3)
+	i = 0;
+
+    sprintf(s[j], "%.15g", r);
+    if (strchr(s[j], '.') == NULL &&
+	strchr(s[j], 'e') == NULL &&
+	strchr(s[j], 'E') == NULL)
+	strcat(s[j], ".0");
+
+    return s[j];
+}
+

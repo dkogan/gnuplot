@@ -48,8 +48,16 @@
 
 #include <QMainWindow>
 
+/* I had to add these in order to link against qt5 rather than qt4 */
+#if QT_VERSION >= 0x050000
+#include <QtWidgets>
+#endif
+
+class QLabel;
+class QStatusBar;
 class QToolBar;
 class QtGnuplotWidget;
+class Ui_settingsDialog;
 
 class QtGnuplotWindow : public QMainWindow, public QtGnuplotEventReceiver
 {
@@ -57,6 +65,7 @@ Q_OBJECT
 
 public:
 	QtGnuplotWindow(int id, QtGnuplotEventHandler* eventHandler = 0, QWidget* parent = 0);
+	~QtGnuplotWindow();
 
 public:
 	virtual void keyPressEvent(QKeyEvent* event);
@@ -66,14 +75,30 @@ public slots:
 	void on_setStatusText(const QString& status);
 	void on_keyAction();
 
+private slots:
+	void print();
+	void exportToPdf();
+	void exportToImage();
+	void exportToSvg();
+	void showSettingsDialog();
+	void settingsSelectBackgroundColor();
+
 private:
 	void createAction(const QString& name, int key, const QString& icon);
+	void loadSettings();
+	void saveSettings() const;
 
 private:
 	bool m_ctrl;
 	int m_id;
+	bool m_statusBarActive;
+	QStatusBar* m_statusBar;
 	QToolBar* m_toolBar;
+	QToolBar* m_mouseToolBar;
+	QLabel* m_mouseToolBarLabel;
 	QtGnuplotWidget* m_widget;
+	Ui_settingsDialog* m_ui;
+	QColor m_chosenBackgroundColor;
 };
 
 #endif // QTGNUPLOTWINDOW_H

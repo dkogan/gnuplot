@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.96 2013/02/28 06:43:00 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.101 2013/10/14 23:51:54 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - pm3d.c */
@@ -409,7 +409,7 @@ void pm3d_depth_queue_flush(void)
 	for (qp = quadrangles, qe = quadrangles + current_quadrangle; qp != qe; qp++) {
 
 	    if (color_from_rgbvar)
-		set_rgbcolor(qp->gray);
+		set_rgbcolor_var(qp->gray);
 	    else
 		set_color(qp->gray);
 	    if (pm3d.hidden3d_tag < 0)
@@ -651,7 +651,7 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 	    }
 	    /* From here, i is index to scan A, ii to scan B */
 	    if (scanA->p_count > scanB->p_count) {
-	        int itmp = i;
+		int itmp = i;
 		i = ii;
 		ii = itmp;
 		itmp = i1;
@@ -758,7 +758,7 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 		/* set the color */
 		if (pm3d.direction != PM3D_DEPTH) {
 		    if (color_from_rgbvar)
-			set_rgbcolor(gray);
+			set_rgbcolor_var(gray);
 		    else
 			set_color(gray);
 		}
@@ -927,19 +927,23 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 			else /* transform z value to gray, i.e. to interval [0,1] */
 				gray = cb2gray(avgC);
 
-			if (pm3d.direction != PM3D_DEPTH) {
-			    if (color_from_rgbvar)
-				set_rgbcolor(gray);
-			    else
-				set_color(gray);
-			    filled_quadrangle(corners);
-			} else {
+			if (pm3d.direction == PM3D_DEPTH) {
 			    /* copy quadrangle */
 			    quadrangle* qp = quadrangles + current_quadrangle;
 			    memcpy(qp->corners, corners, 4 * sizeof (gpdPoint));
 			    qp->gray = gray;
 			    qp->border_color = &this_plot->lp_properties.pm3d_color;
 			    current_quadrangle++;
+			} else {
+			    if (color_from_rgbvar)
+				set_rgbcolor_var(gray);
+			    else
+				set_color(gray);
+			    if (at_which_z == PM3D_AT_BASE)
+				corners[0].z = corners[1].z = corners[2].z = corners[3].z = base_z;
+			    else if (at_which_z == PM3D_AT_TOP)
+				corners[0].z = corners[1].z = corners[2].z = corners[3].z = ceiling_z;
+			    filled_quadrangle(corners);
 			}
 		    }
 		}
@@ -1142,8 +1146,9 @@ set_plot_with_palette(int plot_num, int plot_mode)
 	while (this_2dplot) {
 	    if (this_2dplot->plot_style == IMAGE)
 		return;
-	    if (this_2dplot->lp_properties.use_palette
-	    &&  this_2dplot->lp_properties.pm3d_color.type > TC_RGB)
+	    if (this_2dplot->lp_properties.pm3d_color.type == TC_CB
+	    ||  this_2dplot->lp_properties.pm3d_color.type == TC_FRAC
+	    ||  this_2dplot->lp_properties.pm3d_color.type == TC_Z)
 		return;
 	    if (this_2dplot->labels
 	    && (this_2dplot->labels->textcolor.type == TC_CB
@@ -1158,19 +1163,19 @@ set_plot_with_palette(int plot_num, int plot_mode)
     if (plot_mode == MODE_SPLOT) {
 	/* Any surface 'with pm3d', 'with image' or 'with line|dot palette'? */
 	while (surface++ < plot_num) {
+	    int type;
 	    if (this_3dplot->plot_style == PM3DSURFACE)
 		return;
 	    if (this_3dplot->plot_style == IMAGE)
 		return;
-	    if (this_3dplot->lp_properties.use_palette) {
-	        int type = this_3dplot->lp_properties.pm3d_color.type;
-		if (type == TC_LT || type == TC_LINESTYLE || type == TC_RGB)
-		    /* don't return yet */
-		    ;
-		else
-		    /* TC_DEFAULT: splot x with line|lp|dot palette */
-		    return;
-	    }
+
+	    type = this_3dplot->lp_properties.pm3d_color.type;
+	    if (type == TC_LT || type == TC_LINESTYLE || type == TC_RGB)
+		; /* don't return yet */
+	    else
+		/* TC_DEFAULT: splot x with line|lp|dot palette */
+		return;
+
 	    if (this_3dplot->labels &&
 		this_3dplot->labels->textcolor.type >= TC_CB)
 		return;

@@ -1,5 +1,5 @@
 /*
- * $Id: eval.h,v 1.42 2012/08/05 19:24:53 sfeam Exp $
+ * $Id: eval.h,v 1.46 2014/03/10 01:28:37 sfeam Exp $
  */
 
 /* GNUPLOT - eval.h */
@@ -47,20 +47,24 @@
 #define STACK_DEPTH 250		/* maximum size of the execution stack */
 #define MAX_AT_LEN 150		/* max number of entries in action table */
 
-/* Type definitions */
-
 /* These are used by add_action() to index the subroutine list ft[] in eval.c */
 enum operators {
     /* keep this in line with table in eval.c */
     PUSH, PUSHC, PUSHD1, PUSHD2, PUSHD, POP,
     CALL, CALLN, SUM, LNOT, BNOT, UMINUS,
-    LOR, LAND, BOR, XOR, BAND, EQ, NE, GT, LT, GE, LE, PLUS, MINUS, MULT,
-    DIV, MOD, POWER, FACTORIAL, BOOLE,
+    LOR, LAND, BOR, XOR, BAND, EQ, NE, GT, LT, GE, LE, 
+    LEFTSHIFT, RIGHTSHIFT, PLUS, MINUS,
+    MULT, DIV, MOD, POWER, FACTORIAL, BOOLE,
     DOLLARS,
     CONCATENATE, EQS, NES, RANGE,
     ASSIGN,
     /* only jump operators go between jump and sf_start, for is_jump() */
     JUMP, JUMPZ, JUMPNZ, JTERN, SF_START,
+
+    /* External function call */
+#ifdef HAVE_EXTERNAL_FUNCTIONS
+    CALLE,
+#endif
 
     /* functions specific to using spec */
     COLUMN, STRINGCOLUMN
@@ -93,6 +97,9 @@ typedef union argument {
 	struct value v_arg;	/* constant value */
 	struct udvt_entry *udv_arg; /* pointer to dummy variable */
 	struct udft_entry *udf_arg; /* pointer to udf to execute */
+#ifdef HAVE_EXTERNAL_FUNCTIONS
+	struct exft_entry *exf_arg; /* pointer to external function */
+#endif
 } argument;
 
 
@@ -126,6 +133,7 @@ extern struct udft_entry *first_udf; /* user-def'd functions */
 extern struct udvt_entry *first_udv; /* user-def'd variables */
 extern struct udvt_entry udv_pi; /* 'pi' variable */
 extern struct udvt_entry *udv_NaN; /* 'NaN' variable */
+extern struct udvt_entry **udv_user_head; /* first udv that can be deleted */
 extern TBOOLEAN undefined;
 
 /* Prototypes of functions exported by eval.c */
@@ -163,6 +171,7 @@ void free_at __PROTO((struct at_type *at_ptr));
 struct udvt_entry * add_udv_by_name __PROTO((char *key));
 struct udvt_entry * get_udv_by_name __PROTO((char *key));
 void del_udv_by_name __PROTO(( char *key, TBOOLEAN isWildcard ));
+void clear_udf_list __PROTO((void));
 
 /* update GPVAL_ variables available to user */
 void update_gpval_variables __PROTO((int from_plot_command));

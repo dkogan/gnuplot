@@ -1,5 +1,5 @@
 /*
- * $Id: stdfn.h,v 1.40 2011/09/21 11:43:50 markisch Exp $
+ * $Id: stdfn.h,v 1.46 2014/03/20 00:58:36 markisch Exp $
  */
 
 /* GNUPLOT - stdfn.h */
@@ -332,6 +332,11 @@ char *strndup __PROTO((const char * str, size_t n));
 size_t strnlen __PROTO((const char *str, size_t n));
 #endif
 
+#if defined(_MSC_VER)
+int ms_vsnprintf(char *str, size_t size, const char *format, va_list ap);
+int ms_snprintf(char *str, size_t size, const char * format, ...);
+#endif
+
 #ifndef GP_GETCWD
 # if defined(HAVE_GETCWD)
 #   if defined(__EMX__)
@@ -346,6 +351,10 @@ size_t strnlen __PROTO((const char *str, size_t n));
 
 #ifdef WIN32
 # include <windows.h>
+#endif
+
+#if defined(_MSC_VER)
+#define strtoll _strtoi64
 #endif
 
 /* sleep delay time, where delay is a double value */
@@ -370,13 +379,21 @@ size_t strnlen __PROTO((const char *str, size_t n));
 #  define GP_SLEEP(delay) sleep ((unsigned int) (delay+0.5))
 #endif
 
-#ifdef HAVE_ATEXIT
-# define GP_ATEXIT(x) atexit((x))
-#elif defined(HAVE_ON_EXIT)
-# define GP_ATEXIT(x) on_exit((x),0)
-#else
-# define GP_ATEXIT(x) /* you lose */
-#endif
+/* Gnuplot replacement for atexit(3) */
+void gp_atexit __PROTO((void (*function)(void)));
+
+/* Gnuplot replacement for exit(3). Calls the functions registered using
+ * gp_atexit(). Always use this function instead of exit(3)!
+ */
+void gp_exit __PROTO((int status));
+
+/* Calls the cleanup functions registered using gp_atexit().
+ * Normally gnuplot should be exited using gp_exit(). In some cases, this is not
+ * possible (notably when returning from main(), where some compilers get
+ * confused because they expect a return statement at the very end. In that
+ * case, gp_exit_cleanup() should be called before the return statement.
+ */
+void gp_exit_cleanup __PROTO((void));
 
 char * gp_basename __PROTO((char *path));
 
@@ -534,6 +551,7 @@ void          rewinddir __PROTO((DIR *));
  * may or may not end with a "directory separation" character.
  * Path must not be NULL, but can be empty
  */
+#ifndef VMS
 #define PATH_CONCAT(path,file) \
  { char *p = path; \
    p += strlen(path); \
@@ -543,6 +561,9 @@ void          rewinddir __PROTO((DIR *));
    } \
    strcat (path, file); \
  }
+#else
+#define PATH_CONCAT(path,file) strcat(path,file)
+#endif
 
 #ifndef inrange
 # define inrange(z,min,max) \
@@ -551,7 +572,7 @@ void          rewinddir __PROTO((DIR *));
 #endif
 
 /* HBB 20030117: new macro to simplify clipping operations in the
- * presence of possibly reverted axes */
+ * presence of possibly reversed axes */
 #ifndef cliptorange
 # define cliptorange(z,min,max)			\
     do {					\
@@ -581,8 +602,6 @@ char *safe_strncpy __PROTO((char *, const char *, size_t));
 #ifndef HAVE_SLEEP
 unsigned int sleep __PROTO((unsigned int));
 #endif
-
-double gp_strtod __PROTO((const char *str, char **endptr));
 
 double not_a_number __PROTO((void));
 

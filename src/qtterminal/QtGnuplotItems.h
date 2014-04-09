@@ -46,20 +46,47 @@
 
 #include <QGraphicsItem>
 #include <QFont>
+#include <QPen>
 
 class QtGnuplotPoint : public QGraphicsItem
 {
 public:
-	QtGnuplotPoint(int style, double size, QColor color, QGraphicsItem * parent = 0);
+	QtGnuplotPoint(int style, double size, QPen pen, QGraphicsItem * parent = 0);
 
 public:
 	virtual QRectF boundingRect() const;
 	virtual void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget);
 
+public:
+	static void drawPoint(QPainter* painter, const QPointF& origin, double size, int style);
+
 private:
+	QPen m_pen;
 	QColor m_color;
 	int m_style;
 	double m_size;
+};
+
+class QtGnuplotClippedPixmap : public QGraphicsPixmapItem
+{
+public:
+	QtGnuplotClippedPixmap(const QRectF& clipRect, const QPixmap& pixmap, QGraphicsItem* parent = 0)
+		: QGraphicsPixmapItem(pixmap, parent)
+		, m_clipRect(clipRect)
+	{
+		setFlags(flags() | QGraphicsItem::ItemClipsToShape);
+	}
+
+public:
+	virtual QPainterPath shape() const
+	{
+		QPainterPath p;
+		p.addRect(m_clipRect);
+		return p;
+	}
+
+private:
+	QRectF m_clipRect;
 };
 
 class QtGnuplotEnhancedFragment : public QAbstractGraphicsShapeItem
@@ -86,7 +113,9 @@ public:
 	virtual void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget);
 
 public:
-	void addText(const QString& fontName, double fontSize, double base, bool widthFlag,
+	void addText(const QString& fontName, double fontSize, 
+		     QFont::Style fontStyle, QFont::Weight fontWeight,
+		     double base, bool widthFlag,
 	             bool showFlag, int overprint, const QString& text, QColor color);
 
 private:
@@ -105,6 +134,53 @@ public:
 
 private:
 	bool m_hidden;
+};
+
+struct QtGnuplotPoints_PointData
+{
+	unsigned int z;
+	QPointF point;
+	int style;
+	double pointSize;
+	QPen pen;
+};
+
+struct QtGnuplotPoints_PolygonData
+{
+	unsigned int z;
+	QPolygonF polygon;
+	QPen pen;
+};
+
+struct QtGnuplotPoints_FilledPolygonData
+{
+	unsigned int z;
+	QPolygonF polygon;
+	QBrush brush;
+};
+
+// Single item that gathers many points and line to increase the performance of the terminal
+class QtGnuplotPoints : public QGraphicsItem
+{
+public:
+	QtGnuplotPoints(QGraphicsItem* parent = 0);
+
+public:
+	void addPoint(const QPointF& point, int style, double pointSize, const QPen& pen);
+	void addPolygon(const QPolygonF& polygon, const QPen& pen);
+	void addFilledPolygon(const QPolygonF& polygon, const QBrush& brush);
+	bool isEmpty() const;
+
+public:
+	virtual QRectF boundingRect() const;
+	virtual void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget);
+
+private:
+	QVector<QtGnuplotPoints_PointData> m_points;
+	QVector<QtGnuplotPoints_PolygonData> m_polygons;
+	QVector<QtGnuplotPoints_FilledPolygonData> m_filledPolygons;
+	QRectF m_boundingRect;
+	unsigned int m_currentZ;
 };
 
 #endif // QTGNUPLOTITEMS_H
