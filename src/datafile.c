@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.275 2014/03/14 18:30:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.278 2014/04/13 17:59:13 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -184,7 +184,7 @@ static TBOOLEAN valid_format __PROTO((const char *));
 static void plot_ticlabel_using __PROTO((int));
 static void add_key_entry __PROTO((char *temp_string, int df_datum));
 static char * df_generate_pseudodata __PROTO((void));
-static int df_skip_bytes __PROTO((int nbytes));
+static int df_skip_bytes __PROTO((off_t nbytes));
 
 #ifdef BACKWARDS_COMPATIBLE
 static void plot_option_thru __PROTO((void));
@@ -565,7 +565,9 @@ df_binary_details_struct df_binary_details[] = {
     {lo_names,sizeof(lo_names)/sizeof(lo_names[0]),{DF_LONG,sizeof(long)}},
     {ul_names,sizeof(ul_names)/sizeof(ul_names[0]),{DF_ULONG,sizeof(unsigned long)}},
     {fl_names,sizeof(fl_names)/sizeof(fl_names[0]),{DF_FLOAT,sizeof(float)}},
-    {db_names,sizeof(db_names)/sizeof(db_names[0]),{DF_DOUBLE,sizeof(double)}}
+    {db_names,sizeof(db_names)/sizeof(db_names[0]),{DF_DOUBLE,sizeof(double)}},
+    {NULL,0,                                       {DF_LONGLONG,sizeof(long long)}},
+    {NULL,0,                                       {DF_ULONGLONG,sizeof(unsigned long long)}}
 };
 
 df_binary_details_struct df_binary_details_independent[] = {
@@ -2134,8 +2136,8 @@ df_determine_matrix_info(FILE *fin)
 
 	/* Binary matrix format. */
 	float fdummy;
-	int nc, nr;
-	long flength;
+	off_t nc, nr;	/* off_t because they contribute to fseek offset */
+	off_t flength;
 
 	/* Read first value for number of columns. */
 	fdummy = df_read_a_float(fin);
@@ -3959,6 +3961,7 @@ void
 df_set_read_type(int col, df_data_type type)
 {
     assert(col > 0);
+    assert(type < DF_BAD_TYPE);
     /* Check if we have room at least col columns */
     if (col > df_max_bininfo_cols) {
 	df_column_bininfo = gp_realloc(df_column_bininfo,
@@ -4223,12 +4226,12 @@ df_show_binary(FILE *fp)
 		    break;
 		}
 	    }
-	    fprintf(fp, "\n\t    Skip bytes: %d before record",
+	    fprintf(fp, "\n\t    Skip bytes: %ld before record",
 		    bin_record[i].scan_skip[0]);
 	    if (dimension > 1)
-		fprintf(fp, ", %d before line", bin_record[i].scan_skip[1]);
+		fprintf(fp, ", %ld before line", bin_record[i].scan_skip[1]);
 	    if (dimension > 2)
-		fprintf(fp, ", %d before plane", bin_record[i].scan_skip[2]);
+		fprintf(fp, ", %ld before plane", bin_record[i].scan_skip[2]);
 	}
 	fprintf(fp, "\n");
     }
@@ -4322,7 +4325,7 @@ df_swap_bytes_by_endianess(char *data, int read_order, int read_size)
 
 
 static int
-df_skip_bytes(int nbytes)
+df_skip_bytes(off_t nbytes)
 {
 #if defined(PIPES)
     char cval;
@@ -4369,9 +4372,9 @@ df_readbinary(double v[], int max)
     static double P[3][3];       /* 3D rotation matrix (perpendicular) */
     static double R[2][2];       /* 2D rotation matrix (rotate) */
     static int read_order;
-    static int record_skip;
-    static int end_of_scan_line;
-    static int end_of_block;
+    static off_t record_skip;
+    static TBOOLEAN end_of_scan_line;
+    static TBOOLEAN end_of_block;
     static TBOOLEAN translation_required;
     static char *memory_data;
 
@@ -4628,7 +4631,7 @@ df_readbinary(double v[], int max)
 	 * If less than than the appropriate number of bytes have been
 	 * read, issue an error stating not enough columns were found.  */
 	for (i = 0; ; i++) {
-	    int skip_bytes = df_column_bininfo[i].skip_bytes;
+	    off_t skip_bytes = df_column_bininfo[i].skip_bytes;
 
 	    if (skip_bytes) {
 		if (memory_data)
@@ -5041,7 +5044,7 @@ df_generate_pseudodata()
 	    if ((axis_array[SAMPLE_AXIS].range_flags & RANGE_SAMPLED)) {
 		t_min = axis_array[SAMPLE_AXIS].min;
 		t_max = axis_array[SAMPLE_AXIS].max;
-		/* FIXME:  Do we need to hangle log-scaled SAMPLE_AXIS? */
+		/* FIXME:  Do we need to handle log-scaled SAMPLE_AXIS? */
 	    } else if (parametric || polar) {
 		t_min = axis_array[T_AXIS].min;
 		t_max = axis_array[T_AXIS].max;

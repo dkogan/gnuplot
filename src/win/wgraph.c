@@ -1,5 +1,5 @@
 /*
- * $Id: wgraph.c,v 1.181 2014/03/23 14:09:02 markisch Exp $
+ * $Id: wgraph.c,v 1.183 2014/04/03 00:31:16 markisch Exp $
  */
 
 /* GNUPLOT - win/wgraph.c */
@@ -47,9 +47,6 @@
 #include <windowsx.h>
 #include <commdlg.h>
 #include <commctrl.h>
-#ifndef __MSC__
-# include <mem.h>
-#endif
 #include <stdio.h>
 #include <string.h>
 #include "winmain.h"
@@ -1728,13 +1725,15 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 	/* do the drawing */
 	blkptr = lpgw->gwopblk_head;
 	curptr = NULL;
-	if (blkptr) {
+	if (blkptr != NULL) {
 		if (!blkptr->gwop)
 			blkptr->gwop = (struct GWOP *)GlobalLock(blkptr->hblk);
 		if (!blkptr->gwop)
 			return;
 		curptr = (struct GWOP *)blkptr->gwop;
 	}
+	if (curptr == NULL)
+	    return;
 
 	while (ngwop < lpgw->nGWOP) {
 		/* transform the coordinates */

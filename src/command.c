@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.282 2014/03/23 13:27:27 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.286 2014/04/05 06:17:08 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -131,9 +131,6 @@ static int winsystem __PROTO((const char *));
 #  include <direct.h>          /* getcwd() */
 # else
 #  include <alloc.h>
-#  ifndef __WATCOMC__
-#   include <dir.h>		/* setdisk() */
-#  endif
 # endif				/* !MSC */
 # include <htmlhelp.h>
 # include "win/winmain.h"
@@ -1650,9 +1647,10 @@ print_command()
 {
     struct value a;
     /* space printed between two expressions only */
-    int need_space = 0;
+    TBOOLEAN need_space = FALSE;
     char *dataline = NULL;
     size_t size = 256;
+    size_t len = 0;
 
     if (!print_out)
 	print_out = stderr;
@@ -1676,31 +1674,30 @@ print_command()
 	}
 	const_express(&a);
 	if (a.type == STRING) {
-	    if (dataline)
-		strappend(&dataline, &size, a.v.string_val);
+	    if (dataline != NULL)
+		len = strappend(&dataline, &size, len, a.v.string_val);
 	    else
 		fputs(a.v.string_val, print_out);
 	    gpfree_string(&a);
-	    need_space = 0;
+	    need_space = FALSE;
 	} else {
-	    if (need_space)
-		if (dataline)
-		    strappend(&dataline, &size, " ");
+	    if (need_space) {
+		if (dataline != NULL)
+		    len = strappend(&dataline, &size, len, " ");
 		else
 		    putc(' ', print_out);
-	    if (dataline) {
-		char * val = value_to_str(&a, FALSE);
-		strappend(&dataline, &size, val);
-	    } else {
-		disp_value(print_out, &a, FALSE);
 	    }
-	    need_space = 1;
+	    if (dataline != NULL)
+		len = strappend(&dataline, &size, len, value_to_str(&a, FALSE));
+	    else
+		disp_value(print_out, &a, FALSE);
+	    need_space = TRUE;
 	}
     } while (!END_OF_COMMAND && equals(c_token, ","));
 
-    if (dataline)
+    if (dataline != NULL) {
 	append_to_datablock(&print_out_var->udv_value, dataline);
-    else {
+    } else {
 	(void) putc('\n', print_out);
 	fflush(print_out);
     }
@@ -1955,40 +1952,43 @@ system_command()
 }
 
 
-/* process the 'test palette' command
- *
- * note 1: it works on terminals supporting as well as not supporting pm3d
- * note 2: due to the call to load_file(), the rest of the current command
- *	   line after 'test palette ;' is discarded
+/*
+ * process the 'test palette' command
+ * 1) Write a sequence of plot commands + set commands into a temp file
+ * 2) Create a datablock with palette values
+ * 3) Load the temp file to plot from the datablock
+ *    The set commands then act to restore the initial state
  */
 static void
 test_palette_subcommand()
 {
     enum {test_palette_colors = 256};
-
-    double gray, z[test_palette_colors];
-    rgb_color rgb1[test_palette_colors];
-    int i, k;
-    static const char pre1[] = "\
-reset;set multi;\
-uns border;uns key;set tic in;uns xtics;uns ytics;\
-se cbtic 0,0.1,1 mirr format '';\
-se xr[0:1];se yr[0:1];se zr[0:1];se cbr[0:1];\
-se pm3d map;set colorbox hor user orig 0.05,0.02 size 0.925,0.12;";
-    static const char pre2[] = "splot 1/0;\n\n\n";
-	/* note: those \n's are because of x11 terminal problems with blocking pipe */
-    static const char pre3[] = "\
-uns pm3d;\
-se lmarg scre 0.05;se rmarg scre 0.975; se bmarg scre 0.22; se tmarg scre 0.86;\
-se grid;se tics scale 0; se xtics 0,0.1;se ytics 0,0.1;\
-se key top right at scre 0.975,0.975 horizontal \
-title 'R,G,B profiles of the current color palette';";
-    static const char post[] = "\
-\n\n\nuns multi;\n"; /* no final 'reset' in favour of mousing */
-    int can_pm3d = (term->make_palette && ((term->flags & TERM_NULL_SET_COLOR) == 0));
-    char *order = "rgb";
+    struct udvt_entry *datablock;
     char *save_replot_line;
     TBOOLEAN save_is_3d_plot;
+    int i;
+
+    static const char pre1[] = "\
+reset;\
+uns border; se tics scale 0;\
+se cbtic 0,0.1,1 mirr format '' scale 1;\
+se xr[0:1];se yr[0:1];se zr[0:1];se cbr[0:1];\
+set colorbox hor user orig 0.05,0.02 size 0.925,0.12;";
+
+    static const char pre2[] = "\
+se lmarg scre 0.05;se rmarg scre 0.975; se bmarg scre 0.22; se tmarg scre 0.86;\
+se grid; se xtics 0,0.1;se ytics 0,0.1;\
+se key top right at scre 0.975,0.975 horizontal \
+title 'R,G,B profiles of the current color palette';";
+
+    static const char pre3[] = "\
+p NaN lc palette notit,\
+$PALETTE u 1:2 t 'red' w l lt 1 lc rgb 'red',\
+'' u 1:3 t 'green' w l lt 1 lc rgb 'green',\
+'' u 1:4 t 'blue' w l lt 1 lc rgb 'blue',\
+'' u 1:5 t 'NTSC' w l lt 1 lc rgb 'black'\
+\n";
+
     FILE *f = tmpfile();
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
@@ -2001,30 +2001,30 @@ title 'R,G,B profiles of the current color palette';";
     }
 #endif
 
-    c_token++;
-    /* parse optional option */
-    if (!END_OF_COMMAND) {
-	int err = (token[c_token].length != 3);
-
-	order = gp_input_line + token[c_token].start_index;
-	if (!err) {
-	    err += (memchr(order, 'r', 3) == NULL);
-	    err += (memchr(order, 'g', 3) == NULL);
-	    err += (memchr(order, 'b', 3) == NULL);
-	}
-	if (err)
-	    int_error(c_token, "combination rgb or gbr or brg etc. expected");
+    while (!END_OF_COMMAND)
 	c_token++;
-    }
     if (!f)
 	int_error(NO_CARET, "cannot write temporary file");
 
-    /* generate r,g,b curves */
+    /* Store R/G/B/Int curves in a datablock */
+    datablock = add_udv_by_name("$PALETTE");
+    if (!datablock->udv_undef)
+	gpfree_datablock(&datablock->udv_value);
+    datablock->udv_value.type = DATABLOCK;
+    datablock->udv_value.v.data_array = NULL;
+    datablock->udv_undef = FALSE;
+
     for (i = 0; i < test_palette_colors; i++) {
-	/* colours equidistantly from [0,1] */
-	z[i] = (double)i / (test_palette_colors - 1);
-	gray = (sm_palette.positive == SMPAL_NEGATIVE) ? 1-z[i] : z[i];
-	rgb1_from_gray(gray, &rgb1[i]);
+	char dataline[64];
+	rgb_color rgb;
+	double ntsc;
+	double z = (double)i / (test_palette_colors - 1);
+	double gray = (sm_palette.positive == SMPAL_NEGATIVE) ? 1. - z : z;
+	rgb1_from_gray(gray, &rgb);
+	ntsc = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
+	sprintf(dataline, "%0.4f %0.4f %0.4f %0.4f %0.4f %c",
+		z, rgb.r, rgb.g, rgb.b, ntsc, '\0');
+	append_to_datablock(&datablock->udv_value, strdup(dataline));
     }
 
     /* commands to setup the test palette plot */
@@ -2032,49 +2032,8 @@ title 'R,G,B profiles of the current color palette';";
     save_replot_line = gp_strdup(replot_line);
     save_is_3d_plot = is_3d_plot;
     fputs(pre1, f);
-    if (can_pm3d)
-	fputs(pre2, f);
+    fputs(pre2, f);
     fputs(pre3, f);
-    /* put inline data of the r,g,b curves */
-    fputs("p", f);
-    for (i=0; i<strlen(order); i++) {
-	if (i > 0)
-	    fputs(",", f);
-	fputs("'-'tit'", f);
-	switch (order[i]) {
-	case 'r':
-	    fputs("red'w l lt 1 lc rgb 'red'", f);
-	    break;
-	case 'g':
-	    fputs("green'w l lt 2 lc rgb 'green'", f);
-	    break;
-	case 'b':
-	    fputs("blue'w l lt 3 lc rgb 'blue'", f);
-	    break;
-	} /* switch(order[i]) */
-    } /* for (i) */
-    fputs(", '-' w l title 'NTSC' lt -1", f);
-    fputs("\n", f);
-    for (i = 0; i < 3; i++) {
-	int c = order[i];
-
-	for (k = 0; k < test_palette_colors; k++) {
-	    double rgb = (c=='r')
-		? rgb1[k].r :
-		((c=='g') ? rgb1[k].g : rgb1[k].b);
-
-	    fprintf(f, "%0.4f\t%0.4f\n", z[k], rgb);
-	}
-	fputs("e\n", f);
-    }
-    for (k = 0; k < test_palette_colors; k++) {
-	double ntsc = 0.299 * rgb1[k].r
-		    + 0.587 * rgb1[k].g
-		    + 0.114 * rgb1[k].b;
-	fprintf(f, "%0.4f\t%0.4f\n", z[k], ntsc);
-    }
-    fputs("e\n", f);
-    fputs(post, f);
 
     /* save current gnuplot 'set' status because of the tricky sets
      * for our temporary testing plot.
@@ -2270,11 +2229,9 @@ changedir(char *path)
     if (isalpha(path[0]) && (path[1] == ':')) {
 	int driveno = toupper(path[0]) - 'A';	/* 0=A, 1=B, ... */
 
-# if (defined(MSDOS) && defined(__EMX__)) || defined(__MSC__)
+# if defined(__EMX__)
 	(void) _chdrive(driveno + 1);
-# endif
-
-# ifdef DJGPP
+# elif defined(__DJGPP__) 
 	(void) setdisk(driveno);
 # endif
 	path += 2;		/* move past drive letter */

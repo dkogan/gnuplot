@@ -1,4 +1,207 @@
-2014-03-23 Bastian Maerkisch  <bmaerkisch@web.de>
+2014-04-13  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in (AC_CHECK_TYPES([off_t])) src/syscfg.h (#define off_t)
+	src/binary.c src/datafile.c src/datafile.h:  Change the declared type
+	of all variables contributing to calculation of file offsets from (int)
+	to (off_t).  This is sufficient to allow seeking in files > 2GB on 64bit
+	platforms.  It may also allow LFS support on some 32bit platforms if
+	compiled with -D_FILE_OFFSET_BITS=64 but in general it will also be
+	necessary to replace fseek/ftell with fseeko/ftello (32bit linux) or
+	_fseeki64/_ftelli64 (MSVC).
+
+2014-04-11  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (df_binary_details[]): Handle int64 and uint64 types 
+	even if current platform has sizeof(long) = 4.
+	Bugfix
+
+2014-04-08  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/save.c (save_linetype) src/misc.c (lp_parse)
+	src/graphics.c (plot_lines) src/graph3d.c (do_3dplot plot3d_lines)
+	src/boundary.c (do_key_sample):
+
+	New linetype keyword "nodraw" maps to existing internal value LT_NODRAW.
+	Apply this in the graphics layer rather than the terminal layer in order
+	to distinguish between line properties and point properties.
+	I.e. this draws blue points but no lines:
+	  plot $FOO with linespoints lt nodraw pointtype 6 lc rgb "blue"
+
+	* src/term.c (term_apply_lp_properties):  Distinguish between l_type
+	values that really indicate a linetype (e.g. LT_NODRAW, LT_AXIS) and
+	those which indicate a dash pattern. Send the former directly to
+	term->linetype(). Send the latter to term->dashtype(), which may itself
+	call term->linetype() if there is no private implementation of dashes.
+
+2014-04-07  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (null_dashtype):  Ignore custom dashtypes. Pass through
+	dashtypes > 0 to term->linetype(). Treat negative dashtypes as LT_BLACK.
+	This should allow terminals without a private dashtype implementation to
+	continue working as they did before (pre-version 5).
+
+	* src/plot2d.c (eval_plots):  Don't call lp_parse if all we want is
+	a fill color.
+
+	* src/boundary.c (do_key_sample) src/graphics.c (plot_boxes plot_c_bars):
+	Funnel requests for linetype changes through term_apply_lp_properties().
+
+	* demo/all.dem:  Add varcolor.dem to the test set.
+
+2014-04-06  Christoph Bersch <usenet@bersch.net>
+
+	* src/graphics.c (fill_between):  It is no longer necessary to clip in
+	this routine because the component quadrilaterals will be clipped later.
+
+2014-04-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/set.c (set_table): Name leak.
+
+2014-04-05  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* demo/vector.dem docs/gnuplot.doc src/command.c src/datablock.c
+	src/datablock.h src/gadgets.c src/gadgets.h src/plot2d.c src/set.c
+	src/tabulate.c src/tabulate.h src/unset.c src/util.c src/util.h:
+	'set table $datablock' redirects table output to a named data block.
+	Patch #662
+
+2014-04-04  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (load_linetype):  If a line style is based on a lt < 0
+	(LT_NODRAW, LT_BACKGROUND, LT_BLACK, etc), take only the line color.
+	FIXME: LT_AXIS should also take the dash pattern but that mechanism
+	isn't fully in place yet.
+	Bug #1369
+
+	* src/util.c (value_to_str):  Fix error in buffer length accounting.
+	Bug #1372
+
+	* src/alloc.c src/alloc.h src/bf_test.c: The conditional code in
+	alloc.c for tracking memory allocation/free has bit-rotted to a point
+	where the program segfaults on entry if it is enabled.  Since this sort
+	of accounting is now better done using valgrind it is not worth fixing
+	the old code.  Delete it.
+
+	* src/alloc.c: Although freeing old help messages may free some memory,
+	entangling the help system with every memory allocation seems excessive.
+	If we're about to run out of memory there are deeper problems than old
+	help messages.
+
+	* configure.in: Remove EXPERIMENTAL warning from older options.
+
+	* src/save.c src/set.c src/term.c:  Code style / whitespace cleanup
+
+	* src/set.c (set_dashtype) src/misc.c (parse_dashtype):  Add comments.
+	Truncate dashtype string to match size of stored pattern array.
+
+2014-04-03  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* src/fit.h (error_ex):  Add noreturn attribute to avoid compiler
+	warnings.
+
+	* src/fit.c:  Correct test for invalid covariance matrix.
+
+	* src/util.h (int_error, os_error, graph_error):  noreturn attribute
+	for MSVC.
+
+	* src/wgdiplus.cpp (drawgraph_gdiplus) src/win/wgraph.c (drawgraph):
+	Test if command list is available.
+
+	* src/win.trm (WIN_update_options) src/win/wmenu.c:  Incomplete format
+	strings.
+
+2014-04-02  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c demo/heatmaps.dem docs/gnuplot.doc:
+	Document and add a demo for "with image pixels" (formerly "failsafe").
+
+	* src/color.c src/plot3d.c src/pm3d.c src/pm3d.h src/save.c src/set.c
+	src/show.c src/tables.c src/tables.h src/term.c src/unset.c:
+	Revise "set pm3d hidden3d <lt>" to match other places where you can
+	specify line properties.
+	- Full syntax is now "set hidden3d {no}border {line-properties}"
+	- Individual line properties can be overridden in the plot command
+	- Old sytax is accepted as a synonym for "set hidden3d border lc <lt>"
+
+	* demo/transparent_solids.dem docs/gnuplot.doc:
+	Update documentation and demo to show new syntax
+
+	* src/contour.c (end_crnt_cntr): Initialize blank label in new contour.
+
+2014-04-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c (test_palette_command):  Write the palette colors into
+	a datablock $PALETTE rather than writing them as in-line data in a temp
+	file.  Simplify the internal command sequence that generates the test
+	output.  TODO: Move the command sequence into a datablock as well.
+
+2014-03-30  Bastian Maerkisch  <bmaerkisch@web.de>
+
+	* term/caca.trm:  Change codepage from 932 to 437 on Japanese Windows.
+	Apparently this fixes display problems, although libcaca uses unicode
+	functions to write to screen.
+	Bug #1361
+
+	* src/eval.c src/internal.c|h src/parse.c:  Implement f_words instead
+	of treating it as a special case in the parser.
+
+	* src/command.c src/command.h src/plot.c src/stdfn.h src/syscfg.h
+	src/win/wgraph.c src/win/winmain.c src/win/wprinter.c:  Include file
+	cleanup.
+
+	* src/win/screenbuf.c:  Avoid crashes on memory allocation errors.
+
+	* src/makefile.all src/makefile.awc:  Recreate to include multiplot.c.
+
+	* demo/lines_arrows.dem:  UTF-8 encoding.
+
+	* config/mingw/Makefile:  Fix non-numeric version number due to
+	patchlevel "alpha".
+
+2014-03-29  Christoph Bersch <usenet@bersch.net>
+
+	* src/multiplot.h src/multiplot.c demo/layout.dem docs/gnuplot.doc:
+	New autolayout options for multiplot:
+	  set multiplot layout margins LEFT, RIGHT, BOTTOM, TOP spacing GAP
+	Patch #611
+
+2014-03-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/term.c (multiplot_current_panel) term/svg.trm src/term_api.h:
+	Hide internal data structure behind an access function.
+
+	* src/multiplot.h src/multiplot.c src/term.c src/term_api.h
+	src/Makefile.am:  Move multiplot layout code from term.c into a new
+	file multiplot.c.
+
+2014-03-27  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/gnuplot-ja.doc term-ja.diff:  Sync translation to version 1.872
+	* docs/gnuplot.doc: typos
+
+2014-03-27  Dima Kogan  <dima@secretsauce.net>
+
+	* docs/gnuplot.doc
+
+2014-03-27  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/qt_term.cpp (qt_text_wrapper):
+	Prevent segfault on "set term qt; set multiplot; quit".
+
+2014-03-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (place_objects do_rectangle): When fillcolor for an
+	objects is given as a linecolor it should be interpreted as referring
+	to a current linetype.
+
+	* src/command.c: clean up to remove compiler warnings.
+
+	* term/emf.trm:  Bold/Italic markup in enhanced text mode
+
+	* src/boundary.c (do_key_sample_point) demo/lines_arrows.dem:
+	Apply textcolor to character point type in key sample.
+
+2014-03-23  Bastian Maerkisch  <bmaerkisch@web.de>
 
 	* src/command.c src/command.h src/datablock.c src/datablock.h 
 	src/set.c src/show.c src/unset.c docs/gnuplot.doc demo/ellipse.dem

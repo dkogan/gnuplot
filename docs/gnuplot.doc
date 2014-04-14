@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.872 2014/03/23 13:27:27 markisch Exp $
+C RCS $Id: gnuplot.doc,v 1.878 2014/04/05 06:17:08 markisch Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -603,7 +603,7 @@ C
                                times the current fontsize
    {/Times abc}                print abc in font Times at current size
    {/Times*2 abc}              print abc in font Times at twice current size
-   {/Times:Italic abc}         print abs in Times with style italic
+   {/Times:Italic abc}         print abc in Times with style italic
    {/Arial:Bold=20 abc}        print abc in boldface Arial font size 20 
 #\begin{tabular}{|clll|} \hline
 #\multicolumn{4}{|c|}{Enhanced Text Control Codes} \\ \hline
@@ -3656,19 +3656,24 @@ Ffigure_scaled_image
  extreme cases.  A pixel with 0 < alpha < 255 is partially transparent.
  Only a few terminal types can handle this correctly; other terminals will
  approximate this by treating alpha as being either 0 or 255.
-3 image failsafe
+3 image pixels
+?plotting styles image pixels
+?style image pixels
+?image pixels
+?pixels
 ?plotting styles image failsafe
 ?style image failsafe
 ?image failsafe
 ?failsafe
  Some terminals use device- or library-specific optimizations to render image
  data within a rectangular 2D area.  This sometimes produces undesirable output,
- e.g. bad clipping or scaling, missing edges.  The `failsafe` keyword tells
+ e.g. bad clipping or scaling, missing edges.  The `pixels` keyword tells
  gnuplot to use generic code that renders the image pixel-by-pixel instead.
  This rendering mode is slower and may result in much larger output files, but
  should produce a consistent rendered view on all terminals.
+ (The `pixels` options was called `failsafe` mode in previous gnuplot versions.)
  Example:
-       plot 'data' with image failsafe
+       plot 'data' with image pixels
 2 impulses
 ?plotting styles impulses
 ?style impulses
@@ -7549,7 +7554,6 @@ Ffigure_mapcontours
  `set colorsequence podo` selects eight colors drawn from a set recommended by
  Wong (2011) [Nature Methods 9:441] as being easily distinguished by color-blind
  viewers with either protanopia or deuteranopia.
- of eight colors.
 
  In each case you can further customize the length of the sequence and the
  colors used. See `set linetype`, `colors`.
@@ -7850,17 +7854,17 @@ Ffigure_mapcontours
  The surface can be switched off (see `unset surface`), giving a contour-only
  graph.  Though it is possible to use `set size` to enlarge the plot to fill
  the screen, more control over the output format can be obtained by writing
- the contour information to a file, and rereading it as a 2D datafile plot:
+ the contour information to a datablock, and rereading it as a 2D datafile plot:
 
        unset surface
        set contour
        set cntrparam ...
-       set table 'filename'
+       set table $datablock
        splot ...
        unset table
-       # contour info now in filename
+       # contour info now in $datablock
        set term <whatever>
-       plot 'filename'
+       plot $datablock
 
  In order to draw contours, the data should be organized as "grid data".  In
  such a file all the points for a single y-isoline are listed, then all the
@@ -9856,6 +9860,8 @@ Ffigure_missing
            { layout <rows>,<cols> 
              {rowsfirst|columnsfirst} {downwards|upwards}
              {scale <xscale>{,<yscale>}} {offset <xoff>{,<yoff>}}
+             {margins <left>,<right>,<bottom>,<top>}
+             {spacing <xspacing>{,<yspacing>}}
            }
        set multiplot {next|previous}
        unset multiplot
@@ -9863,13 +9869,10 @@ Ffigure_missing
  For some terminals, no plot is displayed until the command `unset multiplot`
  is given, which causes the entire page to be drawn and then returns gnuplot
  to its normal single-plot mode.  For other terminals, each separate `plot`
- command produces an updated display, either by redrawing all previous ones
- and the newly added plot, or by just adding the new plot to the existing
- display.
+ command produces an updated display.
 
- The area to be used by the next plot is not erased before doing the
- new plot.  The `clear` command can be used to do this if wanted, as is
- typically the case for "inset" plots.
+ The `clear` command is used to erase the rectangular area of the page that will
+ be used for the next plot.  This is typically needed for "inset" plots.
 
  Any labels or arrows that have been defined will be drawn for each plot
  according to the current size and origin (unless their coordinates are
@@ -9935,6 +9938,24 @@ Ffigure_missing
  The above example will produce 6 plots in 2 columns filled top to bottom,
  left to right.  Each plot will have a horizontal size of 1.1/2 and a vertical
  size of 0.9/3.
+
+ Another possibility is to set explicit margins for each plot with options
+ `margins` and `spacing`. With `margins` you set the outer margins of the whole
+ multiplot grid, given as fractions of the whole drawing area. This can be very
+ useful if only some plots have labels but their sizes should all be equal.
+
+ Example:
+       set multiplot layout 2,2 columnsfirst margins 0.1,0.9,0.1,0.9 spacing 0.1
+       set ylabel 'ylabel'
+       plot sin(x)
+       set xlabel 'xlabel'
+       plot cos(x)
+       unset ylabel
+       unset xlabel
+       plot sin(2*x)
+       set xlabel 'xlabel'
+       plot cos(2*x)
+       unset multiplot
 
  See also
 ^ <a href="http://www.gnuplot.info/demo/multiplt.html">
@@ -10178,11 +10199,15 @@ Ffigure_missing
  coordinates. See `coordinates`. In all cases the radius is calculated
  relative to the horizontal scale of the axis, graph, or canvas.  Any
  disparity between the horizontal and vertical scaling will be corrected for
- so that the result is always a circle.
+ so that the result is always a circle. If you want to draw a circle in plot
+ coordinates (such that it will appear as an ellipse if the horizontal and
+ vertical scales are different), use `set object ellipse` instead.
 
  By default a full circle is drawn. The optional qualifier `arc` specifies
  a starting angle and ending angle, in degrees, for one arc of the circle.
  The arc is always drawn counterclockwise.
+
+ See also `set object ellipse`.
 
 4 polygon
 ?polygon
@@ -10584,22 +10609,27 @@ Ffigure_missing
  contributing to the color of any quadrangle.  For example, applying the pm3d
  algorithm to the 4x4 grid of data points in script `demo/pm3d.dem` (please have
  a look) produces only (4-1)x(4-1)=9 colored rectangles.
-4 hidden3d
+4 border
 ?set pm3d hidden3d
 ?pm3d hidden3d
- The option `set pm3d hidden3d` draws the bounding lines of each quadrangle
- at the same time that the quadrangle itself is drawn. Normally it is used in
- conjunction with the `depthorder` option to achieve an approximation to true
- hidden line removal.  This is far more efficient than using the command
- `set hidden3d`.  The command takes an optional linestyle controlling the
- appearance of the bounding lines.  If the linestyle parameter is negative,
- or omitted, then the line properties given in the plot command are used.
+?set pm3d border
+?pm3d border
+ The option `set pm3d border {line-properties}` draws bounding lines around each
+ quadrangle as it is rendered. Normally this is used in conjunction with the
+ `depthorder` option to approximate hidden line removal.
+ Note that the global option `set hidden3d` has no effect on pm3d plots.
+ Default line properties (color, width) optionally follow the keyword `border`.
+ These defaults can be overridden later in an splot command.
+
  Example of recommended usage:
 
-       set pm3d at s hidden3d depthorder
+       set pm3d at s depthorder border lw 0.2 lt black
        unset hidden3d
        unset surf
-       splot x*x+y*y linecolor rgb "black" linewidth 0.5
+       splot x*x+y*y linecolor rgb "blue"	# otherwise it would be black
+
+ NB: The deprecated option `set pm3d hidden3d N` is still accepted. It is 
+ equivalent to `set pm3d border ls N`.
 
 4 interpolate
 ?set pm3d interpolate
@@ -10685,8 +10715,8 @@ Ffigure_missing
  limited to 3 columns of r,g,b float values [0..1] or integer values [0..255]
  by options float or int, respectively.  This way, the current gnuplot color
  palette can be loaded into other imaging applications, for example Octave.
- Additionally to this textual list of RGB table, you can use the `test palette`
- command to plot the R,G,B profiles for the current palette.
+ Alternatively, the `test palette` command will plot the R,G,B profiles for the
+ current palette and leave the profile values in a datablock $PALETTE.
 
  The following options determine the coloring properties.
 
@@ -11856,13 +11886,15 @@ Ffigure_missing
  (see `set samples` and `set dgrid3d`).
 
  Syntax:
-       set table {"outfile"}
+       set table {"outfile" | $datablock}
        plot <whatever>
        unset table
 
  Tabular output is written to the named file, if any, otherwise it is written
- to the current value of `set output`.  You must explicitly `unset table`
- in order to go back to normal plotting on the current terminal.
+ to the current value of `set output`.  Alternatively, tabular output can be
+ redirected to a named data block. Data block names start with '$', see also
+ `inline data`. You must explicitly `unset table` in order to go back to normal
+ plotting on the current terminal.
 
  To avoid any style-dependent processing of the input data (smoothing,
  errorbar expansion, secondary range checking, etc), or to increase the number
@@ -13677,17 +13709,15 @@ Ffigure_missing
  This command graphically tests or presents terminal and palette capabilities.
 
  Syntax:
-       test {terminal | palette [rgb|rbg|grb|gbr|brg|bgr]}
+       test {terminal | palette}
 
  `test` or `test terminal` creates a display of line and point styles and other
- useful things appropriate for and supported by the `terminal` you are just
- using.
+ useful things supported by the `terminal` you are currently using.
 
  `test palette` plots profiles of R(z),G(z),B(z), where 0<=z<=1. These are the
  RGB components of the current color `palette`. It also plots the apparent net
  intensity as calculated using NTSC coefficients to map RGB onto a grayscale.
- The optional parameter, a permutation of letters rgb, determines the sequence in
- which the r,g,b profiles are drawn.
+ The profile values are also loaded into a datablock named $PALETTE.
 2 undefine
 ?commands undefine
 ?undefine

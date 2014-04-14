@@ -1,5 +1,5 @@
 /*
- * $Id: syscfg.h,v 1.52 2013/12/22 20:47:25 sfeam Exp $
+ * $Id: syscfg.h,v 1.54 2014/04/13 17:55:24 sfeam Exp $
  */
 
 /* GNUPLOT - syscfg.h */
@@ -215,18 +215,12 @@
 
 /* DOS/Windows stuff. Moved here from command.c */
 #if defined(MSDOS)
-
 # ifdef DJGPP
 #  include <dos.h>
 #  include <dir.h>              /* HBB: for setdisk() */
 # else
 #  include <process.h>
 # endif                         /* !DJGPP */
-
-# ifdef __MSC__
-#  include <direct.h>        /* for _chdrive() */
-# endif                      /* __MSC__ */
-
 #endif /* MSDOS */
 
 /* Watcom's compiler; this should probably be somewhere
@@ -260,6 +254,11 @@
 /* BM 20110904: remnant of huge memory model support */
 #define GPHUGE /* nothing */
 #define GPFAR /* nothing */
+
+/* LFS support */
+#ifndef HAVE_OFF_T
+#define off_t long
+#endif
 
 typedef double coordval;
 
