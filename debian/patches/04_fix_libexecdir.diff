@@ -1,7 +1,9 @@
---- a/src/Makefile.am
-+++ b/src/Makefile.am
+Index: gnuplot.deb/src/Makefile.am
+===================================================================
+--- gnuplot.deb.orig/src/Makefile.am	2014-04-14 00:04:55.567238328 -0700
++++ gnuplot.deb/src/Makefile.am	2014-04-14 00:04:55.567238328 -0700
 @@ -2,7 +2,7 @@
- AUTOMAKE_OPTIONS = foreign
+ AUTOMAKE_OPTIONS = foreign subdir-objects
  
  # in the spirit of automake ...
 -pkglibexecdir = $(libexecdir)/@PACKAGE@/@VERSION_MAJOR@
