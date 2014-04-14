@@ -79,8 +79,7 @@ override_dh_auto_install:
 		pkglibexecdir='$$(libexecdir)'
 
 override_dh_auto_test:
-	cp -f $(BUILDDIR_X11)/demo/binary* ./demo/
-	cd demo; $(BUILDDIR_NOX)/src/gnuplot -d all.dem </dev/null
+	true
 
 override_dh_compress-indep:
 	dh_compress -Xall.dem
