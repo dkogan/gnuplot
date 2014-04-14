@@ -1,5 +1,5 @@
 /*
- * $Id: util.h,v 1.42 2014/03/23 12:17:59 markisch Exp $
+ * $Id: util.h,v 1.44 2014/04/05 06:17:09 markisch Exp $
  */
 
 /* GNUPLOT - util.h */
@@ -97,6 +97,10 @@ void gprintf __PROTO((char *, size_t, char *, double, double));
     void os_error __PROTO((int, const char *, ...)) __attribute__((noreturn));
     void int_error __PROTO((int, const char *, ...)) __attribute__((noreturn));
     void graph_error __PROTO((const char *, ...)) __attribute__((noreturn));
+#  elif defined(_MSC_VER)
+    __declspec(noreturn) void os_error(int, const char *, ...);
+    __declspec(noreturn) void int_error(int, const char *, ...);
+    __declspec(noreturn) void graph_error(const char *, ...);
 #  else
     void os_error __PROTO((int, const char *, ...));
     void int_error __PROTO((int, const char *, ...));
@@ -127,7 +131,7 @@ size_t strlen_utf8 __PROTO((const char *s));
 size_t gp_strlen __PROTO((const char *s));
 char * gp_strchrn __PROTO((const char *s, int N));
 TBOOLEAN streq __PROTO((const char *a, const char *b));
-char *strappend(char **dest, size_t *size, char *src);
+size_t strappend(char **dest, size_t *size, size_t len, const char *src);
 
 char *num_to_str(double r);
 char *value_to_str(struct value *val, TBOOLEAN need_quotes);

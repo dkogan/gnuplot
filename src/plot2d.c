@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.324 2014/03/19 17:27:50 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.327 2014/04/07 22:52:35 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -41,6 +41,7 @@ static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.324 2014/03/19 17:27:50 s
 #include "axis.h"
 #include "command.h"
 #include "datafile.h"
+#include "datablock.h"
 #include "eval.h"
 #include "fit.h"
 #include "graphics.h"
@@ -686,9 +687,23 @@ get_data(struct curve_points *current_plot)
 		int col;
 		int dummy_type = INRANGE;
 		FILE *outfile = (table_outfile) ? table_outfile : gpoutfile;
-		for (col = 0; col < j; col++)
-		    fprintf(outfile, " %g", v[col]);
-		fprintf(outfile, "\n");
+
+		if (table_var == NULL) {
+		    for (col = 0; col < j; col++)
+			fprintf(outfile, " %g", v[col]);
+		    fprintf(outfile, "\n");
+		} else {
+		    char buf[64]; /* buffer large enough to hold %g + 2 extra chars */
+		    size_t size = 64;
+		    char *line = (char *) gp_alloc(size, "");
+		    size_t len = 0;
+		    line[0] = NUL;
+		    for (col = 0; col < j; col++) {
+			snprintf(buf, 128, " %g", v[col]);
+			len = strappend(&line, &size, len, buf);
+		    }
+		    append_to_datablock(&table_var->udv_value, line);
+		}
 		/* This tracks x range and avoids "invalid x range" error message */
 		STORE_WITH_LOG_AND_UPDATE_RANGE( current_plot->points[i].x,
 			v[0], dummy_type, current_plot->x_axis,
@@ -2448,10 +2463,7 @@ eval_plots()
 			set_fillstyle = TRUE;
 		    }
 		    if (equals(c_token,"fc") || almost_equals(c_token,"fillc$olor")) {
-			struct lp_style_type lptmp;
-			lp_parse(&lptmp, FALSE, FALSE);
-			this_plot->lp_properties.pm3d_color = lptmp.pm3d_color;
-			set_lpstyle = TRUE;
+			parse_colorspec(&this_plot->lp_properties.pm3d_color, TC_VARIABLE);
 		    }
 		    if (stored_token != c_token)
 			continue;

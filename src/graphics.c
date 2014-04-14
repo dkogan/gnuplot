@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graphics.c,v 1.446 2014/03/19 17:30:33 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graphics.c,v 1.450 2014/04/08 18:49:22 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graphics.c */
@@ -347,6 +347,7 @@ place_objects(struct object *listhead, int layer, int dimensions)
     for (this_object = listhead; this_object != NULL; this_object = this_object->next) {
 	struct lp_style_type lpstyle;
 	struct fill_style_type *fillstyle;
+	double border_width;
 
 	if (this_object->layer != layer)
 	    continue;
@@ -357,6 +358,10 @@ place_objects(struct object *listhead, int layer, int dimensions)
 	    lpstyle = default_rectangle.lp_properties;
 	else
 	    lpstyle = this_object->lp_properties;
+	border_width = lpstyle.l_width;
+	if (lpstyle.pm3d_color.type == TC_LT)
+	    load_linetype(&lpstyle, lpstyle.pm3d_color.lt + 1);
+	lpstyle.l_width = border_width;
 
 	if (this_object->fillstyle.fillstyle == FS_DEFAULT
 	    && this_object->object_type == OBJ_RECTANGLE)
@@ -728,6 +733,7 @@ do_plot(struct curve_points *plots, int pcount)
 		    plot_boxes(this_plot, Y_AXIS.term_zero);
 		/* Draw the bars first, so that the box will cover the bottom half */
 		if (histogram_opts.type == HT_ERRORBARS) {
+		    /* Note that the bar linewidth may not match the border or plot linewidth */
 		    (term->linewidth)(histogram_opts.bar_lw);
 		    if (!need_fill_border(&default_fillstyle))
 			(term->linetype)(this_plot->lp_properties.l_type);
@@ -963,6 +969,10 @@ plot_lines(struct curve_points *plot)
     enum coord_type prev = UNDEFINED;	/* type of previous point */
     double ex, ey;		/* an edge point */
     double lx[2], ly[2];	/* two edge points */
+
+    /* If all the lines are invisible, don't bother to draw them */
+    if (plot->lp_properties.l_type == LT_NODRAW)
+	return;
 
     for (i = 0; i < plot->p_count; i++) {
 
@@ -1305,113 +1315,46 @@ double x1, double xu1, double yl1, double yu1,
 double x2, double xu2, double yl2, double yu2,
 struct curve_points *plot)
 {
-    double xmin, xmax, ymin, ymax, dx, dy1, dy2;
-    int axis;
-    int ic, iy;
-    gpiPoint box[8];
-    struct { double x,y; } corners[8];
+    gpiPoint box[5]; /* Must leave room for additional point if needed after clipping */
 
-    /* Clip against x-axis range */
-    /* It would be nice if we could trust xmin to be less than xmax */
-	axis = plot->x_axis;
-	xmin = GPMIN(axis_array[axis].min, axis_array[axis].max);
-	xmax = GPMAX(axis_array[axis].min, axis_array[axis].max);
-	if (!(inrange(x1, xmin, xmax)) && !(inrange(x2, xmin, xmax)))
-	    return;
+    box[0].x   = map_x(x1);
+    box[0].y   = map_y(yl1);
+    box[1].x   = map_x(xu1);
+    box[1].y   = map_y(yu1);
+    box[2].x   = map_x(xu2);
+    box[2].y   = map_y(yu2);
+    box[3].x   = map_x(x2);
+    box[3].y   = map_y(yl2);
+    
+    /* finish_filled_curve() will handle clipping, fill style, and */
+    /* any distinction between above/below (flagged in box[4].x)   */
+    if (polar) {
+	/* "above" or "below" evaluated in terms of radial distance from origin */
+	/* FIXME: Most of this should be offloaded to a separate subroutine */
+	double ox = map_x(0);
+	double oy = map_y(0);
+	double plx = map_x(x1);
+	double ply = map_y(yl1);
+	double pux = map_x(xu1);
+	double puy = map_y(yu1);
+	double drl = (plx-ox)*(plx-ox) + (ply-oy)*(ply-oy);
+	double dru = (pux-ox)*(pux-ox) + (puy-oy)*(puy-oy);
+	double dx1 = dru - drl;
+	
+	double dx2;
+	plx = map_x(x2);
+	ply = map_y(yl2);
+	pux = map_x(xu2);
+	puy = map_y(yu2);
+	drl = (plx-ox)*(plx-ox) + (ply-oy)*(ply-oy);
+	dru = (pux-ox)*(pux-ox) + (puy-oy)*(puy-oy);
+	dx2 = dru - drl;
+	
+	box[4].x = (dx1+dx2 < 0) ? 1 : 0;
+    } else
+	box[4].x = ((yu1-yl1) + (yu2-yl2) < 0) ? 1 : 0;
 
-    /* Clip end segments. It would be nice to use edge_intersect() here, */
-    /* but as currently written it cannot handle the second curve.       */
-	dx = x2 - x1;
-	if (x1<xmin) {
-	    yl1 += (yl2-yl1) * (xmin - x1) / dx;
-	    yu1 += (yu2-yu1) * (xmin - x1) / dx;
-	    x1 = xmin;
-	}
-	if (x2>xmax) {
-	    yl2 += (yl2-yl1) * (xmax - x2) / dx;
-	    yu2 += (yu2-yu1) * (xmax - x2) / dx;
-	    x2 = xmax;
-	}
-	if (!polar) {
-	    xu1 = x1;
-	    xu2 = x2;
-	}
-	dx = x2 - x1;
-
-    /* Clip against y-axis range */
-	axis = plot->y_axis;
-	ymin = GPMIN(axis_array[axis].min, axis_array[axis].max);
-	ymax = GPMAX(axis_array[axis].min, axis_array[axis].max);
-	if (yl1<ymin && yu1<ymin && yl2<ymin && yu2<ymin)
-	    return;
-	if (yl1>ymax && yu1>ymax && yl2>ymax && yu2>ymax)
-	    return;
-
-	ic = 0;
-	corners[ic].x   = map_x(x1);
-	corners[ic++].y = map_y(yl1);
-	corners[ic].x   = map_x(xu1);
-	corners[ic++].y = map_y(yu1);
-
-#define INTERPOLATE(Y1,Y2,YBOUND) do { \
-	dy1 = YBOUND - Y1; \
-	dy2 = YBOUND - Y2; \
-	if (dy1 != dy2 && dy1*dy2 < 0) { \
-	    corners[ic].y = map_y(YBOUND); \
-	    corners[ic++].x = map_x(x1 + dx * dy1 / (dy1-dy2)); \
-	} \
-	} while (0)
-
-	INTERPOLATE( yu1, yu2, ymin );
-	INTERPOLATE( yu1, yu2, ymax );
-
-	corners[ic].x   = map_x(xu2);
-	corners[ic++].y = map_y(yu2);
-	corners[ic].x   = map_x(x2);
-	corners[ic++].y = map_y(yl2);
-
-	INTERPOLATE( yl1, yl2, ymin );
-	INTERPOLATE( yl1, yl2, ymax );
-
-#undef INTERPOLATE
-
-    /* Copy the polygon vertices into a gpiPoints structure */
-	for (iy=0; iy<ic; iy++) {
-	    box[iy].x = corners[iy].x;
-	    cliptorange(corners[iy].y, map_y(ymin), map_y(ymax));
-	    box[iy].y = corners[iy].y;
-	}
-
-    /* finish_filled_curve() will handle   */
-    /* current fill style (stored in plot) */
-    /* above/below (stored in box[ic].x)   */
-	if (polar) {
-	    /* "above" or "below" evaluated in terms of radial distance from origin */
-	    /* FIXME: Most of this should be offloaded to a separate subroutine */
-	    double ox = map_x(0);
-	    double oy = map_y(0);
-	    double plx = map_x(x1);
-	    double ply = map_y(yl1);
-	    double pux = map_x(xu1);
-	    double puy = map_y(yu1);
-	    double drl = (plx-ox)*(plx-ox) + (ply-oy)*(ply-oy);
-	    double dru = (pux-ox)*(pux-ox) + (puy-oy)*(puy-oy);
-	    double dx1 = dru - drl;
-
-	    double dx2;
-	    plx = map_x(x2);
-	    ply = map_y(yl2);
-	    pux = map_x(xu2);
-	    puy = map_y(yu2);
-	    drl = (plx-ox)*(plx-ox) + (ply-oy)*(ply-oy);
-	    dru = (pux-ox)*(pux-ox) + (puy-oy)*(puy-oy);
-	    dx2 = dru - drl;
-
-	    box[ic].x = (dx1+dx2 < 0) ? 1 : 0;
-	} else
-	    box[ic].x = ((yu1-yl1) + (yu2-yl2) < 0) ? 1 : 0;
-
-	finish_filled_curve(ic, box, plot);
+    finish_filled_curve(4, box, plot);
 }
 
 
@@ -2040,8 +1983,7 @@ plot_boxes(struct curve_points *plot, int xaxis_y)
 		closepath();
 
 		if( t->fillbox && plot->fill_properties.border_color.type != TC_DEFAULT) {
-		    (*t->linetype)(plot->lp_properties.l_type);
-		    apply_pm3dcolor(&plot->lp_properties.pm3d_color,t);
+		    term_apply_lp_properties(&plot->lp_properties);
 		}
 
 		break;
@@ -2609,8 +2551,7 @@ plot_c_bars(struct curve_points *plot)
 	if (plot->fill_properties.border_color.type != TC_DEFAULT
 	&& !( plot->fill_properties.border_color.type == TC_LT &&
 	      plot->fill_properties.border_color.lt == LT_NODRAW)) {
-		(*t->linetype)(plot->lp_properties.l_type);
-		apply_pm3dcolor(&plot->lp_properties.pm3d_color,t);
+		term_apply_lp_properties(&plot->lp_properties);
 	}
 
 	/* variable color read from extra data column. June 2010 */
@@ -3997,24 +3938,32 @@ do_rectangle( int dimensions, t_object *this_object, int style )
 	if (w == 0 || h == 0)
 	    return;
 
+	/* First the fill color */
 	if (this_object->lp_properties.l_type == LT_DEFAULT)
 	    lpstyle = default_rectangle.lp_properties;
 	else
 	    lpstyle = this_object->lp_properties;
-	if (lpstyle.l_width > 0)
-	    lpstyle.l_width = this_object->lp_properties.l_width;
 
 	if (this_object->fillstyle.fillstyle == FS_DEFAULT)
 	    fillstyle = &default_rectangle.fillstyle;
 	else
 	    fillstyle = &this_object->fillstyle;
 
+	if (lpstyle.pm3d_color.type == TC_LT)
+	    load_linetype(&lpstyle, lpstyle.pm3d_color.lt + 1);
+	if (lpstyle.l_width > 0)
+	    lpstyle.l_width = this_object->lp_properties.l_width;
 	term_apply_lp_properties(&lpstyle);
-	style = style_from_fill(fillstyle);
 
+	style = style_from_fill(fillstyle);
 	if (style != FS_EMPTY && term->fillbox)
 		(*term->fillbox) (style, x, y, w, h);
 
+	/* Now the border */
+	if (this_object->lp_properties.l_type == LT_DEFAULT)
+	    lpstyle = default_rectangle.lp_properties;
+	else
+	    lpstyle = this_object->lp_properties;
 	if (need_fill_border(fillstyle)) {
 	    newpath();
 	    (*term->move)   (x, y);

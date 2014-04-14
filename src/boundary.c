@@ -1,5 +1,5 @@
 /*
- * $Id: boundary.c,v 1.10 2014/03/19 17:30:33 sfeam Exp $
+ * $Id: boundary.c,v 1.13 2014/04/08 18:49:21 sfeam Exp $
  */
 
 /* GNUPLOT - boundary.c */
@@ -1204,8 +1204,7 @@ do_key_sample(
     }
 
     /* Draw sample in same style and color as the corresponding plot */
-    (*t->linetype)(this_plot->lp_properties.l_type);
-    apply_pm3dcolor(&this_plot->lp_properties.pm3d_color,t);
+    term_apply_lp_properties(&this_plot->lp_properties);
 
     /* draw sample depending on bits set in plot_style */
     if (this_plot->plot_style & PLOT_STYLE_HAS_FILL && t->fillbox) {
@@ -1262,8 +1261,8 @@ do_key_sample(
 	    }
 	    if (fs->fillstyle != FS_EMPTY && fs->fillstyle != FS_DEFAULT
 	    && !(fs->border_color.type == TC_LT && fs->border_color.lt == LT_NODRAW)) {
-		(*t->linetype)(this_plot->lp_properties.l_type);
-		apply_pm3dcolor(&this_plot->lp_properties.pm3d_color,t);
+		/* need_fill_border() might have changed our original linetype */
+		term_apply_lp_properties(&this_plot->lp_properties);
 	    }
 	}
 
@@ -1276,6 +1275,7 @@ do_key_sample(
     } else if ((this_plot->plot_style & PLOT_STYLE_HAS_LINE)
 		   || ((this_plot->plot_style & PLOT_STYLE_HAS_ERRORBAR)
 		       && this_plot->plot_type == DATA)) {
+	if (this_plot->lp_properties.l_type != LT_NODRAW)
 	    /* errors for data plots only */
 	    draw_clip_line(xl + key_sample_left, yl, xl + key_sample_right, yl);
     }
@@ -1332,12 +1332,15 @@ do_key_sample_point(
 	if (this_plot->lp_properties.p_size == PTSZ_VARIABLE)
 	    (*t->pointsize)(pointsize);
 	if (on_page(xl + key_point_offset, yl)) {
-	    if (this_plot->lp_properties.p_type == PT_CHARACTER)
+	    if (this_plot->lp_properties.p_type == PT_CHARACTER) {
+		apply_pm3dcolor(&(this_plot->labels->textcolor), t);
 		(*t->put_text) (xl + key_point_offset, yl, 
 				(char *)(&this_plot->lp_properties.p_char));
-	    else
+		apply_pm3dcolor(&(this_plot->lp_properties.pm3d_color), t);
+	    } else {
 		(*t->point) (xl + key_point_offset, yl, 
 				this_plot->lp_properties.p_type);
+	    }
 	}
     }
 

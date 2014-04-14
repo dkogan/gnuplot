@@ -1,5 +1,5 @@
 # Hello, emacs: this is a -*- Makefile -*-
-# $Id: Makefile,v 1.38 2014/02/28 13:49:21 markisch Exp $
+# $Id: Makefile,v 1.40 2014/03/31 06:04:43 markisch Exp $
 #
 # GNUPLOT Makefile for MinGW/MSYS on Windows
 # This assumes usual installation of the MinGW32 toolkit, the free
@@ -82,6 +82,9 @@ MOUSE=1
 #LUA=lua
 
 # Uncomment the following line to select the caca terminal
+# Requires libcaca version 0.99.beta15 or newer. A post-beta18
+# svn version is recommended since it contains an improved
+# win32 backend.
 CACA=1
 
 # Uncomment if you have libiconv
@@ -390,10 +393,16 @@ else
 VERSIONING = all: $(S)/version.c
 endif
 
+PATCHLEVEL := `cat $(TOP)/PATCHLEVEL`
 MAINVERSION := `cat $(TOP)/VERSION`
-SHORTVERSION := `cut -b 2 --complement $(TOP)/VERSION``cat $(TOP)/PATCHLEVEL`
-LONGVERSION := `cat $(TOP)/VERSION`.`cat $(TOP)/PATCHLEVEL`
-FULLVERSION := `cat $(TOP)/VERSION` patchlevel `cat $(TOP)/PATCHLEVEL`
+SHORTVERSION := `cut -b 2 --complement $(TOP)/VERSION`$(PATCHLEVEL)
+NUMBERS := 0 1 2 3 4 5 6 7 8 9
+ifeq ($(strip $(filter-out $(NUMBERS),$(PATCHLEVEL))),)
+LONGVERSION := $(MAINVERSION).$(PATCHLEVEL)
+else
+LONGVERSION := $(MAINVERSION).0
+endif
+FULLVERSION := $(MAINVERSION) patchlevel $(PATCHLEVEL)
 
 default: $(VERSIONING) $(TARGET) $(MENUFILE) support
 
@@ -410,7 +419,7 @@ docs:
 	$(MAKE) TARGET=gnuplot.exe gnuplot.pdf gpcard.pdf tutorial.pdf \
 		ps_symbols.pdf ps_fontfile_doc.pdf ps_guide.pdf
 
-support: $(HELPFILE) $(M)bf_test.exe $(LUATARGETS) $(HELPFILEJA)
+support: $(HELPFILE) $(M)bf_test.exe demo_plugin.dll $(LUATARGETS) $(HELPFILEJA)
 
 ja: $(HELPFILEJA)
 
@@ -689,7 +698,7 @@ clean:
 	$(RM) config.h wgnuplot.map wgnuplot.res
 	$(RM) *.$(O) *.po *.o *.co *.d
 	$(RM) doc2*.exe $(W)/wgnuplib.res wgnuplib.map wgnuplot.lib
-	$(RM) $(M)bf_test.exe allterm.h allterm.c
+	$(RM) $(M)bf_test.exe demo_plugin.dll allterm.h allterm.c
 	$(RM) *.aux *.log *.dvi *.toc
 	$(RM) gnuplot.tex gnuplot-figures.tex pdffigures.tex figure_*.pdf
 	$(RM) titlepag.tex toc_entr.sty VERSION
@@ -793,18 +802,19 @@ installer:
 	$(MAKE) DESTDIR=./dist install
 	cp -p $(W)/grpicon.ico ./dist/bin/
 	cp -p $(TOP)/win/*.iss ./dist
-	sed -e '/^#define MyAppVersion/ s/"[^"]*"/"@VER@"/' \
-	    -e '/^#define MyAppVersionShort/ s/"[^"]*"/"@VERSHORT@"/' \
+	sed -e '/^#define MyAppVersionShort/ s/"[^"]*"/"@VERSHORT@"/' \
+	    -e '/^#define MyAppVersion/ s/"[^"]*"/"@VER@"/' \
 	    -e '/^#define MyAppNumVersion/ s/"[^"]*"/"@VERLONG@"/' \
 	    -e '/^#define MyInstallerName/ s/"[^"]*"/"@INSTALLER@"/' \
 	    -e "s/@VERSHORT@/$(MAINVERSION)/" \
 	    -e "s/@VER@/$(FULLVERSION)/" \
 	    -e "s/@VERLONG@/$(LONGVERSION)/" \
 	    -e "s/@INSTALLER@/gp$(SHORTVERSION)-win32-setup/" \
+	    -e "s/\.alpha/\.0/" \
 	    $(TOP)/win/gnuplot.iss > ./dist/gnuplot.iss
 	(cd ./dist; $(ISCC) gnuplot.iss)
 ifdef RELEASE
-	mv ./dist/gp*-setup.exe gp$(SHORTVERSION)-win32-setup.exe
+	mv ./dist/gp*-setup.exe gp$(SHORTVERSION)-win32-mingw.exe
 else
 	mv ./dist/gp*-setup.exe gp$(SHORTVERSION)-`date +%Y%m%d`-win32-mingw.exe
 endif
