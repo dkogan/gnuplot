@@ -3,3 +3,4 @@
 08_do_not_set_qt_default_term.patch
 no_plugin_demo.patch
 fix_volatile_zoom.patch
+10_percent_buffer_autoscale.patch

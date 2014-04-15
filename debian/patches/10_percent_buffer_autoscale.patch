@@ -1,0 +1,15 @@
+Index: gnuplot.deb/src/axis.c
+===================================================================
+--- gnuplot.deb.orig/src/axis.c	2014-04-08 21:17:28.970211589 -0700
++++ gnuplot.deb/src/axis.c	2014-04-14 21:21:26.560435317 -0700
+@@ -774,8 +774,8 @@
+ {
+     double tic = ticstep[axis];
+     double result = tic * (upwards
+-			   ? ceil(input / tic)
+-			   : floor(input / tic));
++			   ? ceil( 1.1*input / tic)
++			   : floor(1.1*input / tic));
+ 
+     if (axis_array[axis].datatype == DT_TIMEDATE) {
+ 	double ontime = time_tic_just(timelevel[axis], result);
