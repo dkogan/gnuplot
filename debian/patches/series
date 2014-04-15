@@ -2,3 +2,4 @@
 05_default_gd_font.diff
 08_do_not_set_qt_default_term.patch
 no_plugin_demo.patch
+fix_volatile_zoom.patch

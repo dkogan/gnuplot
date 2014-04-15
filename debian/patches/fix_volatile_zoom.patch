@@ -1,0 +1,33 @@
+Index: gnuplot.deb/src/mouse.c
+===================================================================
+--- gnuplot.deb.orig/src/mouse.c	2014-04-08 21:17:28.986211664 -0700
++++ gnuplot.deb/src/mouse.c	2014-04-14 17:33:23.841589348 -0700
+@@ -1618,14 +1618,20 @@
+ zoom_around_mouse(int zoom_key)
+ {
+     double xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max;
+-    int outside = (real_x  <= AXIS_DE_LOG_VALUE(FIRST_X_AXIS,  axis_array[FIRST_X_AXIS].min))  ||
+-		  (real_x  >= AXIS_DE_LOG_VALUE(FIRST_X_AXIS,  axis_array[FIRST_X_AXIS].max))  ||
+-		  (real_y  <= AXIS_DE_LOG_VALUE(FIRST_Y_AXIS,  axis_array[FIRST_Y_AXIS].min))  ||
+-		  (real_y  >= AXIS_DE_LOG_VALUE(FIRST_Y_AXIS,  axis_array[FIRST_Y_AXIS].max))  ||
+-		  (real_x2 <= AXIS_DE_LOG_VALUE(SECOND_X_AXIS, axis_array[SECOND_X_AXIS].min)) ||
+-		  (real_x2 >= AXIS_DE_LOG_VALUE(SECOND_X_AXIS, axis_array[SECOND_X_AXIS].max)) ||
+-		  (real_y2 <= AXIS_DE_LOG_VALUE(SECOND_Y_AXIS, axis_array[SECOND_Y_AXIS].min)) ||
+-		  (real_y2 >= AXIS_DE_LOG_VALUE(SECOND_Y_AXIS, axis_array[SECOND_Y_AXIS].max));
++
++#define CHECK_AXIS(real, cmp, axis, minmax)                             \
++    ( axis_array[axis].minmax != VERYLARGE &&                           \
++      axis_array[axis].minmax != -VERYLARGE &&                          \
++      (real cmp AXIS_DE_LOG_VALUE(axis, axis_array[axis].minmax)))
++
++    int outside = CHECK_AXIS(real_x,  <=, FIRST_X_AXIS, min) ||
++		  CHECK_AXIS(real_x,  >=, FIRST_X_AXIS, max) ||
++		  CHECK_AXIS(real_y,  <=, FIRST_Y_AXIS, min) ||
++		  CHECK_AXIS(real_y,  >=, FIRST_Y_AXIS, max) ||
++		  CHECK_AXIS(real_x2, <=, SECOND_X_AXIS,min) ||
++		  CHECK_AXIS(real_x2, >=, SECOND_X_AXIS,max) ||
++		  CHECK_AXIS(real_y2, <=, SECOND_Y_AXIS,min) ||
++		  CHECK_AXIS(real_y2, >=, SECOND_Y_AXIS,max);
+     if (outside) {
+ 	/* zoom in (factor of approximately 2^(.25), so four steps gives 2x larger) */
+ 	double w1 = (zoom_key=='+') ? 23./25. : 23./21.;
