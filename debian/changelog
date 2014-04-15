@@ -1,3 +1,9 @@
+gnuplot (4.7~4-3) experimental; urgency=low
+
+  * 10% of tic width autoscale buffer
+
+ -- Dima Kogan <dima@secretsauce.net>  Mon, 14 Apr 2014 21:22:53 -0700
+
 gnuplot (4.7~4-2) experimental; urgency=low
 
   * fixed volatile zoom patch
