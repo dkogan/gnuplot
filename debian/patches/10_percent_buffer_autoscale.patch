@@ -8,8 +8,8 @@ Index: gnuplot.deb/src/axis.c
      double result = tic * (upwards
 -			   ? ceil(input / tic)
 -			   : floor(input / tic));
-+			   ? ceil( 1.1*input / tic)
-+			   : floor(1.1*input / tic));
++			   ? ceil(input / tic + 0.1)
++			   : floor(input / tic - 0.1));
  
      if (axis_array[axis].datatype == DT_TIMEDATE) {
  	double ontime = time_tic_just(timelevel[axis], result);
