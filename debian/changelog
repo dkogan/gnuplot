@@ -1,3 +1,9 @@
+gnuplot (4.7~4-2) experimental; urgency=low
+
+  * fixed volatile zoom patch
+
+ -- Dima Kogan <dima@secretsauce.net>  Mon, 14 Apr 2014 19:34:50 -0700
+
 gnuplot (4.7~4-1) experimental; urgency=low
 
   * Added volatile zoom patch
