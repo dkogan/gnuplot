@@ -4,3 +4,4 @@
 no_plugin_demo.patch
 fix_volatile_zoom.patch
 10_percent_buffer_autoscale.patch
+x-zoom-around-mouse.patch

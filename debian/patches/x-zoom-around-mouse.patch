@@ -1,0 +1,39 @@
+Index: gnuplot.deb/src/mouse.c
+===================================================================
+--- gnuplot.deb.orig/src/mouse.c	2014-04-19 01:30:40.276964582 -0700
++++ gnuplot.deb/src/mouse.c	2014-04-19 01:32:54.977632544 -0700
+@@ -1576,13 +1576,29 @@
+ 
+ /* Zoom in/out within x-axis. */
+ static void
++rescale_around_mouse(double *newmin, double *newmax, int AXIS, double mouse_pos, double scale);
++static void
+ zoom_in_X(int zoom_key)
+ {
+-    /* zoom in (X axis only) */
+-    double w1 = (zoom_key=='+') ? 23./25. : 23./21.;
+-    double w2 = (zoom_key=='+') ?  2./25. : -2./21.;
+-    zoom_rescale_xyx2y2(w1,w2, 1,0, w1,w2, 1,0,  w2,w1, 0,1, w2,w1, 0,1, 
+-	(zoom_key=='+' ? "zoom in X" : "zoom out X"));
++    // I don't check for "outside" here. will do that later
++    if (0) { //outside) {
++        /* zoom in (X axis only) */
++        double w1 = (zoom_key=='+') ? 23./25. : 23./21.;
++        double w2 = (zoom_key=='+') ?  2./25. : -2./21.;
++        zoom_rescale_xyx2y2(w1,w2, 1,0, w1,w2, 1,0,  w2,w1, 0,1, w2,w1, 0,1, 
++                            (zoom_key=='+' ? "zoom in X" : "zoom out X"));
++    } else {
++        double xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max;
++	double scale = (zoom_key=='+') ? 0.75 : 1.25;
++	rescale_around_mouse(&xmin,  &xmax,  FIRST_X_AXIS,  real_x,  scale);
++	rescale_around_mouse(&x2min, &x2max, SECOND_X_AXIS, real_x2, scale);
++
++        ymin  = rescale(FIRST_Y_AXIS,  1,0);
++        y2min = rescale(SECOND_Y_AXIS, 1,0);
++        ymax  = rescale(FIRST_Y_AXIS,  0,1);
++        y2max = rescale(SECOND_Y_AXIS, 0,1);
++        do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
++    }
+ }
+ 
+ static void
