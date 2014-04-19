@@ -1,3 +1,9 @@
+gnuplot (4.7~4-4) experimental; urgency=low
+
+  * mouse-zoom now works around the pointer
+
+ -- Dima Kogan <dima@secretsauce.net>  Sat, 19 Apr 2014 01:26:21 -0700
+
 gnuplot (4.7~4-3) experimental; urgency=low
 
   * 10% of tic width autoscale buffer
