@@ -1569,7 +1569,7 @@ do_zoom_scroll_up()
 static void
 do_zoom_scroll_down()
 {
-    zoom_rescale_xyx2y2(1,0, 1.1,-0.1, 1,0, 1.1,-1,  0,1, 0.1,0.9, 0,1, 0.1,0.9,
+    zoom_rescale_xyx2y2(1,0, 1.1,-0.1, 1,0, 1.1,-0.1,  0,1, 0.1,0.9, 0,1, 0.1,0.9,
 	"scroll down");
 }
 
