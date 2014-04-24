@@ -1545,32 +1545,60 @@ zoom_rescale_xyx2y2(double a0,double a1,double a2,double a3,double a4,double a5,
 static void
 do_zoom_scroll_left()
 {
-    zoom_rescale_xyx2y2(1.1,-0.1, 1,0, 1.1,-0.1, 1,0,  0.1,0.9, 0,1, 0.1,0.9, 0,1,
-	"scroll left.\n");
+    zoom_rescale_xyx2y2(1.1, -0.1,
+                        1,   0,
+                        1.1, -0.1,
+                        1,   0,
+                        0.1, 0.9,
+                        0,   1,
+                        0.1, 0.9,
+                        0,   1,
+                        "scroll left.\n");
 }
 
 /* Scroll right. */
 static void
 do_zoom_scroll_right()
 {
-    zoom_rescale_xyx2y2(0.9,0.1, 1,0, 0.9,0.1, 1,0,  -0.1,1.1, 0,1, -0.1,1.1, 0,1,
-	"scroll right");
+    zoom_rescale_xyx2y2(0.9,  0.1,
+                        1,    0,
+                        0.9,  0.1,
+                        1,    0,
+                        -0.1, 1.1,
+                        0,    1,
+                        -0.1, 1.1,
+                        0,    1,
+                        "scroll right");
 }
 
 /* Scroll up. */
 static void
 do_zoom_scroll_up()
 {
-    zoom_rescale_xyx2y2(1,0, 0.9,0.1, 1,0, 0.9,0.1,  0,1, -0.1,1.1, 0,1, -0.1,1.1,
-	"scroll up");
+    zoom_rescale_xyx2y2(1,    0,
+                        0.9,  0.1,
+                        1,    0,
+                        0.9,  0.1,
+                        0,    1,
+                        -0.1, 1.1,
+                        0,    1,
+                        -0.1, 1.1,
+                        "scroll up");
 }
 
 /* Scroll down. */
 static void
 do_zoom_scroll_down()
 {
-    zoom_rescale_xyx2y2(1,0, 1.1,-0.1, 1,0, 1.1,-0.1,  0,1, 0.1,0.9, 0,1, 0.1,0.9,
-	"scroll down");
+    zoom_rescale_xyx2y2(1,   0,
+                        1.1, -0.1,
+                        1,   0,
+                        1.1, -0.1,
+                        0,   1,
+                        0.1, 0.9,
+                        0,   1,
+                        0.1, 0.9,
+                        "scroll down");
 }
 
 
