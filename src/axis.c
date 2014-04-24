@@ -773,9 +773,12 @@ round_outward(
     double input)		/* the current endpoint */
 {
     double tic = ticstep[axis];
+
+    // Here I add a 10%-of-tic margin. Without this 10%, plots such as
+    // sgn(sin(x)) look bad (all the points like exactly on the plot boundary)
     double result = tic * (upwards
-			   ? ceil(input / tic)
-			   : floor(input / tic));
+			   ? ceil(input / tic + 0.1)
+			   : floor(input / tic - 0.1));
 
     if (axis_array[axis].datatype == DT_TIMEDATE) {
 	double ontime = time_tic_just(timelevel[axis], result);
