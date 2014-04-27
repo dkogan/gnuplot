@@ -2,7 +2,7 @@
 AUTOMAKE_OPTIONS = foreign subdir-objects
 
 # in the spirit of automake ...
-pkglibexecdir = $(libexecdir)/@PACKAGE@/@VERSION_MAJOR@
+pkglibexecdir = $(libexecdir)
 
 # Where to send email about bugs and comments (locally)
 EMAIL = gnuplot-bugs@lists.sourceforge.net
