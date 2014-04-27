@@ -1,7 +1,6 @@
-04_fix_libexecdir.diff
-05_default_gd_font.diff
-08_do_not_set_qt_default_term.patch
-no_plugin_demo.patch
-fix_volatile_zoom.patch
-10_percent_buffer_autoscale.patch
-x-zoom-around-mouse.patch
+0001-04_fix_libexecdir.patch
+0002-05_default_gd_font.patch
+0003-08_do_not_set_qt_default_term.patch
+0004-no_plugin_demo.patch
+0005-autoscale-10-buffer.patch
+0006-Fixed-many-small-mouse-triggered-zoom-bugs.patch

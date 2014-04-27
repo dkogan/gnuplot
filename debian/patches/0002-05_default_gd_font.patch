@@ -1,8 +1,17 @@
-Index: gnuplot.deb/term/gd.trm
+From: Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>
+Date: Sat, 26 Apr 2014 19:21:05 -0700
+Subject: 05_default_gd_font
+
 ===================================================================
---- gnuplot.deb.orig/term/gd.trm	2014-04-14 00:05:00.107260840 -0700
-+++ gnuplot.deb/term/gd.trm	2014-04-14 00:05:00.103260821 -0700
-@@ -989,7 +989,7 @@
+---
+ term/gd.trm | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/term/gd.trm b/term/gd.trm
+index c53f144..12a4d47 100644
+--- a/term/gd.trm
++++ b/term/gd.trm
+@@ -989,7 +989,7 @@ PNG_options()
  	if (external_default)
  		png_state.ttffont = gp_strdup(external_default);
  	else	/* Might as well try some plausible font; it's no worse than failing immediately */

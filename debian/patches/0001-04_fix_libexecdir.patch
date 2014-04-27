@@ -1,7 +1,16 @@
-Index: gnuplot.deb/src/Makefile.am
+From: Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>
+Date: Sat, 26 Apr 2014 19:21:05 -0700
+Subject: 04_fix_libexecdir
+
 ===================================================================
---- gnuplot.deb.orig/src/Makefile.am	2014-04-14 00:04:55.567238328 -0700
-+++ gnuplot.deb/src/Makefile.am	2014-04-14 00:04:55.567238328 -0700
+---
+ src/Makefile.am | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/Makefile.am b/src/Makefile.am
+index d48c335..dc8e477 100644
+--- a/src/Makefile.am
++++ b/src/Makefile.am
 @@ -2,7 +2,7 @@
  AUTOMAKE_OPTIONS = foreign subdir-objects
  
