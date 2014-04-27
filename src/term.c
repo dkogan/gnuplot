@@ -1557,14 +1557,14 @@ init_terminal()
 	    term_name = "sun";
 #endif /* SUN */
 
-#ifdef QTTERM
-	if (term_name == (char *) NULL)
-		term_name = "qt";
-#endif
-
 #ifdef WXWIDGETS
 	if (term_name == (char *) NULL)
 		term_name = "wxt";
+#endif
+
+#ifdef QTTERM
+	if (term_name == (char *) NULL)
+		term_name = "qt";
 #endif
 
 #ifdef _Windows
