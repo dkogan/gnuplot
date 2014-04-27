@@ -1,0 +1,22 @@
+From: Dima Kogan <dima@secretsauce.net>
+Date: Sat, 26 Apr 2014 23:51:19 -0700
+Subject: x11 terminal clipboard paste: fixed off-by-one error terminating the
+ string
+
+---
+ src/gplt_x11.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/gplt_x11.c b/src/gplt_x11.c
+index 95a720b..a83cb87 100644
+--- a/src/gplt_x11.c
++++ b/src/gplt_x11.c
+@@ -1820,7 +1820,7 @@ record()
+ 		int len = strlen(buf + 1) - 1;	/* discard newline '\n' */
+ 		memcpy(selection, buf + 1, len < SEL_LEN ? len : SEL_LEN);
+ 		/* terminate */
+-		selection[len + 1 < SEL_LEN ? len + 1 : SEL_LEN - 1] = '\0';
++		selection[len < SEL_LEN ? len : SEL_LEN - 1] = '\0';
+ 		XStoreBytes(dpy, buf + 1, len);
+ 		XFlush(dpy);
+ #ifdef EXPORT_SELECTION
