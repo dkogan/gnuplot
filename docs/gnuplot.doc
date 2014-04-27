@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.878 2014/04/05 06:17:08 markisch Exp $
+C RCS $Id: gnuplot.doc,v 1.882 2014/04/22 20:49:28 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -192,6 +192,9 @@ C
 
 2 New features in version 5
 ?new-features
+
+ * The dot-dash pattern of a line can now be specified independent of other
+ line properties. See `dashtype`, `set dashtype`, `set linetype`.
 
  * Text markup now supports bold and italic font settings in addition to 
  subscript, superscript, font size and other previously available properties.
@@ -2403,7 +2406,41 @@ Ffigure_newsyntax
 3 dashtype
 ?dashtype
 =dashtype
- [New in version 5. Implementation and documentation in progress]
+ In gnuplot version 5 the dash pattern (`dashtype`) is a seperate property 
+ associated with each line, equivalent to `linecolor` or `linewidth`.  It is not
+ necessary to place the current terminal in a special mode just to draw dashed
+ lines.  I.e. the command `set term <termname> {solid|dashed}` is now ignored.
+
+ All lines have the property `dashtype solid` unless you specify otherwise.
+ You can change the default for a particular linetype using the command
+ `set linetype` so that it affects all subsequent commands, or you can include
+ the desired dashtype as part of the `plot` or other command.
+
+ Syntax:
+       dashtype N          # predefined dashtype invoked by number
+       dashtype "pattern"  # string containing a combination of the characters
+                           # dot (.) hyphen (-) underscore(_) and space.
+       dashtype (s1,e1,s2,e2,s3,e3,s4,e4)  # dash pattern specified by 1 to 4
+                           # numerical pairs <solid length>, <emptyspace length> 
+ 
+ Example:
+       # Two functions using linetype 1 but distinguished by dashtype
+       plot f1(x) with lines lt N dt solid, f2(x) with lines lt N dt 3
+
+ Some terminals support user-defined dash patterns in addition to whatever 
+ set of predefined dash patterns they offer.
+
+ Examples:
+      plot f(x) dt 3            # use terminal-specific dash pattern 3
+      plot f(x) dt ".. "        # construct a dash pattern on the spot
+      plot f(x) dt (2,5,2,15)   # numerical representation of the same pattern
+      set dashtype 11 (2,4,4,7) # define new dashtype to be called by index
+      plot f(x) dt 11           # plot using our new dashtype
+
+ If you specify a dash pattern using a string the program will convert this to
+ a sequence of <solid>,<empty> pairs.  The command `show dashtype` will show both
+ the original string and the converted numerical sequence.
+
 3 linestyles vs linetypes
 ? linestyles vs linetypes
  Lines can have additional properties such as linewidth.  You can associate
@@ -7881,6 +7918,22 @@ Ffigure_mapcontours
 ^ <a href="http://www.gnuplot.info/demo/discrete.html">
  contours with user defined levels demo (discrete.dem).
 ^ </a>
+3 dashtype
+?commands set dashtype
+?commands show dashtype
+?set dashtype
+?show dashtype
+ The `set dashtype` command allows you to define a dash pattern that can 
+ then be referred to by its index.  This is purely a convenience, as anywhere
+ that would accept the dashtype by its numerical index would also accept an
+ explicit dash pattern.
+ Example:
+      set dashtype 5 (2,4,2,6)   # define or redefine dashtype number 5
+      plot f1(x) dt 5            # plot using the new dashtype
+      plot f1(x) dt (2,4,2,6)    # exactly the same plot as above
+      set linetype 5 dt 5        # always use this dash pattern with linetype 5
+      set dashtype 66 "..-"      # define a new dashtype using a string
+ See also `dashtype`
 3 data style
 ?set data style
  This form of the command is deprecated. Please see `set style data`.
@@ -9519,7 +9572,9 @@ Ffigure_missing
  This command establishes forward and reverse mapping between the x and x2 axes.
  The forward mapping is used to generate x2 tic labels and x2 mouse coordinate
  The reverse mapping is used to plot coordinates given in the x2 coordinate
- system.  Note that the mapping as given is valid only for x non-negative.
+ system.  Note that the mapping as given is valid only for x non-negative. When 
+ mapping to the y2 axis, both <expression1> and <expression2> must use y as 
+ dummy variable.
 3 lmargin
 ?commands set lmargin
 ?set lmargin
@@ -10657,10 +10712,6 @@ Ffigure_missing
 
  The command `set pm3d map` is equivalent to `set pm3d at b`; `set view map`;
  `set style data pm3d`; `set style func pm3d`;.
- It is used for backwards compatibility, when `set view map` was not available.
- Take care that you properly use `zrange` and `cbrange` for input data point
- filtering and color range scaling, respectively; and also `set (no)surface`
- seems to have a (side?) effect.
 3 palette
 ?commands set palette
 ?commands show palette
@@ -12323,7 +12374,7 @@ Ffigure_missing
 
  Syntax:
        set view <rot_x>{,{<rot_z>}{,{<scale>}{,<scale_z>}}}
-       set view map
+       set view map {scale <scale>}
        set view {no}equal {xy|xyz}
        show view
 
@@ -12334,10 +12385,10 @@ Ffigure_missing
  The first rotation applied is <rot_x> around the x axis.  The second rotation
  applied is <rot_z> around the new z axis.
 
- Command `set view map` is used to represent the drawing as a map. It can be
- used for `contour` plots, or for color `pm3d` maps. In the latter, take care
- that you properly use `zrange` and `cbrange` for input data point filtering
- and color range scaling, respectively.
+ Command `set view map` is used to represent the drawing as a map. It is useful
+ for `contour` plots or 2D heatmaps using pm3d mode rather than `with image`.
+ In the latter case, take care that you properly use `zrange` and `cbrange` for
+ input data point filtering and color range scaling, respectively.
 
  <rot_x> is bounded to the [0:180] range with a default of 60 degrees, while
  <rot_z> is bounded to the [0:360] range with a default of 30 degrees.
@@ -13609,7 +13660,7 @@ Ffigure_missing
 ?stats
 ?statistics
  Syntax:
-      stats 'filename' {using N{:M}} {name 'prefix'} {{no}output}
+      stats {<ranges>} 'filename' {using N{:M}} {name 'prefix'} {{no}output}
 
  This command prepares a statistical summary of the data in one or two columns
  of a file. The using specifier is interpreted in the same way as for plot
@@ -13629,13 +13680,17 @@ Ffigure_missing
       STATS_blocks            # number of indexable datablocks in the file
       STATS_columns           # number of data columns in the first row of data
 
- The second set reports properties of the in-range data from a single column.
- If the corresponding axis is autoscaled (x-axis for the 1st column, y-axis 
- for the optional second column) then no range limits are applied. If two
- columns are being analysed in a single `stats` command, the the suffix "_x"
- or "_y" is appended to each variable name.  I.e. STATS_min_x is the minimum
- value found in the first column, while STATS_min_y is the minimum value found
- in the second column.
+ The second set reports properties of the in-range data from a single
+ column.  If the corresponding axis is autoscaled then no range limits
+ are applied. If a single column is used, it is affected by the y-axis
+ settings. Otherwise the x-axis settings apply to the first and the
+ y-axis settings to the second column.
+
+ If two columns are being analysed in a single `stats` command, the
+ suffix "_x" or "_y" is appended to each variable name.
+ I.e. STATS_min_x is the minimum value found in the first column, while
+ STATS_min_y is the minimum value found in the second column.
+
       STATS_min               # minimum value of in-range data points
       STATS_max               # maximum value of in-range data points
       STATS_index_min         # index i for which data[i] == STATS_min

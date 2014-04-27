@@ -1,3 +1,123 @@
+2014-04-26  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c (plot_steps): Avoid overflow in clipping code.
+	Bug #1390
+
+2014-04-25  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (lp_parse):  Disallow defining "set lt N lt M".
+	This used to mean "define effective linetype N to be the hidden device
+	specific linetype M", except that in other contexts it meant "use 
+	effective linetype M rather than effective linetype N". Version 5
+	distinguishes between color and dashpatten, so require an explicit 
+	command to set one or both rather than an ambiguous old-style request.
+
+	* src/save.c (save_pm3dcolor save_linetype):  Save special linetypes
+	by keyword rather than a magic number (e.g. lt bgnd rather than -3).
+
+2014-04-24  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gp_types.h src/misc.c (lp_parse) src/misc.h src/plot2d.c
+	src/plot3d.c src/set.c:  Revise the parameters passed to lp_parse() so
+	that the legal options can vary depending on the identity of the caller.
+
+	* src/term.c (test_term): Reset to default font after Bold/Italic test.
+	Bug #1387
+
+2014-04-24  Dima Kogan  <dima@secretsauce.net>
+
+	* src/mouse.c (do_zoom_scroll_up):  Fix typo that causes incorrect
+	manipulation of y2 axis scale during zoom.
+	Bug (Patch #647)
+
+2014-04-23  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c src/graph3d.* src/set.c src/show.c src/save.c
+	docs/gnuplot.doc:  Introduce a scale parameter "set view map {scale}"
+	and set the default size of a plot in this mode to approximately the
+	same as a default 2D plot.
+
+	* src/command.c (replotrequest):  It's now OK to have a range in a
+	replot command, since it can be applied to the new plot piece only.
+
+	* src/datafile.c (df_readascii):  If a read request returns a string
+	rather than a numerical value, nevertheless fill in the numerical 
+	value as NaN.  This is better than leaving some random garbage there
+	(in practice probably some earlier data value).
+	Bugfix.
+
+2014-04-21  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/canvas.trm: Support for custom dashtypes.
+
+2014-04-20  Jérôme Lodewyck  <lodewyck@users.sourceforge.net>
+
+	* src/qtterminal/po/*.ts: Update translations.
+
+	* src/qtterminal/qt_conversion.cpp: Add new encoding types.
+
+	* src/qtterminal/QtGnuplotEvent.* src/qtterminal/QtGnuplotWindow.cpp
+	src/qtterminal/qt_term.cpp src/wxterminal/wxt_gui.cpp
+	src/wxterminal/wxt_term.h term/qt.trm term/wxt.trm: new terminal option
+	"position" that specifies the initial position of the plot window.
+	Applies to Qt and wxt terminals. Feature request #386.
+
+2014-04-19  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/command.c (test_command):  When "test" is issued before any plot
+	command, suppress error messages if the window is resized.
+
+	* term/PostScript/prologue.ps term/PostScript/prologues.h:
+	Update PostScript prolog for version 5 and regenerate headers.
+
+	* term/post.trm:
+	Support for custom dashtypes in PostScript output.
+
+2014-04-18  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* term/svg.trm (set_dashtype):  Fix potential buffer overrun;
+
+	* src/misc.c (parse_dashtype):  A custom pattern must contain an even
+	number of entries.
+
+	* demo/dashtypes.dem demo/all.dem:  New dashtype demo.
+
+	* src/qtterminal/QtGnuplotEvent.h src/qtterminal/QtGnuplotScene.cpp
+	src/qtterminal/qt_term.cpp src/qtterminal/qt_term.h term/qt.trm:
+	Support for custom dashtypes and dashlength in qt terminal.
+	Change implementation of "lt nodraw" from background color to NoPen.
+
+	* src/term.c (enhanced_recursion):  Consume only a single space following
+	the font name in an enhanced text string "{/Fontname      text}".
+
+	* docs/gnuplot.doc:  Initial documentation for `set dashtype` and
+	dash properties in version 5.
+
+2014-04-17  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/misc.c (parse_dashtype) src/save.c (save_dashtype) src/term_api.h
+	src/term.c (term_apply_lp_properties) demo/dashcolor.dem: 
+	Fix some glitches found while testing custom dashtypes.
+
+	* src/term.c (test_term): Exercise bold/italic.  Longer line samples to
+	make it easier to distinguish dashtypes.  Minor layout changes.
+
+	* term/svg.trm:  Support for custom dashtypes.
+
+	* src/wxterminal/gp_cairo.* src/wxterminal/wxt_gui.*
+	src/wxterminal/wxt_term.h term/cairo.trm term/wxt.trm:
+	Support for custom dashtype in all cairo-based terminals.
+
+2014-04-14  Dima Kogan  <dima@secretsauce.net>
+
+	* src/mouse.c (event_buttonpress):  Flip direction of horizontal 
+	scrolling to match the convention used by vertical scrolling.
+
+2014-04-14  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* configure.in (AC_FUNC_FSEEKO) src/datafile.h: LFS support part 2.
+	If possible, use fseeko/ftello to navigate input data files.
+
 2014-04-13  Ethan A Merritt  <merritt@u.washington.edu>
 
 	* configure.in (AC_CHECK_TYPES([off_t])) src/syscfg.h (#define off_t)

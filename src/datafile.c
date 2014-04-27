@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.278 2014/04/13 17:59:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.281 2014/04/23 19:32:34 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -1858,8 +1858,7 @@ df_readascii(double v[], int max)
 		limit = max + df_no_tic_specs;
 
 	    for (output = 0; output < limit; ++output) {
-		/* if there was no using spec, column is output+1 and
-		 * at=NULL */
+		/* if there was no using spec, column is output+1 and at=NULL */
 		int column = use_spec[output].column;
 		current_using_spec = output;
 
@@ -1975,6 +1974,8 @@ df_readascii(double v[], int max)
 		    }
 
 		    if (a.type == STRING) {
+			v[output] = not_a_number();	/* found a string, not a number */
+
 			/* This string value will get parsed as if it were a data column */
 			/* so put it in quotes to allow embedded whitespace.             */
 			if (use_spec[output].expected_type == CT_STRING) {
@@ -4226,12 +4227,14 @@ df_show_binary(FILE *fp)
 		    break;
 		}
 	    }
-	    fprintf(fp, "\n\t    Skip bytes: %ld before record",
-		    bin_record[i].scan_skip[0]);
+	    fprintf(fp, "\n\t    Skip bytes: %lld before record",
+		    (long long)bin_record[i].scan_skip[0]);
 	    if (dimension > 1)
-		fprintf(fp, ", %ld before line", bin_record[i].scan_skip[1]);
+		fprintf(fp, ", %lld before line",
+		    (long long)bin_record[i].scan_skip[1]);
 	    if (dimension > 2)
-		fprintf(fp, ", %ld before plane", bin_record[i].scan_skip[2]);
+		fprintf(fp, ", %lld before plane",
+		    (long long) bin_record[i].scan_skip[2]);
 	}
 	fprintf(fp, "\n");
     }

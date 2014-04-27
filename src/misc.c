@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.178 2014/04/08 18:49:22 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.183 2014/04/25 18:49:54 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -876,33 +876,32 @@ parse_dashtype(struct t_dashtype *dt)
 	res = DASHTYPE_SOLID;
 	c_token++;
 
-    /* Or numerical pattern ... */
+    /* Or numerical pattern consisting of pairs solid,empty,solid,empty... */
     } else if (equals(c_token, "(")) {
 	c_token++;
-	while (!END_OF_COMMAND && j < DASHPATTERN_LENGTH) {
-	    if (!END_OF_COMMAND
-		&&  !equals(c_token, ",")
-		&&  !equals(c_token, ")")
-		) {
-		dt->pattern[j] = real_expression(); 
-		j++;
-			
-		/* expect "," or ")" here */
-		if (!END_OF_COMMAND && equals(c_token, ","))
-		    c_token++;		/* loop again */
-		else
-		    break;		/* hopefully ")" */
+	while (!END_OF_COMMAND) {
+	    if (j >= DASHPATTERN_LENGTH) {
+		int_error(c_token, "too many pattern elements");
 	    }
+	    dt->pattern[j++] = real_expression();	/* The solid portion */
+	    if (!equals(c_token++, ","))
+		int_error(c_token, "expecting comma");
+	    dt->pattern[j++] = real_expression();	/* The empty portion */
+	    if (equals(c_token, ")"))
+		break;
+	    if (!equals(c_token++, ","))
+		int_error(c_token, "expecting comma");
 	}
 
-	if (END_OF_COMMAND || !equals(c_token, ")"))
-	    int_error(c_token, "expecting comma , or right parenthesis )");
+	if (!equals(c_token, ")"))
+	    int_error(c_token, "expecting , or )");
 
 	c_token++;
 	res = DASHTYPE_CUSTOM;
 
     /* Or string representing pattern elements ... */
     } else if ((dash_str = try_to_get_string())) {
+#define DSCALE 10.
 	while (dash_str[j] && (k < DASHPATTERN_LENGTH || dash_str[j] == ' ')) {
 	    /* .      Dot with short space 
 	     * -      Dash with regular space
@@ -910,24 +909,26 @@ parse_dashtype(struct t_dashtype *dt)
 	     * space  Don't add new dash, just increase last space */
 	    switch (dash_str[j]) {
 	    case '.':
-		dt->pattern[k++] = 0.2;
-		dt->pattern[k++] = 0.5;
+		dt->pattern[k++] = 0.2 * DSCALE;
+		dt->pattern[k++] = 0.5 * DSCALE;
 		break;
 	    case '-':
-		dt->pattern[k++] = 1.0;
-		dt->pattern[k++] = 1.0;
+		dt->pattern[k++] = 1.0 * DSCALE;
+		dt->pattern[k++] = 1.0 * DSCALE;
 		break;
 	    case '_':
-		dt->pattern[k++] = 2.0;
-		dt->pattern[k++] = 1.0;
+		dt->pattern[k++] = 2.0 * DSCALE;
+		dt->pattern[k++] = 1.0 * DSCALE;
 		break;
 	    case ' ':
-		dt->pattern[k] += 1.0;
+		if (k > 0)
+		dt->pattern[k-1] += 1.0 * DSCALE;
 		break;
 	    default:
 		int_error(c_token - 1, "expecting one of . - _ or space");
 	    }
 	    j++;
+#undef  DSCALE
 	}
 	/* truncate dash_str if we ran out of space in the array representation */
 	dash_str[j] = '\0';
@@ -948,12 +949,13 @@ parse_dashtype(struct t_dashtype *dt)
 }
 
 /*
- * allow_ls controls whether we are allowed to accept linestyle in
- * the current context [ie not when doing a  set linestyle command]
- * allow_point is whether we accept a point command
+ * destination_class tells us whether we are filling in a line style ('set style line'),
+ * a persistant linetype ('set linetype') or an ad hoc set of properties for a single
+ * use ('plot ... lc foo lw baz').
+ * allow_point controls whether we accept a point attribute in this lp_style.
  */
 int
-lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
+lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_point)
 {
     /* keep track of which options were set during this call */
     int set_lt = 0, set_pal = 0, set_lw = 0; 
@@ -968,8 +970,8 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
      */
     struct lp_style_type newlp = *lp;
 	
-    if (allow_ls &&
-	(almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
+    if ((destination_class == LP_ADHOC)
+    && (almost_equals(c_token, "lines$tyle") || equals(c_token, "ls"))) {
 	c_token++;
 	lp_use_properties(lp, int_expression());
     } 
@@ -978,6 +980,8 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 	if (almost_equals(c_token, "linet$ype") || equals(c_token, "lt")) {
 	    if (set_lt++)
 		break;
+	    if (destination_class == LP_TYPE)
+		int_error(c_token, "linetype definition cannot use linetype");
 	    c_token++;
 	    if (almost_equals(c_token, "rgb$color")) {
 		if (set_pal++)
@@ -1005,7 +1009,7 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 		    new_lt = int_expression();
 		    lp->l_type = new_lt - 1;
 		    /* user may prefer explicit line styles */
-		    if (prefer_line_styles && allow_ls)
+		    if (prefer_line_styles && (destination_class != LP_STYLE))
 			lp_use_properties(lp, new_lt);
 		    else
 			load_linetype(lp, new_lt);
@@ -1048,7 +1052,7 @@ lp_parse(struct lp_style_type *lp, TBOOLEAN allow_ls, TBOOLEAN allow_point)
 	    } else {
 		/* Pull the line colour from a default linetype, but */
 		/* only if we are not in the middle of defining one! */
-		if (allow_ls) {
+		if (destination_class != LP_STYLE) {
 		    struct lp_style_type temp;
 		    load_linetype(&temp, int_expression());
 		    newlp.pm3d_color = temp.pm3d_color;
@@ -1557,7 +1561,7 @@ arrow_parse(
 	/* pick up a line spec - allow ls, but no point. */
 	{
 	    int stored_token = c_token;
-	    lp_parse(&arrow->lp_properties, TRUE, FALSE);
+	    lp_parse(&arrow->lp_properties, LP_ADHOC, FALSE);
 	    if (stored_token == c_token || set_line++)
 		break;
 	    continue;

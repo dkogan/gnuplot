@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.247 2014/04/08 21:52:42 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.250 2014/04/25 18:51:40 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -610,7 +610,7 @@ set encoding %s\n\
 
     fputs("set view ", fp);
     if (splot_map == TRUE)
-	fputs("map", fp);
+	fprintf(fp, "map scale %g", mapview_scale);
     else {
 	fprintf(fp, "%g, %g, %g, %g",
 	    surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
@@ -1311,7 +1311,12 @@ save_pm3dcolor(FILE *fp, const struct t_colorspec *tc)
 {
     if (tc->type) {
 	switch(tc->type) {
-	case TC_LT:   fprintf(fp," lt %d", tc->lt+1);
+	case TC_LT:   if (tc->lt == LT_NODRAW)
+			fprintf(fp," nodraw");
+		      else if (tc->lt == LT_BACKGROUND)
+			fprintf(fp," bgnd");
+		      else
+			fprintf(fp," lt %d", tc->lt+1);
 		      break;
 	case TC_LINESTYLE:   fprintf(fp," linestyle %d", tc->lt);
 		      break;
@@ -1445,26 +1450,22 @@ save_data_func_style(FILE *fp, const char *which, enum PLOT_STYLE style)
 
 void save_dashtype(FILE *fp, int d_type, const t_dashtype *dt)
 {
-	if (d_type == DASHTYPE_CUSTOM) {
-		if (dt->str) {
-			fprintf(fp, " dashtype \"%s\"", dt->str);
-		}
-		else {
-			int i = 0;
-			fputs(" dashtype (", fp);
-			while (dt->pattern[i]) {
-				fprintf(fp, i ? ", %.2f" : "%.2f", dt->pattern[i]);
-				i++;
-			}
-			fputs(")", fp);
-		}
+    fprintf(fp, " dashtype");
+    if (d_type == DASHTYPE_CUSTOM) {
+	if (dt->str)
+	    fprintf(fp, " \"%s\"", dt->str);
+	if (fp == stderr || !dt->str) {
+	    int i;
+	    fputs(" (", fp);
+	    for (i = 0; i < DASHPATTERN_LENGTH && dt->pattern[i] > 0; i++)
+		fprintf(fp, i ? ", %.2f" : "%.2f", dt->pattern[i]);
+	    fputs(")", fp);
 	}
-	else if (d_type == DASHTYPE_SOLID) {
-		fprintf(fp, " dashtype solid");
-	}
-	else {
-		fprintf(fp, " dashtype %d", d_type + 1);
-	}
+    } else if (d_type == DASHTYPE_SOLID) {
+	fprintf(fp, " solid");
+    } else {
+	fprintf(fp, " %d", d_type + 1);
+    }
 }
 
 void
@@ -1472,10 +1473,14 @@ save_linetype(FILE *fp, lp_style_type *lp, TBOOLEAN show_point)
 {
     if (lp->l_type == LT_NODRAW)
 	fprintf(fp, " lt nodraw");
+    else if (lp->l_type == LT_BLACK)
+	fprintf(fp, " lt black");
+    else if (lp->l_type == LT_BACKGROUND)
+	fprintf(fp, " lt bgnd");
     else if (lp->l_type < 0)
 	fprintf(fp, " lt %d", lp->l_type+1);
 
-    if (lp->pm3d_color.type != TC_DEFAULT) {
+    else if (lp->pm3d_color.type != TC_DEFAULT) {
 	fprintf(fp, " linecolor");
 	if (lp->pm3d_color.type == TC_LT)
     	    fprintf(fp, " %d", lp->pm3d_color.lt+1);

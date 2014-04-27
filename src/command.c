@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.286 2014/04/05 06:17:08 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.289 2014/04/23 05:29:05 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -2098,21 +2098,26 @@ void
 test_command()
 {
     int what;
-    c_token++;
+    int save_token = c_token++;
+
     if (!term) /* unknown terminal */
 	int_error(c_token, "use 'set term' to set terminal type first");
-    if (END_OF_COMMAND) {
-	test_term();
-	return;
-    }
 
     what = lookup_table(&test_tbl[0], c_token);
     switch (what) {
+	default:
+	    if (!END_OF_COMMAND)
+		int_error(c_token, "unrecognized test option");
+	    /* otherwise fall through to test_term */
 	case TEST_TERMINAL: test_term(); break;
 	case TEST_PALETTE: test_palette_subcommand(); break;
 	case TEST_TIME: test_time_subcommand(); break;
-	default:
-	    int_error(c_token, "only keywords are 'terminal' and 'palette'");
+    }
+
+    /* prevent annoying error messages if there was no previous plot */
+    /* and the "test" window is resized. */
+    if (!replot_line || !(*replot_line)) {
+	m_capture( &replot_line, save_token, c_token );
     }
 }
 
@@ -2256,10 +2261,7 @@ changedir(char *path)
 void
 replotrequest()
 {
-    if (equals(c_token, "["))
-	int_error(c_token, "cannot set range with replot");
-
-    /* do not store directly into the replot_line string, until the
+    /* do not store directly into the replot_line string until the
      * new plot line has been successfully plotted. This way,
      * if user makes a typo in a replot line, they do not have
      * to start from scratch. The replot_line will be committed
@@ -2307,6 +2309,8 @@ replotrequest()
 
     if (almost_equals(0,"s$plot"))
 	plot3drequest();
+    else if (almost_equals(0,"test"))
+	test_command();
     else
 	plotrequest();
 }
@@ -2343,7 +2347,8 @@ splot_map_activate()
     /* set new values */
     surface_rot_x = 180;
     surface_rot_z = 0;
-    surface_scale = 1.3;
+    /* version 4 had constant value surface_scale = 1.3 */
+    surface_scale = 1.425 * mapview_scale;
     /* The Y axis runs backwards from a normal 2D plot */
     temp = axis_array[FIRST_Y_AXIS].min;
     axis_array[FIRST_Y_AXIS].min = axis_array[FIRST_Y_AXIS].max;
