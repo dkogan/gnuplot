@@ -1,3 +1,11 @@
+gnuplot (4.7~5-3) experimental; urgency=low
+
+  * X11 paste fixes:
+    - fixed off-by-one error that put garbage onto the end
+    - can paste more than once
+
+ -- Dima Kogan <dima@secretsauce.net>  Sun, 27 Apr 2014 00:42:12 -0700
+
 gnuplot (4.7~5-2) experimental; urgency=low
 
   * '1' and '2' now control the clipboard mode AND the status line mode
