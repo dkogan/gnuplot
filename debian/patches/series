@@ -3,7 +3,3 @@
 0003-08_do_not_set_qt_default_term.patch
 0004-no_plugin_demo.patch
 0005-autoscale-10-buffer.patch
-0006-Fixed-many-small-mouse-triggered-zoom-bugs.patch
-0007-1-and-2-now-control-the-clipboard-mode-too.patch
-0008-x11-terminal-clipboard-paste-fixed-off-by-one-error-.patch
-0009-x11-terminal-clipboard-paste-can-now-paste-the-coord.patch

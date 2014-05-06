@@ -7,10 +7,10 @@ Subject: 08_do_not_set_qt_default_term
  1 file changed, 5 insertions(+), 5 deletions(-)
 
 diff --git a/src/term.c b/src/term.c
-index a422244..4a5c3ea 100644
+index 7d850c4..6d81bae 100644
 --- a/src/term.c
 +++ b/src/term.c
-@@ -1563,16 +1563,16 @@ init_terminal()
+@@ -1557,16 +1557,16 @@ init_terminal()
  	    term_name = "sun";
  #endif /* SUN */
  
