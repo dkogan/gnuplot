@@ -1,3 +1,82 @@
+2014-05-05  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/gp_types.h src/graphics.c (place_objects do_rectangle)
+	src/misc.c (lp_parse) src/save.c (save_object) src/set.c (set_obj):
+	Allow object borders to have a full set of line properties including
+	dashtype.
+
+	* docs/gnuplot.doc: Update documentation to better describe recent
+	changes.
+
+	* src/qtterminal/QtGnuplotScene.cpp: Always use a solid line to draw
+	point symbols, even if the current linetype has a dash pattern.
+
+	* term/cairo.trm term/canvas.trm term/post.trm term/svg.trm term/wxt.trm
+	term/x11.trm src/term.c:  Terminals that have been upgraded to version 5
+	dash handling should ignore the "dashed/solid" terminal setting.
+
+2014-05-05  Tatsuro MATSUOKA <tmacchant3@yahoo.co.jp>
+
+	* src/qtterminal/po/qtgnuplot_ja.ts: Update translations
+
+2014-05-03  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/qtterminal/po/qtgnuplot_ja.ts: Update translations.
+
+2014-05-01  Hans-Bernhard Broeker  <broeker@physik.rwth-aachen.de>
+
+	* config/mingw/Makefile (LDFLAGS2): Add auto-import flag.
+	($(TARGET)): Add icon files and Makefile as dependencies.
+
+	* config/config.mgw, config/config.cyg: The set of used /
+	available configuration macros has changed across the past several
+	years.
+
+	* src/stdfn.h (sgn): Fix parenthesization of macro.
+	(PATH_MAX): CLang compiler on Cygwin needs a silly little tweak.
+
+	* src/graphics.c (samesign): Improve parenthesization a bit.
+
+2014-05-01  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* demo/gantt.dem demo/html/*:  Add Gantt chart to demo collection.
+	Add dashtypes to demo collection.
+
+	* src/show.c:  Show "fixed" property of arrow style.
+
+2014-04-29  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/datafile.c (f_timecolumn): Replace the old 1-parameter function
+	timecolumn(col) with a 2-parameter timecolumn(col,"timeformat"). The
+	old version had no way to handle time data that didn't correspond to
+	a coordinate on a plot axis in time format (e.g. set xdata time).
+	It would segfault if the function appeared in a using spec slot >= 2.
+	Now we require an explicit format, so data input is dissociated from
+	any particular axis or time setting.
+	Bug #1394
+
+	* src/gplt_x11.c term/x11.trm term/xlib.trm:
+	Custom dashtype support for X11.
+
+2014-04-28  Dima Kogan  <dima@secretsauce.net>
+
+	* src/mouse.c src/mouse.h src/set.c src/show.c docs/gnuplot.doc:
+	Remove the distinction between "coordinate format echoed to the screen
+	during mousing" and "coordinate format saved to the clipboard on click".
+	This removes the default bindings for hotkeys 3 and 4.
+
+2014-04-28  Shigeharu Takeno  <shige@iee.niit.ac.jp>
+
+	* docs/gnuplot-ja.doc term-ja.diff:  Sync translation to version 1.882
+	* docs/gnuplot.doc: typos
+
+2014-04-28  Ethan A Merritt  <merritt@u.washington.edu>
+
+	* src/graphics.c src/graph3d.c src/save.c src/show.c: Use named
+	values LAYER_{BEHIND|BACK|FRONT} rather than magic numbers.
+
+	* docs/gnuplot.doc: Add a section documenting the use of layers.
+
 2014-04-27  Dima Kogan  <dima@secretsauce.net>
 
 	* src/gplt_x11.c: Fix off-by-one error in selection string.
@@ -15,7 +94,9 @@
 
 	* src/stdfn.h: Define a sgn() function.
 
-	* src/graphics.c: Use sgn() function to defint samesign().
+	* src/graphics.c: Use sgn() function to define samesign().
+
+	* src/mouse.c: No longer need a local definition of sgn().
 
 2014-04-26  Dima Kogan  <dima@secretsauce.net>
 

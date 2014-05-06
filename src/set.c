@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.449 2014/04/25 00:22:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.451 2014/05/05 06:13:05 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -2819,35 +2819,6 @@ set_mouse()
 		mouse_setting.fmt = try_to_get_string();
 	    } else
 		mouse_setting.fmt = mouse_fmt_default;
-	} else if (almost_equals(c_token, "cl$ipboardformat")) {
-	    ++c_token;
-	    if (isstringvalue(c_token)) {
-		free(clipboard_alt_string);
-		clipboard_alt_string = try_to_get_string();
-		if (!strlen(clipboard_alt_string)) {
-		    free(clipboard_alt_string);
-		    clipboard_alt_string = NULL;
-		    if (MOUSE_COORDINATES_ALT == mouse_mode)
-			mouse_mode = MOUSE_COORDINATES_REAL;
-		} else {
-		    clipboard_mode = MOUSE_COORDINATES_ALT;
-		}
-	    } else {
-		int itmp = int_expression();
-		if (itmp >= MOUSE_COORDINATES_REAL
-		    && itmp <= MOUSE_COORDINATES_XDATETIME) {
-		    if (MOUSE_COORDINATES_ALT == itmp
-			&& !clipboard_alt_string) {
-			fprintf(stderr,
-			    "please 'set mouse clipboard <fmt>' first.\n");
-		    } else {
-			clipboard_mode = itmp;
-		    }
-		} else {
-		    fprintf(stderr, "should be: %d <= clipboardformat <= %d\n",
-			MOUSE_COORDINATES_REAL, MOUSE_COORDINATES_XDATETIME);
-		}
-	    }
 	} else if (almost_equals(c_token, "mo$useformat")) {
 	    ++c_token;
 	    if (isstringvalue(c_token)) {
@@ -3983,11 +3954,10 @@ set_obj(int tag, int obj_type)
     t_object *prev_object = NULL;
     TBOOLEAN got_fill = FALSE;
     TBOOLEAN got_lt = FALSE;
-    TBOOLEAN got_lw = FALSE;
+    TBOOLEAN got_fc = FALSE;
     TBOOLEAN got_corners = FALSE;
     TBOOLEAN got_center = FALSE;
     TBOOLEAN got_origin = FALSE;
-    double lw = 1.0;
 
     c_token++;
 
@@ -4268,7 +4238,7 @@ set_obj(int tag, int obj_type)
 	}
 
 	/* Parse the colorspec */
-	if (!got_lt) {
+	if (!got_fc) {
 	    if (equals(c_token,"fc") || almost_equals(c_token,"fillc$olor")) {
 		this_object->lp_properties.l_type = LT_BLACK; /* Anything but LT_DEFAULT */
 		parse_colorspec(&this_object->lp_properties.pm3d_color, TC_FRAC);
@@ -4277,28 +4247,27 @@ set_obj(int tag, int obj_type)
 	    }
 
 	    if (c_token != save_token) {
-		got_lt = TRUE;
+		got_fc = TRUE;
 		continue;
 	    }
 	}
 
-	/* And linewidth */
-	if (!got_lw) {
-	    if (equals(c_token,"lw") || almost_equals(c_token,"linew$idth")) {
-		c_token++;
-		lw = real_expression();
-	    }
+	/* And line properties (will be used for the object boder if the fillstyle uses one */
+	/* LP_NOFILL means don't eat fillcolor here since that is set separately with "fc" */
+	if (!got_lt) {
+	    lp_style_type lptmp = this_object->lp_properties;
+	    lp_parse(&lptmp, LP_NOFILL, FALSE);
 	    if (c_token != save_token) {
-		got_lw = TRUE;
+		this_object->lp_properties.l_width = lptmp.l_width;
+		this_object->lp_properties.d_type = lptmp.d_type;
+		this_object->lp_properties.custom_dash_pattern = lptmp.custom_dash_pattern;
+		got_lt = TRUE;
 		continue;
 	    }
 	}
 
 	int_error(c_token, "Unrecognized or duplicate option");
     }
-
-    if (got_lw)
-	this_object->lp_properties.l_width = lw;
 
     if (got_center && got_corners)
 	int_error(NO_CARET,"Inconsistent options");

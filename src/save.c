@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.250 2014/04/25 18:51:40 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.252 2014/05/05 06:13:05 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -210,7 +210,7 @@ set bar %f %s\n",
 	    bar_size, (bar_layer == LAYER_BACK) ? "back" : "front");
 
     if (draw_border) {
-	fprintf(fp, "set border %d %s", draw_border, border_layer == 0 ? "back" : "front");
+	fprintf(fp, "set border %d %s", draw_border, border_layer == LAYER_BACK ? "back" : "front");
 	save_linetype(fp, &border_lp, FALSE);
 	fprintf(fp, "\n");
     } else
@@ -316,7 +316,7 @@ set bar %f %s\n",
 
     /* Grid back/front controls tics also. Make sure it is saved */
     if (grid_layer >= 0)
-	fprintf(fp,"set tics %s\n", grid_layer == 0 ? "back" : "front");
+	fprintf(fp,"set tics %s\n", grid_layer == LAYER_BACK ? "back" : "front");
 
     if (! some_grid_selected())
 	fputs("unset grid\n", fp);
@@ -1642,7 +1642,10 @@ save_object(FILE *fp, int tag)
 
 	    if (this_object->lp_properties.l_width)
 		    fprintf(fp, "lw %.1f ",this_object->lp_properties.l_width);
-	    fprintf(fp, "fc ");
+	    if (this_object->lp_properties.d_type)
+		    save_dashtype(fp, this_object->lp_properties.d_type,
+					&this_object->lp_properties.custom_dash_pattern);
+	    fprintf(fp, " fc ");
 	    if (this_object->lp_properties.l_type == LT_DEFAULT)
 		    fprintf(fp,"default");
 	    else /* FIXME: Broke with removal of use_palette? */

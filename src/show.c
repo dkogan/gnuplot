@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.320 2014/04/22 20:49:28 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.323 2014/05/01 18:19:46 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -1160,7 +1160,7 @@ show_border()
 	fprintf(stderr, "\tborder is not drawn\n");
     else {
 	fprintf(stderr, "\tborder %d is drawn in %s of the plot elements with\n\t ",
-	    draw_border, border_layer == 0 ? "back" : "front");
+	    draw_border, border_layer == LAYER_BACK ? "back" : "front");
 	save_linetype(stderr, &border_lp, FALSE);
 	fputc('\n',stderr);
     }
@@ -3113,11 +3113,6 @@ show_mouse()
 	}
 	fprintf(stderr, "\tformatting numbers with \"%s\"\n",
 	    mouse_setting.fmt);
-	fprintf(stderr, "\tformat for Button 1 is %d\n", (int) clipboard_mode);
-	if (clipboard_alt_string) {
-	    fprintf(stderr, "\talternative format for Button 1 is '%s'\n",
-		clipboard_alt_string);
-	}
 	fprintf(stderr, "\tformat for Button 2 is %d\n", (int) mouse_mode);
 	if (mouse_alt_string) {
 	    fprintf(stderr, "\talternative format for Button 2 is '%s'\n",
@@ -3280,10 +3275,12 @@ show_arrowstyle(int tag)
 		    if (this_arrowstyle->arrow_properties.headfill != AS_NOFILL)
 			fprintf(stderr,", backangle %g deg",
 				this_arrowstyle->arrow_properties.head_backangle);
-		    fprintf(stderr,"\n");
+		} else {
+		    fprintf(stderr," (default length and angles)");
 		}
-		else
-		    fprintf(stderr," (default length and angles)\n");
+
+		fprintf(stderr, 
+		    (this_arrowstyle->arrow_properties.head_fixedsize) ? " fixed\n" : "\n");
 	    }
 	}
     }
