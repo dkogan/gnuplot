@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.226 2014/04/25 00:22:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.237 2015/05/08 18:32:12 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -340,7 +340,7 @@ refresh_3dbounds(struct surface_points *first_plot, int nplots)
 	||  this_plot->plot_style == RGBIMAGE
 	||  this_plot->plot_style == RGBA_IMAGE) {
 	    if (x_axis->set_autoscale)
-		plot_image_or_update_axes(this_plot,TRUE);
+		process_image(this_plot, IMG_UPDATE_AXES);
 	    continue;
 	}
 
@@ -544,8 +544,8 @@ pythag( double dx, double dy )
     x = fabs(dx);
     y = fabs(dy);
     
-    if( x > y  ) { return x*sqrt(1.0 + (y*y)/(x*x)); }
-    if( y==0.0 ) { return 0.0; }
+    if (x > y) { return x*sqrt(1.0 + (y*y)/(x*x)); }
+    if (y==0.0) { return 0.0; }
     return y*sqrt(1.0 + (x*x)/(y*y));
 }
 
@@ -559,7 +559,8 @@ grid_nongrid_data(struct surface_points *this_plot)
     
     /* these are only needed for thin_plate_splines */
     double *xx, *yy, *zz, *b;
-    int numpoints;
+    int numpoints = 0;
+
     xx = NULL; /* save to call free() on NULL if xx has never been used */
     
     /* Compute XY bounding box on the original data. */
@@ -599,7 +600,7 @@ grid_nongrid_data(struct surface_points *this_plot)
     this_plot->num_iso_read = dgrid3d_col_fineness;
     this_plot->has_grid_topology = TRUE;
     
-    if( dgrid3d_mode == DGRID3D_SPLINES ) {
+    if (dgrid3d_mode == DGRID3D_SPLINES) {
         thin_plate_splines_setup( old_iso_crvs, &xx, &numpoints );
         yy = xx + numpoints;
         zz = yy + numpoints;
@@ -615,14 +616,14 @@ grid_nongrid_data(struct surface_points *this_plot)
 	this_plot->iso_crvs = icrv;
 	points = icrv->points;
 
-	for(j=0, y=ymin; j<dgrid3d_row_fineness; j++, y+=dy, points++) {
+	for (j=0, y=ymin; j<dgrid3d_row_fineness; j++, y+=dy, points++) {
 	    z = w = 0.0;
 
 	    /* as soon as ->type is changed to UNDEFINED, break out of
 	     * two inner loops! */
 	    points->type = INRANGE;
 
-	    if( dgrid3d_mode == DGRID3D_SPLINES ) {
+	    if (dgrid3d_mode == DGRID3D_SPLINES) {
                 z = b[numpoints];
                 for (k = 0; k < numpoints; k++) {
                     double dx = xx[k] - x, dy = yy[k] - y;
@@ -630,16 +631,16 @@ grid_nongrid_data(struct surface_points *this_plot)
                 }
                 z = z + b[numpoints + 1] * x + b[numpoints + 2] * y;
 	    } else { /* everything, except splines */
-                for(oicrv = old_iso_crvs; oicrv != NULL; oicrv = oicrv->next) {
+                for (oicrv = old_iso_crvs; oicrv != NULL; oicrv = oicrv->next) {
                     struct coordinate GPHUGE *opoints = oicrv->points;
                     for (k = 0; k < oicrv->p_count; k++, opoints++) {
                         
-                        if( dgrid3d_mode == DGRID3D_QNORM ) {
+                        if (dgrid3d_mode == DGRID3D_QNORM) {
                             double dist = qnorm( fabs(opoints->x - x),
                                                  fabs(opoints->y - y),
                                                  dgrid3d_norm_value );
 
-                            if( dist == 0.0 ) {
+                            if (dist == 0.0) {
                                 /* HBB 981209: revised flagging as undefined */
                                 /* Supporting all those infinities on various
                                  * platforms becomes tiresome, 
@@ -661,16 +662,16 @@ grid_nongrid_data(struct surface_points *this_plot)
                             double dist=pythag((opoints->x-x)/dgrid3d_x_scale, 
                                                (opoints->y-y)/dgrid3d_y_scale);
 
-                            if( dgrid3d_mode == DGRID3D_GAUSS ) {
+                            if (dgrid3d_mode == DGRID3D_GAUSS) {
                                 weight = exp( -dist*dist );
-                            } else if( dgrid3d_mode == DGRID3D_CAUCHY ) {
+                            } else if (dgrid3d_mode == DGRID3D_CAUCHY) {
                                 weight = 1.0/(1.0 + dist*dist );
-                            } else if( dgrid3d_mode == DGRID3D_EXP ) {
+                            } else if (dgrid3d_mode == DGRID3D_EXP) {
                                 weight = exp( -dist );
-                            } else if( dgrid3d_mode == DGRID3D_BOX ) {
+                            } else if (dgrid3d_mode == DGRID3D_BOX) {
                                 weight = (dist<1.0) ? 1.0 : 0.0;
-                            } else if( dgrid3d_mode == DGRID3D_HANN ) {
-                                if( dist < 1.0 ) {
+                            } else if (dgrid3d_mode == DGRID3D_HANN) {
+                                if (dist < 1.0) {
                                     weight = 0.5*(1-cos(2.0*M_PI*dist));
                                 }
                             }
@@ -1082,13 +1083,18 @@ get_3ddata(struct surface_points *this_plot)
 		if (this_plot->plot_style == VECTOR)
 		    cptail->z = ztail;
 	    } else {
-		/* EAM Sep 2008 - Otherwise z=Nan or z=Inf or DF_MISSING fails */
-		/* to set CRD_COLOR at all, since the z test bails to a goto.  */
-		if (this_plot->plot_style == IMAGE) {
-			cp->CRD_COLOR = (pm3d_color_from_column) ? color : z;
-	        }
 
-		STORE_WITH_LOG_AND_UPDATE_RANGE(cp->z, z, cp->type, z_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+		/* EAM Sep 2008 - Otherwise z=Nan or z=Inf or DF_MISSING fails	*/
+		/* to set CRD_COLOR at all, since the z test bails to a goto. 	*/
+		if (this_plot->plot_style == IMAGE) {
+		    cp->CRD_COLOR = (pm3d_color_from_column) ? color : z;
+		}
+
+		/* Version 5: cp->z=0 in the UNDEF_ACTION recovers what	version 4 did */
+		STORE_WITH_LOG_AND_UPDATE_RANGE(cp->z, z, cp->type, z_axis,
+				this_plot->noautoscale, NOOP,
+				cp->z=0;goto come_here_if_undefined);
+
 		if (this_plot->plot_style == VECTOR)
 		    STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->z, ztail, cp->type, z_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 
@@ -1418,17 +1424,14 @@ eval_3dplots()
 		/*             is not being loaded with the variable name.		*/
 		if (sample_range_token > 0) {
 		    this_plot->sample_var = add_udv(sample_range_token);
-		    this_plot->sample_var->udv_undef = FALSE;
 		} else {
 		    /* FIXME: This has the side effect of creating a named variable x */
 		    /* or overwriting an existing variable x.  Maybe it should save   */
 		    /* and restore the pre-existing variable in this case?            */
 		    this_plot->sample_var = add_udv_by_name(c_dummy_var[0]);
-		    if (this_plot->sample_var->udv_undef) {
-			this_plot->sample_var->udv_undef = FALSE;
-			Gcomplex(&(this_plot->sample_var->udv_value), 0.0, 0.0);
-		    }
 		}
+		if (this_plot->sample_var->udv_value.type == NOTDEFINED)
+		    Gcomplex(&(this_plot->sample_var->udv_value), 0.0, 0.0);
 
 		/* for capture to key */
 		this_plot->token = end_token = c_token - 1;
@@ -1615,35 +1618,8 @@ eval_3dplots()
 		    continue;
 		}
 
-		/* Labels can have font and text property info as plot options */
-		/* In any case we must allocate one instance of the text style */
-		/* that all labels in the plot will share.                     */
-		if (this_plot->plot_style == LABELPOINTS)  {
-		    int stored_token = c_token;
-		    if (this_plot->labels == NULL) {
-			this_plot->labels = new_text_label(-1);
-			this_plot->labels->pos = CENTRE;
-			this_plot->labels->layer = LAYER_PLOTLABELS;
-		    }
-		    parse_label_options(this_plot->labels, TRUE);
-		    if (draw_contour)
-			load_contour_label_options(this_plot->labels);
-		    checked_once = TRUE;
-		    if (stored_token != c_token) {
-			if (set_labelstyle) {
-			    duplication = TRUE;
-			    break;
-			} else {
-			    set_labelstyle = TRUE;
-			    continue;
-			}
-		    }
-		}
-
-		/* pick up line/point specs
-		 * - point spec allowed if style uses points, ie style&2 != 0
-		 * - keywords are optional
-		 */
+		/* Most plot styles accept line and point properties but do not */
+		/* want font or text properties.				*/
 		if (this_plot->plot_style == VECTOR) {
 		    int stored_token = c_token;
 
@@ -1665,7 +1641,9 @@ eval_3dplots()
 			}
 		    }
 
-		} else if (this_plot->plot_style == PM3DSURFACE) {
+		}
+
+		if (this_plot->plot_style == PM3DSURFACE) {
 		    /* both previous and subsequent line properties override pm3d default border */
 		    int stored_token = c_token;
 		    if (!set_lpstyle)
@@ -1676,14 +1654,16 @@ eval_3dplots()
 			continue;
 		    }
 
-		} else {
+		}
+
+		if (this_plot->plot_style != LABELPOINTS) {
 		    int stored_token = c_token;
 		    struct lp_style_type lp = DEFAULT_LP_STYLE_TYPE;
 		    int new_lt = 0;
 
 		    lp.l_type = line_num;
 		    lp.p_type = line_num;
-			lp.d_type = line_num;
+		    lp.d_type = line_num;
 
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles)
@@ -1704,6 +1684,34 @@ eval_3dplots()
 			    set_lpstyle = TRUE;
 			    if (new_lt)
 				this_plot->hidden3d_top_linetype = new_lt - 1;
+			    if (this_plot->lp_properties.p_type != PT_CHARACTER)
+				continue;
+			}
+		    }
+		}
+
+		/* Labels can have font and text property info as plot options */
+		/* In any case we must allocate one instance of the text style */
+		/* that all labels in the plot will share.                     */
+		if ((this_plot->plot_style == LABELPOINTS)
+		||  (this_plot->plot_style & PLOT_STYLE_HAS_POINT
+			&& this_plot->lp_properties.p_type == PT_CHARACTER)) {
+		    int stored_token = c_token;
+		    if (this_plot->labels == NULL) {
+			this_plot->labels = new_text_label(-1);
+			this_plot->labels->pos = CENTRE;
+			this_plot->labels->layer = LAYER_PLOTLABELS;
+		    }
+		    parse_label_options(this_plot->labels, TRUE);
+		    if (draw_contour)
+			load_contour_label_options(this_plot->labels);
+		    checked_once = TRUE;
+		    if (stored_token != c_token) {
+			if (set_labelstyle) {
+			    duplication = TRUE;
+			    break;
+			} else {
+			    set_labelstyle = TRUE;
 			    continue;
 			}
 		    }
@@ -1776,7 +1784,7 @@ eval_3dplots()
 	    /* Some low-level routines expect to find the pointflag attribute */
 	    /* in lp_properties (they don't have access to the full header).  */
 	    if (this_plot->plot_style & PLOT_STYLE_HAS_POINT)
-		this_plot->lp_properties.pointflag = TRUE;
+		this_plot->lp_properties.flags |= LP_SHOW_POINTS;
 
 	    /* Rule out incompatible line/point/style options */
 	    if (this_plot->plot_type == FUNC3D) {
@@ -1878,7 +1886,9 @@ eval_3dplots()
 		    this_plot->iteration = plot_iterator ? plot_iterator->iteration : 0;
 		    this_plot->plot_style = first_dataset->plot_style;
 		    this_plot->lp_properties = first_dataset->lp_properties;
-		    if (this_plot->plot_style == LABELPOINTS) {
+		    if ((this_plot->plot_style == LABELPOINTS)
+		    ||  (this_plot->plot_style & PLOT_STYLE_HAS_POINT
+			    && this_plot->lp_properties.p_type == PT_CHARACTER)) {
 			this_plot->labels = new_text_label(-1);
 			*(this_plot->labels) = *(first_dataset->labels);
 			this_plot->labels->next = NULL;
@@ -1886,6 +1896,19 @@ eval_3dplots()
 		} while (df_return != DF_EOF);
 
 		df_close();
+
+		/* Plot-type specific range-fiddling */
+		if (this_plot->plot_style == IMPULSES && !axis_array[FIRST_Z_AXIS].log) {
+		    if (axis_array[FIRST_Z_AXIS].autoscale & AUTOSCALE_MIN) {
+			if (axis_array[FIRST_Z_AXIS].min > 0)
+			    axis_array[FIRST_Z_AXIS].min = 0;
+		    }
+		    if (axis_array[FIRST_Z_AXIS].autoscale & AUTOSCALE_MAX) {
+			if (axis_array[FIRST_Z_AXIS].max < 0)
+			    axis_array[FIRST_Z_AXIS].max = 0;
+		    }
+		}
+
 		/*}}} */
 
 	    } else {		/* not a data file */
@@ -2134,19 +2157,19 @@ eval_3dplots()
 
     axis_revert_and_unlog_range(FIRST_Z_AXIS);
 
-    setup_tics(FIRST_X_AXIS, 20);
-    setup_tics(FIRST_Y_AXIS, 20);
-    setup_tics(FIRST_Z_AXIS, 20);
+    setup_tics(&axis_array[FIRST_X_AXIS], 20);
+    setup_tics(&axis_array[FIRST_Y_AXIS], 20);
+    setup_tics(&axis_array[FIRST_Z_AXIS], 20);
     if (splot_map) {
-	setup_tics(SECOND_X_AXIS, 20);
-	setup_tics(SECOND_Y_AXIS, 20);
+	setup_tics(&axis_array[SECOND_X_AXIS], 20);
+	setup_tics(&axis_array[SECOND_Y_AXIS], 20);
     }
 
     set_plot_with_palette(plot_num, MODE_SPLOT);
     if (is_plot_with_palette()) {
 	set_cbminmax();
 	axis_checked_extend_empty_range(COLOR_AXIS, "All points of colorbox value undefined");
-	setup_tics(COLOR_AXIS, 20);
+	setup_tics(&axis_array[COLOR_AXIS], 20);
 	/* axis_revert_and_unlog_range(COLOR_AXIS); */
 	/* fprintf(stderr,"plot3d.c: CB_AXIS.min=%g\tCB_AXIS.max=%g\n",CB_AXIS.min,CB_AXIS.max); */
     }
@@ -2198,6 +2221,48 @@ eval_3dplots()
 	    }
 	}
     }				/* draw_contour */
+
+    /* Images don't fit the grid model.  (The image data correspond
+     * to pixel centers.)  To make image work in hidden 3D, add
+     * another non-visible phantom surface of only four points
+     * outlining the image.  Opt out of hidden3d for the {RGB}IMAGE
+     * to avoid processing large amounts of data.
+     */
+    if (plot_num) {
+	struct surface_points *this_plot = first_3dplot;
+	do {
+	    if ((this_plot->plot_style == IMAGE || this_plot->plot_style == RGBIMAGE)
+	    && !(this_plot->opt_out_of_hidden3d)) {
+
+		struct surface_points *new_plot = sp_alloc(2, 0, 0, 2);
+
+		/* Construct valid 2 x 2 parallelogram. */
+		new_plot->num_iso_read = 2;
+		new_plot->iso_crvs->p_count = 2;
+		new_plot->iso_crvs->next->p_count = 2;
+		new_plot->next_sp = this_plot->next_sp;
+		this_plot->next_sp = new_plot;
+
+		/* Set up hidden3d behavior, no visible lines but
+		 * opaque to items behind the parallelogram. */
+		new_plot->plot_style = SURFACEGRID;
+		new_plot->opt_out_of_surface = TRUE;
+		new_plot->opt_out_of_contours = TRUE;
+		new_plot->has_grid_topology = TRUE;
+		new_plot->hidden3d_top_linetype = LT_NODRAW;
+		new_plot->plot_type = DATA3D;
+		new_plot->opt_out_of_hidden3d = FALSE;
+
+		/* Compute the geometry of the phantom */
+		process_image(this_plot, IMG_UPDATE_CORNERS);
+
+		/* Advance over the phantom */
+		++plot_num;
+		this_plot = this_plot->next_sp;
+	    }
+	    this_plot = this_plot->next_sp;
+	} while (this_plot);
+    }
 
     /* the following ~9 lines were moved from the end of the
      * function to here, as do_3dplot calles term->text, which
@@ -2334,6 +2399,6 @@ static void load_contour_label_options (struct text_label *contour_label)
     if (!contour_label->font)
 	contour_label->font = gp_strdup(clabel_font);
     lp->p_interval = clabel_interval;
-    lp->pointflag = TRUE;
+    lp->flags |= LP_SHOW_POINTS;
     lp_parse(lp, LP_ADHOC, TRUE);
 }

@@ -1,5 +1,5 @@
 # Hello, emacs: this is a -*- Makefile -*-
-# $Id: Makefile,v 1.41 2014/05/01 21:57:50 broeker Exp $
+# $Id: Makefile,v 1.51 2014/12/28 13:10:06 markisch Exp $
 #
 # GNUPLOT Makefile for MinGW/MSYS on Windows
 # This assumes usual installation of the MinGW32 toolkit, the free
@@ -78,6 +78,12 @@ MOUSE=1
 #WXT=1
 #CAIROLIBS=1
 
+# Build qt terminal?
+#QT = 1
+# specify QT installation directory
+#QT_DIR = /c/Qt/5.2.1/mingw48_32
+QT_DIR = /d/Source/Qt-5.2.1-mingw/5.2.1/mingw48_32
+
 # Uncomment the following line to select the lua/tikz terminal
 #LUA=lua
 
@@ -103,6 +109,9 @@ GNUPLOT_PS_DIR = share/PostScript
 # Similarly for javascript files for the canvas terminal:
 GNUPLOT_JS_DIR = share/js
 
+# Similarly for translation files for the qt terminal:
+GNUPLOT_QT_DIR = share/qt
+
 # Similarly for scripts used by the lua terminal
 GNUPLOT_LUA_DIR = share/lua
 
@@ -111,6 +120,7 @@ GNUPLOT_TEX_DIR = share/texmf/tex
 
 # gnuplot will look for gnuplotrc here:
 GNUPLOT_SHARE_DIR = share
+
 
 # Destination directory, used in 'make install':
 #DESTDIR = /local/opt/gnuplot-4.5
@@ -238,7 +248,7 @@ T=$(TOP)/term/
 D=$(TOP)/docs/
 M=$(TOP)/demo/
 
-VPATH = $(S):$(W):$(S)/wxterminal
+VPATH = $(S):$(S)/wxterminal
 
 TERMFLAGS = -DGNUPLOT_PS_DIR=\"$(GNUPLOT_PS_DIR)\" -DGNUPLOT_JS_DIR=\"$(GNUPLOT_JS_DIR)\"
 TERMFLAGS += -I$(TOP)/term
@@ -350,11 +360,42 @@ ifdef WXT
 	WX_OBJS = wxt_gui.$(O)
 endif
 
+ifdef QT
+	QT_LIBS = -lQt5Core -lQt5Gui -lQt5Network -lQt5Svg -lQt5Widgets -lQt5PrintSupport -lqtmain
+	QT_CXXFLAGS =  -I$(QT_DIR)/include -I$(QT_DIR)/include/Qt -I$(QT_DIR)/include/QtCore -I$(QT_DIR)/include/QtGui
+	QT_CXXFLAGS += -I$(QT_DIR)/include/QtWidgets -I$(QT_DIR)/include/QtNetwork
+	QT_CXXFLAGS += -I$(QT_DIR)/include/QtSvg -DQTGNUPLOT_DATA_DIR=\"$(GNUPLOT_QT_DIR)\"
+	QT_LDFLAGS = -L$(QT_DIR)/lib
+#
+	CFLAGS += -DQTTERM -DQT_NO_OPENGL
+	TERMLIBS += $(QT_LIBS)
+	CXXFLAGS += $(QT_CXXFLAGS)
+	LDFLAGS  += $(QT_LDFLAGS)
+	QT_OBJS = qt_term.$(O) 
+	GNUPLOTQTOBJS = gnuplot_qt.o QtGnuplotWindow.o \
+		QtGnuplotApplication.o QtGnuplotWidget.o \
+		QtGnuplotScene.o QtGnuplotItems.o \
+		QtGnuplotEvent.o \
+		moc_QtGnuplotWindow.o moc_QtGnuplotApplication.o \
+		moc_QtGnuplotWidget.o moc_QtGnuplotScene.o \
+		moc_QtGnuplotEvent.o qrc_QtGnuplotResource.o
+#
+	MOC = $(QT_DIR)/bin/moc
+	UIC = $(QT_DIR)/bin/uic
+	RCC = $(QT_DIR)/bin/rcc
+	LRELEASE = $(QT_DIR)/bin/lrelease
+	QT_FILES_TARGETS  = qrc_QtGnuplotResource.cpp ui_QtGnuplotSettings.h moc_QtGnuplotWindow.cpp moc_QtGnuplotApplication.cpp 
+	QT_FILES_TARGETS += moc_QtGnuplotWidget.cpp moc_QtGnuplotScene.cpp moc_QtGnuplotEvent.cpp
+	QT_TRANSLATION = qtgnuplot_fr.qm qtgnuplot_ja.qm
+	QT_TARGET = gnuplot_qt.exe
+endif
+
 ifdef LUA
 	CFLAGS += -DHAVE_LUA
 	TERMLIBS += -l$(LUA)
 	TERMFLAGS += -DGNUPLOT_LUA_DIR=\"$(GNUPLOT_LUA_DIR)\"
 	LUATARGETS += gnuplot-lua-tikz.sty
+	LUA_HELP = gnuplot-tikz.help
 endif
 
 ifdef CACA
@@ -387,10 +428,10 @@ else
   RES2COFF = res2coff -i wgnuplot.res -o wgplt_res.$(O)
 endif
 
-ifndef RELEASE
-VERSIONING = timestamp.h
-else
+ifdef RELEASE
 VERSIONING = $(S)/version.c
+else
+VERSIONING = timestamp.h
 endif
 
 PATCHLEVEL := `cat $(TOP)/PATCHLEVEL`
@@ -404,32 +445,32 @@ LONGVERSION := $(MAINVERSION).0
 endif
 FULLVERSION := $(MAINVERSION) patchlevel $(PATCHLEVEL)
 
-default: $(VERSIONING) $(TARGET) $(MENUFILE) support
 
-console: $(VERSIONING)
-	$(MAKE) TARGET=gnuplot.exe gnuplot.exe
+default: $(TARGET) $(MENUFILE) support
 
-windows: $(MENUFILE) $(VERSIONING)
-	$(MAKE) TARGET=wgnuplot.exe wgnuplot.exe
+console: 
+	$(MAKE) TARGET=gnuplot.exe default
 
-pipes: $(VERSIONING)
-	$(MAKE) TARGET=wgnuplot_pipes.exe wgnuplot_pipes.exe
+windows:
+	$(MAKE) TARGET=wgnuplot.exe default
+
+pipes:
+	$(MAKE) TARGET=wgnuplot_pipes.exe default
 
 docs:
 	$(MAKE) TARGET=gnuplot.exe gnuplot.pdf gpcard.pdf tutorial.pdf \
 		ps_symbols.pdf ps_fontfile_doc.pdf ps_guide.pdf
 
-support: $(HELPFILE) $(M)bf_test.exe demo_plugin.dll $(LUATARGETS) $(HELPFILEJA)
+support: $(HELPFILE) $(M)bf_test.exe $(QT_TARGET) $(QT_TRANSLATION) demo_plugin.dll $(LUATARGETS) $(HELPFILEJA)
 
 ja: $(HELPFILEJA)
 
-all: $(VERSIONING) console windows pipes support docs
-
+all: console windows pipes support docs
 
 # include the 'core makefile template'
 include $(S)/makefile.all
 
-OBJS = $(COREOBJS) version.$(O) gpexecute.$(O) $(WX_OBJS) $(CAIRO_OBJS)
+OBJS = $(COREOBJS) version.$(O) gpexecute.$(O) $(WX_OBJS) $(CAIRO_OBJS) $(QT_OBJS)
 
 WINOBJS = winmain.$(O) wgnuplib.$(O) wgraph.$(O) wprinter.$(O) \
 	  wpause.$(O) wgdiplus.$(O)
@@ -442,11 +483,14 @@ endif
 .c.$(O):
 	$(CC) -c $(CFLAGS) $(CFLAGSEXTRA) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
 
+%.$(O): $W/%.c
+	$(CC) -c $(CFLAGS) $(CFLAGSEXTRA) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
+
 LDLIBS = -lkernel32 -lgdi32 -lwinspool -lcomdlg32 -lcomctl32 -ladvapi32 -lshell32 -lmsimg32 -lgdiplus
 LDLIBS += -lhtmlhelp
 LDFLAGS2 += -L$(HHWPATH)lib
 
-$(TARGET): $(OBJS) $(WINOBJS) wgplt_res.$(O) texticon.ico grpicon.ico Makefile
+$(TARGET): $(VERSIONING) $(OBJS) $(WINOBJS) wgplt_res.$(O) Makefile
 	$(LDX) $(LDFLAGS) $(LDFLAGS2) -o $@ $(OBJS) $(WINOBJS) wgplt_res.$(O) $(LDLIBS)\
 	$(TERMLIBS) $(WX_LIBS) $(PANGOCAIRO_LIBS)
 
@@ -504,6 +548,50 @@ wxt_gui.$(O): $(S)/wxterminal/wxt_gui.cpp $(S)/wxterminal/wxt_gui.h
 gp_cairo.$(O): $(S)/wxterminal/gp_cairo.c $(S)/wxterminal/gp_cairo.h
 	$(CC) -c $(CFLAGS) $(CFLAGSEXTRA) $(CXXFLAGS) $(PANGOCAIRO_CFLAGS) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
 
+qt_term.$(O): $(S)/qtterminal/qt_term.cpp $(S)/qtterminal/qt_term.h
+	$(CXX) -c $(CFLAGS) $(CFLAGSEXTRA) $(CXXFLAGS) -MMD -MT '$*.$$(O)' -MF $*.d -o $@ $<
+
+
+# Call the Qt resource compiler
+qrc_QtGnuplotResource.cpp: $(S)/qtterminal/QtGnuplotResource.qrc
+	$(RCC) -name QtGnuplotResource -o $@ $<
+
+# Call the Qt ui compiler
+ui_QtGnuplotSettings.h: $(S)/qtterminal/QtGnuplotSettings.ui
+	$(UIC) -o $@ $<
+
+# Call the Qt meta-object compiler
+moc_QtGnuplotWindow.cpp: $(S)/qtterminal/QtGnuplotWindow.h
+	$(MOC) -o $@ $<
+
+moc_QtGnuplotApplication.cpp: $(S)/qtterminal/QtGnuplotApplication.h
+	$(MOC) -o $@ $<
+
+moc_QtGnuplotWidget.cpp: $(S)/qtterminal/QtGnuplotWidget.h
+	$(MOC) -o $@ $<
+
+moc_QtGnuplotScene.cpp: $(S)/qtterminal/QtGnuplotScene.h
+	$(MOC) -o $@ $<
+
+moc_QtGnuplotEvent.cpp: $(S)/qtterminal/QtGnuplotEvent.h
+	$(MOC) -o $@ $<
+# end (Call the Qt ui compiler)
+
+# Translation files
+qtgnuplot_fr.qm: $(S)/qtterminal/po/qtgnuplot_fr.ts
+	$(LRELEASE) -qm $@ $<
+
+qtgnuplot_ja.qm: $(S)/qtterminal/po/qtgnuplot_ja.ts
+	$(LRELEASE) -qm $@ $<
+
+%.o: $(S)/qtterminal/%.cpp
+	$(CXX) -c $(CFLAGS) $(CFLAGSEXTRA) $(CXXFLAGS) -MMD -MT '$*.o' -MF $*.d -o $@ $<
+%.o: %.cpp
+	$(CXX) -c $(CFLAGS) $(CFLAGSEXTRA) $(CXXFLAGS) -MMD -MT '$*.o' -MF $*.d -o $@ $<
+
+gnuplot_qt.exe: $(QT_FILES_TARGETS) $(GNUPLOTQTOBJS)
+	$(LDX) -Wl,--subsystem,windows $(LDFLAGS) -Wl,-Map=gnuplot_qt.map -o $@ $(GNUPLOTQTOBJS) $(QT_LIBS) -lshell32
+
 demo_plugin.dll: $(M)plugin/demo_plugin.c
 	$(CC) $(CFLAGS) -I$(M)plugin -shared -o $@ $<
 
@@ -540,6 +628,8 @@ $(JASRC): $(D)gnuplot-ja.doc $(D)term-ja.diff $(CORETERM)
 wgnuplot-ja.chm: $(JASRC) doc2html-ja.exe \
                   $(D)windows/wgnuplot.hhp $(D)windows/wgnuplot.hhk \
                   $(D)windows/wgnuplot.stp $(D)plotstyles.gnu
+	# FIXME: some files always end up read-only...
+	chmod +w $(JADW)*
 	# Create Japanese html source in EUC-JP encoding
 	./doc2html-ja $(JAD)gnuplot-ja.doc $(JADW)
 	# Change character encoding from EUC-JP to SHIFT-JIS
@@ -556,36 +646,38 @@ wgnuplot-ja.chm: $(JASRC) doc2html-ja.exe \
 	-$(HHC) $(JADW)wgnuplot.hhp
 	cp $(JADW)wgnuplot.chm $(HELPFILEJA)
 
-doc2html.exe: $(D)windows/doc2html.c $(D)termdoc.c $(D)xref.c version.$(O)
-	$(LD) $(LDFLAGS) -o $@ -DWINDOWS_NO_GUI $(CFLAGS) -I. -I$(D:/=) -I$(T:/=) $^
+doc2html.exe: $(D)windows/doc2html.c $(D)termdoc.c $(D)xref.c version.$(O) $(LUA_HELP)
+	$(LD) $(LDFLAGS) -o $@ -DWINDOWS_NO_GUI $(CFLAGS) -I. -I$(D:/=) -I$(T:/=) $(D)windows/doc2html.c $(D)termdoc.c $(D)xref.c version.$(O)
 
-doc2html-ja.exe: $(JASRC) $(D)windows/doc2html.c $(D)termdoc.c $(D)xref.c version.$(O)
+doc2html-ja.exe: $(JASRC) $(D)windows/doc2html.c $(D)termdoc.c $(D)xref.c version.$(O) $(LUA_HELP)
 	$(LD) $(LDFLAGS) -o $@ -DWINDOWS_NO_GUI -DJAPANESE_DOC $(CFLAGS) -I. -I$(JAD) -I$(JA)/term $(D)windows/doc2html.c $(D)termdoc.c $(D)xref.c version.$(O)
+
+doc2ms.exe: $(D)doc2ms.c $(D)termdoc.c $(D)xref.c version.$(O) $(LUA_HELP)
+	$(LD) $(LDFLAGS) -o $@ -DWINDOWS_NO_GUI $(CFLAGS) -I. -I$(D:/=) -I$(T:/=) $(D)doc2ms.c $(D)termdoc.c $(D)xref.c version.$(O)
 
 #make binary demo files
 # WINDOWS_NO_GUI makes sure that wtext.h does not redefine fread() etc.
-$(M)bf_test.exe : bf_test.c dbinary.$(O) alloc.$(O)
+$(M)bf_test.exe : bf_test.c 
 	$(LD) $(LDFLAGS) $(CFLAGS) -DWINDOWS_NO_GUI -o $@ $^
 	(cd $(M) ; ./bf_test.exe )
-
-dbinary.$(O): binary.c
-	$(CC) -c $(CFLAGS) -DWINDOWS_NO_GUI -o $@ $<
 
 #
 # Create config.h
 #
-$(OBJS) $(WINOBJS) dbinary.$(O): config.h
+$(OBJS) $(WINOBJS): config.h
 config.h: $(TOP)/config/config.mgw
 	cp -p $< $@
 
 
-# generate LUA TeX support files
+# generate LUA TeX support files and terminal help
 ifdef LUA
 gnuplot-lua-tikz.sty: $(T)/lua/gnuplot-tikz.lua
-	$(LUA) $(T)/lua/gnuplot-tikz.lua style
+	$(LUA) $< style
+$(LUA_HELP): $(T)/lua/gnuplot-tikz.lua
+	$(LUA) $< termhelp > $@
 endif
 
-
+allterm.h: $(CORETERM) $(LUA_HELP)
 # Create documentation in various formats
 #
 ALL_TERMINALS_DOC=1
@@ -604,19 +696,19 @@ allterm.h: $(CORETERM)
 	done >$@
 else
 # sequence of terminals according to "ls term/*.trm":
-allterm.h: $(CORETERM)
+allterm.h: $(CORETERM) $(LUA_HELP)
 	@echo "Building allterm.h"
 	@cat $(T)*.trm > allterm.c
 	$(CPP) $(CFLAGS) -I$(T) -DTERM_DRIVER_H -DTERM_HELP allterm.c | \
 	  sed '/^ *$$/d;/^#/d' > allterm.h
 	@rm -f allterm.c
 endif
-doc2tex.exe: $(D)doc2tex.c $(D)termdoc.c allterm.h $(CORETERM)
+doc2tex.exe: $(D)doc2tex.c $(D)termdoc.c allterm.h $(CORETERM) $(LUA_HELP)
 	$(LD) $(LDFLAGS) -o $@ -DWINDOWS_NO_GUI -DALL_TERM_DOC $(CFLAGS) \
 	  -I. -I$(D) -I$(T) $(D)doc2tex.c $(D)termdoc.c
 else
 # Old version: generate documentation with only currently used terminals:
-doc2tex.exe: $(D)doc2tex.c $(D)termdoc.c
+doc2tex.exe: $(D)doc2tex.c $(D)termdoc.c $(LUA_HELP)
 	$(LD) $(LDFLAGS) -o $@ -DWINDOWS_NO_GUI $(CFLAGS) -I. -I$(D) -I$(T) $^
 endif
 
@@ -653,6 +745,18 @@ gnuplot.pdf: gnuplot-figures.tex $(TOP)/VERSION $(D)toc_entr.sty $(D)titlepag.te
 	TEXINPUTS=.:$(TOP):$(D):${TEXINPUTS}: pdflatex gp_tex2.tex
 	mv gp_tex2.pdf gnuplot.pdf
 	rm -f gp_tex2.*
+
+gnuplot.ms: doc2ms.exe $(D)gnuplot.doc
+	doc2ms $(D)gnuplot.doc gnuplot.ms
+	dos2unix gnuplot.ms
+
+grops: $(D)titlepag.ms gnuplot.ms
+	sed "s,titlepag\.ms,$(D)titlepag\.ms," gnuplot.ms | \
+	groff -s -p -t -e -ms -k -K utf-8 -Tps > gnuplot.ps
+
+gropdf: $(D)titlepag.ms gnuplot.ms
+	sed "s,titlepag\.ms,$(D)titlepag\.ms," gnuplot.ms | \
+	groff -s -p -t -e -ms -k -K utf-8 -Tpdf > gnuplot.pdf
 
 TUT = $(TOP)/tutorial
 tutorial.pdf: $(TUT)/eg1.plt $(TUT)/eg2.plt $(TUT)/eg3.plt $(TUT)/eg4.plt \
@@ -696,7 +800,8 @@ ps_guide.pdf: $(D)psdoc/ps_guide.ps
 # clean up temporary files
 clean:
 	$(RM) config.h wgnuplot.map wgnuplot.res
-	$(RM) *.$(O) *.po *.o *.co *.d
+	$(RM) *.$(O) *.po *.o *.co *.d *.map
+	$(RM) moc_*.cpp ui_*.h qrc_*.cpp
 	$(RM) doc2*.exe $(W)/wgnuplib.res wgnuplib.map wgnuplot.lib
 	$(RM) $(M)bf_test.exe demo_plugin.dll allterm.h allterm.c
 	$(RM) *.aux *.log *.dvi *.toc
@@ -712,6 +817,7 @@ clean:
 realclean: veryclean
 veryclean: clean
 	$(RM) wgnuplot.exe wgnuplot_pipes.exe gnuplot.exe pgnuplot.exe
+	$(RM) gnuplot_qt.exe qtgnuplot_*.qm
 	$(RM) $(HELPFILE) $(HELPFILEJA) wgnuplot.chw wgnuplot.gid wgnuplot.mnu
 	$(RM) gnuplot.ps gnuplot.pdf
 	$(RM) gpcard.pdf tutorial.pdf
@@ -752,6 +858,11 @@ endif
 	mkdir -p $(DESTDIR)/$(GNUPLOT_TEX_DIR)/context/gnuplot
 	cp -p $(TOP)/share/LaTeX/README $(DESTDIR)/$(GNUPLOT_TEX_DIR)/latex/gnuplot/
 	cp -p $(TOP)/share/LaTeX/gnuplot.cfg $(DESTDIR)/$(GNUPLOT_TEX_DIR)/latex/gnuplot/
+ifdef QT
+	mkdir -p $(DESTDIR)/$(GNUPLOT_QT_DIR)
+	cp -p gnuplot_qt.exe $(DESTDIR)/bin/
+	cp -p qtgnuplot_*.qm $(DESTDIR)/$(GNUPLOT_QT_DIR)/
+endif
 ifdef LUA
 	mkdir -p $(DESTDIR)/$(GNUPLOT_LUA_DIR)
 	cp -p $(TOP)/term/lua/README $(DESTDIR)/$(GNUPLOT_LUA_DIR)/
@@ -770,9 +881,12 @@ endif
 	cp -p $(TOP)/NEWS $(DESTDIR)/
 	cp -p $(TOP)/ChangeLog $(DESTDIR)/
 	cp -p $(TOP)/BUGS $(DESTDIR)/
+	cp -p $(TOP)/RELEASE_NOTES $(DESTDIR)/
 	cp -p $(TOP)/win/README-Windows.txt $(DESTDIR)/
 	cp -p $(TOP)/win/README-Windows-ja.txt $(DESTDIR)/
 	-cp -p $(TOP)/win/README-testing.txt $(DESTDIR)/
+	-unix2dos $(DESTDIR)/*.txt $(DESTDIR)/README $(DESTDIR)/ChangeLog
+	-unix2dos $(DESTDIR)/Copyright $(DESTDIR)/NEWS $(DESTDIR)/BUGS $(DESTDIR)/RELEASE_NOTES
 # demo and contrib
 	mkdir -p $(DESTDIR)/demo
 	-cp -p $(M)* $(DESTDIR)/demo/

@@ -1,5 +1,5 @@
 /*
- * $Id: boundary.c,v 1.13 2014/04/08 18:49:21 sfeam Exp $
+ * $Id: boundary.c,v 1.24 2015/03/19 17:30:41 sfeam Exp $
  */
 
 /* GNUPLOT - boundary.c */
@@ -262,9 +262,18 @@ boundary(struct curve_points *plots, int count)
 	y2label_textheight = 0;
 
     /* compute plot_bounds.ytop from the various components
-     *     unless tmargin is explicitly specified  */
+     *     unless tmargin is explicitly specified
+     */
 
     plot_bounds.ytop = (int) (0.5 + (ysize + yoffset) * (t->ymax-1));
+
+    /* Sanity check top and bottom margins, in case the user got confused */
+    if (bmargin.scalex == screen && tmargin.scalex == screen)
+	if (bmargin.x > tmargin.x) {
+	    double tmp = bmargin.x;
+	    bmargin.x = tmargin.x;
+	    tmargin.x = tmp;
+	}
 
     if (tmargin.scalex == screen) {
 	/* Specified as absolute position on the canvas */
@@ -405,16 +414,17 @@ boundary(struct curve_points *plots, int count)
     }
 
     /*{{{  set up y and y2 tics */
-    setup_tics(FIRST_Y_AXIS, 20);
-    setup_tics(SECOND_Y_AXIS, 20);
+    setup_tics(&axis_array[FIRST_Y_AXIS], 20);
+    setup_tics(&axis_array[SECOND_Y_AXIS], 20);
     /*}}} */
 
     /* Adjust color axis limits if necessary. */
     if (is_plot_with_palette()) {
-	set_cbminmax();
+	/* June 2014 - moved outside do_plot so that it is not called during a refresh */
+	/* set_cbminmax(); */
 	axis_checked_extend_empty_range(COLOR_AXIS, "All points of color axis undefined.");
 	if (color_box.where != SMCOLOR_BOX_NO)
-	    setup_tics(COLOR_AXIS, 20);
+	    setup_tics(&axis_array[COLOR_AXIS], 20);
     }
 
     /*{{{  recompute plot_bounds.xleft based on widths of ytics, ylabel etc
@@ -445,7 +455,7 @@ boundary(struct curve_points *plots, int count)
 	     * the latter sets widest_tic_strlen to the length of the widest
 	     * one ought to consider tics on axis if axis near border...
 	     */
-	    gen_tics(FIRST_Y_AXIS, /* 0, */ widest_tic_callback);
+	    gen_tics(&axis_array[FIRST_Y_AXIS], widest_tic_callback);
 
 	    ytic_textwidth = (int) (t->h_char * (widest_tic_strlen + 2));
 	}
@@ -526,7 +536,7 @@ boundary(struct curve_points *plots, int count)
 	     * the latter sets widest_tic_strlen to the length of the widest
 	     * one ought to consider tics on axis if axis near border...
 	     */
-	    gen_tics(SECOND_Y_AXIS, /* 0, */ widest_tic_callback);
+	    gen_tics(&axis_array[SECOND_Y_AXIS], widest_tic_callback);
 
 	    y2tic_textwidth = (int) (t->h_char * (widest_tic_strlen + 2));
 	}
@@ -636,11 +646,11 @@ boundary(struct curve_points *plots, int count)
      * applied: setup_tics may extend the ranges, which would distort
      * the aspect ratio */
 
-    setup_tics(FIRST_X_AXIS, 20);
-    setup_tics(SECOND_X_AXIS, 20);
+    setup_tics(&axis_array[FIRST_X_AXIS], 20);
+    setup_tics(&axis_array[SECOND_X_AXIS], 20);
 
     if (polar)
-	setup_tics(POLAR_AXIS, 10);
+	setup_tics(&axis_array[POLAR_AXIS], 10);
 
 
     /* Modify the bounding box to fit the aspect ratio, if any was
@@ -704,7 +714,7 @@ boundary(struct curve_points *plots, int count)
 	else if (axis_array[SECOND_X_AXIS].label.pos == CENTRE)
 	    projection = 0.5*fabs(projection);
 	widest_tic_strlen = 0;		/* reset the global variable ... */
-	gen_tics(SECOND_X_AXIS, /* 0, */ widest_tic_callback);
+	gen_tics(&axis_array[SECOND_X_AXIS], widest_tic_callback);
 	if (tmargin.x < 0) /* Undo original estimate */
 	    plot_bounds.ytop += x2tic_textheight;
 	/* Adjust spacing for rotation */
@@ -728,7 +738,7 @@ boundary(struct curve_points *plots, int count)
 	if (axis_array[FIRST_X_AXIS].label.pos == RIGHT)
 	    projection *= -1;
 	widest_tic_strlen = 0;		/* reset the global variable ... */
-	gen_tics(FIRST_X_AXIS, /* 0, */ widest_tic_callback);
+	gen_tics(&axis_array[FIRST_X_AXIS], widest_tic_callback);
 
 	if (bmargin.x < 0)
 	    plot_bounds.ybot -= xtic_textheight;
@@ -987,16 +997,12 @@ do_key_layout(legend_key *key)
     /* Key title length and height */
     key_title_height = 0;
     key_title_extra = 0;
-    if (key->title) {
-	int ytlen, ytheight;
-	ytlen = label_width(key->title, &ytheight);
-	ytlen -= key->swidth + 2;
-	/* EAM FIXME */
-	if ((ytlen > max_ptitl_len) && (key->stack_dir != GPKEY_HORIZONTAL))
-	    max_ptitl_len = ytlen;
+    if (key->title.text) {
+	int ytheight;
+	(void) label_width(key->title.text, &ytheight);
 	key_title_height = ytheight * t->v_char;
-	if ((*key->title) && (t->flags & TERM_ENHANCED_TEXT)
-	&&  (strchr(key->title,'^') || strchr(key->title,'_')))
+	if ((*key->title.text) && (t->flags & TERM_ENHANCED_TEXT)
+	&&  (strchr(key->title.text,'^') || strchr(key->title.text,'_')))
 	    key_title_extra = t->v_char;
     }
 
@@ -1068,7 +1074,15 @@ do_key_layout(legend_key *key)
 	}
     }
 
-    /* adjust for outside key, leave manually set margins alone */
+    /* If the key title is wider than the contents, try to make room for it */
+    if (key->title.text) {
+	int ytlen = label_width(key->title.text, NULL) - key->swidth + 2;
+	ytlen *= t->h_char;
+	if (ytlen > key_cols * key_col_wth)
+	    key_col_wth = ytlen / key_cols;
+    }
+
+    /* Adjust for outside key, leave manually set margins alone */
     if ((key->region == GPKEY_AUTO_EXTERIOR_LRTBC && (key->vpos != JUST_CENTRE || key->hpos != CENTRE))
 	|| key->region == GPKEY_AUTO_EXTERIOR_MARGIN) {
 	int more = 0;
@@ -1184,7 +1198,7 @@ do_key_sample(
 	;
     else if (key->textcolor.type != TC_DEFAULT)
 	/* Draw key text in same color as key title */
-	apply_pm3dcolor(&key->textcolor, t);
+	apply_pm3dcolor(&key->textcolor);
     else
 	/* Draw key text in black */
 	(*t->linetype)(LT_BLACK);
@@ -1203,8 +1217,10 @@ do_key_sample(
 	}
     }
 
-    /* Draw sample in same style and color as the corresponding plot */
-    term_apply_lp_properties(&this_plot->lp_properties);
+    /* Draw sample in same style and color as the corresponding plot  */
+    /* The variable color case uses the color of the first data point */
+    if (!check_for_variable_color(this_plot, &this_plot->varcolor[0]))
+	term_apply_lp_properties(&this_plot->lp_properties);
 
     /* draw sample depending on bits set in plot_style */
     if (this_plot->plot_style & PLOT_STYLE_HAS_FILL && t->fillbox) {
@@ -1333,14 +1349,21 @@ do_key_sample_point(
 	    (*t->pointsize)(pointsize);
 	if (on_page(xl + key_point_offset, yl)) {
 	    if (this_plot->lp_properties.p_type == PT_CHARACTER) {
-		apply_pm3dcolor(&(this_plot->labels->textcolor), t);
+		apply_pm3dcolor(&(this_plot->labels->textcolor));
 		(*t->put_text) (xl + key_point_offset, yl, 
 				(char *)(&this_plot->lp_properties.p_char));
-		apply_pm3dcolor(&(this_plot->lp_properties.pm3d_color), t);
+		apply_pm3dcolor(&(this_plot->lp_properties.pm3d_color));
 	    } else {
 		(*t->point) (xl + key_point_offset, yl, 
 				this_plot->lp_properties.p_type);
 	    }
+	}
+
+    } else if (this_plot->plot_style == LABELPOINTS) {
+	struct text_label *label = this_plot->labels;
+	if (label->lp_properties.flags & LP_SHOW_POINTS) {
+	    term_apply_lp_properties(&label->lp_properties);
+	    (*t->point) (xl + key_point_offset, yl, label->lp_properties.p_type);
 	}
     }
 
@@ -1365,17 +1388,29 @@ draw_key(legend_key *key, TBOOLEAN key_pass, int *xinkey, int *yinkey)
 		key_width, key_height);
     }
 
-    if (key->title) {
-	int center = (key->bounds.xleft + key->bounds.xright) / 2;
+    if (key->title.text) {
+	int title_anchor;
+	if (key->title.pos == CENTRE)
+		title_anchor = (key->bounds.xleft + key->bounds.xright) / 2;
+	else if (key->title.pos == RIGHT)
+		title_anchor = key->bounds.xright - term->h_char;
+	else
+		title_anchor = key->bounds.xleft + term->h_char;
 
 	/* Only draw the title once */
 	if (key_pass || !key->front) {
+	    /* FIXME: Now that there is a full text_label structure for the key title */
+	    /*        maybe we should call write_label() to get the full processing?  */
 	    if (key->textcolor.type == TC_RGB && key->textcolor.value < 0)
-		apply_pm3dcolor(&(key->box.pm3d_color), t);
+		apply_pm3dcolor(&(key->box.pm3d_color));
 	    else
-		apply_pm3dcolor(&(key->textcolor), t);
-	    write_multiline(center, key->bounds.ytop - (key_title_extra + key_entry_height)/2,
-			key->title, CENTRE, JUST_TOP, 0, key->font);
+		apply_pm3dcolor(&(key->textcolor));
+	    ignore_enhanced(key->title.noenhanced);
+	    write_multiline(title_anchor, 
+			key->bounds.ytop - (key_title_extra + key_entry_height)/2,
+			key->title.text, key->title.pos, JUST_TOP, 0, 
+			key->title.font ? key->title.font : key->font);
+	    ignore_enhanced(FALSE);
 	    (*t->linetype)(LT_BLACK);
 	}
     }
@@ -1394,7 +1429,7 @@ draw_key(legend_key *key, TBOOLEAN key_pass, int *xinkey, int *yinkey)
 	draw_clip_line(key->bounds.xright, key->bounds.ybot, key->bounds.xleft, key->bounds.ybot);
 	closepath();
 	/* draw a horizontal line between key title and first entry */
-	if (key->title)
+	if (key->title.text)
 	    draw_clip_line( key->bounds.xleft,
 	    		    key->bounds.ytop - (key_title_height + key_title_extra),
 			    key->bounds.xright,
@@ -1419,7 +1454,7 @@ draw_titles()
     /* YLABEL */
     if (axis_array[FIRST_Y_AXIS].label.text) {
 	ignore_enhanced(axis_array[FIRST_Y_AXIS].label.noenhanced);
-	apply_pm3dcolor(&(axis_array[FIRST_Y_AXIS].label.textcolor),t);
+	apply_pm3dcolor(&(axis_array[FIRST_Y_AXIS].label.textcolor));
 	/* we worked out x-posn in boundary() */
 	if ((*t->text_angle) (axis_array[FIRST_Y_AXIS].label.rotate)) {
 	    double tmpx, tmpy;
@@ -1444,14 +1479,14 @@ draw_titles()
 			    LEFT, JUST_TOP, 0,
 			    axis_array[FIRST_Y_AXIS].label.font);
 	}
-	reset_textcolor(&(axis_array[FIRST_Y_AXIS].label.textcolor),t);
+	reset_textcolor(&(axis_array[FIRST_Y_AXIS].label.textcolor));
 	ignore_enhanced(FALSE);
     }
 
     /* Y2LABEL */
     if (axis_array[SECOND_Y_AXIS].label.text) {
 	ignore_enhanced(axis_array[SECOND_Y_AXIS].label.noenhanced);
-	apply_pm3dcolor(&(axis_array[SECOND_Y_AXIS].label.textcolor),t);
+	apply_pm3dcolor(&(axis_array[SECOND_Y_AXIS].label.textcolor));
 	/* we worked out coordinates in boundary() */
 	if ((*t->text_angle) (axis_array[SECOND_Y_AXIS].label.rotate)) {
 	    double tmpx, tmpy;
@@ -1475,7 +1510,7 @@ draw_titles()
 			    RIGHT, JUST_TOP, 0,
 			    axis_array[SECOND_Y_AXIS].label.font);
 	}
-	reset_textcolor(&(axis_array[SECOND_Y_AXIS].label.textcolor),t);
+	reset_textcolor(&(axis_array[SECOND_Y_AXIS].label.textcolor));
 	ignore_enhanced(FALSE);
     }
 
@@ -1490,11 +1525,11 @@ draw_titles()
 	y = xlabel_y - t->v_char / 2;   /* HBB */
 
 	ignore_enhanced(axis_array[FIRST_X_AXIS].label.noenhanced);
-	apply_pm3dcolor(&(axis_array[FIRST_X_AXIS].label.textcolor), t);
+	apply_pm3dcolor(&(axis_array[FIRST_X_AXIS].label.textcolor));
 	write_multiline(x, y, axis_array[FIRST_X_AXIS].label.text,
 			CENTRE, JUST_TOP, 0,
 			axis_array[FIRST_X_AXIS].label.font);
-	reset_textcolor(&(axis_array[FIRST_X_AXIS].label.textcolor), t);
+	reset_textcolor(&(axis_array[FIRST_X_AXIS].label.textcolor));
 	ignore_enhanced(FALSE);
     }
 
@@ -1508,9 +1543,9 @@ draw_titles()
 	y = title_y - t->v_char / 2;
 
 	ignore_enhanced(title.noenhanced);
-	apply_pm3dcolor(&(title.textcolor), t);
+	apply_pm3dcolor(&(title.textcolor));
 	write_multiline(x, y, title.text, CENTRE, JUST_TOP, 0, title.font);
-	reset_textcolor(&(title.textcolor), t);
+	reset_textcolor(&(title.textcolor));
 	ignore_enhanced(FALSE);
     }
 
@@ -1524,10 +1559,10 @@ draw_titles()
 	x = (plot_bounds.xright + plot_bounds.xleft) / 2 + tmpx;
 	y = x2label_y - t->v_char / 2 - 1;
 	ignore_enhanced(axis_array[SECOND_X_AXIS].label.noenhanced);
-	apply_pm3dcolor(&(axis_array[SECOND_X_AXIS].label.textcolor),t);
+	apply_pm3dcolor(&(axis_array[SECOND_X_AXIS].label.textcolor));
 	write_multiline(x, y, axis_array[SECOND_X_AXIS].label.text, CENTRE,
 			JUST_TOP, 0, axis_array[SECOND_X_AXIS].label.font);
-	reset_textcolor(&(axis_array[SECOND_X_AXIS].label.textcolor),t);
+	reset_textcolor(&(axis_array[SECOND_X_AXIS].label.textcolor));
 	ignore_enhanced(FALSE);
     }
 
@@ -1544,7 +1579,7 @@ draw_titles()
 	str = gp_alloc(MAX_LINE_LEN + 1, "timelabel.text");
 	strftime(str, MAX_LINE_LEN, timelabel.text, localtime(&now));
 
-	apply_pm3dcolor(&(timelabel.textcolor), t);
+	apply_pm3dcolor(&(timelabel.textcolor));
 	if (timelabel_rotate && (*t->text_angle) (TEXT_VERTICAL)) {
 	    x += t->v_char / 2;	/* HBB */
 	    if (timelabel_bottom)

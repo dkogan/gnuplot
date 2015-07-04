@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.242 2014/04/30 04:49:45 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gplt_x11.c,v 1.252 2015/06/02 00:37:09 sfeam Exp $"); }
 #endif
 
 #define MOUSE_ALL_WINDOWS 1
@@ -306,7 +306,7 @@ typedef struct plot_struct {
      */
     int almost2d;
     int axis_mask;		/* Bits set to show which axes are active */
-    axis_scale_t axis_scale[2*SECOND_AXES];
+    axis_scale_t axis_scale[NUMBER_OF_MAIN_VISIBLE_AXES];
 #endif
     /* Last text position  - used by enhanced text mode */
     int xLast, yLast;
@@ -401,10 +401,12 @@ TBOOLEAN swap_endian = 0;  /* For binary data. */
 static inline void
 byteswap(char* data, int datalen)
 {
-    char tmp, *dest = data + datalen - 1;
-    if (datalen < 2) return;
+    char *dest = data + datalen - 1;
+
+    if (datalen < 2)
+	return;
     while (dest > data) {
-	tmp = *dest;
+	char tmp = *dest;
 	*dest-- = *data;
 	*data++ = tmp;
     }
@@ -472,7 +474,7 @@ static void DrawRotated __PROTO((plot_struct *, Display *, GC,
 static int DrawRotatedErrorHandler __PROTO((Display *, XErrorEvent *));
 static void exec_cmd __PROTO((plot_struct *, char *));
 
-static void reset_cursor __PROTO((void));
+static void reset_cursor __PROTO((Window));
 
 static void preset __PROTO((int, char **));
 static char *pr_GetR __PROTO((XrmDatabase, char *));
@@ -685,8 +687,11 @@ static const char stipple_pattern_bits[stipple_pattern_num][8] = {
    , { 0x11, 0x11, 0x22, 0x22, 0x44, 0x44, 0x88, 0x88 } /* diagonal stripes (6) */
    , { 0x88, 0x88, 0x44, 0x44, 0x22, 0x22, 0x11, 0x11 } /* diagonal stripes (7) */
 };
+static const char stipple_pattern_dots[8] =
+    { 0x80, 0x08, 0x20, 0x02, 0x40, 0x04, 0x10, 0x01 };
 
 static Pixmap stipple_pattern[stipple_pattern_num];
+static Pixmap stipple_dots;
 static int stipple_initialized = 0;
 
 static XPoint *polyline = NULL;
@@ -1104,6 +1109,7 @@ delete_plot(plot_struct *plot)
 	int i;
 	for (i = 0; i < stipple_pattern_num; i++)
 	    XFreePixmap(dpy, stipple_pattern[i]);
+	XFreePixmap(dpy, stipple_dots);
 	stipple_initialized = 0;
     }
 
@@ -1177,7 +1183,7 @@ prepare_plot(plot_struct *plot)
      * window
      */
     plot->angle = 0;		/* default is horizontal */
-    reset_cursor();
+    reset_cursor(plot->window);	/* to avoid flash, don't reset cursor of active window */
     XDefineCursor(dpy, plot->window, cursor);
 }
 
@@ -1596,7 +1602,7 @@ record()
 #endif
 	    return 1;
 	case 'R':		/* leave x11 mode */
-	    reset_cursor();
+	    reset_cursor(0);
 	    return 0;
 
 	case X11_GR_MAKE_PALETTE:
@@ -1838,12 +1844,16 @@ record()
 #endif
 	    {
 		unsigned int ops, i;
-		sscanf(buf+1, "%u", &ops);
+		int plotno = -1;
+		sscanf(buf+1, "%u %d", &ops, &plotno);
+		plotno++;
 
 		if (!plot)
 			return 1;
 
 		for (i = 1; i <= x11_cur_plotno && i < plot->x11_max_key_boxes; i++) {
+		    if (plotno > 0 && i != plotno)
+			continue;
 		    if ((ops & MODPLOTS_INVERT_VISIBILITIES) == MODPLOTS_INVERT_VISIBILITIES) {
 			plot->x11_key_boxes[i].hidden = !plot->x11_key_boxes[i].hidden;
 		    } else if (ops & MODPLOTS_SET_VISIBLE) {
@@ -1948,7 +1958,7 @@ record()
 	break;
     case 'R':			/* exit x11 mode */
 	FPRINTF((stderr, "received R - sending ClientMessage\n"));
-	reset_cursor();
+	reset_cursor(0);
 	sys$cancel(STDIINchannel);
 	/* this is ridiculous - cook up an event to ourselves,
 	 * in order to get the mainloop() out of the XNextEvent() call
@@ -2191,6 +2201,24 @@ exec_cmd(plot_struct *plot, char *command)
     )
 	    return;
 
+    if (x11_in_key_sample &&  *command == 'Y' /* Catches TERM_LAYER_END_KEYSAMPLE */
+    &&  x11_cur_plotno < plot->x11_max_key_boxes
+    &&  plot->x11_key_boxes[x11_cur_plotno].hidden
+    )
+	{
+	x11BoundingBox *box = &plot->x11_key_boxes[x11_cur_plotno];
+	    /* Grey out key box */
+	    if (!fill_gc)
+		fill_gc = XCreateGC(dpy, plot->window, 0, 0);
+	    XCopyGC(dpy, *current_gc, ~0, fill_gc);
+	    XSetForeground(dpy, fill_gc, plot->cmap->colors[1]);
+	    XSetStipple(dpy, fill_gc, stipple_dots);
+	    XSetFillStyle(dpy, fill_gc, FillStippled);
+	    XFillRectangle(dpy, plot->pixmap, fill_gc,
+		box->left, box->ybot,
+		box->right - box->left, box->ytop - box->ybot);
+	}
+
     /*   X11_vector(x, y) - draw vector  */
     if (*buffer == 'V') {
 	x = strtol(strx, &stry, 0);
@@ -2382,6 +2410,7 @@ exec_cmd(plot_struct *plot, char *command)
 		    break;
 	}
 
+#ifdef USE_X11_MULTIBYTE
 	/* FIXME EAM DEBUG: We should not have gotten here without a valid font	*/
 	/* but apparently it can happen in the case of UTF-8.  The sanity check	*/
 	/* below must surely belong somewhere during font selection instead.	*/
@@ -2389,6 +2418,7 @@ exec_cmd(plot_struct *plot, char *command)
 	    usemultibyte = 0;
 	    fprintf(stderr,"gnuplot_x11: invalid multibyte font\n");
 	}
+#endif
 
 	sl = strlen(str) - 1;
 	sw = gpXTextWidth(font, str, sl);
@@ -2501,10 +2531,12 @@ exec_cmd(plot_struct *plot, char *command)
     else if (*buffer == 'D') {
 	int len;
 	char pattern[DASHPATTERN_LENGTH+1];
+
 	memset(pattern, '\0', sizeof(pattern));
 	sscanf(buffer, "D%8s", pattern);
-	for (len=0; isalpha(pattern[len]); len++) {
+	for (len=0; isalpha((unsigned char)pattern[len]); len++) {
 	    pattern[len] = pattern[len] + 1 - 'A';
+	    pattern[len] *= plot->lwidth * 0.5;
 	}
 	pattern[len] = '\0';
 	XSetDashes(dpy, gc, 0, pattern, len);
@@ -2532,8 +2564,18 @@ exec_cmd(plot_struct *plot, char *command)
 
 	    if (((dashedlines == yes) && dashes[plot->lt][0])
 	    ||  (plot->lt == LT_AXIS+2 && dashes[LT_AXIS+2][0])) {
+		char pattern[DASHPATTERN_LENGTH+1];
+		int len = strlen(dashes[plot->lt]);
+		int i;
+
+		pattern[len] = '\0';
+		for (i=0; i<len; i++) {
+		    pattern[i] = dashes[plot->lt][i];
+		    pattern[i] *= plot->lwidth;
+		}
+
 		plot->type = LineOnOffDash;
-		XSetDashes(dpy, gc, 0, dashes[plot->lt], strlen(dashes[plot->lt]));
+		XSetDashes(dpy, gc, 0, pattern, len);
 	    } else {
 		plot->type = LineSolid;
 	    }
@@ -2844,16 +2886,17 @@ exec_cmd(plot_struct *plot, char *command)
 	    }
 
 	    if (!i_remaining) {
-
 		int i;
+		/* points is defined as (XPoint *), but has been abused until this
+		 * point to hold raw integers.  Make a type-correct pointer to clarify this */
+		int *int_points = (int*)points;
 
 		transferring = 0;
 
 		/* If the byte order needs to be swapped, do so. */
 		if (swap_endian) {
-		    i = 2*npoints;
-		    for (i--; i >= 0; i--) {
-			byteswap((char *)&((int *)points)[i], sizeof(int));
+		    for (i = 2 * npoints - 1; i >= 0; i--) {
+			byteswap((char *)(int_points + i), sizeof(int));
 		    }
 		}
 
@@ -2861,8 +2904,8 @@ exec_cmd(plot_struct *plot, char *command)
 		 * on itself, but the XPoint x and y are smaller than an int.
 		 */
 		for (i=0; i < npoints; i++) {
-		    points[i].x = X( ((int *)points)[2*i] );
-		    points[i].y = Y( ((int *)points)[2*i+1] );
+		    points[i].x = X(int_points[2 * i    ]);
+		    points[i].y = Y(int_points[2 * i + 1]);
 		}
 
 		/* Load selected pattern or fill into a separate gc */
@@ -3365,7 +3408,7 @@ exec_cmd(plot_struct *plot, char *command)
 	    plot->almost2d = axis_mask;
 	} else if (axis < 0) {
 	    plot->axis_mask = axis_mask;
-	} else if (axis < 2*SECOND_AXES) {
+	} else if (axis < NUMBER_OF_MAIN_VISIBLE_AXES) {
 	    sscanf(&buffer[1], "%d %lg %d %lg %lg", &axis,
 		&(plot->axis_scale[axis].min), &(plot->axis_scale[axis].term_lower),
 		&(plot->axis_scale[axis].term_scale), &(plot->axis_scale[axis].logbase));
@@ -3484,6 +3527,8 @@ display(plot_struct *plot)
 	for (i = 0; i < stipple_pattern_num; i++)
 	    stipple_pattern[i] =
 		XCreateBitmapFromData(dpy, plot->pixmap, stipple_pattern_bits[i],
+				stipple_pattern_width, stipple_pattern_height);
+	stipple_dots = XCreateBitmapFromData(dpy, plot->pixmap, stipple_pattern_dots,
 				stipple_pattern_width, stipple_pattern_height);
 	stipple_initialized = 1;
     }
@@ -4401,12 +4446,12 @@ getMultiTabConsoleSwitchCommand(unsigned long *newGnuplotXID)
  *---------------------------------------------------------------------------*/
 
 static void
-reset_cursor()
+reset_cursor(Window skip_window)
 {
     plot_struct *plot = plot_list_start;
 
     while (plot) {
-	if (plot->window) {
+	if (plot->window && (plot->window != skip_window)) {
 	    FPRINTF((stderr, "Window for plot %d exists\n", plot->plot_number));
 	    XUndefineCursor(dpy, plot->window);
 	}
@@ -4532,6 +4577,7 @@ process_configure_notify_event(XEvent *event, TBOOLEAN isRetry )
 		int i;
 		for (i = 0; i < stipple_pattern_num; i++)
 			XFreePixmap(dpy, stipple_pattern[i]);
+		XFreePixmap(dpy, stipple_dots);
 		stipple_initialized = 0;
 	    }
 
@@ -4560,8 +4606,13 @@ process_configure_notify_event(XEvent *event, TBOOLEAN isRetry )
 		/* Don't replot if we're replotting-on-window-resizes, since replotting
 		   happens elsewhere in those cases. If the inboard driver is dead, and
 		   the window is still around with -persist, replot also. */
+#ifdef PIPE_IPC
 		if ((replot_on_resize != yes) || pipe_died)
 			display(plot);
+#else
+		if (replot_on_resize != yes)
+			display(plot);
+#endif
 
 #ifdef USE_MOUSE
 	    {
@@ -4577,7 +4628,7 @@ process_configure_notify_event(XEvent *event, TBOOLEAN isRetry )
 			    scaled_hchar, scaled_vchar, 0);
 
 	      if (replot_on_resize == yes)
-		gp_exec_event(GE_keypress, 0, 0, 'e', 0, 0);
+		gp_exec_event(GE_replot, 0, 0, 0, 0, 0);
 	    }
 #endif
 	}
@@ -5796,11 +5847,19 @@ pr_encoding()
 struct used_font {
 	char *requested_name;	/* The name passed to pr_font() */
 	XFontStruct *font;	/* The font we ended up with for that request */
+#ifdef USE_X11_MULTIBYTE
+        XFontSet mbfont;
+        int ismbfont;
+#endif
 	int vchar;
 	int hchar;
 	struct used_font *next;	/* pointer to next font in list */
 } used_font;
+#ifndef USE_X11_MULTIBYTE
 static struct used_font fontlist = {NULL, NULL, 12, 8, NULL};
+#else
+static struct used_font fontlist = {NULL, NULL, NULL, 0, 12, 8, NULL};
+#endif
 
 /* Helper routine to clear the used font list */
 static void
@@ -5808,7 +5867,12 @@ clear_used_font_list() {
     struct used_font *f;
     while (fontlist.next) {
 	f = fontlist.next;
+#ifndef USE_X11_MULTIBYTE
 	gpXFreeFont(dpy, f->font);
+#else
+	if (f->font) XFreeFont(dpy, f->font);
+	if (f->mbfont) XFreeFontSet(dpy, f->mbfont);
+#endif
 	free(f->requested_name);
 	fontlist.next = f->next;
 	free(f);
@@ -5838,7 +5902,15 @@ char *fontname;
     if (!fontname || !(*fontname)) {
 	if ((fontname = pr_GetR(db, ".font"))) {
 	    strncpy(default_font, fontname, sizeof(default_font)-1);
+    /* shige: default_font may be clear for each plot command by 
+     * X11_set_default_font() in x11.trm, since the function is called
+     * in X11_graphics(). And then the font list will be cleared by the
+     * next line in the case the default font is defined in X11 Resources.
+     * But it may not be a desired behaviour.
+     */
+#if 0
 	    clear_used_font_list();
+#endif
 	}
     }
 
@@ -5863,10 +5935,24 @@ char *fontname;
     /* FIXME: This is probably the wrong thing to do for multibyte fonts.  */
     for (search = fontlist.next; search; search = search->next) {
 	if (!strcmp(fontname, search->requested_name)) {
+#ifndef USE_X11_MULTIBYTE
 	    font = search->font;
 	    vchar = search->vchar;
 	    hchar = search->hchar;
 	    return;
+#else
+	    if (!usemultibyte && !search->ismbfont) { 
+		font = search->font;
+		vchar = search->vchar;
+		hchar = search->hchar;
+		return;
+	    } else if (usemultibyte && search->ismbfont) {
+		mbfont = search->mbfont;
+		vchar = search->vchar;
+		hchar = search->hchar;
+		return;
+	    } else break;
+#endif
 	}
     }
     /* If we get here, the request doesn't match a previously used font.
@@ -6104,7 +6190,19 @@ char *fontname;
     search->next = malloc(sizeof(used_font));
     search = search->next;
     search->next = NULL;
+#ifndef USE_X11_MULTIBYTE
     search->font = font;
+#else
+    if (!usemultibyte) { 
+	search->ismbfont = 0;
+	search->font = font;
+	search->mbfont = NULL;
+    } else {
+	search->ismbfont = 1;
+	search->font = NULL;
+	search->mbfont = mbfont;
+    }
+#endif
     search->requested_name = requested_name;
     search->vchar = vchar;
     search->hchar = hchar;

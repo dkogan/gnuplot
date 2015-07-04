@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: x11.trm,v 1.221 2014/05/05 22:19:22 sfeam Exp $
+ * $Id: x11.trm,v 1.225 2015/03/29 17:26:00 sfeam Exp $
  *
  */
 
@@ -115,7 +115,7 @@ TERM_PUBLIC void ENHX11_FLUSH __PROTO((void));
 #ifdef EAM_BOXED_TEXT
 TERM_PUBLIC void ENHX11_boxed_text __PROTO((unsigned int, unsigned int, int));
 #endif
-TERM_PUBLIC void X11_modify_plots __PROTO((unsigned int));
+TERM_PUBLIC void X11_modify_plots __PROTO((unsigned int, int));
 
 /* These are the default terminal sizing parameters. These should match the
    sizes in gplt_x11.c, and both specify 640,450 */
@@ -1484,9 +1484,9 @@ X11_text()
 	{
 	/* Construct a mask showing which axes are active */
 	int axis_mask = 0;
-	int i;
+	AXIS_INDEX i;
 
-	for (i = FIRST_AXES; i < 2*SECOND_AXES; i++) {
+	for (i = (AXIS_INDEX)0; i < NUMBER_OF_MAIN_VISIBLE_AXES; i++) {
 	    if (axis_array[i].ticmode != NO_TICS)
 		axis_mask |= (1 << i);
 	}
@@ -1956,10 +1956,10 @@ ENHX11_boxed_text(unsigned int x, unsigned int y, int option)
 #endif
 
 TERM_PUBLIC void
-X11_modify_plots(unsigned int ops)
+X11_modify_plots(unsigned int ops, int plotno)
 {
     if (X11_ipc) {
-	PRINT1("O%u\n", ops);
+	PRINT2("O%u %d\n", ops, plotno);
 	FFLUSH();
     }
 }
@@ -2540,7 +2540,6 @@ START_HELP(x11)
 "  `-raise`    raises plot window after each plot",
 "  `-noraise`  does not raise plot window after each plot",
 #ifdef USE_MOUSE
-"  `-noevents` does not process mouse and key events",
 "  `-ctrlq   ` closes window on ctrl-q rather than q",
 #endif
 "  `-persist`  plot windows survive after main gnuplot program exits",
@@ -2555,9 +2554,6 @@ START_HELP(x11)
 "#            & of the virtual root. \\\\",
 "#`-raise`    & raises plot window after each plot. \\\\",
 "#`-noraise`  & does not raise plot window after each plot. \\\\",
-#ifdef USE_MOUSE
-"#`-noevents` & does not process mouse and key events. \\\\",
-#endif
 "#`-persist`  & plot windows survive after main gnuplot program exits. \\\\",
 "%c l .",
 "%`-mono`@forces monochrome rendering on color displays.",
@@ -2591,26 +2587,11 @@ START_HELP(x11)
 " sizes.  For example, `-pointsize 2` uses points twice the default size, and",
 " `-pointsize 0.5` uses points half the normal size.",
 "",
-" The `-noevents` switch disables all mouse and key event processing (except",
-" for `q` and `<space>` for closing the window). This is useful for programs",
-" which use the x11 driver independent of the gnuplot main program.",
-"",
 " The `-ctrlq` switch changes the hot-key that closes a plot window from `q`",
 " to `<ctrl>q`. This is useful is you are using the keystroke-capture feature",
 " `pause mouse keystroke`, since it allows the character `q` to be captured",
 " just as all other alphanumeric characters. The `-ctrlq` switch similarly",
 " replaces the <space> hot-key with <ctrl><space> for the same reason.",
-"",
-"2 monochrome_options",
-"?commands set terminal x11 monochrome_options",
-"?set terminal x11 monochrome_options",
-"?set term x11 monochrome_options",
-"?x11 monochrome_options",
-"?monochrome_options",
-"=X resources",
-" For monochrome displays, `gnuplot` does not honor foreground or background",
-" colors.  The default is black-on-white.  `-rv` or `gnuplot*reverseVideo: on`",
-" requests white-on-black.",
 "",
 "2 color_resources",
 "?set terminal x11 color_resources",

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.117 2014/03/30 19:05:46 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.123 2015/05/08 18:32:12 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -60,7 +60,7 @@ static char *RCSid() { return RCSid("$Id: eval.c,v 1.117 2014/03/30 19:05:46 mar
 static RETSIGTYPE fpe __PROTO((int an_int));
 
 /* Global variables exported by this module */
-struct udvt_entry udv_pi = { NULL, "pi", FALSE, {INTGR, {0} } };
+struct udvt_entry udv_pi = { NULL, "pi", {INTGR, {0} } };
 struct udvt_entry *udv_NaN;
 /* first in linked list */
 struct udvt_entry *first_udv = &udv_pi;
@@ -408,15 +408,14 @@ Gstring(struct value *a, char *s)
 /* It is always safe to call gpfree_string with a->type is INTGR or CMPLX.
  * However it would be fatal to call it with a->type = STRING if a->string_val
  * was not obtained by a previous call to gp_alloc(), or has already been freed.
- * Thus 'a->type' is set to INTGR afterwards to make subsequent calls safe.
+ * Thus 'a->type' is set to NOTDEFINED afterwards to make subsequent calls safe.
  */
 struct value *
 gpfree_string(struct value *a)
 {
     if (a->type == STRING) {
 	free(a->v.string_val);
-	/* I would have set it to INVALID if such a type existed */
-	a->type = INTGR;
+	a->type = NOTDEFINED;
     }
     return a;
 }
@@ -482,6 +481,12 @@ struct value *
 pop_or_convert_from_string(struct value *v)
 {
     (void) pop(v);
+
+    /* DEBUG Dec 2014 - Consolidate sanity check for variable type */
+    /* FIXME: Test for INVALID_VALUE? Other corner cases? */
+    if (v->type == INVALID_NAME)
+	int_error(NO_CARET, "invalid dummy variable name");
+
     if (v->type == STRING) {
 	char *eov;
 
@@ -684,7 +689,7 @@ free_at(struct at_type *at_ptr)
      * freed before destruction. */
     if (!at_ptr)
         return;
-    for(i=0; i<at_ptr->a_count; i++) {
+    for (i=0; i<at_ptr->a_count; i++) {
 	struct at_entry *a = &(at_ptr->actions[i]);
 	/* if union a->arg is used as a->arg.v_arg free potential string */
 	if ( a->index == PUSHC || a->index == DOLLARS )
@@ -723,8 +728,7 @@ add_udv_by_name(char *key)
 	gp_alloc(sizeof(struct udvt_entry), "value");
     (*udv_ptr)->next_udv = NULL;
     (*udv_ptr)->udv_name = gp_strdup(key);
-    (*udv_ptr)->udv_undef = TRUE;
-    (*udv_ptr)->udv_value.type = 0;
+    (*udv_ptr)->udv_value.type = NOTDEFINED;
     return (*udv_ptr);
 }
 
@@ -756,17 +760,17 @@ del_udv_by_name(char *key, TBOOLEAN wildcard)
 
  	/* exact match */
 	else if (!wildcard && !strcmp(key, udv_ptr->udv_name)) {
-	    udv_ptr->udv_undef = TRUE;
 	    gpfree_string(&(udv_ptr->udv_value));
 	    gpfree_datablock(&(udv_ptr->udv_value));
+	    udv_ptr->udv_value.type = NOTDEFINED;
 	    break;
 	}
 
 	/* wildcard match: prefix matches */
 	else if ( wildcard && !strncmp(key, udv_ptr->udv_name, strlen(key)) ) {
-	    udv_ptr->udv_undef = TRUE;
 	    gpfree_string(&(udv_ptr->udv_value));
 	    gpfree_datablock(&(udv_ptr->udv_value));
+	    udv_ptr->udv_value.type = NOTDEFINED;
 	    /* no break - keep looking! */
 	}
 
@@ -802,10 +806,11 @@ set_gpval_axis_sth_double(const char *prefix, AXIS_INDEX axis, const char *suffi
     struct udvt_entry *v;
     char *cc, s[24];
     sprintf(s, "%s_%s_%s", prefix, axis_name(axis), suffix);
-    for (cc=s; *cc; cc++) *cc = toupper(*cc); /* make the name uppercase */
+    for (cc=s; *cc; cc++)
+	*cc = toupper((unsigned char)*cc); /* make the name uppercase */
     v = add_udv_by_name(s);
-    if (!v) return; /* should not happen */
-    v->udv_undef = FALSE;
+    if (!v) 
+	return; /* should not happen */
     if (is_int)
 	Ginteger(&v->udv_value, (int)(value+0.5));
     else
@@ -838,10 +843,8 @@ fill_gpval_string(char *var, const char *stringvalue)
     struct udvt_entry *v = add_udv_by_name(var);
     if (!v)
 	return;
-    if (v->udv_undef == FALSE && !strcmp(v->udv_value.v.string_val, stringvalue))
+    if (v->udv_value.type == STRING && !strcmp(v->udv_value.v.string_val, stringvalue))
 	return;
-    if (v->udv_undef)
-	v->udv_undef = FALSE;
     else
 	gpfree_string(&v->udv_value);
     Gstring(&v->udv_value, gp_strdup(stringvalue));
@@ -853,7 +856,6 @@ fill_gpval_integer(char *var, int value)
     struct udvt_entry *v = add_udv_by_name(var);
     if (!v)
 	return;
-    v->udv_undef = FALSE;
     Ginteger(&v->udv_value, value);
 }
 
@@ -863,7 +865,6 @@ fill_gpval_float(char *var, double value)
     struct udvt_entry *v = add_udv_by_name(var);
     if (!v)
 	return;
-    v->udv_undef = FALSE;
     Gcomplex(&v->udv_value, value, 0);
 }
 
@@ -873,7 +874,6 @@ fill_gpval_complex(char *var, double areal, double aimag)
     struct udvt_entry *v = add_udv_by_name(var);
     if (!v)
 	return;
-    v->udv_undef = FALSE;
     Gcomplex(&v->udv_value, areal, aimag);
 }
 
@@ -890,6 +890,7 @@ update_plot_bounds(void)
     fill_gpval_integer("GPVAL_TERM_YMAX", axis_array[FIRST_Y_AXIS].term_upper / term->tscale);
     fill_gpval_integer("GPVAL_TERM_XSIZE", canvas.xright+1);
     fill_gpval_integer("GPVAL_TERM_YSIZE", canvas.ytop+1);
+    fill_gpval_integer("GPVAL_TERM_SCALE", term->tscale);
 }
 
 /*
@@ -954,15 +955,13 @@ update_gpval_variables(int context)
     if (context == 3) {
 	struct udvt_entry *v = add_udv_by_name("GPVAL_VERSION");
 	char *tmp;
-	if (v && v->udv_undef == TRUE) {
-	    v->udv_undef = FALSE;
+	if (v && v->udv_value.type == NOTDEFINED)
 	    Gcomplex(&v->udv_value, atof(gnuplot_version), 0);
-	}
 	v = add_udv_by_name("GPVAL_PATCHLEVEL");
-	if (v && v->udv_undef == TRUE)
+	if (v && v->udv_value.type == NOTDEFINED)
 	    fill_gpval_string("GPVAL_PATCHLEVEL", gnuplot_patchlevel);
 	v = add_udv_by_name("GPVAL_COMPILE_OPTIONS");
-	if (v && v->udv_undef == TRUE)
+	if (v && v->udv_value.type == NOTDEFINED)
 	    fill_gpval_string("GPVAL_COMPILE_OPTIONS", compile_options);
 
 	/* Start-up values */
@@ -1031,7 +1030,7 @@ gp_word(char *string, int i)
 
 /* Evaluate the function linking secondary axis to primary axis */
 double
-eval_link_function(int axis, double raw_coord)
+eval_link_function(AXIS_INDEX axis, double raw_coord)
 {
     udft_entry *link_udf = axis_array[axis].link_udf;
     int dummy_var;
@@ -1041,6 +1040,7 @@ eval_link_function(int axis, double raw_coord)
 	dummy_var = 1;
     else
 	dummy_var = 0;
+    link_udf->dummy_values[1-dummy_var].type = INVALID_NAME;
 
     Gcomplex(&link_udf->dummy_values[dummy_var], raw_coord, 0.0);
     evaluate_at(link_udf->at, &a);

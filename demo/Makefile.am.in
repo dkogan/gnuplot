@@ -21,13 +21,7 @@ $(BINARY_FILES): ../src/bf_test
 	@echo Creating binary data files
 	@../src/bf_test
 
-transform = @program_transform_name@
-GNUPLOT_X11 = `echo gnuplot_x11 | sed '$(transform)'`$(EXEEXT)
-
 check-prepare:
-	@if test ! -e "$(top_builddir)/src/$(GNUPLOT_X11)"; then\
-	   $(LN_S) gnuplot_x11 $(top_builddir)/src/$(GNUPLOT_X11); \
-	fi
 
 check-local: check-noninteractive
 
@@ -77,7 +71,7 @@ Makefile.am: Makefile.am.in
 	sed -n '1,/^##m4-files-begin/p' Makefile.am.in > $@t
 	echo EXTRA_DIST = Makefile.am.in *.bin *.cfg *.cor *.dat *.dem *.edf \
 	  *.fnc *.inc *.pdb *.png *.r3d *.rgb sound.par sound2.par \
-	  start.par *.rot gnu-valley random-points gpdemos.tcl html plugin | fmt | \
+	  start.par *.rot gnu-valley random-points gpdemos.tcl html | fmt | \
 	  (tr '\012' @; echo) | sed 's/@$$/%/;s/@/ \\@/g' | tr @% '\012 ' \
 	  >> $@t
 	sed -n '/^##m4-files-end/,$$p' $< >> $@t

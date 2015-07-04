@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.328 2014/04/25 00:22:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.361 2015/06/26 20:51:19 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -72,10 +72,9 @@ static void parametric_fixup __PROTO((struct curve_points * start_plot, int *plo
 static void box_range_fiddling __PROTO((struct curve_points *plot));
 static void boxplot_range_fiddling __PROTO((struct curve_points *plot));
 static void histogram_range_fiddling __PROTO((struct curve_points *plot));
+static void impulse_range_fiddling __PROTO((struct curve_points *plot));
 static int check_or_add_boxplot_factor __PROTO((struct curve_points *plot, char* string, double x));
 static void add_tics_boxplot_factors __PROTO((struct curve_points *plot));
-static void sort_boxplot_factors __PROTO((struct curve_points *plot));
-static int compare_boxplot_factors __PROTO((SORTFUNC_ARGS arg1, SORTFUNC_ARGS arg2));
 
 /* internal and external variables */
 
@@ -186,8 +185,6 @@ cp_free(struct curve_points *cp)
 	if (cp->labels)
 	    free_labels(cp->labels);
 	cp->labels = NULL;
-	free(cp->boxplot_factor_order);
-	cp->boxplot_factor_order = NULL;
 	if (cp->z_n) {
 	    int i;
 	    for (i = 0; i < cp->n_par_axes; i++)
@@ -297,7 +294,7 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 	 */
 	if (this_plot->plot_style == IMAGE || this_plot->plot_style == RGBIMAGE) {
 	    if (x_axis->set_autoscale || y_axis->set_autoscale)
-		plot_image_or_update_axes(this_plot,TRUE);
+		process_image(this_plot, IMG_UPDATE_AXES);
 	    continue;
 	}
 
@@ -563,12 +560,18 @@ get_data(struct curve_points *current_plot)
 	break;
 
     case PARALLELPLOT:
+	/* Maximum number of parallel axes is fixed at compile time */
+	if (current_plot->n_par_axes > num_parallel_axes)
+	    extend_parallel_axis(current_plot->n_par_axes);
+
 	/* First N columns are data; one more is optional varcolor */
 	min_cols = current_plot->n_par_axes;
 	max_cols = current_plot->n_par_axes + 1;
 	/* We have not yet read in any data, so we cannot do complete initialization */
-	for (j = 0; j < current_plot->n_par_axes; j++)
-	    AXIS_INIT2D(PARALLEL_AXES+j, 1);
+	for (j = 0; j < current_plot->n_par_axes; j++) {
+	    struct axis *this_axis = &parallel_axis[j];
+	    axis_init(this_axis, 1);
+	}
 	break;
 
     case TABLESTYLE:
@@ -599,10 +602,13 @@ get_data(struct curve_points *current_plot)
 
     /* EXPERIMENTAL May 2013 - Treating timedata columns as strings allows */
     /* functions column(N) and column("HEADER") to work on time data.	   */
-    if (axis_array[current_plot->x_axis].datatype == DT_TIMEDATE)
-	expect_string(1);
-    if (axis_array[current_plot->y_axis].datatype == DT_TIMEDATE)
-	expect_string(2);
+    /* Sep 2014: But the column count is wrong for HISTOGRAMS */
+    if (current_plot->plot_style != HISTOGRAMS) {
+	if (axis_array[current_plot->x_axis].datatype == DT_TIMEDATE)
+	    expect_string(1);
+	if (axis_array[current_plot->y_axis].datatype == DT_TIMEDATE)
+	    expect_string(2);
+    }
 
     if (df_no_use_specs > max_cols)
 	int_error(NO_CARET, "Too many using specs for this style");
@@ -620,13 +626,22 @@ get_data(struct curve_points *current_plot)
     df_warn_on_missing_columnheader = TRUE;
 
     while ((j = df_readline(v, max_cols)) != DF_EOF) {
-	/* j <= max_cols */
 
 	if (i >= current_plot->p_max) {
 	    /* overflow about to occur. Extend size of points[]
 	     * array. Double the size, and add 1000 points, to avoid
 	     * needlessly small steps. */
 	    cp_extend(current_plot, i + i + 1000);
+	}
+
+	/* Version 5	DEBUG DEBUG
+	 * We are now trying to pass back all available info even if one of the requested
+	 * columns was missing or undefined.  This check replaces the DF_UNDEFINED case in
+	 * the main switch statement below.
+	 */
+	if (j == DF_UNDEFINED) {
+	    current_plot->points[i].type = UNDEFINED;
+	    j = df_no_use_specs;
 	}
 
 	if (j > 0) {
@@ -694,12 +709,13 @@ get_data(struct curve_points *current_plot)
 		    fprintf(outfile, "\n");
 		} else {
 		    char buf[64]; /* buffer large enough to hold %g + 2 extra chars */
-		    size_t size = 64;
+		    size_t size = sizeof(buf);
 		    char *line = (char *) gp_alloc(size, "");
 		    size_t len = 0;
+
 		    line[0] = NUL;
 		    for (col = 0; col < j; col++) {
-			snprintf(buf, 128, " %g", v[col]);
+			snprintf(buf, sizeof(buf), " %g", v[col]);
 			len = strappend(&line, &size, len, buf);
 		    }
 		    append_to_datablock(&table_var->udv_value, line);
@@ -731,14 +747,15 @@ get_data(struct curve_points *current_plot)
 	    /* The parallel axis data is stored in separate arrays */
 	    for (iaxis = 0; iaxis < current_plot->n_par_axes; iaxis++) {
 		int dummy_type = INRANGE;
-		STORE_WITH_LOG_AND_UPDATE_RANGE( current_plot->z_n[iaxis][i],
-			v[iaxis], dummy_type, PARALLEL_AXES+iaxis,
-			current_plot->noautoscale, NOOP, NOOP );
+		ACTUAL_STORE_WITH_LOG_AND_UPDATE_RANGE( current_plot->z_n[iaxis][i],
+			v[iaxis], dummy_type,
+			&parallel_axis[iaxis],
+			current_plot->noautoscale, NOOP, NOOP, 0 );
 	    }
 	    i++;
 
-	} else
-	/* The "else" switch currently handles all other plot styles */
+	} else {
+	/* This "else" block currently handles all plot styles other than PARALLEL_AXES */
 
 	switch (j) {
 	default:
@@ -763,9 +780,11 @@ get_data(struct curve_points *current_plot)
 
 	case DF_UNDEFINED:
 	    /* NaN or bad result from extended using expression */
+	    /* Version 5:
+	     * FIXME - can't actually get here because we trapped DF_UNDEFINED above
+	     */
 	    current_plot->points[i].type = UNDEFINED;
 	    FPRINTF((stderr,"undefined point %g %g %g\n", v[0], v[1], v[2]));
-	    /* FIXME: Are there other plot styles that require copying v[i]? */
 	    if (current_plot->plot_style == IMAGE)
 		goto images;
 	    i++;
@@ -813,7 +832,10 @@ get_data(struct curve_points *current_plot)
 	    }
 
 	case 1:
-	    {                   /* only one number */
+	    /* only one number */
+	    if (current_plot->plot_smooth == SMOOTH_BINS) {
+		v[1] = 1.0;
+	    } else {
 		/* x is index, assign number to y */
 		v[1] = v[0];
 		v[0] = df_datum;
@@ -893,6 +915,9 @@ get_data(struct curve_points *current_plot)
 		v[0] = df_datum;
 		store2d_point(current_plot, i++, v[0], v[1], v[0], v[0],
 			      v[1] - v[2], v[1] + v[2], -1.0);
+	    } else if (current_plot->plot_style == BOXPLOT) {
+		store2d_point(current_plot, i++, v[0], v[1], v[0], v[0], v[1], v[1],
+				DEFAULT_BOXPLOT_FACTOR);
 	    } else {
 		double w;
 		if (current_plot->plot_style == CANDLESTICKS
@@ -973,7 +998,7 @@ get_data(struct curve_points *current_plot)
 				  v[1], v[2]);
 		    cp = &(current_plot->points[i]);
 		    COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, v[2], cp->type,
-			COLOR_AXIS, current_plot->noautoscale, NOOP, cp->CRD_COLOR=v[2]);
+			COLOR_AXIS, current_plot->noautoscale, NOOP, NOOP);
 		    i++;
 		    break;
 
@@ -986,9 +1011,9 @@ get_data(struct curve_points *current_plot)
 				  v[1], v[1], v[2]);
 		    break;
 
-		case BOXPLOT:	/* x, y, width */
+		case BOXPLOT:	/* x, y, width expanded to xlow, xhigh */
 		    store2d_point(current_plot, i++, v[0], v[1], v[0]-v[2]/2., v[0]+v[2]/2.,
-		    		  v[1], v[1], v[2]);
+		    		  v[1], v[1], DEFAULT_BOXPLOT_FACTOR);
 		    break;
 
 #ifdef EAM_OBJECTS
@@ -1063,14 +1088,13 @@ get_data(struct curve_points *current_plot)
 				  v[1] - v[2], v[1] + v[2], 0.0);
 		break;
 
-	    case BOXPLOT:	/* x, y, width, factor */
-		/* Load the coords just as we would have for 3-argument boxplot, 
-		 * index of factor in ylow , yhigh is the same as y */
+	    case BOXPLOT:	/* x, y, factor */
+		{
+		int factor_index = check_or_add_boxplot_factor(current_plot, df_tokens[3], v[0]);
 		store2d_point(current_plot, i++, v[0], v[1], v[0]-v[2]/2., v[0]+v[2]/2.,
-		    		  check_or_add_boxplot_factor(current_plot, df_tokens[3], v[0]),
-		    		  v[1], v[2]);
+		    		  v[1], v[1], factor_index);
+		}
 		break;
-
 
 	    case VECTOR:
 		/* x,y,dx,dy */
@@ -1202,6 +1226,7 @@ images:
 	    }
 
 	}                       /*switch */
+	}                       /* "else" case for all plot types */
 
     }                           /*while */
 
@@ -1235,6 +1260,7 @@ store2d_point(
 {
     struct coordinate GPHUGE *cp = &(current_plot->points[i]);
     coord_type dummy_type = INRANGE;   /* sometimes we dont care about outranging */
+    TBOOLEAN excluded_range = FALSE;
 
 #ifdef BACKWARDS_COMPATIBLE
     /* jev -- pass data values thru user-defined function */
@@ -1263,7 +1289,26 @@ store2d_point(
 
     if (polar) {
 	double newx, newy;
+	double theta = x * ang2rad;
+	AXIS *theta_axis = &axis_array[T_AXIS];
 
+	/* "x" is really the polar angle theta,	so check it against trange. */
+	if (theta < theta_axis->data_min)
+	    theta_axis->data_min = theta;
+	if (theta > theta_axis->data_max)
+	    theta_axis->data_max = theta;
+	if ( theta < theta_axis->min
+	&&  (theta <= theta_axis->max || theta_axis->max == -VERYLARGE)) {
+	    if ((theta_axis->autoscale & AUTOSCALE_MAX) == 0)
+		excluded_range = TRUE;
+	}
+	if ( theta > theta_axis->max
+	&&  (theta >= theta_axis->min || theta_axis->min == VERYLARGE)) {
+	    if ((theta_axis->autoscale & AUTOSCALE_MIN) == 0)
+		excluded_range = TRUE;
+	}
+
+	/* "y" at this point is really "r", so check it against rrange.	*/
 	if (y < R_AXIS.data_min)
 	    R_AXIS.data_min = y;
 	if (y < R_AXIS.min) {
@@ -1346,14 +1391,12 @@ store2d_point(
 	}
     }
 
-    /* return immediately if x or y are undefined
-     * we dont care if outrange for high/low.
-     * BUT if high/low undefined (ie log( < 0 ), no number is stored.
-     */
+    /* Version 5: Allow to store Inf or NaN 
+     *  We used to exit immediately in this case rather than storing anything */
     STORE_WITH_LOG_AND_UPDATE_RANGE(cp->x, x, cp->type, current_plot->x_axis,
-			current_plot->noautoscale, NOOP, return);
+			current_plot->noautoscale, NOOP, NOOP);
     STORE_WITH_LOG_AND_UPDATE_RANGE(cp->y, y, cp->type, current_plot->y_axis,
-			current_plot->noautoscale, NOOP, return);
+			current_plot->noautoscale, NOOP, NOOP);
 
     switch (current_plot->plot_style) {
     case POINTSTYLE:		/* Only x and y are relevant to axis scaling */
@@ -1378,10 +1421,9 @@ store2d_point(
 	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
 					current_plot->noautoscale, NOOP, cp->xhigh = -VERYLARGE);
 	break;
-    case BOXPLOT:			/* auto-scale to xlow xhigh, yhigh = y needed for factors */
-	cp->ylow = ylow;
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->yhigh, yhigh, dummy_type, current_plot->y_axis,
-					current_plot->noautoscale, NOOP, cp->yhigh = -VERYLARGE);
+    case BOXPLOT:			/* auto-scale to xlow xhigh, factor is already in z */
+	cp->ylow = ylow;		/* ylow yhigh not really needed but store them anyway */
+	cp->yhigh = yhigh;
 	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, current_plot->x_axis, 
 					current_plot->noautoscale, NOOP, cp->xlow = -VERYLARGE);
 	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
@@ -1446,11 +1488,11 @@ store2d_point(
 
     /* HBB 20010214: if z is not used for some actual value, just
      * store 'width' to that axis and be done with it */
-    if ((int)current_plot->z_axis != NO_AXIS)
+    if ((int)current_plot->z_axis == NO_AXIS)
+	cp->z = width;
+    else
 	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->z, width, dummy_type, current_plot->z_axis, 
 					current_plot->noautoscale, NOOP, cp->z = -VERYLARGE);
-    else
-	cp->z = width;
 
     /* If we have variable color corresponding to a z-axis value, use it to autoscale */
     /* June 2010 - New mechanism for variable color */
@@ -1459,38 +1501,66 @@ store2d_point(
 		current_plot->varcolor[i], dummy_type, 
 		COLOR_AXIS, current_plot->noautoscale, NOOP, NOOP);
 
+    /* July 2014 - Some points are excluded because they fall outside of trange	*/
+    /* even though they would be inside the plot if drawn.			*/
+    if (excluded_range)
+	cp->type = EXCLUDEDRANGE;
+
 }                               /* store2d_point */
 
-/* Check if <string> is already among the known factors, if not, add it to the list */
+
+/*
+ * We abuse the labels structure to store a list of boxplot labels ("factors").
+ * Check if <string> is already among the known factors, if not, add it to the list.
+ */
 static int
 check_or_add_boxplot_factor(struct curve_points *plot, char* string, double x)
 {
-    int len;
     char * trimmed_string;
-    /* We abuse the labels structure to store the factors in their string forms */
-    struct text_label *label;
+    struct text_label *label, *prev_label, *new_label;
+    int index = DEFAULT_BOXPLOT_FACTOR;
 
-    /* This can happen if the user specifies a non-existent column:
-     * fall back to single-boxplot mode */
+    /* If there is no factor column (4th using spec) fall back to a single boxplot */
     if (!string)
-	return 0;
+	return index;
 
     /* Remove the trailing garbage, quotes etc. from the string */ 
     trimmed_string = df_parse_string_field(string);
-    len = strlen(trimmed_string);
-    for (label = plot->labels; label; label = label->next) {
-	/* check if string is the same as the i-th factor */
-	if (label->text && !strncmp(trimmed_string, label->text, len))
+
+    if (strlen(trimmed_string) > 0) {
+	TBOOLEAN new = FALSE;
+	prev_label = plot->labels;
+	if (!prev_label)
+	    int_error(NO_CARET, "boxplot labels not initialized");
+	for (label = prev_label->next; label; label = label->next, prev_label = prev_label->next) {
+	    /* check if string is already stored */
+	    if (!strcmp(trimmed_string, label->text))
 		break;
+	    /* If we are keeping a sorted list, test against current entry */
+	    /* (insertion sort).					   */
+	    if (boxplot_opts.sort_factors) {
+		if (strcmp(trimmed_string, label->text) < 0) {
+		    new = TRUE;
+		    break;
+		}
+	    }
+	}
+	/* not found, so we add it now */
+	if (!label || new) {
+	    new_label = gp_alloc(sizeof(text_label),"boxplot label");
+	    memcpy(new_label,plot->labels,sizeof(text_label));
+	    new_label->next = label;
+	    new_label->tag = plot->boxplot_factors++;
+	    new_label->text = gp_strdup(trimmed_string);
+	    new_label->place.x = plot->points[0].x;
+	    prev_label->next = new_label;
+	    label = new_label;
+	}
+	index = label->tag;
     }
 
-    /* not found, so we add it now */
-    if (!label)
-	label = store_label(plot->labels, &(plot->points[0]), 
-		plot->boxplot_factors++, trimmed_string, 0.0);
-
     free(trimmed_string);
-    return label->tag;
+    return index;
 }
 
 /* Add tic labels to the boxplots, 
@@ -1506,80 +1576,12 @@ add_tics_boxplot_factors(struct curve_points *plot)
 	boxplot_opts.labels == BOXPLOT_FACTOR_LABELS_X  ? FIRST_X_AXIS  :
 	boxplot_opts.labels == BOXPLOT_FACTOR_LABELS_X2 ? SECOND_X_AXIS : 
 	x_axis;
-    this_label = plot->labels->next;
-    if (!this_label)
-	return;
-    while (this_label) {
-	add_tic_user(
-	    boxplot_labels_axis,
-	    this_label->text,
-	    plot->points->x + i * boxplot_opts.separation,
-	    -1);
-	i++;
-	this_label = this_label->next;
+    for (this_label = plot->labels->next; this_label;
+	 this_label = this_label->next) {
+	    add_tic_user( &axis_array[boxplot_labels_axis], this_label->text,
+		plot->points->x + i * boxplot_opts.separation, -1);
+	    i++;
     }
-}
-
-/* Comparison function for alphabetical sorting of boxplot string factors below */
-static int
-compare_boxplot_factors(SORTFUNC_ARGS arg1, SORTFUNC_ARGS arg2)
-{
-    struct text_label * const *p1 = arg1;
-    struct text_label * const *p2 = arg2;
-
-    return strncmp((*p1)->text, (*p2)->text, 64);
-}
-
-/* Sort boxplot factors */
-/* This is tricky. The discrete levels of the factor variable were assigned integers 
- * in the order they were found in the file, and these numbers were written into the
- * plot->points structure. To change the order in which they will be plotted, 
- * we have to sort the factor strings (which are stored in plot->labels), then 
- * fill plot->boxplot_factor_order with the order we've found. This is essentially 
- * a permutation of the sequence 0:N-1 where N is the number of levels the factor 
- * variable has (plot->boxplot_factors). */
-static void
-sort_boxplot_factors(struct curve_points *plot)
-{
-    /* temporary array that holds the pointers for the nodes of the labels list */
-    text_label **temp_labels, *this_label;
-    /* array that will hold the permutation of the levels */
-    int *permutation;
-    int i;
-    
-    if (plot->boxplot_factors < 2 || !plot->labels || !plot->labels->next)
-	return;
-    
-    temp_labels =  gp_alloc(plot->boxplot_factors * sizeof(temp_labels), "boxplot labels array");
-    permutation = gp_alloc(plot->boxplot_factors * sizeof(int), "boxplot permutations array");
-
-    /* fill pointer array by walking the linked list */
-    /* the list should have exactly plot->boxplot_factors nodes,
-     * plus the listhead which we leave alone. */
-    this_label = plot->labels->next;
-    for (i=0; i<plot->boxplot_factors; i++) {
-	temp_labels[i] = this_label;
-	this_label = this_label->next;
-    }
-    /* sort pointer array */
-    qsort(temp_labels, plot->boxplot_factors, sizeof(text_label *), compare_boxplot_factors);
-    
-    /* read out the tags from the text_labels from the - now sorted - pointer array, 
-     * and write them into the permutation array in order */
-    for (i=0; i<plot->boxplot_factors; i++) {
-	permutation[i] = temp_labels[i]->tag;
-    }
-
-    /* and also re-link the list in sorted order for the tics */
-    this_label = plot->labels->next = temp_labels[0];
-    for (i=0; i<plot->boxplot_factors-1; i++) {
-	this_label->next = temp_labels[i+1];
-	this_label = this_label->next;
-    }
-    this_label->next = NULL;
-    
-    free(temp_labels);
-    plot->boxplot_factor_order = permutation;
 }
 
 /* Autoscaling of box plots cuts off half of the box on each end. */
@@ -1615,9 +1617,17 @@ static void
 boxplot_range_fiddling(struct curve_points *plot)
 {
     double extra_width;
+    int N;
+
+    /* Create a tic label for each boxplot category */
+    if (plot->boxplot_factors > 0) {
+	if (boxplot_opts.labels != BOXPLOT_FACTOR_LABELS_OFF)
+	    add_tics_boxplot_factors(plot);
+    }
 
     /* Sort the points and removed any that are undefined */
-    int N = filter_boxplot(plot);
+    N = filter_boxplot(plot);
+    plot->p_count = N;
 
     if (plot->points[0].type == UNDEFINED)
 	int_error(NO_CARET,"boxplot has undefined x coordinate");
@@ -1773,6 +1783,24 @@ polar_range_fiddling(struct curve_points *plot)
     }
 }
 
+/* Extend auto-scaling of y-axis to include zero */
+static void
+impulse_range_fiddling(struct curve_points *plot)
+{
+    if (axis_array[plot->y_axis].log)
+	return;
+
+    if (axis_array[plot->y_axis].autoscale & AUTOSCALE_MIN) {
+	if (axis_array[plot->y_axis].min > 0)
+	    axis_array[plot->y_axis].min = 0;
+    }
+    if (axis_array[plot->y_axis].autoscale & AUTOSCALE_MAX) {
+	if (axis_array[plot->y_axis].max < 0)
+	    axis_array[plot->y_axis].max = 0;
+    }
+}
+
+
 /* store_label() is called by get_data for each point */
 /* This routine is exported so it can be shared by plot3d */
 struct text_label *
@@ -1817,7 +1845,7 @@ store_label(
 	tl->textcolor = lptmp.pm3d_color;
     }
 
-    if (listhead->lp_properties.pointflag > 0) {
+    if ((listhead->lp_properties.flags & LP_SHOW_POINTS)) {
 	/* Check for optional (point linecolor palette ...) */
 	if (tl->lp_properties.pm3d_color.type == TC_Z)
 	    tl->lp_properties.pm3d_color.value = colorval;
@@ -1853,14 +1881,14 @@ store_label(
 		break;
 	    textlen++;
 	}
-	while (textlen > 0 && isspace(string[textlen-1]))
+	while (textlen > 0 && isspace((unsigned char)string[textlen-1]))
 	    textlen--;
     } else {
     /* This is the normal case (no special separator character) */
 	if (*string == '"') {
 	    for (textlen=1; string[textlen] && string[textlen] != '"'; textlen++);
 	}
-	while (string[textlen] && !isspace(string[textlen]))
+	while (string[textlen] && !isspace((unsigned char)string[textlen]))
 	    textlen++;
     }
 
@@ -1906,6 +1934,12 @@ eval_plots()
     int begin_token = c_token;  /* so we can rewind for second pass */
     int start_token=0, end_token;
     legend_key *key = &keyT;
+    char orig_dummy_var[MAX_ID_LEN+1];
+
+#ifdef SMOOTH_BINS_OPTION
+    int nbins = 0;
+    double binlow, binhigh;
+#endif
 
     double newhist_start = 0.0;
     int histogram_sequence = -1;
@@ -1936,7 +1970,7 @@ eval_plots()
     plot_num = 0;
     line_num = 0;               /* default line type */
     pattern_num = default_fillstyle.fillpattern;        /* default fill pattern */
-
+    strcpy(orig_dummy_var, c_dummy_var[0]);
     xtitle = NULL;
 
     /* Assume that the input data can be re-read later */
@@ -2048,6 +2082,8 @@ eval_plots()
 		copy_str(c_dummy_var[0], sample_range_token, MAX_ID_LEN);
 	    else if (sample_range_token < 0)
 		strcpy(c_dummy_var[0], set_dummy_var[0]);
+	    else
+		strcpy(c_dummy_var[0], orig_dummy_var);
 
 	    /* Should this be saved in "this_plot"? */
 	    name_str = string_or_express(NULL);
@@ -2056,6 +2092,8 @@ eval_plots()
 	    if (name_str) { /* data file to plot */
 		if (parametric && in_parametric)
 		    int_error(c_token, "previous parametric function not fully specified");
+		if (sample_range_token !=0 && *name_str != '+')
+		    int_warn(sample_range_token, "Ignoring sample range in non-sampled data plot");
 
 		if (*tp_ptr)
 		    this_plot = *tp_ptr;
@@ -2075,17 +2113,14 @@ eval_plots()
 		/* Store a pointer to the named variable used for sampling */
 		if (sample_range_token > 0) {
 		    this_plot->sample_var = add_udv(sample_range_token);
-		    this_plot->sample_var->udv_undef = FALSE;
 		} else {
 		    /* FIXME: This has the side effect of creating a named variable x */
 		    /* or overwriting an existing variable x.  Maybe it should save   */
 		    /* and restore the pre-existing variable in this case?            */
 		    this_plot->sample_var = add_udv_by_name(c_dummy_var[0]);
-		    if (this_plot->sample_var->udv_undef) {
-			this_plot->sample_var->udv_undef = FALSE;
-			Gcomplex(&(this_plot->sample_var->udv_value), 0.0, 0.0);
-		    }
 		}
+		if (this_plot->sample_var->udv_value.type == NOTDEFINED)
+		    Gcomplex(&(this_plot->sample_var->udv_value), 0.0, 0.0);
 
 		/* include modifiers in default title */
 		this_plot->token = end_token = c_token - 1;
@@ -2116,6 +2151,34 @@ eval_plots()
 
 	    /* pm 25.11.2001 allow any order of options */
 	    while (!END_OF_COMMAND) {
+
+#ifdef SMOOTH_BINS_OPTION
+		/* bin the data if requested */
+		if (equals(c_token, "bins")) {
+		    if (set_smooth) {
+			duplication=TRUE;
+			break;
+		    }
+		    c_token++;
+		    this_plot->plot_smooth = SMOOTH_BINS;
+		    nbins = samples_1;
+		    if (equals(c_token, "=")) {
+			c_token++;
+			nbins = int_expression();
+			if (nbins <= 0)
+			    nbins = samples_1;
+		    }
+		    binlow = binhigh = 0.0;
+		    if (equals(c_token, "binrange")) {
+			c_token++;
+			if (!parse_range(SAMPLE_AXIS))
+			    int_error(c_token, "incomplete bin range");
+			binlow = axis_array[SAMPLE_AXIS].min;
+			binhigh = axis_array[SAMPLE_AXIS].max;
+		    }
+		    continue;
+		}
+#endif
 
 		/*  deal with smooth */
 		if (almost_equals(c_token, "s$mooth")) {
@@ -2198,6 +2261,13 @@ eval_plots()
 			break;
 		    }
 		    set_axes = TRUE;
+		    continue;
+		}
+
+		/* Allow this plot not to affect autoscaling */
+		if (almost_equals(c_token, "noauto$scale")) {
+		    c_token++;
+		    this_plot->noautoscale = TRUE;
 		    continue;
 		}
 
@@ -2529,7 +2599,7 @@ eval_plots()
 	    /* Some low-level routines expect to find the pointflag attribute */
 	    /* in lp_properties (they don't have access to the full header.   */
 	    if (this_plot->plot_style & PLOT_STYLE_HAS_POINT)
-		this_plot->lp_properties.pointflag = TRUE;
+		this_plot->lp_properties.flags |= LP_SHOW_POINTS;
 
 	    /* Rule out incompatible line/point/style options */
 	    if (this_plot->plot_type == FUNC) {
@@ -2574,6 +2644,15 @@ eval_plots()
 	    this_plot->x_axis = x_axis;
 	    this_plot->y_axis = y_axis;
 
+	    /* If we got this far without initializing the character font, do it now */
+	    if (this_plot->plot_style & PLOT_STYLE_HAS_POINT
+	    &&  this_plot->lp_properties.p_type == PT_CHARACTER) {
+		if (this_plot->labels == NULL) {
+		    this_plot->labels = new_text_label(-1);
+		    this_plot->labels->pos = CENTRE;
+		}
+	    }
+
 	    /* If we got this far without initializing the label list, do it now */
 	    if (this_plot->plot_style == LABELPOINTS) {
 		if (this_plot->labels == NULL) {
@@ -2594,7 +2673,7 @@ eval_plots()
 		/* We want to trigger the variable color mechanism even if 
 		 * there was no 'textcolor variable/palette/rgb var' , 
 		 * but there was a 'point linecolor variable/palette/rgb var'. */
-		if (this_plot->labels->lp_properties.pointflag > 0
+		if ((this_plot->labels->lp_properties.flags & LP_SHOW_POINTS)
 		&& this_plot->labels->textcolor.type != TC_Z
 		&& this_plot->labels->textcolor.type != TC_VARIABLE
 		&& (this_plot->labels->textcolor.type != TC_RGB 
@@ -2713,6 +2792,13 @@ eval_plots()
 		    goto SKIPPED_EMPTY_FILE;
 		}
 
+#ifdef SMOOTH_BINS_OPTION
+		/* If we are to bin the data, do that first */
+		if (this_plot->plot_smooth == SMOOTH_BINS) {
+		    make_bins(this_plot, nbins, binlow, binhigh);
+		}
+#endif
+
 		/* Fiddle the auto-scaling data for specific plot styles */
 		if (this_plot->plot_style == HISTOGRAMS)
 		    histogram_range_fiddling(this_plot);
@@ -2720,6 +2806,9 @@ eval_plots()
 		    box_range_fiddling(this_plot);
 		if (this_plot->plot_style == BOXPLOT)
 		    boxplot_range_fiddling(this_plot);
+		if (this_plot->plot_style == IMPULSES)
+		    impulse_range_fiddling(this_plot);
+
 		if (this_plot->plot_style == RGBIMAGE || this_plot->plot_style == RGBA_IMAGE) {
 		    if (CB_AXIS.autoscale & AUTOSCALE_MIN)
 			CB_AXIS.min = 0;
@@ -2731,14 +2820,6 @@ eval_plots()
 		}
 		if (polar) {
 		    polar_range_fiddling(this_plot);
-		}
-
-		/* if needed, sort boxplot factors and assign tic labels to them */
-		if (this_plot->plot_style == BOXPLOT && this_plot->boxplot_factors > 0) {
-		     if (boxplot_opts.sort_factors)
-			sort_boxplot_factors(this_plot);
-		     if (boxplot_opts.labels != BOXPLOT_FACTOR_LABELS_OFF)
-			add_tics_boxplot_factors(this_plot);
 		}
 
 		/* sort */
@@ -2799,7 +2880,7 @@ eval_plots()
 		    || this_plot->plot_style == RGBIMAGE
 		    || this_plot->plot_style == RGBA_IMAGE)) {
 		    this_plot->image_properties.type = IC_PALETTE;
-		    plot_image_or_update_axes(this_plot, TRUE);
+		    process_image(this_plot, IMG_UPDATE_AXES);
 		}
 
 	    }
@@ -2865,7 +2946,7 @@ eval_plots()
 	axis_checked_extend_empty_range(FIRST_X_AXIS, "x range is invalid");
 
 	if (axis_array[SECOND_X_AXIS].linked_to_primary) {
-	    clone_linked_axes(SECOND_X_AXIS, FIRST_X_AXIS);
+	    clone_linked_axes(FIRST_X_AXIS);
 	    /* FIXME: This obsoletes OUTRANGE/INRANGE for secondary axis data */
 	} else if (uses_axis[SECOND_X_AXIS] & USES_AXIS_FOR_DATA) {
 	    /* check that x2min -> x2max is not too small */
@@ -2963,6 +3044,8 @@ eval_plots()
 			copy_str(c_dummy_var[0], sample_range_token, MAX_ID_LEN);
 		    else if (sample_range_token < 0)
 			strcpy(c_dummy_var[0], set_dummy_var[0]);
+		    else
+			strcpy(c_dummy_var[0], orig_dummy_var);
 		    /* WARNING: do NOT free name_str */
 		    name_str = string_or_express(&at_ptr);
 		}
@@ -2982,7 +3065,7 @@ eval_plots()
 			    t_max = X_AXIS.max;
 			}
 			/* FIXME: What if SAMPLE_AXIS is not x_axis? */
-			axis_unlog_interval(x_axis, &t_min, &t_max, 1);
+			axis_unlog_interval(&X_AXIS, &t_min, &t_max, 1);
 			t_step = (t_max - t_min) / (samples_1 - 1);
 		    }
 		    for (i = 0; i < samples_1; i++) {
@@ -3109,6 +3192,16 @@ eval_plots()
 					xhigh, dmy_type, x_axis,
 					this_plot->noautoscale, NOOP, NOOP );
 			    }
+
+			    if (this_plot->plot_style == FILLEDCURVES) {
+				this_plot->points[i].xhigh = this_plot->points[i].x;
+				STORE_WITH_LOG_AND_UPDATE_RANGE(
+				    this_plot->points[i].yhigh,
+				    this_plot->filledcurves_options.at,
+				    this_plot->points[i].type, y_axis,
+				    TRUE, NOOP, NOOP);
+			    }
+			    
 			    /* Fill in additional fields needed to draw a circle */
 #ifdef EAM_OBJECTS
 			    if (this_plot->plot_style == CIRCLES) {
@@ -3231,7 +3324,7 @@ eval_plots()
 	axis_revert_and_unlog_range(FIRST_Y_AXIS);
     }
     if (uses_axis[SECOND_Y_AXIS] && axis_array[SECOND_Y_AXIS].linked_to_primary) {
-	clone_linked_axes(SECOND_Y_AXIS, FIRST_Y_AXIS);
+	clone_linked_axes(FIRST_Y_AXIS);
     } else if (uses_axis[SECOND_Y_AXIS]) {
 	axis_checked_extend_empty_range(SECOND_Y_AXIS, "all points y2 value undefined!");
 	axis_revert_and_unlog_range(SECOND_Y_AXIS);
@@ -3254,6 +3347,12 @@ eval_plots()
 	if (axis_array[FIRST_Y_AXIS].autoscale & AUTOSCALE_MAX)
 	    axis_array[FIRST_Y_AXIS].max = axis_array[SECOND_Y_AXIS].max;
     }
+
+    /* June 2014 - This call was in boundary(), called from do_plot()
+     * but it caused problems if do_plot() itself was called for a refresh
+     * rather than for plot/replot.  So we call it here instead.
+     */
+    set_cbminmax();
 
     /* the following ~5 lines were moved from the end of the
      * function to here, as do_plot calles term->text, which
@@ -3356,12 +3455,12 @@ parametric_fixup(struct curve_points *start_plot, int *plot_num)
 
 		    /* Fill in the R_AXIS min/max if autoscaling */
 		    /* EAM FIXME: This was Bug #1323.  What about log scale? */
-		    if ((R_AXIS.autoscale & AUTOSCALE_MAX) && (abs(r) > R_AXIS.max)) {
+		    if ((R_AXIS.autoscale & AUTOSCALE_MAX) && (fabs(r) > R_AXIS.max)) {
 			if ((R_AXIS.max_constraint & CONSTRAINT_UPPER)
-			&&  (R_AXIS.max_ub < abs(r)))
+			&&  (R_AXIS.max_ub < fabs(r)))
 			    R_AXIS.max = R_AXIS.max_ub;
 			else
-			    R_AXIS.max = abs(r);
+			    R_AXIS.max = fabs(r);
 		    }
 		    if (R_AXIS.autoscale & AUTOSCALE_MIN) {
 			    R_AXIS.min = 0;

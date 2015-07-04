@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.82 2014/04/18 04:12:46 sfeam Exp $
+ * $Id: gp_cairo.c,v 1.91 2015/03/24 21:35:13 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -172,6 +172,8 @@ void gp_cairo_initialize_plot(plot_struct *plot)
 
 	plot->opened_path = FALSE;
 
+	plot->current_x = -1; plot->current_y = -1;
+
 	strncpy(plot->fontname, "", sizeof(plot->fontname));
 	plot->fontsize = 1.0;
 	plot->encoding = S_ENC_DEFAULT;
@@ -336,14 +338,20 @@ void gp_cairo_set_font(plot_struct *plot, const char *name, int fontsize)
 
 void gp_cairo_set_linewidth(plot_struct *plot, double linewidth)
 {
+	FPRINTF((stderr,"set_linewidth %lf\n",linewidth));
+
 	/*stroke any open path */
 	gp_cairo_stroke(plot);
 	/* draw any open polygon set */
 	gp_cairo_end_polygon(plot);
 
-	FPRINTF((stderr,"set_linewidth %lf\n",linewidth));
-
+	if (linewidth < 0.25)	/* Admittedly arbitrary */
+	    linewidth = 0.25;
 	plot->linewidth = linewidth;
+
+	if (!strcmp(term->name,"pdfcairo"))
+		plot->linewidth *= 2;
+
 }
 
 
@@ -546,10 +554,20 @@ void gp_cairo_set_dashtype(plot_struct *plot, int type, t_dashtype *custom_dash_
 	if (type == DASHTYPE_CUSTOM && custom_dash_type) {
 		/* Convert to internal representation */
 		int i;
+		double empirical_scale;
+
+		if (!strcmp(term->name,"pngcairo"))
+			empirical_scale = 0.25;
+		else
+			empirical_scale = 0.55;
+
+		if (plot->linewidth > 1)
+			empirical_scale *= plot->linewidth;
+
 		for (i=0; i<8; i++)
 			plot->current_dashpattern[i] = custom_dash_type->pattern[i]
 				* plot->dashlength
-				* plot->oversampling_scale;
+				* plot->oversampling_scale * empirical_scale;
 		FPRINTF((stderr,"gp_cairo_set_dashtype: custom pattern\n"));
 		FPRINTF((stderr,"	%f %f %f %f %f %f %f %f\n",
 			plot->current_dashpattern[0], plot->current_dashpattern[1],
@@ -561,10 +579,15 @@ void gp_cairo_set_dashtype(plot_struct *plot, int type, t_dashtype *custom_dash_
 	} else if (type > 0 && lt != 0) {
 		/* Use old (version 4) set of linetype patterns */
 		int i;
+		double empirical_scale = 1.;
+		if (plot->linewidth > 1)
+			empirical_scale *= plot->linewidth;
+
 		for (i=0; i<8; i++)
 			plot->current_dashpattern[i] = dashpattern[lt-1][i]
 				* plot->dashlength
-				* plot->oversampling_scale;
+				* plot->oversampling_scale
+				* empirical_scale;
 		plot->linestyle = GP_CAIRO_DASH;
 
 	} else {
@@ -596,10 +619,12 @@ void gp_cairo_stroke(plot_struct *plot)
 	else if (lt == LT_AXIS || plot->linestyle == GP_CAIRO_DOTS) {
 		/* Grid lines (lt 0) */
 		double dashes[2];
-		dashes[0] = 0.4 * plot->oversampling_scale * plot->dashlength;
-		dashes[1] = 4.0 * plot->oversampling_scale * plot->dashlength;
+		double empirical_scale = 1.0;
+		if (plot->linewidth > 1)
+			empirical_scale *= plot->linewidth;
+		dashes[0] = 0.4 * plot->oversampling_scale * plot->dashlength * empirical_scale;
+		dashes[1] = 4.0 * plot->oversampling_scale * plot->dashlength * empirical_scale;
 		cairo_set_dash(plot->cr, dashes, 2 /*num_dashes*/, 0 /*offset*/);
-		lw *= 0.6;
 	}
 
 	else if (plot->linestyle == GP_CAIRO_DASH) {
@@ -620,12 +645,15 @@ void gp_cairo_stroke(plot_struct *plot)
 
 void gp_cairo_move(plot_struct *plot, int x, int y)
 {
+	/* Dec 2014 - Do not let zero-length moves interrupt     */
+	/* the current line/polyline context, e.g. dash pattern. */
+	if (x == plot->current_x && y == plot->current_y)
+		return;
+
 	/* begin by stroking any open path */
 	gp_cairo_stroke(plot);
 	/* also draw any open polygon set */
 	gp_cairo_end_polygon(plot);
-
-	FPRINTF((stderr,"move\n"));
 
 	plot->current_x = x;
 	plot->current_y = y;
@@ -719,7 +747,7 @@ static gchar * gp_cairo_convert(plot_struct *plot, const char* string)
 		if (error->code != G_CONVERT_ERROR_ILLEGAL_SEQUENCE) {
 			fprintf(stderr, "Unable to convert \"%s\": %s\n", string, error->message);
 			g_error_free (error);
-			return "";
+			return strdup("");
 		}
 		/* The sequence is invalid in the chosen charset.
 		 * we will try to fall back to iso_8859_1, and if it doesn't work,
@@ -909,6 +937,12 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 	PangoRectangle ink, logical;
 	pango_layout_get_pixel_extents (layout, &ink, &logical);
 
+	/* Auto-initialization */
+	if (bounding_box[0] < 0 && bounding_box[1] < 0) {
+	    bounding_box[0] = bounding_box[2] = x;
+	    bounding_box[1] = bounding_box[3] = y;
+	}
+
 	/* Would it look better to use logical bounds rather than ink? */
 	if (bounding_box[0] > x + ink.x)
 	    bounding_box[0] = x + ink.x;
@@ -970,7 +1004,9 @@ void gp_cairo_draw_point(plot_struct *plot, int x1, int y1, int style)
 		cairo_fill (plot->cr);
 	}
 
-	switch (style%13) {
+
+	style = style % 15;
+	switch (style) {
 	case 0: /* plus */
 		cairo_move_to(plot->cr, x-size, y);
 		cairo_line_to(plot->cr, x+size,y);
@@ -1002,20 +1038,14 @@ void gp_cairo_draw_point(plot_struct *plot, int x1, int y1, int style)
 		cairo_stroke(plot->cr);
 		break;
 	case 3: /* box */
-		cairo_move_to(plot->cr, x-size, y-size);
-		cairo_line_to(plot->cr, x-size,y+size);
-		cairo_line_to(plot->cr, x+size,y+size);
-		cairo_line_to(plot->cr, x+size,y-size);
-		cairo_close_path(plot->cr);
-		cairo_stroke(plot->cr);
-		break;
 	case 4: /* filled box */
 		cairo_move_to(plot->cr, x-size, y-size);
 		cairo_line_to(plot->cr, x-size,y+size);
 		cairo_line_to(plot->cr, x+size,y+size);
 		cairo_line_to(plot->cr, x+size,y-size);
 		cairo_close_path(plot->cr);
-		cairo_fill_preserve(plot->cr);
+		if (style == 4)
+			cairo_fill_preserve(plot->cr);
 		cairo_stroke(plot->cr);
 		break;
 	case 5: /* circle */
@@ -1028,52 +1058,48 @@ void gp_cairo_draw_point(plot_struct *plot, int x1, int y1, int style)
 		cairo_stroke(plot->cr);
 		break;
 	case 7: /* triangle */
-		cairo_move_to(plot->cr, x-size, y+size-plot->oversampling_scale);
-		cairo_line_to(plot->cr, x,y-size);
-		cairo_line_to(plot->cr, x+size,y+size-plot->oversampling_scale);
-		cairo_close_path(plot->cr);
-		cairo_stroke(plot->cr);
-		break;
 	case 8: /* filled triangle */
 		cairo_move_to(plot->cr, x-size, y+size-plot->oversampling_scale);
 		cairo_line_to(plot->cr, x,y-size);
 		cairo_line_to(plot->cr, x+size,y+size-plot->oversampling_scale);
 		cairo_close_path(plot->cr);
-		cairo_fill_preserve(plot->cr);
+		if (style == 8)
+			cairo_fill_preserve(plot->cr);
 		cairo_stroke(plot->cr);
 		break;
 	case 9: /* upside down triangle */
-		cairo_move_to(plot->cr, x-size, y-size+plot->oversampling_scale);
-		cairo_line_to(plot->cr, x,y+size);
-		cairo_line_to(plot->cr, x+size,y-size+plot->oversampling_scale);
-		cairo_close_path(plot->cr);
-		cairo_stroke(plot->cr);
-		break;
 	case 10: /* filled upside down triangle */
 		cairo_move_to(plot->cr, x-size, y-size+plot->oversampling_scale);
 		cairo_line_to(plot->cr, x,y+size);
 		cairo_line_to(plot->cr, x+size,y-size+plot->oversampling_scale);
 		cairo_close_path(plot->cr);
-		cairo_fill_preserve(plot->cr);
+		if (style == 10)
+			cairo_fill_preserve(plot->cr);
 		cairo_stroke(plot->cr);
 		break;
 	case 11: /* diamond */
-		cairo_move_to(plot->cr, x-size, y);
-		cairo_line_to(plot->cr, x,y+size);
-		cairo_line_to(plot->cr, x+size,y);
-		cairo_line_to(plot->cr, x,y-size);
-		cairo_close_path(plot->cr);
-		cairo_stroke(plot->cr);
-		break;
 	case 12: /* filled diamond */
 		cairo_move_to(plot->cr, x-size, y);
 		cairo_line_to(plot->cr, x,y+size);
 		cairo_line_to(plot->cr, x+size,y);
 		cairo_line_to(plot->cr, x,y-size);
 		cairo_close_path(plot->cr);
-		cairo_fill_preserve(plot->cr);
+		if (style == 12)
+			cairo_fill_preserve(plot->cr);
 		cairo_stroke(plot->cr);
 		break;
+	case 13: /* pentagon */
+	case 14: /* filled pentagon */
+		cairo_move_to(plot->cr, x+size*0.5878, y-size*0.8090);
+		cairo_line_to(plot->cr, x-size*0.5878, y-size*0.8090);
+		cairo_line_to(plot->cr, x-size*0.9511, y+size*0.3090);
+		cairo_line_to(plot->cr, x,             y+size);
+		cairo_line_to(plot->cr, x+size*0.9511, y+size*0.3090);
+		cairo_close_path(plot->cr);
+		if (style == 14)
+			cairo_fill_preserve(plot->cr);
+		cairo_stroke(plot->cr);
+		break;				
 	default :
 		break;
 	}
@@ -1127,8 +1153,8 @@ void gp_cairo_draw_image(plot_struct *plot, unsigned int * image, int x1, int y1
 	image_surface = cairo_image_surface_create_for_data((unsigned char*) image,
 				CAIRO_FORMAT_ARGB32, M, N, 4*M);
 
-	scale_x = (double)M/fabs( x2 - x1 );
-	scale_y = (double)N/fabs( y2 - y1 );
+	scale_x = (double)M/(double)abs( x2 - x1 );
+	scale_y = (double)N/(double)abs( y2 - y1 );
 
 	FPRINTF((stderr,"M %d N %d x1 %d y1 %d\n", M, N, x1, y1));
 	cairo_save( plot->cr );
@@ -1598,6 +1624,12 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 	/* Update bounding box for boxed label text */
 	pango_layout_get_pixel_extents (layout, &ink_rect, &logical_rect);
 
+	/* Auto-initialization */
+	if (bounding_box[0] < 0 && bounding_box[1] < 0) {
+	    bounding_box[0] = bounding_box[2] = x;
+	    bounding_box[1] = bounding_box[3] = y;
+	}
+
 	/* Would it look better to use logical bounds rather than ink_rect? */
 	if (bounding_box[0] > enh_x + ink_rect.x)
 	    bounding_box[0] = enh_x + ink_rect.x;
@@ -1686,6 +1718,7 @@ void gp_cairo_boxed_text(plot_struct *plot, int x, int y, int option)
 	case TEXTBOX_OUTLINE:
 		/* Stroke the outline of the bounding box for previous text */
 	case TEXTBOX_BACKGROUNDFILL:
+	case TEXTBOX_GREY:
 		/* Fill the bounding box with background color */
 		/* begin by stroking any open path */
 		gp_cairo_stroke(plot);
@@ -1694,6 +1727,8 @@ void gp_cairo_boxed_text(plot_struct *plot, int x, int y, int option)
 		cairo_save(plot->cr);
 		dx = 0.5 * bounding_xmargin * (float)(plot->fontsize * plot->oversampling_scale);
 		dy = 0.5 * bounding_ymargin * (float)(plot->fontsize * plot->oversampling_scale);
+		if (option == TEXTBOX_GREY)
+		    dy = 0;
 		gp_cairo_move(plot,   bounding_box[0]-dx, bounding_box[1]-dy); 
 		gp_cairo_vector(plot, bounding_box[0]-dx, bounding_box[3]+dy); 
 		gp_cairo_vector(plot, bounding_box[2]+dx, bounding_box[3]+dy); 
@@ -1704,6 +1739,9 @@ void gp_cairo_boxed_text(plot_struct *plot, int x, int y, int option)
 		    rgb_color *background = &gp_cairo_colorlist[0];
 		    cairo_set_source_rgb(plot->cr, background->r, background->g, background->b);
 		    cairo_fill(plot->cr);
+		} else if (option == TEXTBOX_GREY) {
+		    cairo_set_source_rgba(plot->cr, 0.75, 0.75, 0.75, 0.50);
+		    cairo_fill(plot->cr);
 		} else {
 		    cairo_set_line_width(plot->cr, 1.0*plot->oversampling_scale);
 		    cairo_set_source_rgb(plot->cr,
@@ -1713,7 +1751,7 @@ void gp_cairo_boxed_text(plot_struct *plot, int x, int y, int option)
 		cairo_restore(plot->cr);
 		break;
 
-	case 3: /* Change the margin between text and box */
+	case TEXTBOX_MARGINS: /* Change the margin between text and box */
 		bounding_xmargin = (double)x/100.;
 		bounding_ymargin = (double)y/100.;
 		break;
@@ -1752,7 +1790,8 @@ void gp_cairo_fill_pattern(plot_struct *plot, int fillstyle, int fillpar)
 	    cairo_set_source_rgb( pattern_cr, 1.0, 1.0, 1.0);
 
 	cairo_paint(pattern_cr);
-	if (!strcmp(term->name,"pdfcairo")) /* Work-around for poor scaling in cairo <= 1.10 */
+
+	if (!strcmp(term->name,"pdfcairo")) /* Work-around for poor scaling in cairo */
 	    cairo_set_line_width(pattern_cr, PATTERN_SIZE/150.);
 	else
 	    cairo_set_line_width(pattern_cr, PATTERN_SIZE/50.);

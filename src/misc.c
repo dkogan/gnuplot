@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.184 2014/05/05 06:13:05 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.198 2015/04/25 05:05:23 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -145,10 +145,38 @@ prepare_call(int calltype)
 	while (!END_OF_COMMAND && call_argc <= 9) {
 	    call_args[call_argc] = try_to_get_string();
 	    if (!call_args[call_argc]) {
-		/* DEPRECATED old style wrapping of bare tokens as strings */
+		int save_token = c_token;
+
+		/* This catches call "file" STRINGVAR (expression) */
+		if (type_udv(c_token) == STRING) {
+		    call_args[call_argc] = gp_strdup(add_udv(c_token)->udv_value.v.string_val);
+		    c_token++;
+
+		/* Evaluates a parenthesized expression and store the result in a string */
+		} else if (equals(c_token, "(")) {
+		    char val_as_string[32];
+		    struct value a;
+		    const_express(&a);
+		    switch(a.type) {
+			case CMPLX: /* FIXME: More precision? Some way to provide a format? */
+				sprintf(val_as_string, "%g", a.v.cmplx_val.real);
+				call_args[call_argc] = gp_strdup(val_as_string);
+				break;
+			default:
+				int_error(save_token, "Unrecognized argument type");
+				break;
+			case INTGR:	
+				sprintf(val_as_string, "%d", a.v.int_val);
+				call_args[call_argc] = gp_strdup(val_as_string);
+				break;
+		    } 
+
+		/* old (pre version 5) style wrapping of bare tokens as strings */
 		/* is still useful for passing unquoted numbers */
-		m_capture(&call_args[call_argc], c_token, c_token);
-		c_token++;
+		} else {
+		    m_capture(&call_args[call_argc], c_token, c_token);
+		    c_token++;
+		}
 	    }
 	    call_argc++;
 	}
@@ -174,17 +202,14 @@ prepare_call(int calltype)
     /* FIXME:  If we defined these on entry, we could use get_udv* here */
     udv = add_udv_by_name("ARGC");
     Ginteger(&(udv->udv_value), call_argc);
-    udv->udv_undef = FALSE;
     udv = add_udv_by_name("ARG0");
     gpfree_string(&(udv->udv_value));
     Gstring(&(udv->udv_value), gp_strdup(lf_head->name));
-    udv->udv_undef = FALSE;
     for (argindex = 1; argindex <= 9; argindex++) {
 	char *arg = gp_strdup(call_args[argindex-1]);
 	udv = add_udv_by_name(argname[argindex]);
 	gpfree_string(&(udv->udv_value));
 	Gstring(&(udv->udv_value), arg ? arg : gp_strdup(""));
-	udv->udv_undef = FALSE;
     }
 }
 
@@ -267,7 +292,6 @@ load_file(FILE *fp, char *name, int calltype)
     /* Provide a user-visible copy of the current line number in the input file */
     udvt_entry *gpval_lineno = add_udv_by_name("GPVAL_LINENO");
     Ginteger(&gpval_lineno->udv_value, 0);
-    gpval_lineno->udv_undef = FALSE;
 
     lf_push(fp, name, NULL); /* save state for errors and recursion */
 
@@ -406,28 +430,32 @@ lf_pop()
     else
 	fclose(lf->fp);
 
-    for (argindex = 0; argindex < 10; argindex++) {
-	if (call_args[argindex])
-	    free(call_args[argindex]);
-	call_args[argindex] = lf->call_args[argindex];
-    }
-    call_argc = lf->call_argc;
+    /* call arguments are not relevant when invoked from do_string_and_free */
+    if (lf->cmdline == NULL) {
+	for (argindex = 0; argindex < 10; argindex++) {
+	    if (call_args[argindex])
+		free(call_args[argindex]);
+	    call_args[argindex] = lf->call_args[argindex];
+	}
+	call_argc = lf->call_argc;
 
-    /* Restore ARGC and ARG0 ... ARG9 */
-    if ((udv = get_udv_by_name("ARGC"))) {
-	Ginteger(&(udv->udv_value), call_argc);
-    }
-    if ((udv = get_udv_by_name("ARG0"))) {
-	gpfree_string(&(udv->udv_value));
-	Gstring(&(udv->udv_value),
-	    (lf->prev && lf->prev->name) ? gp_strdup(lf->prev->name) : gp_strdup(""));
-    }
-    for (argindex = 1; argindex <= 9; argindex++) {
-	if ((udv = get_udv_by_name(argname[argindex]))) {
+	/* Restore ARGC and ARG0 ... ARG9 */
+	if ((udv = get_udv_by_name("ARGC"))) {
+	    Ginteger(&(udv->udv_value), call_argc);
+	}
+	if ((udv = get_udv_by_name("ARG0"))) {
 	    gpfree_string(&(udv->udv_value));
-	    Gstring(&(udv->udv_value), gp_strdup(call_args[argindex-1]));
-	    if (!call_args[argindex-1])
-		udv->udv_undef = TRUE;
+	    Gstring(&(udv->udv_value),
+		(lf->prev && lf->prev->name) ? gp_strdup(lf->prev->name) : gp_strdup(""));
+	}
+	for (argindex = 1; argindex <= 9; argindex++) {
+	    if ((udv = get_udv_by_name(argname[argindex]))) {
+		gpfree_string(&(udv->udv_value));
+		if (!call_args[argindex-1])
+		    udv->udv_value.type = NOTDEFINED;
+		else
+		    Gstring(&(udv->udv_value), gp_strdup(call_args[argindex-1]));
+	    }
 	}
     }
 
@@ -459,9 +487,13 @@ lf_pop()
     return (TRUE);
 }
 
-/* push onto load_file state stack
-   essentially, we save information needed to undo the load_file changes
-   called by load_file */
+/* lf_push is called from two different contexts:
+ *    load_file passes fp and file name (3rd param NULL)
+ *    do_string_and_free passes cmdline (1st and 2nd params NULL)
+ * In either case the routines lf_push/lf_pop save and restore state
+ * information that may be changed by executing commands from a file
+ * or from the passed command line.
+ */
 void
 lf_push(FILE *fp, char *name, char *cmdline)
 {
@@ -481,9 +513,13 @@ lf_push(FILE *fp, char *name, char *cmdline)
     lf->interactive = interactive;	/* save current state */
     lf->inline_num = inline_num;	/* save current line number */
     lf->call_argc = call_argc;
-    for (argindex = 0; argindex < 10; argindex++) {
-	lf->call_args[argindex] = call_args[argindex];
-	call_args[argindex] = NULL;	/* initially no args */
+
+    /* Call arguments are irrelevant if invoked from do_string_and_free */
+    if (cmdline == NULL) {
+	for (argindex = 0; argindex < 10; argindex++) {
+	    lf->call_args[argindex] = call_args[argindex];
+	    call_args[argindex] = NULL;	/* initially no args */
+	}
     }
     lf->depth = lf_head ? lf_head->depth+1 : 0;	/* recursion depth */
     if (lf->depth > STACK_DEPTH)
@@ -855,7 +891,7 @@ need_fill_border(struct fill_style_type *fillstyle)
 
     /* Wants a border in a new color */
     if (p.pm3d_color.type != TC_DEFAULT)
-	apply_pm3dcolor(&p.pm3d_color,term);
+	apply_pm3dcolor(&p.pm3d_color);
     
     return TRUE;
 }
@@ -932,7 +968,7 @@ parse_dashtype(struct t_dashtype *dt)
 	}
 	/* truncate dash_str if we ran out of space in the array representation */
 	dash_str[j] = '\0';
-	dt->str = gp_strdup(dash_str);
+	strncpy(dt->dstring, dash_str, sizeof(dt->dstring)-1);
 	free(dash_str);
 	res = DASHTYPE_CUSTOM;
 
@@ -977,6 +1013,16 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
     } 
     
     while (!END_OF_COMMAND) {
+
+	/* This special case is to flag an attemp to "set object N lt <lt>",
+	 * which would otherwise be accepted but ignored, leading to confusion
+	 * FIXME:  Couldn't this be handled at a higher level?
+	 */
+	if ((destination_class == LP_NOFILL)
+	&&  (equals(c_token,"lt") || almost_equals(c_token,"linet$ype"))) {
+	    int_error(c_token, "object linecolor must be set using fillstyle border");
+	}
+
 	if (almost_equals(c_token, "linet$ype") || equals(c_token, "lt")) {
 	    if (set_lt++)
 		break;
@@ -1038,7 +1084,7 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
 	    if (set_pal++)
 		break;
 	    c_token++;
-	    if (almost_equals(c_token, "rgb$color")) {
+	    if (almost_equals(c_token, "rgb$color") || isstring(c_token)) {
 		c_token--;
 		parse_colorspec(&(newlp.pm3d_color), TC_RGB);
 	    } else if (almost_equals(c_token, "pal$ette")) {
@@ -1184,8 +1230,10 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
 
     if (set_pal) {
 	lp->pm3d_color = newlp.pm3d_color;
-	/* FIXME:  This was used by hidden3d but it breaks contour colors! */
-	/* new_lt = LT_SINGLECOLOR; */
+	/* hidden3d uses this to decide that a single color surface is wanted */
+	lp->flags |= LP_EXPLICIT_COLOR;
+    } else {
+	lp->flags &= ~LP_EXPLICIT_COLOR;
     }
     if (set_lw)
 	lp->l_width = newlp.l_width;
@@ -1209,12 +1257,19 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
 }
 
 /* <fillstyle> = {empty | solid {<density>} | pattern {<n>}} {noborder | border {<lt>}} */
+const struct gen_table fs_opt_tbl[] = {
+    {"e$mpty", FS_EMPTY},
+    {"s$olid", FS_SOLID},
+    {"p$attern", FS_PATTERN},
+    {NULL, -1}
+};
+
 void
 parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int def_pattern, 
 		t_colorspec def_bordertype)
 {
     TBOOLEAN set_fill = FALSE;
-    TBOOLEAN set_param = FALSE;
+    TBOOLEAN set_border = FALSE;
     TBOOLEAN transparent = FALSE;
 
     /* Set defaults */
@@ -1230,29 +1285,55 @@ parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int 
     c_token++;
 
     while (!END_OF_COMMAND) {
+	int i;
+
 	if (almost_equals(c_token, "trans$parent")) {
 	    transparent = TRUE;
 	    c_token++;
-	}
-
-	if (almost_equals(c_token, "e$mpty")) {
-	    fs->fillstyle = FS_EMPTY;
-	    c_token++;
-	} else if (almost_equals(c_token, "s$olid")) {
-	    fs->fillstyle = transparent ? FS_TRANSPARENT_SOLID : FS_SOLID;
-	    set_fill = TRUE;
-	    c_token++;
-	} else if (almost_equals(c_token, "p$attern")) {
-	    fs->fillstyle = transparent ? FS_TRANSPARENT_PATTERN : FS_PATTERN;
-	    set_fill = TRUE;
-	    c_token++;
-	}
-
-	if (END_OF_COMMAND)
 	    continue;
-	else if (almost_equals(c_token, "bo$rder")) {
+	}
+
+	i = lookup_table(fs_opt_tbl, c_token);
+	switch (i) {
+	    default:
+		 break;
+
+	    case FS_EMPTY:
+	    case FS_SOLID:
+	    case FS_PATTERN:
+
+		if (set_fill && fs->fillstyle != i)
+		    int_error(c_token, "conflicting option");
+		fs->fillstyle = i;
+		set_fill = TRUE;
+		c_token++;
+		
+		if (isanumber(c_token) || type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX) {
+		    if (fs->fillstyle == FS_SOLID) {
+			/* user sets 0...1, but is stored as an integer 0..100 */
+			fs->filldensity = 100.0 * real_expression() + 0.5;
+			if (fs->filldensity < 0)
+			    fs->filldensity = 0;
+			if (fs->filldensity > 100)
+			    fs->filldensity = 100;
+		    } else if (fs->fillstyle == FS_PATTERN) {
+			fs->fillpattern = int_expression();
+			if (fs->fillpattern < 0)
+			    fs->fillpattern = 0;
+		    } else
+			int_error(c_token, "this fill style does not have a parameter");
+		}
+		continue;
+	}
+
+	if (almost_equals(c_token, "bo$rder")) {
+	    if (set_border && fs->border_color.lt == LT_NODRAW)
+		int_error(c_token, "conflicting option");
 	    fs->border_color.type = TC_DEFAULT;
+	    set_border = TRUE;
 	    c_token++;
+	    if (END_OF_COMMAND)
+		continue;
 	    if (equals(c_token,"-") || isanumber(c_token)) {
 		fs->border_color.type = TC_LT;
 		fs->border_color.lt = int_expression() - 1;
@@ -1265,32 +1346,23 @@ parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int 
 	    }
 	    continue;
 	} else if (almost_equals(c_token, "nobo$rder")) {
+	    if (set_border && fs->border_color.lt != LT_NODRAW)
+		int_error(c_token, "conflicting option");
 	    fs->border_color.type = TC_LT;
 	    fs->border_color.lt = LT_NODRAW;
+	    set_border = TRUE;
 	    c_token++;
 	    continue;
 	}
 
-	/* We hit something unexpected */
-	if (!set_fill || set_param)
-	    break;
-	if (!(isanumber(c_token) || type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX))
-	    break;
-
-	if (fs->fillstyle == FS_SOLID || fs->fillstyle == FS_TRANSPARENT_SOLID) {
-	    /* user sets 0...1, but is stored as an integer 0..100 */
-	    fs->filldensity = 100.0 * real_expression() + 0.5;
-	    if (fs->filldensity < 0)
-		fs->filldensity = 0;
-	    if (fs->filldensity > 100)
-		fs->filldensity = 100;
-	    set_param = TRUE;
-	} else if (fs->fillstyle == FS_PATTERN || fs->fillstyle == FS_TRANSPARENT_PATTERN) {
-	    fs->fillpattern = int_expression();
-	    if (fs->fillpattern < 0)
-		fs->fillpattern = 0;
-	    set_param = TRUE;
-	}
+	/* Keyword must belong to someone else */
+	break;
+    }
+    if (transparent) {
+	if (fs->fillstyle == FS_SOLID)
+	    fs->fillstyle = FS_TRANSPARENT_SOLID;
+        else if (fs->fillstyle == FS_PATTERN)
+	    fs->fillstyle = FS_TRANSPARENT_PATTERN;
     }
 }
 
@@ -1321,6 +1393,7 @@ parse_colorspec(struct t_colorspec *tc, int options)
 	tc->type = TC_LT;
 	tc->lt = LT_BLACK;
     } else if (equals(c_token,"lt")) {
+	struct lp_style_type lptemp;
 	c_token++;
 	if (END_OF_COMMAND)
 	    int_error(c_token, "expected linetype");
@@ -1330,6 +1403,15 @@ parse_colorspec(struct t_colorspec *tc, int options)
 	    tc->type = TC_DEFAULT;
 	    int_warn(c_token,"illegal linetype");
 	}
+
+	/*
+	 * July 2014 - translate linetype into user-defined linetype color.
+	 * This is a CHANGE!
+	 * FIXME: calling load_linetype here may obviate the need to call it
+	 * many places in the higher level code.  They could be removed.
+	 */
+	load_linetype(&lptemp, tc->lt + 1);
+	*tc = lptemp.pm3d_color;
     } else if (options <= TC_LT) {
 	tc->type = TC_DEFAULT;
 	int_error(c_token, "only tc lt <n> possible here");
@@ -1380,6 +1462,12 @@ parse_colorspec(struct t_colorspec *tc, int options)
     } else if (options >= TC_VARIABLE && almost_equals(c_token,"var$iable")) {
 	tc->type = TC_VARIABLE;
 	c_token++;
+
+    /* New: allow to skip the rgb keyword, as in  'plot $foo lc "blue"' */
+    } else if (isstring(c_token)) {
+	tc->type = TC_RGB;
+	tc->lt = parse_color_name();
+
     } else {
 	int_error(c_token, "colorspec option not recognized");
     }
@@ -1543,10 +1631,12 @@ arrow_parse(
 	    
 	    /* Assume adjustable size but check for 'fixed' instead */
 	    arrow->head_fixedsize = FALSE;
-	    if (almost_equals(c_token, "fix$ed")) {
-		arrow->head_fixedsize = TRUE;
-		c_token++;
-	    }
+	    continue;
+	}
+
+	if (almost_equals(c_token, "fix$ed")) {
+	    arrow->head_fixedsize = TRUE;
+	    c_token++;
 	    continue;
 	}
 
@@ -1554,14 +1644,14 @@ arrow_parse(
 	    if (set_layer++)
 		break;
 	    c_token++;
-	    arrow->layer = 0;
+	    arrow->layer = LAYER_BACK;
 	    continue;
 	}
 	if (equals(c_token, "front")) {
 	    if (set_layer++)
 		break;
 	    c_token++;
-	    arrow->layer = 1;
+	    arrow->layer = LAYER_FRONT;
 	    continue;
 	}
 

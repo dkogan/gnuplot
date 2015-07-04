@@ -305,6 +305,7 @@ $ HAVE_TIME_H = DECC
 $ HAVE_TIME_T_IN_TIME_H = DECC
 $ HAVE_UNISTD_H = DECC
 $ HAVE_VALUES_H = 0
+$ HAVE_VFPRINTF = DECC
 $ HAVE_LIBM = DECC
 $ PACKAGE = 0
 $ VERSION = 0
@@ -331,7 +332,8 @@ $ SUN = 0
 $ NOCWDRC = 0
 $ THIN_PLATE_SPLINES_GRID = 0
 $ COLUMN_HELP = 0
-$ ! USE_MOUSE = 0   ! USE_MOUSE is defined above         
+$ ! USE_MOUSE = 0   ! USE_MOUSE is defined above
+$ MAX_PARALLEL_AXES = 7
 $ !
 $ OPEN/READ IN CONFIG.HIN
 $ OPEN/WRITE OUT CONFIG.H
@@ -376,8 +378,8 @@ $ IF (.NOT. READLINE) THEN COREOBJS = COREOBJS - "readline " - " readline"
 $ !
 $ ! List of terminal files; all are in [.term] and have an extension of .trm.
 $ !
-$ CORETERM = "aed dumb dxf dxy eepic epson fig hp26 hp2648 hpgl hpljii " -
-           + "imagen kyo latex pbm pc post qms regis sun t410x tek x11"
+$ CORETERM = "dumb dxf dxy eepic epson fig hp26 hp2648 hpgl hpljii " -
+           + "imagen kyo latex pbm pc post qms regis t410x tek x11"
 $ OTHERTERM = "[-.term]impcodes.h [-.term]object.h gplt_x11.c"
 $ !
 $ ! Define CFLAGS. ("NO_GIH" may be omitted to generate and use "gnuplot.gih".)
@@ -499,8 +501,8 @@ gplt_x11.$(O) : gplt_x11.c
 	run [-.src]bf_test.$(X)
 	set default [-.src]
 
-bf_test.$(X) : bf_test.$(O) binary.$(O) alloc.$(O)
-	link /executable=bf_test.$(X) bf_test.$(O),binary.$(O),alloc.$(O)
+bf_test.$(X) : bf_test.$(O)
+	link /executable=bf_test.$(X) bf_test.$(O)
 
 gnuplot.hlb : gnuplot.hlp
 	library/create/help gnuplot.hlb gnuplot.hlp
@@ -614,7 +616,7 @@ $WRITECOM_D2:
 $ WRITE MAKE "     version.obj,vms.obj'EXTRALIB' 'CTRL_SHARE'"
 $ WRITE MAKE "$ cc 'CFLAGS' bf_test.c"
 $ WRITE MAKE "$ link /executable=bf_test.exe -"
-$ WRITE MAKE "    bf_test.obj,binary.obj,alloc.obj'EXTRALIB' 'CTRL_SHARE'"
+$ WRITE MAKE "    bf_test.obj'EXTRALIB' 'CTRL_SHARE'"
 $ WRITE MAKE "$ cd [-.demo]"
 $ WRITE MAKE "$ run [-.src]bf_test.exe"
 $ WRITE MAKE "$ cd [-.src]"

@@ -1,5 +1,5 @@
 /*
- * $Id: command.h,v 1.66 2014/03/30 18:33:21 markisch Exp $
+ * $Id: command.h,v 1.69 2015/05/22 23:13:36 sfeam Exp $
  */
 
 /* GNUPLOT - command.h */
@@ -101,11 +101,6 @@ extern char HelpFile[];         /* patch for do_help  - AP */
 # define SET_CURSOR_ARROW       /* nought, zilch */
 #endif
 
-/* wrapper for calling kill_pending_Pause_dialog() from win/winmain.c */
-#ifdef _Windows
-void call_kill_pending_Pause_dialog(void);
-#endif
-
 /* Include code to support deprecated "call" syntax. */
 #ifdef BACKWARDS_COMPATIBLE
 #define OLD_STYLE_CALL_ARGS
@@ -170,6 +165,7 @@ void null_command __PROTO((void));
 void pause_command __PROTO((void));
 void plot_command __PROTO((void));
 void print_command __PROTO((void));
+void printerr_command __PROTO((void));
 void pwd_command __PROTO((void));
 void replot_command __PROTO((void));
 void reread_command __PROTO((void));
@@ -179,6 +175,7 @@ void splot_command __PROTO((void));
 void stats_command __PROTO((void));
 void system_command __PROTO((void));
 void test_command __PROTO((void));
+void toggle_command __PROTO((void));
 void update_command __PROTO((void));
 void do_shell __PROTO((void));
 void undefine_command __PROTO((void));

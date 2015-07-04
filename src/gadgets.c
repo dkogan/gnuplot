@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.111 2014/04/27 19:08:59 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.121 2015/05/08 18:32:12 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - gadgets.c */
@@ -40,6 +40,7 @@ static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.111 2014/04/27 19:08:59 
 #include "graph3d.h" /* for map3d_position_r() */
 #include "graphics.h"
 #include "plot3d.h" /* For is_plot_with_palette() */
+#include "axis.h" /* For CB_AXIS */
 
 #include "pm3d.h"
 
@@ -99,6 +100,7 @@ struct text_label *first_label = NULL;
 /* Pointer to first 'set linestyle' definition in linked list */
 struct linestyle_def *first_linestyle = NULL;
 struct linestyle_def *first_perm_linestyle = NULL;
+struct linestyle_def *first_mono_linestyle = NULL;
 
 /* Pointer to first 'set style arrow' definition in linked list */
 struct arrowstyle_def *first_arrowstyle = NULL;
@@ -135,7 +137,7 @@ double pointintervalbox = 1.0;
 /* set border */
 int draw_border = 31;	/* The current settings */
 int user_border = 31;	/* What the user last set explicitly */
-int border_layer = 1;
+int border_layer = LAYER_FRONT;
 # define DEFAULT_BORDER_LP { 0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, 1.0, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN }
 struct lp_style_type border_lp = DEFAULT_BORDER_LP;
 const struct lp_style_type default_border_lp = DEFAULT_BORDER_LP;
@@ -183,7 +185,7 @@ struct object default_ellipse = DEFAULT_ELLIPSE_STYLE;
 filledcurves_opts filledcurves_opts_data = EMPTY_FILLEDCURVES_OPTS;
 filledcurves_opts filledcurves_opts_func = EMPTY_FILLEDCURVES_OPTS;
 
-#ifdef BACKWARDS_COMPATIBLE
+#if TRUE || defined(BACKWARDS_COMPATIBLE)
 /* Prefer line styles over plain line types */
 TBOOLEAN prefer_line_styles = FALSE;
 #endif
@@ -552,7 +554,7 @@ clip_polygon(gpiPoint *in, gpiPoint *out, int in_length, int *out_length)
     clip_boundary[4] = clip_boundary[0];
 
     memcpy(tmp_corners, in, in_length * sizeof(gpiPoint));
-    for(i = 0; i < 4; i++) {
+    for (i = 0; i < 4; i++) {
 	clip_polygon_to_boundary(tmp_corners, out, in_length, out_length, clip_boundary+i);
 	memcpy(tmp_corners, out, *out_length * sizeof(gpiPoint));
 	in_length = *out_length;
@@ -580,8 +582,14 @@ clip_vector(unsigned int x, unsigned int y)
 /* Common routines for setting text or line color from t_colorspec */
 
 void
-apply_pm3dcolor(struct t_colorspec *tc, const struct termentry *t)
+apply_pm3dcolor(struct t_colorspec *tc)
 {
+    struct termentry *t = term;
+    double cbval;
+
+    /* V5 - term->linetype(LT_BLACK) would clobber the current	*/
+    /* dashtype so instead we use term->set_color(black).	*/
+    static t_colorspec black = BLACK_COLORSPEC; 
 
     /* Replace colorspec with that of the requested line style */
     struct lp_style_type style;
@@ -591,38 +599,55 @@ apply_pm3dcolor(struct t_colorspec *tc, const struct termentry *t)
     }
 
     if (tc->type == TC_DEFAULT) {
-	(*t->linetype)(LT_BLACK);
+	t->set_color(&black);
 	return;
     }
     if (tc->type == TC_LT) {
+	/* Removed Jan 2015 
 	if (!monochrome_terminal)
+	 */
 	    t->set_color(tc);
 	return;
     }
     if (tc->type == TC_RGB) {
+	/* FIXME: several plausible ways for monochrome terminals to handle color request
+	 * (1) Allow all color requests despite the label "monochrome"
+	 * (2) Choose any color you want so long as it is black
+	 * (3) Convert colors to gray scale (NTSC?)
+	 */
 	/* Monochrome terminals are still allowed to display rgb variable colors */
-	if (!monochrome_terminal || tc->value < 0)
+	if (monochrome_terminal && tc->value >= 0)
+	    t->set_color(&black);
+	else
 	    t->set_color(tc);
 	return;
     }
     if (!is_plot_with_palette()) {
-	(*t->linetype)(LT_BLACK);
+	t->set_color(&black);
 	return;
     }
     switch (tc->type) {
-	case TC_Z:    set_color(cb2gray(z2cb(tc->value))); break;
-	case TC_CB:   set_color(cb2gray(tc->value));       break;
-	case TC_FRAC: set_color(sm_palette.positive == SMPAL_POSITIVE ?
-				tc->value : 1-tc->value);
-		      break;
+	case TC_Z:
+		set_color(cb2gray(z2cb(tc->value)));
+		break;
+	case TC_CB:
+		if (CB_AXIS.log)
+		    cbval = (tc->value <= 0) ? CB_AXIS.min : (log(tc->value) / CB_AXIS.log_base);
+		else
+		    cbval = tc->value;
+		set_color(cb2gray(cbval));
+		break;
+	case TC_FRAC:
+		set_color(sm_palette.positive == SMPAL_POSITIVE ?  tc->value : 1-tc->value);
+		break;
     }
 }
 
 void
-reset_textcolor(const struct t_colorspec *tc, const struct termentry *t)
+reset_textcolor(const struct t_colorspec *tc)
 {
     if (tc->type != TC_DEFAULT)
-	(*t->linetype)(LT_BLACK);
+	term->linetype(LT_BLACK);
 }
 
 
@@ -632,7 +657,7 @@ default_arrow_style(struct arrow_style_type *arrow)
     static const struct lp_style_type tmp_lp_style = DEFAULT_LP_STYLE_TYPE;
 
     arrow->tag = -1;
-    arrow->layer = 0;
+    arrow->layer = LAYER_BACK;
     arrow->lp_properties = tmp_lp_style;
     arrow->head = 1;
     arrow->head_length = 0.0;
@@ -690,12 +715,11 @@ char *master_font = label->font;
 void
 get_offsets(
     struct text_label *this_label,
-    struct termentry *t,
     int *htic, int *vtic)
 {
-    if (this_label->lp_properties.pointflag) {
-	*htic = (pointsize * t->h_tic * 0.5);
-	*vtic = (pointsize * t->v_tic * 0.5);
+    if ((this_label->lp_properties.flags & LP_SHOW_POINTS)) {
+	*htic = (pointsize * term->h_tic * 0.5);
+	*vtic = (pointsize * term->v_tic * 0.5);
     } else {
 	*htic = 0;
 	*vtic = 0;
@@ -724,7 +748,7 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 	int htic, vtic;
 	int justify = JUST_TOP;	/* This was the 2D default; 3D had CENTRE */
 
-	apply_pm3dcolor(&(this_label->textcolor),term);
+	apply_pm3dcolor(&(this_label->textcolor));
 	ignore_enhanced(this_label->noenhanced);
 
 	/* The text itself */
@@ -739,7 +763,7 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 		term->set_font("");
 	} else {
 	    /* A normal label (always print text) */
-	    get_offsets(this_label, term, &htic, &vtic);
+	    get_offsets(this_label, &htic, &vtic);
 #ifdef EAM_BOXED_TEXT
 	    /* Initialize the bounding box accounting */
 	    if (this_label->boxed && term->boxed_text)
@@ -786,7 +810,7 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 
 	/* The associated point, if any */
 	/* write_multiline() clips text to on_page; do the same for any point */
-	if (this_label->lp_properties.pointflag && on_page(x,y)) {
+	if ((this_label->lp_properties.flags & LP_SHOW_POINTS) && on_page(x,y)) {
 	    term_apply_lp_properties(&this_label->lp_properties);
 	    (*term->point) (x, y, this_label->lp_properties.p_type);
 	    /* the default label color is that of border */

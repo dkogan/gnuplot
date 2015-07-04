@@ -1,5 +1,5 @@
 /*
- * $Id: datafile.h,v 1.46 2014/04/14 19:15:00 sfeam Exp $
+ * $Id: datafile.h,v 1.49 2014/06/14 23:22:56 markisch Exp $
  */
 
 /* GNUPLOT - datafile.h */
@@ -61,8 +61,14 @@ enum DF_STATUS {
 
 /* large file support (offsets potentially > 2GB) */
 #if defined(HAVE_FSEEKO) && defined(HAVE_OFF_T)
-#define fseek(stream,pos,whence) fseeko(stream,pos,whence)
-#define ftell(stream) ftello(stream)
+#  define fseek(stream,pos,whence) fseeko(stream,pos,whence)
+#  define ftell(stream) ftello(stream)
+#elif defined(_MSC_VER)
+#  define fseek(stream,pos,whence) _fseeki64(stream,pos,whence)
+#  define ftell(stream) _ftelli64(stream)
+#elif defined(__MINGW32__)
+#  define fseek(stream,pos,whence) fseeko64(stream,pos,whence)
+#  define ftell(stream) ftello64(stream)
 #endif
 
 /* Variables of datafile.c needed by other modules: */

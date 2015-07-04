@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: svg.trm,v 1.167 2014/05/05 22:19:22 sfeam Exp $
+ * $Id: svg.trm,v 1.171 2015/05/13 19:15:58 sfeam Exp $
  */
 
 /*------------------------------------------------------------------------------------------------------------------------------------
@@ -1026,6 +1026,10 @@ SVG_init ()
 	     "\t<use xlink:href='#gpPt3' id='gpPt11' stroke='currentColor' transform='rotate(45)'/>\n"
 	     /* 12 diamond               filled */
 	     "\t<use xlink:href='#gpPt11' id='gpPt12' fill='currentColor' stroke='none'/>\n"
+	     /* 13 pentagon */
+	     "\t<path id='gpPt13' stroke-width='%.3f' stroke='currentColor' d='M0,1.330 L1.265,0.411 L0.782,-1.067 L-0.782,-1.076 L-1.265,0.411 z'/>\n"
+	     /* 14 pentagon              filled */
+	     "\t<use xlink:href='#gpPt13' id='gpPt14' fill='currentColor' stroke='none'/>\n"
 
 	     /* NOTE: Fill patterns must be defined after the stroke color has been
 	      * set to use the correct (current) stroke color. Therefore we can't
@@ -1036,8 +1040,13 @@ SVG_init ()
 	     "\t  <feComposite in='SourceGraphic' in2='bgnd' operator='atop'/>\n"
 	     "\t</filter>\n"
 #endif
+	     "\t<filter id='greybox' filterUnits='objectBoundingBox' x='0' y='0' height='1' width='1'>\n"
+	     "\t  <feFlood flood-color='lightgrey' flood-opacity='1' result='grey'/>\n"
+	     "\t  <feComposite in='SourceGraphic' in2='grey' operator='atop'/>\n"
+	     "\t</filter>\n"
 
 	     "</defs>\n"
+	     , stroke_width
 	     , stroke_width
 	     , stroke_width
 	     , stroke_width
@@ -1188,7 +1197,7 @@ SVG_text ()
 	fprintf(gpoutfile,"  visibility=\"hidden\"> </text>\n");
     }
 
-    /* And a box and a text element to hold mouseover hypertext */
+    /* Add a box and a text element to hold mouseover hypertext */
     if (SVG_mouseable) {
 	fprintf(gpoutfile,"\n  <rect id=\"hypertextbox\" class=\"hypertextbox\" pointer-events=\"none\"\n");
 	fprintf(gpoutfile,"  fill=\"white\" stroke=\"black\" opacity=\"0.8\"\n");
@@ -1196,6 +1205,13 @@ SVG_text ()
 	fprintf(gpoutfile,"\n  <text id=\"hypertext\" class=\"hypertext\" pointer-events=\"none\"\n");
 	fprintf(gpoutfile,"  font-size=\"12\" font-family=\"Arial\"\n");
 	fprintf(gpoutfile,"  visibility=\"hidden\"> </text>\n");
+    }
+
+    /* Add a placeholder for an image linked to mouseover hypertext */
+    if (SVG_mouseable) {
+	fprintf(gpoutfile,"\n  <image id=\"hyperimage\" class=\"hyperimage\" pointer-events=\"none\"\n");
+	fprintf(gpoutfile,"  fill=\"white\" stroke=\"black\" opacity=\"0.8\"\n");
+	fprintf(gpoutfile,"  height=\"200\" width=\"300\" visibility=\"hidden\" />\n");
     }
 
     /* If there were any grid lines in this plot, add a button to toggle them */
@@ -1241,6 +1257,9 @@ TERM_PUBLIC void
 SVG_dashtype (int type, t_dashtype *custom_dash_type)
 {
     int d, j;
+    double empirical_scale = 0.50;
+    /* The dash pattern should depend on the `linewidth` and the terminal options `dashlength` and `linewidth`. */
+    double dash_scale = SVG_pens[SVG_Pen_RealID (SVG_LineType)].width * SVG_linewidth_factor * SVG_dashlength * empirical_scale;
 
     SVG_dashpattern = NULL;	/* Assume solid line */
 
@@ -1259,7 +1278,7 @@ SVG_dashtype (int type, t_dashtype *custom_dash_type)
 		*SVG_dashpattern = '\0';
 		for (j = 0; j < 8 && custom_dash_type->pattern[j] > 0; j++) {
 		    char *p = &SVG_dashpattern[strlen(SVG_dashpattern)];
-		    snprintf(p, 8, "%.1f", custom_dash_type->pattern[j] * SVG_dashlength);
+		    snprintf(p, 8, "%.1f", custom_dash_type->pattern[j] * dash_scale);
 		    if (j < 7 && custom_dash_type->pattern[j+1])
 			strcat(p,",");
 		}
@@ -1273,17 +1292,17 @@ SVG_dashtype (int type, t_dashtype *custom_dash_type)
 		break;
 
 	    /* Default dash length and sequence */
-	    if (SVG_dashlength == 1.0)
+	    if (dash_scale == 1.0)
 		SVG_dashpattern = SVG_defaultdashpattern[d];
 
-	    /* Dash patterns scaled up by dashlength */
+	    /* Dash patterns scaled up by dashlength and linewidth */
 	    else {
 		SVG_dashpattern = SVG_custom_dash_pattern;
 		*SVG_dashpattern = '\0';
 		j = 0;
 		do {
 		    char *p = &SVG_dashpattern[strlen(SVG_dashpattern)];
-		    snprintf(p, 8, "%.1f", SVG_dasharray[d][j] * SVG_dashlength);
+		    snprintf(p, 8, "%.1f", SVG_dasharray[d][j] * dash_scale);
 		    if (SVG_dasharray[d][++j])
 			strcat(p,",");
 		} while (SVG_dasharray[d][j] > 0);
@@ -1393,7 +1412,7 @@ onmouseout=\"gnuplot_svg.hideHypertext()\"><title> </title>\n",
     } else {			/* draw a point symbol */
 	fprintf (gpoutfile, "\
 \t<use xlink:href='#gpPt%u' transform='translate(%.*f,%.*f) scale(%.2f)'%s/>",
-		 number % 13, PREC, X(x), PREC, Y(y),
+		 number % 15, PREC, X(x), PREC, Y(y),
 		 term_pointsize * term->h_tic / (2 * SVG_SCALE),
 		 color_spec);
     }
@@ -1757,7 +1776,8 @@ SVG_layer(t_termlayer syncpoint)
 		    if (multiplot && multiplot_current_panel() < 26)
 			panel[0] = 'a' + multiplot_current_panel();
 
-		    fprintf(gpoutfile, "\t<g visibility=\"visible\" ");
+		    fprintf(gpoutfile, "\t<g id=\"%s_plot_%d%s_keyentry\" visibility=\"visible\" ",
+			name,SVG_plotno,panel);
 		    fprintf(gpoutfile,
 			"onclick=\"gnuplot_svg.toggleVisibility(evt,'%s_plot_%d%s')\"",
 			name,SVG_plotno,panel);

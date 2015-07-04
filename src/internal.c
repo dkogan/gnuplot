@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: internal.c,v 1.78 2014/03/30 19:05:46 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: internal.c,v 1.83 2015/05/08 18:17:08 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - internal.c */
@@ -72,8 +72,8 @@ GP_MATHERR( STRUCT_EXCEPTION_P_X )
 
 static enum DATA_TYPES sprintf_specifier __PROTO((const char *format));
 
-#define BAD_DEFAULT default: int_error(NO_CARET, "internal error : type neither INT or CMPLX"); return;
-#define BADINT_DEFAULT default: int_error(NO_CARET, "error: bit shift applied to non-INT"); return;
+#define BAD_DEFAULT int_error(NO_CARET, "internal error : type neither INT nor CMPLX");
+#define BADINT_DEFAULT int_error(NO_CARET, "error: bit shift applied to non-INT");
 
 static int recursion_depth = 0;
 void
@@ -88,7 +88,7 @@ f_push(union argument *x)
     struct udvt_entry *udv;
 
     udv = x->udv_arg;
-    if (udv->udv_undef) {
+    if (udv->udv_value.type == NOTDEFINED) {
 	if (string_result_only)
 	/* We're only here to check whether this is a string. It isn't. */
 	    udv = udv_NaN;
@@ -246,7 +246,6 @@ f_sum(union argument *arg)
     udv = get_udv_by_name(varname.v.string_val);
     if (!udv)
         int_error(NO_CARET, "internal error: f_sum could not access iteration variable.");
-    udv->udv_undef = false;
 
     udf = arg->udf_arg;
     if (!udf)
@@ -376,7 +375,9 @@ f_uminus(union argument *arg)
 	a.v.cmplx_val.imag =
 	    -a.v.cmplx_val.imag;
 	break;
+    default:
 	BAD_DEFAULT
+	break;
     }
     push(&a);
 }
@@ -405,6 +406,7 @@ f_eq(union argument *arg)
 		      b.v.cmplx_val.real &&
 		      b.v.cmplx_val.imag == 0.0);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -420,9 +422,11 @@ f_eq(union argument *arg)
 		      a.v.cmplx_val.imag ==
 		      b.v.cmplx_val.imag);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(Ginteger(&a, result));
@@ -450,6 +454,7 @@ f_ne(union argument *arg)
 		      b.v.cmplx_val.real ||
 		      b.v.cmplx_val.imag != 0.0);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -466,9 +471,11 @@ f_ne(union argument *arg)
 		      a.v.cmplx_val.imag !=
 		      b.v.cmplx_val.imag);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(Ginteger(&a, result));
@@ -495,6 +502,7 @@ f_gt(union argument *arg)
 	    result = (a.v.int_val >
 		      b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -508,9 +516,11 @@ f_gt(union argument *arg)
 	    result = (a.v.cmplx_val.real >
 		      b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(Ginteger(&a, result));
@@ -537,6 +547,7 @@ f_lt(union argument *arg)
 	    result = (a.v.int_val <
 		      b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -550,9 +561,11 @@ f_lt(union argument *arg)
 	    result = (a.v.cmplx_val.real <
 		      b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(Ginteger(&a, result));
@@ -579,6 +592,7 @@ f_ge(union argument *arg)
 	    result = (a.v.int_val >=
 		      b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -592,9 +606,11 @@ f_ge(union argument *arg)
 	    result = (a.v.cmplx_val.real >=
 		      b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(Ginteger(&a, result));
@@ -621,6 +637,7 @@ f_le(union argument *arg)
 	    result = (a.v.int_val <=
 		      b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -634,9 +651,11 @@ f_le(union argument *arg)
 	    result = (a.v.cmplx_val.real <=
 		      b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(Ginteger(&a, result));
@@ -657,10 +676,12 @@ f_leftshift(union argument *arg)
 	case INTGR:
 	    (void) Ginteger(&result, (unsigned)(a.v.int_val) << b.v.int_val);
 	    break;
-	BADINT_DEFAULT
+	default:
+	    BADINT_DEFAULT
 	}
 	break;
-    BADINT_DEFAULT
+    default:
+	BADINT_DEFAULT
     }
     push(&result);
 }
@@ -681,10 +702,12 @@ f_rightshift(union argument *arg)
 	case INTGR:
 	    (void) Ginteger(&result, (unsigned)(a.v.int_val) >> b.v.int_val);
 	    break;
-	BADINT_DEFAULT
+	default:
+	    BADINT_DEFAULT
 	}
 	break;
-    BADINT_DEFAULT
+    default:
+	BADINT_DEFAULT
     }
     push(&result);
 }
@@ -711,6 +734,7 @@ f_plus(union argument *arg)
 			    b.v.cmplx_val.real,
 			    b.v.cmplx_val.imag);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -727,9 +751,11 @@ f_plus(union argument *arg)
 			    a.v.cmplx_val.imag +
 			    b.v.cmplx_val.imag);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(&result);
@@ -756,6 +782,7 @@ f_minus(union argument *arg)
 			    b.v.cmplx_val.real,
 			    -b.v.cmplx_val.imag);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -772,9 +799,11 @@ f_minus(union argument *arg)
 			    a.v.cmplx_val.imag -
 			    b.v.cmplx_val.imag);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(&result);
@@ -807,6 +836,7 @@ f_mult(union argument *arg)
 			    a.v.int_val *
 			    b.v.cmplx_val.imag);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -828,9 +858,11 @@ f_mult(union argument *arg)
 			    a.v.cmplx_val.imag *
 			    b.v.cmplx_val.real);
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(&result);
@@ -874,6 +906,7 @@ f_div(union argument *arg)
 		undefined = TRUE;
 	    }
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -910,9 +943,11 @@ f_div(union argument *arg)
 		undefined = TRUE;
 	    }
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(&result);
@@ -995,6 +1030,7 @@ f_power(union argument *arg)
 				mag * sin(ang));
 	    }
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
@@ -1046,9 +1082,11 @@ f_power(union argument *arg)
 				mag * sin(ang));
 	    }
 	    break;
+	default:
 	    BAD_DEFAULT
 	}
 	break;
+    default:
 	BAD_DEFAULT
     }
     push(&result);
@@ -1124,7 +1162,7 @@ f_eqs(union argument *arg)
     (void) pop(&b);
     (void) pop(&a);
 
-    if(a.type != STRING || b.type != STRING)
+    if (a.type != STRING || b.type != STRING)
 	int_error(NO_CARET, "internal error : STRING operator applied to non-STRING type");
 
     (void) Ginteger(&result, !strcmp(a.v.string_val, b.v.string_val));
@@ -1142,7 +1180,7 @@ f_nes(union argument *arg)
     (void) pop(&b);
     (void) pop(&a);
 
-    if(a.type != STRING || b.type != STRING)
+    if (a.type != STRING || b.type != STRING)
 	int_error(NO_CARET, "internal error : STRING operator applied to non-STRING type");
 
     (void) Ginteger(&result, (int)(strcmp(a.v.string_val, b.v.string_val)!=0));
@@ -1253,7 +1291,9 @@ f_word(union argument *arg)
 {
     struct value a, b, result;
     int nwords = 0;
+    int in_string = 0;
     int ntarget;
+    char q;
     char *s;
 
     (void) arg;
@@ -1267,18 +1307,27 @@ f_word(union argument *arg)
 
     Gstring(&result, "");
     while (*s) {
-	while (isspace(*s)) s++;
+	while (isspace((unsigned char)*s)) s++;
 	if (!*s)
 	    break;
 	nwords++;
+	if (*s == '"' || *s == '\'') {
+	    q = *s;
+	    s++;
+	    in_string = 1;
+	}
 	if (nwords == ntarget) { /* Found the one we wanted */
 	    Gstring(&result,s);
 	    s = result.v.string_val;
 	}
-	while (*s && !isspace(*s)) s++;
+	while (*s && ((!isspace((unsigned char)*s) && !in_string) || (in_string && *s != q))) s++;
 	if (nwords == ntarget) { /* Terminate this word cleanly */
 	    *s = '\0';
 	    break;
+	}
+	if (in_string && (*s == q)) {
+	    in_string = 0;
+	    s++;
 	}
     }
 
@@ -1698,10 +1747,8 @@ f_system(union argument *arg)
     FPRINTF((stderr," f_system input = \"%s\"\n", val.v.string_val));
 
     ierr = do_system_func(val.v.string_val, &output);
-    if ((errno_var = add_udv_by_name("ERRNO"))) {
-	errno_var->udv_undef = FALSE;
+    if ((errno_var = add_udv_by_name("ERRNO")))
 	Ginteger(&errno_var->udv_value, ierr);
-    }
     output_len = strlen(output);
 
     /* chomp result */
@@ -1732,10 +1779,8 @@ f_assign(union argument *arg)
 	    int_error(NO_CARET,"Attempt to assign to a read-only variable");
 	udv = add_udv_by_name(a.v.string_val);
 	gpfree_string(&a);
-	if (!udv->udv_undef)
-	    gpfree_string(&(udv->udv_value));
+	gpfree_string(&(udv->udv_value));
 	udv->udv_value = b;
-	udv->udv_undef = FALSE;
 	push(&b);
     } else {
 	int_error(NO_CARET, "attempt to assign to something other than a named variable");
@@ -1766,7 +1811,7 @@ f_value(union argument *arg)
     while (p) {
 	if (!strcmp(p->udv_name, a.v.string_val)) {
 	    result = p->udv_value;
-	    if (p->udv_undef)
+	    if (p->udv_value.type == NOTDEFINED)
 		p = NULL;
 	    else if (result.type == STRING)
 		result.v.string_val = gp_strdup(result.v.string_val);

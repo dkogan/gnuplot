@@ -127,9 +127,10 @@ private:
 	QList<QtGnuplotKeybox> m_key_boxes;
 	QString m_currentHypertext;
 	QList<QGraphicsItem*> m_hypertextList;
+	QGraphicsPixmapItem* m_hyperimage;
 
 	// Axis scales
-	bool   m_axisValid[4];
+	bool   m_axisValid[5];	// x, y, x2, y2, z (indicates 3D plot)
 	double m_axisMin  [4];
 	double m_axisLower[4];
 	double m_axisScale[4];

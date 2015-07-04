@@ -182,7 +182,7 @@ typedef struct object {
 
 /* Datastructure implementing 'set dashtype' */
 struct custom_dashtype_def {
-    struct custom_dashtype_def *next;	/* pointer to next linestyle in linked list */
+    struct custom_dashtype_def *next;	/* pointer to next dashtype in linked list */
     int tag;			/* identifies the dashtype */
     int d_type;                 /* for DASHTYPE_SOLID or CUSTOM */
     struct t_dashtype dashtype;
@@ -279,6 +279,8 @@ typedef enum en_boxplot_factor_labels {
 	BOXPLOT_FACTOR_LABELS_X2
 } t_boxplot_factor_labels;
 
+#define DEFAULT_BOXPLOT_FACTOR -1
+
 typedef struct boxplot_style {
     int limit_type;	/* 0 = multiple of interquartile 1 = fraction of points */
     double limit_value;
@@ -340,12 +342,12 @@ typedef struct {
     TBOOLEAN invert;		/* key top to bottom */
     TBOOLEAN enhanced;		/* enable/disable enhanced text of key titles */
     struct lp_style_type box;	/* linetype of box around key:  */
-    char *title;		/* title line for the key as a whole */
     char *font;			/* Will be used for both key title and plot titles */
     struct t_colorspec textcolor;	/* Will be used for both key title and plot titles */
     BoundingBox bounds;
     int maxcols;		/* maximum no of columns for horizontal keys */
     int maxrows;		/* maximum no of rows for vertical keys */
+    text_label title;		/* holds title line for the key as a whole */
 } legend_key;
 
 extern legend_key keyT;
@@ -364,9 +366,9 @@ extern legend_key keyT;
 		FILENAME_KEYTITLES, \
 		FALSE, FALSE, FALSE, TRUE, \
 		DEFAULT_KEYBOX_LP, \
-		NULL, /* No title */ \
 		NULL, {TC_LT, LT_BLACK, 0.0}, \
-		{0,0,0,0}, 0, 0 }
+		{0,0,0,0}, 0, 0, \
+		EMPTY_LABELSTRUCT}
 
 
 /*
@@ -398,6 +400,13 @@ typedef struct {
 extern color_box_struct color_box;
 extern color_box_struct default_color_box;
 
+/* Holder for various image properties */
+typedef struct t_image {
+    t_imagecolor type; /* See above */
+    TBOOLEAN fallback; /* true == don't use terminal-specific code */
+    unsigned int ncols, nrows; /* image dimensions */
+} t_image;
+
 extern BoundingBox plot_bounds;	/* Plot Boundary */
 extern BoundingBox canvas; 	/* Writable area on terminal */
 extern BoundingBox *clip_area;	/* Current clipping box */
@@ -422,6 +431,7 @@ extern struct text_label *first_label;
 
 extern struct linestyle_def *first_linestyle;
 extern struct linestyle_def *first_perm_linestyle;
+extern struct linestyle_def *first_mono_linestyle;
 
 extern struct arrowstyle_def *first_arrowstyle;
 
@@ -533,8 +543,8 @@ void clip_move __PROTO((unsigned int x, unsigned int y));
 void clip_vector __PROTO((unsigned int x, unsigned int y));
 
 /* Common routines for setting line or text color from t_colorspec */
-void apply_pm3dcolor __PROTO((struct t_colorspec *tc, const struct termentry *t));
-void reset_textcolor __PROTO((const struct t_colorspec *tc, const struct termentry *t));
+void apply_pm3dcolor __PROTO((struct t_colorspec *tc));
+void reset_textcolor __PROTO((const struct t_colorspec *tc));
 
 extern fill_style_type default_fillstyle;
 
@@ -570,7 +580,7 @@ extern filledcurves_opts filledcurves_opts_data;
 extern filledcurves_opts filledcurves_opts_func;
 
 /* Prefer line styles over plain line types */
-#ifdef BACKWARDS_COMPATIBLE
+#if TRUE || defined(BACKWARDS_COMPATIBLE)
 extern TBOOLEAN prefer_line_styles;
 #else
 #define prefer_line_styles FALSE
@@ -587,8 +597,7 @@ void apply_head_properties __PROTO((struct arrow_style_type *arrow_properties));
 
 void free_labels __PROTO((struct text_label *tl));
 
-void get_offsets __PROTO((struct text_label *this_label,
-	struct termentry *t, int *htic, int *vtic));
+void get_offsets __PROTO((struct text_label *this_label, int *htic, int *vtic));
 void write_label __PROTO((unsigned int x, unsigned int y, struct text_label *label));
 int label_width __PROTO((const char *, int *));
 

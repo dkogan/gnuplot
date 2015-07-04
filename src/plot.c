@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot.c,v 1.162 2014/03/30 18:33:21 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot.c,v 1.166 2015/01/20 02:10:43 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot.c */
@@ -256,7 +256,8 @@ void
 bail_to_command_line()
 {
 #ifdef _Windows
-    call_kill_pending_Pause_dialog();
+    kill_pending_Pause_dialog();
+    ctrlc_flag = FALSE;
 #endif
     LONGJMP(command_line_env, TRUE);
 }
@@ -440,7 +441,7 @@ main(int argc, char **argv)
      * can be registered to be executed before the terminal is reset. */
     gp_atexit(term_reset);
 
-# if defined(_Windows) && ! defined(WGP_CONSOLE)
+# if defined(WIN32) && !defined(WGP_CONSOLE)
     interactive = TRUE;
 # else
     interactive = isatty(fileno(stdin));
@@ -654,21 +655,32 @@ RECOVER_FROM_ERROR_IN_DASH:
 	    }
     }
 
-#ifdef _Windows
-    /* On Windows 'persist' is handled by keeping the main input loop running. */
-    if (persist_cl) {
-	interactive = TRUE;
+    /* take commands from stdin */
+    if (noinputfiles)
 	while (!com_line())
 	    ctrlc_flag = FALSE; /* reset asynchronous Ctrl-C flag */
-	interactive = FALSE;
-    } else
+
+#ifdef _Windows
+    /* On Windows, handle 'persist' by keeping the main input loop running (windows/wxt), */
+    /* but only if there are any windows open. Note that qt handles this properly. */
+    if (persist_cl) {
+	if (WinAnyWindowOpen()) {
+#ifdef WGP_CONSOLE
+	    if (!interactive) {
+		/* no further input from pipe */
+		while (WinAnyWindowOpen())
+		win_sleep(100);
+	    } else
 #endif
-    {
-	/* take commands from stdin */
-	if (noinputfiles)
-	    while (!com_line())
-		ctrlc_flag = FALSE; /* reset asynchronous Ctrl-C flag */
+	    {
+		interactive = TRUE;
+		while (!com_line())
+		    ctrlc_flag = FALSE; /* reset asynchronous Ctrl-C flag */
+		interactive = FALSE;
+	    }
+	}
     }
+#endif
 
 #if (defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)) && defined(GNUPLOT_HISTORY)
 #if !defined(HAVE_ATEXIT) && !defined(HAVE_ON_EXIT)
@@ -713,7 +725,6 @@ init_constants()
     (void) Gcomplex(&udv_pi.udv_value, M_PI, 0.0);
     udv_NaN = get_udv_by_name("NaN");
     (void) Gcomplex(&(udv_NaN->udv_value), not_a_number(), 0.0);
-    udv_NaN->udv_undef = FALSE;
 }
 
 /*

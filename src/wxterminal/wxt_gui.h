@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.h,v 1.43 2014/04/18 04:12:47 sfeam Exp $
+ * $Id: wxt_gui.h,v 1.53 2015/05/13 19:15:58 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.h */
@@ -81,6 +81,9 @@
 #include <wx/dataobj.h>
 #include <wx/clipbrd.h>
 
+/* Save File dialog */
+#include <wx/filedlg.h>
+
 /* wxImage facility */
 #include <wx/image.h>
 
@@ -129,10 +132,7 @@ extern "C" {
 #endif
 
 /* With wxGTK, we use a different cairo surface starting from gtk28 */
-#if defined(__WXGTK__)&&defined(HAVE_GTK28)
-# define GTK_SURFACE
-#endif
-#if defined(__WXGTK__)&&!defined(HAVE_GTK28)
+#if defined(__WXGTK__)
 # define IMAGE_SURFACE
 #endif
 
@@ -179,6 +179,14 @@ extern "C" {
 /* for cairo_t */
 # include <cairo.h>
 
+#ifdef CAIRO_HAS_SVG_SURFACE
+#include <cairo/cairo-svg.h>
+#endif
+
+#ifdef CAIRO_HAS_PDF_SURFACE
+#include <cairo/cairo-pdf.h>
+#endif
+
 # ifdef USE_GTK
 #  include <gdk/gdk.h>
 #  include <gtk/gtk.h>
@@ -208,6 +216,11 @@ extern "C" {
  * ====================================================================*/
 
 #ifdef WXT_MULTITHREADED
+
+#if defined(WX_NEEDS_XINITTHREADS) && defined(X11)
+#include <X11/Xlib.h>	/* Magic fix for linking against wxgtk3.0 */
+#endif
+
 /* thread class, where the gui loop runs.
  * Not needed with Windows, where the main loop
  * already processes the gui messages */
@@ -239,6 +252,11 @@ DEFINE_EVENT_TYPE(wxStatusTextEvent)
 class wxtApp : public wxApp
 {
 public:
+#if defined(WXT_MULTITHREADED) && defined(WX_NEEDS_XINITTHREADS) && defined(X11)
+	/* Magic fix needed by wxgtk3.0 */
+        wxtApp() : wxApp() { XInitThreads(); } 
+#endif 
+
 	/* This one is called just after wxWidgets initialization */
 	bool OnInit();
 	/* cleanup on exit */
@@ -383,6 +401,7 @@ public :
 	void wxt_cairo_refresh();
 	void wxt_cairo_exec_command(gp_command command);
 	void wxt_cairo_draw_hypertext();
+	void wxt_cairo_draw_hyperimage();
 
 	/* the plot structure, defined in gp_cairo.h */
 	plot_struct plot;
@@ -446,6 +465,7 @@ class wxtConfigDialog : public wxDialog
 	bool persist_setting;
 	bool ctrl_setting;
 	bool toggle_setting;
+	bool redraw_setting;
 	/* rendering_setting :
 	 * 0 = no antialiasing, no oversampling
 	 * 1 = antialiasing, no oversampling
@@ -467,6 +487,7 @@ public:
 	void OnClose( wxCloseEvent& event );
 	void OnSize( wxSizeEvent& event );
 	void OnCopy( wxCommandEvent& event );
+	void OnExport( wxCommandEvent& event );
 #ifdef USE_MOUSE
 	void OnReplot( wxCommandEvent& event );
 	void OnToggleGrid( wxCommandEvent& event );
@@ -486,6 +507,8 @@ public:
 
 	wxtPanel * panel;
 	bool config_displayed;
+	wxToolBar * toolbar;
+
 private:
 	wxtConfigDialog * config_dialog;
 
@@ -497,6 +520,7 @@ private:
 enum {
 /* start at wxID_HIGHEST to avoid collisions */
 Toolbar_CopyToClipboard = wxID_HIGHEST,
+Toolbar_ExportToFile,
 Toolbar_Replot,
 Toolbar_ToggleGrid,
 Toolbar_ZoomPrevious,
@@ -522,11 +546,6 @@ static wxCursor wxt_cursor_cross;
 static wxCursor wxt_cursor_right;
 static wxCursor wxt_cursor_rotate;
 static wxCursor wxt_cursor_size;
-
-#ifdef DEBUG
- /* performance watch */
- static wxStopWatch sw;
-#endif
 
 /* wxt_abort_init is set to true if there is an error when
  * wxWidgets is initialized, for example if the X server is unreachable.

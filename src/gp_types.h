@@ -1,5 +1,5 @@
 /*
- * $Id: gp_types.h,v 1.62 2014/05/05 06:13:05 sfeam Exp $
+ * $Id: gp_types.h,v 1.66 2015/06/26 20:51:18 sfeam Exp $
  */
 
 /* GNUPLOT - gp_types.h */
@@ -50,7 +50,9 @@ enum DATA_TYPES {
 	CMPLX,
 	STRING,
 	DATABLOCK,
-	INVALID_VALUE	/* used only for error return by external functions */
+	NOTDEFINED,	/* exists, but value is currently undefined */
+	INVALID_VALUE,	/* used only for error return by external functions */
+	INVALID_NAME	/* used only to trap errors in linked axis function definition */
 };
 
 enum MODE_PLOT_TYPE {
@@ -127,7 +129,8 @@ typedef enum PLOT_SMOOTH {
     SMOOTH_CUMULATIVE,
     SMOOTH_KDENSITY,
     SMOOTH_CUMULATIVE_NORMALISED,
-    SMOOTH_MONOTONE_CSPLINE
+    SMOOTH_MONOTONE_CSPLINE,
+    SMOOTH_BINS
 } PLOT_SMOOTH;
 
 /* FIXME HBB 20000521: 'struct value' and its part, 'cmplx', should go
@@ -153,7 +156,9 @@ typedef struct value {
 typedef enum coord_type {
     INRANGE,			/* inside plot boundary */
     OUTRANGE,			/* outside plot boundary, but defined */
-    UNDEFINED			/* not defined at all */
+    UNDEFINED,			/* not defined at all */
+    EXCLUDEDRANGE		/* would be inside plot, but excluded for other reasons */
+				/* e.g. in polar mode and outside of trange[tmin:tmax] */
 } coord_type;
 
 

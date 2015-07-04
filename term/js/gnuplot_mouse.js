@@ -1,7 +1,7 @@
 /*
- * $Id: gnuplot_mouse.js,v 1.22 2013/05/07 22:13:46 sfeam Exp $
+ * $Id: gnuplot_mouse.js,v 1.24 2014/09/26 20:41:51 sfeam Exp $
  */
-    gnuplot.mouse_version = " 7 May 2013";
+    gnuplot.mouse_version = " 26 September 2014";
 
 // Mousing code for use with gnuplot's 'canvas' terminal driver.
 // The functions defined here assume that the javascript plot produced by
@@ -205,7 +205,7 @@ gnuplot.mouse_update = function(e)
   }
 
   // See if we are over a hypertext anchor point
-  if (typeof(gnuplot.hypertext_list != "unknown") && gnuplot.hypertext_list.length > 0) {
+  if (gnuplot.hypertext_list != "undefined" && gnuplot.hypertext_list.length > 0) {
     gnuplot.check_hypertext();
   }
 }

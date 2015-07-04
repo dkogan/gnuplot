@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: term.c,v 1.293 2014/05/05 22:19:21 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: term.c,v 1.315 2015/06/15 23:24:35 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - term.c */
@@ -103,9 +103,11 @@ long mouse_mode = 0;
 char* mouse_alt_string = NULL;
 #endif
 
-#ifdef _Windows
+#ifdef WIN32
+/* FIXME: Prototypes are in win/wcommon.h */
 FILE *open_printer __PROTO((void));     /* in wprinter.c */
 void close_printer __PROTO((FILE * outfile));
+# include "win/winmain.h"
 # ifdef __MSC__
 #  include <malloc.h>
 #  include <io.h>
@@ -139,6 +141,9 @@ TBOOLEAN term_initialised;
 /* The qt and wxt terminals cannot be used in the same session. */
 /* Whichever one is used first to plot, this locks out the other. */
 void *term_interlock = NULL;
+
+/* true if "set monochrome" */
+TBOOLEAN monochrome = FALSE;
 
 /* true if in multiplot mode */
 TBOOLEAN multiplot = FALSE;
@@ -196,6 +201,7 @@ TBOOLEAN ignore_enhanced_text = FALSE;
 
 /* Recycle count for user-defined linetypes */
 int linetype_recycle_count = 0;
+int mono_recycle_count = 4;
 
 
 /* Internal variables */
@@ -232,6 +238,7 @@ static int null_justify_text __PROTO((enum JUSTIFY just));
 static int null_scale __PROTO((double x, double y));
 static void null_layer __PROTO((t_termlayer layer));
 static int null_set_font __PROTO((const char *font));
+static void null_set_color __PROTO((struct t_colorspec *colorspec));
 static void options_null __PROTO((void));
 static void graphics_null __PROTO((void));
 static void UNKNOWN_null __PROTO((void));
@@ -577,6 +584,9 @@ term_reset()
 #ifdef USE_MOUSE
     /* Make sure that ^C will break out of a wait for 'pause mouse' */
     paused_for_mouse = 0;
+#ifdef WIN32
+    kill_pending_Pause_dialog();
+#endif
 #endif
 
     if (!term_initialised)
@@ -616,7 +626,7 @@ term_apply_lp_properties(struct lp_style_type *lp)
     t_dashtype custom_dash_pattern = lp->custom_dash_pattern;
     t_colorspec colorspec = lp->pm3d_color;
 
-    if (lp->pointflag) {
+    if ((lp->flags & LP_SHOW_POINTS)) {
 	/* change points, too
 	 * Currently, there is no 'pointtype' function.  For points
 	 * there is a special function also dealing with (x,y) co-
@@ -639,16 +649,21 @@ term_apply_lp_properties(struct lp_style_type *lp)
     /* and a dash pattern.  Now we have separate mechanisms for those. */ 
     if (LT_COLORFROMCOLUMN < lt && lt < 0)
 	(*term->linetype) (lt);
-    else /* All normal lines will be solid unless a dashtype is given */
+    else if (term->set_color == null_set_color) {
+	(*term->linetype) (lt-1);
+	return;
+    } else /* All normal lines will be solid unless a dashtype is given */
 	(*term->linetype) (LT_SOLID);
 
     /* Apply dashtype or user-specified dash pattern, which may override  */
     /* the terminal-specific dot/dash pattern belonging to this linetype. */
-    if (dt == DASHTYPE_CUSTOM)
+    if (lt == LT_AXIS)
+	; /* LT_AXIS is a special linetype that may incorporate a dash pattern */
+    else if (dt == DASHTYPE_CUSTOM)
 	(*term->dashtype) (dt, &custom_dash_pattern);
     else if (dt == DASHTYPE_SOLID)
 	(*term->dashtype) (dt, NULL);
-    else if (dt > 0)
+    else if (dt >= 0)
 	/* The null_dashtype() routine or a version 5 terminal's private  */
 	/* dashtype routine converts this into a call to term->linetype() */
 	/* yielding the same result as in version 4 except possibly for a */
@@ -656,7 +671,7 @@ term_apply_lp_properties(struct lp_style_type *lp)
 	(*term->dashtype) (dt, NULL);
 
     /* Finally adjust the color of the line */
-    apply_pm3dcolor(&colorspec, term);
+    apply_pm3dcolor(&colorspec);
 }
 
 void
@@ -811,6 +826,10 @@ do_point(unsigned int x, unsigned int y, int number)
 {
     int htic, vtic;
     struct termentry *t = term;
+
+    /* use solid lines for point symbols */
+    if (term->dashtype != null_dashtype)
+	term->dashtype(DASHTYPE_SOLID, NULL);
 
     if (number < 0) {           /* do dot */
 	(*t->move) (x, y);
@@ -1559,18 +1578,18 @@ init_terminal()
 
 #ifdef QTTERM
 	if (term_name == (char *) NULL)
-		term_name = "qt";
+	    term_name = "qt";
 #endif
 
 #ifdef WXWIDGETS
 	if (term_name == (char *) NULL)
-		term_name = "wxt";
+	    term_name = "wxt";
 #endif
 
 #ifdef _Windows
 	/* let the wxWidgets terminal be the default when available */
 	if (term_name == (char *) NULL)
-		term_name = "win";
+	    term_name = "win";
 #endif /* _Windows */
 
 #if defined(__APPLE__) && defined(__MACH__) && defined(HAVE_FRAMEWORK_AQUATERM)
@@ -1631,7 +1650,6 @@ init_terminal()
 	struct udvt_entry *name = add_udv_by_name("GNUTERM");
 
 	Gstring(&name->udv_value, gp_strdup(term_name));
-	name->udv_undef = FALSE;
 
 	if (strchr(term_name,' '))
 	    namelength = strchr(term_name,' ') - term_name;
@@ -1661,11 +1679,12 @@ test_term()
     struct termentry *t = term;
     const char *str;
     int x, y, xl, yl, i;
-    unsigned int xmax_t, ymax_t, x0, y0;
+    int xmax_t, ymax_t, x0, y0;
     char label[MAX_ID_LEN];
     int key_entry_height;
     int p_width;
     TBOOLEAN already_in_enhanced_text_mode;
+    static t_colorspec black = BLACK_COLORSPEC;
 
     already_in_enhanced_text_mode = t->flags & TERM_ENHANCED_TEXT;
     if (!already_in_enhanced_text_mode)
@@ -1673,10 +1692,10 @@ test_term()
 
     term_start_plot();
     screen_ok = FALSE;
-    xmax_t = (unsigned int) (t->xmax * xsize);
-    ymax_t = (unsigned int) (t->ymax * ysize);
-    x0 = (unsigned int) (xoffset * t->xmax);
-    y0 = (unsigned int) (yoffset * t->ymax);
+    xmax_t = (t->xmax * xsize);
+    ymax_t = (t->ymax * ysize);
+    x0 = (xoffset * t->xmax);
+    y0 = (yoffset * t->ymax);
 
     p_width = pointsize * t->h_tic;
     key_entry_height = pointsize * t->v_tic * 1.25;
@@ -1702,17 +1721,12 @@ test_term()
 	int_error(NO_CARET, "terminal type is unknown");
     else {
 	char tbuf[64];
-	strcpy(tbuf,term->name);
-	strcat(tbuf,"  terminal test");
 	(void) (*t->justify_text) (LEFT);
+	sprintf(tbuf,"%s  terminal test", term->name);
 	(*t->put_text) (x0 + t->h_char * 2, y0 + ymax_t - t->v_char, tbuf);
+	sprintf(tbuf, "gnuplot version %s.%s  ", gnuplot_version, gnuplot_patchlevel);
+	(*t->put_text) (x0 + t->h_char * 2, y0 + ymax_t - t->v_char * 2.25, tbuf);
     }
-
-#ifdef USE_MOUSE
-    if (t->set_ruler)
-	(*t->put_text) (x0 + t->h_char * 2, y0 + ymax_t - t->v_char * 2.5,
-			"Mouse and hotkeys are supported");
-#endif
 
     (*t->linetype) (LT_AXIS);
     (*t->move) (x0 + xmax_t / 2, y0);
@@ -1720,7 +1734,7 @@ test_term()
     (*t->move) (x0, y0 + ymax_t / 2);
     (*t->vector) (x0 + xmax_t - 1, y0 + ymax_t / 2);
     /* test width and height of characters */
-    (*t->linetype) (3);
+    (*t->linetype) (LT_SOLID);
     newpath();
     (*t->move) (x0 + xmax_t / 2 - t->h_char * 10, y0 + ymax_t / 2 + t->v_char / 2);
     (*t->vector) (x0 + xmax_t / 2 + t->h_char * 10, y0 + ymax_t / 2 + t->v_char / 2);
@@ -1827,8 +1841,9 @@ test_term()
     /* test some arrows */
     (*t->linewidth) (1.0);
     (*t->linetype) (0);
-    x = x0 + xmax_t * .375;
-    y = y0 + ymax_t * .250;
+    (*t->dashtype) (DASHTYPE_SOLID, NULL);
+    x = x0 + xmax_t * .28;
+    y = y0 + ymax_t * .5;
     xl = t->h_tic * 7;
     yl = t->v_tic * 7;
     i = curr_arrow_headfilled;
@@ -1840,13 +1855,14 @@ test_term()
     (*t->arrow) (x, y, x, y + yl, END_HEAD);
     curr_arrow_headfilled = AS_EMPTY;
     (*t->arrow) (x, y, x, y - yl, END_HEAD);
-    curr_arrow_headfilled = i;
+    curr_arrow_headfilled = AS_NOBORDER;
     xl = t->h_tic * 5;
     yl = t->v_tic * 5;
     (*t->arrow) (x - xl, y - yl, x + xl, y + yl, END_HEAD | BACKHEAD);
     (*t->arrow) (x - xl, y + yl, x, y, NOHEAD);
     curr_arrow_headfilled = AS_EMPTY;
     (*t->arrow) (x, y, x + xl, y - yl, BACKHEAD);
+    curr_arrow_headfilled = i;
 
     /* test line widths */
     (void) (*t->justify_text) (LEFT);
@@ -1858,11 +1874,30 @@ test_term()
     for (i=1; i<7; i++) {
 	(*t->linewidth) ((float)(i)); (*t->linetype)(LT_BLACK);
 	(*t->move) (x, y); (*t->vector) (x+xl, y);
-	sprintf(label,"  lw %1d%c",i,0);
+	sprintf(label,"  lw %1d", i);
 	(*t->put_text) (x+xl, y, label);
 	y += yl;
     }
     (*t->put_text) (x, y, "linewidth");
+
+    /* test native dashtypes (_not_ the 'set mono' sequence) */
+    (void) (*t->justify_text) (LEFT);
+    xl = xmax_t / 10;
+    yl = ymax_t / 25;
+    x = x0 + xmax_t * .3;
+    y = y0 + yl;
+    
+    for (i=0; i<5; i++) {
+ 	(*t->linewidth) (1.0);
+	(*t->linetype) (LT_SOLID);
+	(*t->dashtype) (i, NULL); 
+	(*t->set_color)(&black);
+	(*t->move) (x, y); (*t->vector) (x+xl, y);
+	sprintf(label,"  dt %1d", i+1);
+	(*t->put_text) (x+xl, y, label);
+	y += yl;
+    }
+    (*t->put_text) (x, y, "dashtype");
 
     /* test fill patterns */
     x = x0 + xmax_t * 0.5;
@@ -1884,7 +1919,7 @@ test_term()
 	(*t->vector)(x+xl,y);
 	(*t->vector)(x,y);
 	closepath();
-	sprintf(label,"%2d",i);
+	sprintf(label, "%2d", i);
 	(*t->put_text)(x+xl/2, y+yl+t->v_char*0.5, label);
 	x += xl * 1.5;
     }
@@ -2331,7 +2366,7 @@ enhanced_recursion(
 				isitalic = TRUE;
 			    if (!strncmp(p,"Normal",6))
 				isnormal = TRUE;
-			    while (isalpha(*p)) {p++;}
+			    while (isalpha((unsigned char)*p)) {p++;}
 			}
 		    } while (((ch = *p) == '=') || (ch == ':') || (ch == '*'));
 
@@ -2570,6 +2605,19 @@ int len;
     return len;
 }
 
+/* 
+ * Use estimate.trm to mock up a non-enhanced approximation of the
+ * original string.
+ */
+char *
+estimate_plaintext(char *enhancedtext)
+{
+    if (enhancedtext == NULL)
+	return NULL;
+    estimate_strlen(enhancedtext);
+    return ENHest_plaintext;
+}
+
 void
 ignore_enhanced(TBOOLEAN flag)
 {
@@ -2713,8 +2761,7 @@ load_dashtype(struct t_dashtype *dt, int tag)
     while (this != NULL) {
 	if (this->tag == tag) {
 	    *dt = this->dashtype;
-	    if (this->dashtype.str)
-		dt->str = gp_strdup(this->dashtype.str);
+	    memcpy(dt->dstring, this->dashtype.dstring, sizeof(dt->dstring));
 	    return this->d_type;
 	} else {
 	    this = this->next;
@@ -2735,13 +2782,13 @@ lp_use_properties(struct lp_style_type *lp, int tag)
      */
 
     struct linestyle_def *this;
-    int save_pointflag = lp->pointflag;
+    int save_flags = lp->flags;
 
     this = first_linestyle;
     while (this != NULL) {
 	if (this->tag == tag) {
 	    *lp = this->lp_properties;
-	    lp->pointflag = save_pointflag;
+	    lp->flags = save_flags;
 	    return;
 	} else {
 	    this = this->next;
@@ -2760,16 +2807,51 @@ void
 load_linetype(struct lp_style_type *lp, int tag)
 {
     struct linestyle_def *this;
-    int save_pointflag = lp->pointflag;
+    TBOOLEAN recycled = FALSE;
 
 recycle:
+
+    if ((tag > 0) && (monochrome || (term->flags & TERM_MONOCHROME))) {
+	for (this = first_mono_linestyle; this; this = this->next) {
+	    if (tag == this->tag) {
+		*lp = this->lp_properties;
+		return;
+	    }
+	}
+#if (0)
+	/* This linetype wasn't defined explicitly.		*/
+	/* Should we recycle one of the first N linetypes?	*/
+	if (tag > mono_recycle_count && mono_recycle_count > 0) {
+	    tag = (tag-1) % mono_recycle_count + 1;
+	    goto recycle;
+	}
+#endif
+	return;
+    }
+
     this = first_perm_linestyle;
     while (this != NULL) {
 	if (this->tag == tag) {
-	    *lp = this->lp_properties;
-	    lp->pointflag = save_pointflag;
-	    if (term->flags & TERM_MONOCHROME)
+	    /* Always load color, width, and dash properties */
+	    lp->l_type = this->lp_properties.l_type;
+	    lp->l_width = this->lp_properties.l_width;
+	    lp->pm3d_color = this->lp_properties.pm3d_color;
+	    lp->d_type = this->lp_properties.d_type;
+	    lp->custom_dash_pattern = this->lp_properties.custom_dash_pattern;
+
+	    /* Needed in version 5.0 to handle old terminals (pbm hpgl ...) */
+	    /* with no support for user-specified colors */
+	    if (term->set_color == null_set_color)
 		lp->l_type = tag;
+
+	    /* Do not recycle point properties. */
+	    /* FIXME: there should be a separate command "set pointtype cycle N" */
+	    if (!recycled) {
+	    	lp->p_type = this->lp_properties.p_type;
+	    	lp->p_interval = this->lp_properties.p_interval;
+	    	lp->p_char = this->lp_properties.p_char;
+	    	lp->p_size = this->lp_properties.p_size;
+	    }
 	    return;
 	} else {
 	    this = this->next;
@@ -2780,6 +2862,7 @@ recycle:
     /* Should we recycle one of the first N linetypes?	*/
     if (tag > linetype_recycle_count && linetype_recycle_count > 0) {
 	tag = (tag-1) % linetype_recycle_count + 1;
+	recycled = TRUE;
 	goto recycle;
     }
 
@@ -2819,7 +2902,7 @@ strlen_tex(const char *str)
 		break;
 	case '\\':
 		s++;
-		while (*s && isalpha(*s)) s++;
+		while (*s && isalpha((unsigned char)*s)) s++;
 		len++;
 		break;
 	case '{':

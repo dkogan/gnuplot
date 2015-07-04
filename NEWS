@@ -1,3 +1,63 @@
+Changes not in 5.0
+==================
+* NEW data filter "bins" sorts input into equal width bins on x
+* NEW hidden3d now observes 'image' and 'rgbimage' as hiding objects
+* NEW new command `toggle {<plotno> | "plottitle" | all}`
+* NEW Optional sampling interval in range specifier for pseudofile '+'
+* NEW point style associated with "plot with labels" is shown in the key
+* CHANGE Track font/enhanced for key title separately from the key entries
+* CHANGE order of margins in `set margins <left>, <right>, <bottom>, <top>`
+* CHANGE Store and reuse x,y dimensions from the time image data is read in
+* FIX cairo.trm - reset terminal font after printing an enhanced text string
+
+Changes in 5.0.rc3
+==================
+
+* NEW new command set {xyz}tics {timedate|geographic|numeric} sets axis->tictype
+* NEW add the tictype keywords to set format {axis} {time|geographic|numeric}
+* NEW format modifier 't' in timedate mode indicates a time rather than a date
+* CHANGE separate input format (axis->datatype) and output format (axis->tictype)
+* CHANGE report and save xyz position using time coordinates if appropriate
+* CHANGE emulate v4 syntax for timecolumn(<single-param>)
+* CHANGE revised v5 "fit" syntax does not match -rc1 and -rc2
+* CHANGE auto-detect and accept v4 "fit" syntax
+* CHANGE remove obsolete terminals aed and v384
+* FIX "splot ... with dots" was not drawing the dots
+* FIX revert arrowhead changes introduced in -rc1
+* FIX lua terminal support for LT_NODRAW, RGBA linecolors
+* FIX stats code was confusing x- and y- dimensions of matrix data
+* FIX track :Italic and :Bold given in "set term" for cairo terminals
+* FIX if $2 is NaN, plot FOO using 1:(oops=f($2)) should set oops to NaN
+
+Changes in 5.0.rc2
+==================
+
+* NEW grey out key entries when corresponding plot is toggled off
+* NEW allow parenthesized expressions as call parameters
+* NEW set margins <left>, <right>, <top>, <bottom>
+* NEW set trange [theta_min:theta_max] filters input data in polar plots
+* NEW "set mouse zoomfactors <xfact>,<yfact>"
+* NEW New matrix keywords for text data: "columnheaders" and "rowheaders"
+* CHANGE apply "set key {no}enhanced}" to the key title
+* CHANGE scale dashlength with line width
+* CHANGE respond to left mouse click on press rather than on release
+* CHANGE remove bf_test dependence on all other gnuplot files and libraries
+* CHANGE apply default rectangle style during "set obj" rather than when drawn
+* FIX wxgtk3 requires initialization of Xthreads
+* FIX width adjustment for long key title in multicolumn keys
+* FIX treat data value read as "NaN" the same as we would "1/0"
+* FIX handle pointtype PT_CHARACTER in 3D plots
+* FIX do not store long strings (e.g. epslatex_header) in terminal options array
+* FIX [maybe] extra resize of initial qt window may fix problems on OSX, Debian
+* FIX handling of events triggered by closing the qt plot window
+* FIX refresh of plot with log-scaled color box
+* FIX MSWin pipe issues
+* FIX if terminal is in "monochrome" mode, convert color requests to black
+* FIX apply user-defined line colors to text color also
+* FIX Fix y extent and clipping of rectangles with y<0 or inverted axes
+* FIX dashtype bugs in rectangles, arrows, and probably other things
+
+
 New features, changes and fixes in gnuplot version 5.0
 ======================================================
 
@@ -78,6 +138,8 @@ New features, changes and fixes in gnuplot version 5.0
 * CHANGE 'call' arguments are evaluated to yield a string if at all possible
 * CHANGE reworked qt driver for use with qt5, much faster rendering
 * CHANGE gnuplot-mode (emacs plugin) now maintained as a separate project
+* CHANGE autoscaled impulse plots will extend to y=0
+* CHANGE object borders can have dashtype and other line properties
 * FIX Hitting ^C twice will forcibly terminate wxt if server connection is lost
 
 

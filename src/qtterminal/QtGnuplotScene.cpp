@@ -470,6 +470,7 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	{
 		for (int i = 0; i < 4; i++)
 			in >> m_axisValid[i] >> m_axisMin[i] >> m_axisLower[i] >> m_axisScale[i] >> m_axisLog[i];
+		in >> m_axisValid[4];
 	}
 	else if (type == GEAfterPlot) 
 	{
@@ -503,7 +504,9 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	{
 		int i = m_key_boxes.count();
 		unsigned int ops_i;
+		int plotno;
 		in >> ops_i;
+		in >> plotno;
 		enum QtGnuplotModPlots ops = (enum QtGnuplotModPlots) ops_i;
 
 		/* FIXME: This shouldn't happen, but it does. */
@@ -512,6 +515,10 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		    i = m_plot_group.count();
 
 		while (i-- > 0) {
+			/* Does operation only affect a single plot? */
+			if (plotno >= 0 && i != plotno)
+				continue;
+
 			bool isVisible = m_plot_group[i]->isVisible();
 
 			switch (ops) {
@@ -534,9 +541,23 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	{
 		flushCurrentPointsItem();
 		int layer; in >> layer;
-		if (layer == QTLAYER_BEGIN_KEYSAMPLE) m_inKeySample = true;
-		if (layer == QTLAYER_END_KEYSAMPLE) m_inKeySample = false;
 		if (layer == QTLAYER_BEFORE_ZOOM) m_preserve_visibility = true;
+		if (layer == QTLAYER_BEGIN_KEYSAMPLE) m_inKeySample = true;
+		if (layer == QTLAYER_END_KEYSAMPLE)
+		{
+			m_inKeySample = false;
+
+			// FIXME: this catches mislabeled opaque keyboxes in multiplot mode
+			if (m_currentPlotNumber > m_key_boxes.length()) {
+				return;
+			}
+			// Draw an invisible grey rectangle in the key box.
+			// It will be set to visible if the plot is toggled off.
+			QtGnuplotKeybox *keybox = &m_key_boxes[m_currentPlotNumber-1];
+			QGraphicsRectItem *statusBox = addRect(*keybox, Qt::NoPen, Qt::Dense4Pattern);
+			statusBox->setZValue(m_currentZ-1);
+			keybox->showStatus(statusBox);
+		}
 	}
 	else if (type == GEHypertext)
 	{
@@ -627,6 +648,7 @@ void QtGnuplotScene::resetItems()
 	int i = m_key_boxes.count();
 	while (i-- > 0) {
 		m_key_boxes[i].setSize( QSizeF(0,0) );
+		m_key_boxes[i].resetStatus();
 		if (!m_preserve_visibility)
 			m_key_boxes[i].setHidden(false);
 	}
@@ -634,6 +656,9 @@ void QtGnuplotScene::resetItems()
 	m_hypertextList.clear();
 	m_hypertextList.append(addRect(QRect(), QPen(QColor(0, 0, 0, 100)), QBrush(QColor(225, 225, 225, 200))));
 	m_hypertextList[0]->setVisible(false);
+
+	m_hyperimage = addPixmap(QPixmap());
+	m_hyperimage->setVisible(false);
 
 	m_plot_group.clear();	// Memory leak?  Destroy groups first?
 }
@@ -752,21 +777,25 @@ void QtGnuplotScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 	// Mousing for inactive widgets
 	if (!m_widget->isActive())
 	{
-		m_lineTo->hide();
-		QString status;
-		if (m_axisValid[0])
-			status += QString("x = ")
-			+ QString::number(sceneToGraph(0,event->scenePos().x()));
-		if (m_axisValid[1])
-			status += QString(" y = ")
-			+ QString::number(sceneToGraph(1,event->scenePos().y()));
-		if (m_axisValid[2])
-			status += QString(" x2 = ")
-			+ QString::number(sceneToGraph(2,event->scenePos().x()));
-		if (m_axisValid[3])
-			status += QString(" y2 = ")
-			+ QString::number(sceneToGraph(3,event->scenePos().y()));
-		m_widget->setStatusText(status);
+		if (m_axisValid[4])	{
+			; // 3D plot - no mouse coordinate update
+		} else {
+			m_lineTo->hide();
+			QString status;
+			if (m_axisValid[0])
+				status += QString("x = ")
+				+ QString::number(sceneToGraph(0,event->scenePos().x()));
+			if (m_axisValid[1])
+				status += QString(" y = ")
+				+ QString::number(sceneToGraph(1,event->scenePos().y()));
+			if (m_axisValid[2])
+				status += QString(" x2 = ")
+				+ QString::number(sceneToGraph(2,event->scenePos().x()));
+			if (m_axisValid[3])
+				status += QString(" y2 = ")
+				+ QString::number(sceneToGraph(3,event->scenePos().y()));
+			m_widget->setStatusText(status);
+		}
 		QGraphicsScene::mouseMoveEvent(event);
 		return;
 	}
@@ -792,8 +821,22 @@ void QtGnuplotScene::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 			((QGraphicsRectItem *)m_hypertextList[0])->setRect(m_hypertextList[i]->boundingRect());
 			m_hypertextList[0]->setPos(m_hypertextList[i]->pos());
 			m_hypertextList[0]->setZValue(m_hypertextList[i]->zValue()-1);
+
+			// Special hypertext "image{(xsize,ysize)}:filename" 
+			QString current_text = ((QGraphicsTextItem *)(m_hypertextList[i]))->toPlainText();
+			if (current_text.startsWith("image")) {
+				int sep = current_text.indexOf(":");
+				QString imagename = current_text.mid(sep+1);
+				sep = imagename.indexOf("\n");
+				if (sep > 0)
+					imagename.truncate(sep);
+				m_hyperimage->setPixmap(QPixmap(imagename));
+				m_hyperimage->setVisible(true);
+				break;
+			}
 		} else {
 			m_hypertextList[i]->setVisible(false);
+			m_hyperimage->setVisible(false);
 		}
 	}
 	m_hypertextList[0]->setVisible(hit);
@@ -812,17 +855,11 @@ void QtGnuplotScene::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 	else if (event->button()== Qt::MidButton)   button = 2;
 	else if (event->button()== Qt::RightButton) button = 3;
 
-	// FIXME: If the press/release events get out of order or if we see a very
-	// fast double-click then the program errors out during event processing.
-	// Unfortunately I have not been able to reliably filter out these spurious events
-	// by setting a minimum time window.  Maybe an explicit interlock would work?
-	qint64 time = 0;
+	qint64 time = 301;	/* Only used the first time in, when timer not yet running */
 	if (m_watches[button].isValid())
 		time = m_watches[button].elapsed();
-	if (time > 300) {
-		m_eventHandler->postTermEvent(GE_buttonrelease,
-			int(event->scenePos().x()), int(event->scenePos().y()), button, time, m_widget);
-	}
+	m_eventHandler->postTermEvent(GE_buttonrelease,
+		int(event->scenePos().x()), int(event->scenePos().y()), button, time, m_widget);
 	m_watches[button].start();
 
 	/* Check for click in one of the keysample boxes */

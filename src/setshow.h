@@ -1,5 +1,5 @@
 /*
- * $Id: setshow.h,v 1.50 2014/03/23 12:17:59 markisch Exp $
+ * $Id: setshow.h,v 1.53 2015/03/29 17:26:00 sfeam Exp $
  */
 
 /* GNUPLOT - setshow.h */
@@ -44,23 +44,6 @@
 #include "gadgets.h"
 #include "term_api.h"
 
-#define PROGRAM "G N U P L O T"  /* FIXME: move to show.c! */
-
-#define SAVE_NUM_OR_TIME(fp, x, axis)				\
-do{								\
-    if (axis_array[axis].datatype == DT_TIMEDATE) {		\
-	char s[80];						\
-								\
-	putc('"', fp);						\
-	gstrftime(s,80,axis_array[axis].timefmt,(double)(x));	\
-	fputs(conv_text(s), fp);				\
-	putc('"', fp);						\
-    } else {							\
-	fprintf(fp,"%#g",x);					\
-    }								\
-} while(0)
-
-
 /* The set and show commands, in setshow.c */
 void set_command __PROTO((void));
 void unset_command __PROTO((void));
@@ -79,6 +62,7 @@ void free_marklist __PROTO((struct ticmark * list));
 extern int enable_reset_palette;
 void reset_palette __PROTO((void));
 void rrange_to_xy __PROTO((void));
+void unset_monochrome __PROTO((void));
 
 /* Called from set_label(), plot2d.c and plot3d.c */
 extern void parse_label_options __PROTO((struct text_label *this_label, TBOOLEAN));

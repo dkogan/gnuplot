@@ -1,5 +1,5 @@
 ﻿;
-; $Id: gnuplot.iss,v 1.8 2014/03/23 13:34:19 markisch Exp $
+; $Id: gnuplot.iss,v 1.11 2014/12/16 09:14:38 markisch Exp $
 ;
 ; GNUPLOT - gnuplot.iss
 ;
@@ -38,13 +38,14 @@
 ;
 
 #define MyAppName "gnuplot"
-#define MyAppVersionShort "5.0"
-#define MyAppVersion "5.0 patchlevel alpha"
-#define MyAppNumVersion "5.0.0"
+#define MyAppVersionShort "5.1"
+#define MyAppVersion "5.1 CVS"
+#define MyAppNumVersion "5.1.0"
 #define MyAppPublisher "gnuplot development team"
 #define MyAppURL "http://www.gnuplot.info/"
 #define MyAppExeName "wgnuplot.exe"
-#define MyInstallerName "gp50alpha-win32-setup"
+#define MyInstallerName "gp510-win32-setup"
+#define MyDocuments "%USERPROFILE%\Documents"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application.
@@ -97,8 +98,9 @@ Name: de; MessagesFile: compiler:Languages\German.isl;
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 0,6.1
-Name: defaulttermwin; Description: windows; GroupDescription: {cm:defaultterm}; Flags: unchecked exclusive;
+Name: defaulttermwin; Description: "windows"; GroupDescription: {cm:defaultterm}; Flags: unchecked exclusive;
 Name: defaulttermwxt; Description: "wxt"; GroupDescription: {cm:defaultterm}; Flags: unchecked exclusive;
+Name: defaulttermqt; Description: "qt"; GroupDescription: {cm:defaultterm}; Flags: unchecked exclusive;
 Name: defaulttermpreserve; Description: {cm:termpreserve}; GroupDescription: {cm:defaultterm}; Flags: exclusive;
 Name: associate; Description: "{cm:setassociations}"; GroupDescription: "{cm:other}";
 Name: associate\plt; Description: {cm:AssocFileExtension,{#MyAppName},.plt}; GroupDescription: "{cm:other}";
@@ -111,8 +113,11 @@ Name: modifypath; Description: {cm:path}; GroupDescription: "{cm:other}"; Flags:
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 ; core files
 Source: "bin\wgnuplot.exe"; DestDir: "{app}\bin\"; Flags: ignoreversion; Components: core
-Source: bin\wgnuplot_pipes.exe; DestDir: {app}\bin\; Flags: ignoreversion skipifsourcedoesntexist; Components: core;
+Source: "bin\wgnuplot_pipes.exe"; DestDir: "{app}\bin\"; Flags: ignoreversion skipifsourcedoesntexist; Components: core;
 Source: "bin\gnuplot.exe"; DestDir: "{app}\bin\"; Flags: ignoreversion; Components: core
+; qt terminal
+Source: "bin\gnuplot_qt.exe"; DestDir: "{app}\bin\"; Flags: skipifsourcedoesntexist ignoreversion; Components: core
+Source: "bin\platforms\*.dll"; DestDir: "{app}\bin\platforms\"; Flags: skipifsourcedoesntexist ignoreversion; Components: core
 ; core support files
 Source: "bin\*.dll"; DestDir: "{app}\bin\"; Flags: skipifsourcedoesntexist ignoreversion; Components: core
 Source: "bin\wgnuplot.mnu"; DestDir: {app}\bin\; Components: core
@@ -126,6 +131,7 @@ Source: "demo\*"; DestDir: {app}\demo\; Flags: recursesubdirs; Components: demo
 Source: "NEWS"; DestDir: {app}; Components: core
 Source: "README"; DestDir: {app}\docs\; Components: core
 Source: "README-Windows.txt"; DestDir: {app}; Components: core
+Source: "RELEASE_NOTES"; DestDir: {app}; Components: core
 Source: "README-testing.txt"; DestDir: {app}; Flags: skipifsourcedoesntexist; Components: core
 Source: "BUGS"; DestDir: {app}\docs\; Components: core
 Source: "ChangeLog"; DestDir: {app}\docs\; Components: core
@@ -143,8 +149,8 @@ Source: "bin\wgnuplot-ja.mnu"; DestDir: {app}\bin; Components: ja
 [Dirs]
 
 [Icons]
-Name: "{group}\{#MyAppName} {#MyAppVersionShort}"; Filename: "{app}\bin\{#MyAppExeName}"; WorkingDir: {userdocs}; Components: core;
-Name: "{group}\{#MyAppName} {#MyAppVersionShort} - console version"; Filename: "{app}\bin\gnuplot.exe"; WorkingDir: {userdocs}; Components: core;
+Name: "{group}\{#MyAppName} {#MyAppVersionShort}"; Filename: "{app}\bin\{#MyAppExeName}"; WorkingDir: {#MyDocuments}; Components: core;
+Name: "{group}\{#MyAppName} {#MyAppVersionShort} - console version"; Filename: "{app}\bin\gnuplot.exe"; WorkingDir: {#MyDocuments}; Components: core;
 Name: "{group}\{#MyAppName} Help"; Filename: {app}\bin\wgnuplot.chm; Components: core;
 Name: "{group}\{#MyAppName} Help (Japanese)"; Filename: {app}\bin\wgnuplot-ja.chm; Components: ja; Flags: CreateOnlyIfFileExists;
 Name: "{group}\{#MyAppName} Documentation"; Filename: {app}\docs\gnuplot.pdf; Components: docs; Flags: CreateOnlyIfFileExists;
@@ -153,8 +159,8 @@ Name: "{group}\{#MyAppName} Quick Reference"; Filename: {app}\docs\gpcard.pdf; C
 Name: "{group}\{#MyAppName} LaTeX Tutorial"; Filename: {app}\docs\tutorial.pdf; Components: docs; Flags: CreateOnlyIfFileExists;
 Name: "{group}\{cm:ProgramOnTheWeb,{#MyAppName}}"; Filename: "{#MyAppURL}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#MyAppName} {#MyAppVersionShort}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: desktopicon; WorkingDir: {userdocs}; Components: core;
-Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName} {#MyAppVersionShort}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: quicklaunchicon; WorkingDir: {userdocs}; Components: core;
+Name: "{commondesktop}\{#MyAppName} {#MyAppVersionShort}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: desktopicon; WorkingDir: {#MyDocuments}; Components: core;
+Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName} {#MyAppVersionShort}"; Filename: "{app}\bin\{#MyAppExeName}"; Tasks: quicklaunchicon; WorkingDir: {#MyDocuments}; Components: core;
 Name: "{group}\{#MyAppName} Demo Directory"; Filename: {app}\demo; Flags: FolderShortcut; Components: demo;
 
 [Components]
@@ -169,13 +175,14 @@ Name: "ja";  Description: "{cm:japanese}";
 Filename: {win}\notepad.exe; Description: {cm:view,README-Windows.txt}; Flags: nowait postinstall skipifsilent Unchecked RunAsOriginalUser ShellExec SkipIfDoesntExist; Parameters: {app}\README-Windows.txt; Languages: en de;
 Filename: {win}\notepad.exe; Description: "{cm:view,README-Windows-ja.txt}"; Flags: nowait postinstall skipifsilent Unchecked RunAsOriginalUser ShellExec SkipIfDoesntExist; Parameters: {app}\README-Windows-ja.txt; Languages: ja;
 ; launch gnuplot
-Filename: "{app}\bin\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, "&", "&&")}}"; Flags: nowait postinstall skipifsilent Unchecked RunAsOriginalUser; WorkingDir: {userdocs};
+Filename: "{app}\bin\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, "&", "&&")}}"; Flags: nowait postinstall skipifsilent Unchecked RunAsOriginalUser; WorkingDir: {#MyDocuments};
 
 [Registry]
 ; set some environment variables
 ; set default terminal
-Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUTERM; ValueData: windows; Flags: NoError UninsDeleteValue; Tasks: defaulttermwin;
-Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUTERM; ValueData: wxt; Flags: NoError UninsDeleteValue; Tasks: defaulttermwxt;
+Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUTERM; ValueData: "windows"; Flags: NoError UninsDeleteValue; Tasks: defaulttermwin;
+Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUTERM; ValueData: "wxt"; Flags: NoError UninsDeleteValue; Tasks: defaulttermwxt;
+Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUTERM; ValueData: "qt"; Flags: NoError UninsDeleteValue; Tasks: defaulttermqt;
 ; include demo directory in gnuplot's search path
 Root: HKLM; SubKey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; ValueType: string; ValueName: GNUPLOT_LIB; ValueData: "{app}\demo;{app}\demo\games;{app}\share"; Flags: CreateValueIfDoesntExist NoError UninsDeleteValue; Components: demo;
 ; easy start in explorer's run dialog
@@ -259,7 +266,7 @@ de.japanese=Japanische Sprachunterstützung
 de.defaultterm=Standard-Terminal für gnuplot:
 de.termpreserve=Umgebungsvariable GNUTERM nicht ändern
 de.other=Weitere Aufgaben:
-de.setassociations=Verknüpfungen herstellen
+de.setassociations=Verknüpfungen erstellen
 de.path=Anwendungsverzeichnis dem Suchpfad PATH hinzufügen
 ; actions
 de.view=%1 anzeigen

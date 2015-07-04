@@ -1,5 +1,5 @@
 /*
- * $Id: graphics.h,v 1.61 2013/12/26 17:58:29 sfeam Exp $
+ * $Id: graphics.h,v 1.65 2015/05/08 00:29:07 sfeam Exp $
  */
 
 /* GNUPLOT - graphics.h */
@@ -71,7 +71,6 @@ typedef struct curve_points {
     enum PLOT_SMOOTH plot_smooth; /* which "smooth" method to be used? */
     double smooth_parameter;	/* e.g. optional bandwidth for smooth kdensity */
     int boxplot_factors;	/* Only used if plot_style == BOXPLOT */
-    int *boxplot_factor_order;	/* Only used if plot_style == BOXPLOT */
     int p_max;			/* how many points are allocated */
     int p_count;		/* count of points in points */
     int x_axis;			/* FIRST_X_AXIS or SECOND_X_AXIS */
@@ -102,7 +101,15 @@ void map_position_r __PROTO((struct position* pos, double* x, double* y,
 void init_histogram __PROTO((struct histogram_style *hist, text_label *title));
 void free_histlist __PROTO((struct histogram_style *hist));
 
-void plot_image_or_update_axes __PROTO((void *plot, TBOOLEAN update_axes));
+typedef enum en_procimg_action {
+    IMG_PLOT,
+    IMG_UPDATE_AXES,
+    IMG_UPDATE_CORNERS
+} t_procimg_action;
+
+void process_image __PROTO((void *plot, t_procimg_action action));
+TBOOLEAN check_for_variable_color __PROTO((struct curve_points *plot, double *colorvalue));
+
 
 #ifdef EAM_OBJECTS
 void place_objects __PROTO((struct object *listhead, int layer, int dimensions));

@@ -139,7 +139,7 @@ void QtGnuplotPoint::paint(QPainter* painter, const QStyleOptionGraphicsItem* op
 	Q_UNUSED(option);
 	Q_UNUSED(widget);
 
-	const int style = m_style % 13;
+	const int style = m_style % 15;
 
 	if ((style % 2 == 0) && (style > 3)) // Filled points
 	{
@@ -154,10 +154,11 @@ void QtGnuplotPoint::paint(QPainter* painter, const QStyleOptionGraphicsItem* op
 
 void QtGnuplotPoint::drawPoint(QPainter* painter, const QPointF& origin, double size, int style)
 {
-	painter->drawPoint(origin);
-
-	if (style == -1)
+	if (style == -1) // dot
+	{
+		painter->drawPoint(origin);
 		return;
+	}
 
 	if ((style == 0) || (style == 2)) // plus or star
 	{
@@ -194,6 +195,15 @@ void QtGnuplotPoint::drawPoint(QPainter* painter, const QPointF& origin, double 
 							origin + QPointF(0., -size),
 							origin + QPointF(-size, 0.)};
 		painter->drawPolygon(p, 4);
+	}
+	else if ((style == 13) || (style == 14)) // pentagon
+	{
+		const QPointF p[5] = { origin + QPointF(0., size),
+						origin + QPointF( size*0.9511,  size*0.3090),
+						origin + QPointF( size*0.5878, -size*0.8090),
+						origin + QPointF(-size*0.5878, -size*0.8090),
+						origin + QPointF(-size*0.9511,  size*0.3090)};
+		painter->drawPolygon(p, 5);
 	}
 }
 
@@ -267,7 +277,7 @@ void QtGnuplotPoints::paint(QPainter* painter, const QStyleOptionGraphicsItem* o
 	{
 		for (; i < m_points.size() && m_points[i].z == z; i++, z++)
 		{
-			const int style = m_points[i].style % 13;
+			const int style = m_points[i].style % 15;
 
 			painter->setPen(m_points[i].pen.color());
 			if ((style % 2 == 0) && (style > 3)) // Filled points
@@ -312,6 +322,7 @@ void QtGnuplotPoints::paint(QPainter* painter, const QStyleOptionGraphicsItem* o
 QtGnuplotKeybox::QtGnuplotKeybox(const QRectF& rect) : QRectF(rect)
 {
 	m_hidden = false;
+	m_statusBox = NULL;
 }
 
 bool QtGnuplotKeybox::ishidden() const
@@ -322,4 +333,17 @@ bool QtGnuplotKeybox::ishidden() const
 void QtGnuplotKeybox::setHidden(bool state)
 {
 	m_hidden = state;
+	if (m_statusBox)
+		m_statusBox->setVisible(m_hidden);
+}
+
+void QtGnuplotKeybox::showStatus(QGraphicsRectItem* me)
+{
+	m_statusBox = me;
+	m_statusBox->setVisible(m_hidden);
+}
+
+void QtGnuplotKeybox::resetStatus()
+{
+	m_statusBox = NULL;
 }

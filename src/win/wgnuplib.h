@@ -1,5 +1,5 @@
 /*
- * $Id: wgnuplib.h,v 1.63 2014/01/18 16:14:50 markisch Exp $
+ * $Id: wgnuplib.h,v 1.68 2014/12/14 19:39:38 markisch Exp $
  */
 
 /* GNUPLOT - win/wgnuplib.h */
@@ -117,6 +117,7 @@ typedef struct tagPW
 } PW;
 typedef PW *  LPPW;
 
+TBOOLEAN MousableWindowOpened(void);
 int WDPROC PauseBox(LPPW lppw);
 
 /* ================================== */
@@ -305,6 +306,8 @@ struct GWOPBLK {			/* kept in local memory */
 #define W_text_encoding 47
 #define W_hypertext 48
 #define W_boxedtext 49
+#define W_dash_type 50
+
 
 typedef struct tagGW {
 	GP_LPPRINT	lpr;		/* must be first */
@@ -328,6 +331,8 @@ typedef struct tagGW {
 	HBITMAP	hBitmap;	/* bitmap of current graph */
 	BOOL	buffervalid;	/* indicates if hBitmap is valid */
 	BOOL	rotating;	/* are we currently rotating the graph? */
+	POINT	Canvas;		/* requested size of the canvas */
+	POINT	Decoration;	/* extent of the window decorations */
 
 	struct GWOPBLK *gwopblk_head;
 	struct GWOPBLK *gwopblk_tail;
@@ -413,6 +418,7 @@ extern int WIN_inifontsize;
 
 void WDPROC GraphInitStruct(LPGW lpgw);
 void WDPROC GraphInit(LPGW lpgw);
+void WDPROC GraphUpdateWindowPosSize(LPGW lpgw);
 void WDPROC GraphClose(LPGW lpgw);
 void WDPROC GraphStart(LPGW lpgw, double pointsize);
 void WDPROC GraphEnd(LPGW lpgw);
@@ -422,7 +428,7 @@ void WDPROC GraphOp(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str);
 void WDPROC GraphOpSize(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str, DWORD size);
 void WDPROC GraphPrint(LPGW lpgw);
 void WDPROC GraphRedraw(LPGW lpgw);
-void WDPROC GraphModifyPlots(LPGW lpgw, unsigned int operations);
+void WDPROC GraphModifyPlots(LPGW lpgw, unsigned int operations, int plotno);
 void WDPROC win_close_terminal_window(LPGW lpgw);
 TBOOLEAN GraphHasWindow(LPGW lpgw);
 char * GraphDefaultFont(void);

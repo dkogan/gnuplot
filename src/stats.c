@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: stats.c,v 1.12 2014/03/07 16:16:38 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: stats.c,v 1.21 2015/05/08 18:32:12 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - stats.c */
@@ -52,9 +52,9 @@ static int comparator __PROTO(( const void *a, const void *b ));
 static struct file_stats analyze_file __PROTO(( long n, int outofrange, int invalid, int blank, int dblblank ));
 static struct sgl_column_stats analyze_sgl_column __PROTO(( double *data, long n, long nr ));
 static struct two_column_stats analyze_two_columns __PROTO(( double *x, double *y,
-			      struct sgl_column_stats res_x,
-			      struct sgl_column_stats res_y,
-			      long n ));
+							     struct sgl_column_stats res_x,
+							     struct sgl_column_stats res_y,
+							     long n ));
 
 static void ensure_output __PROTO((void));
 static char* fmt __PROTO(( char *buf, double val ));
@@ -100,6 +100,7 @@ struct sgl_column_stats {
     double mean;
     double adev;
     double stddev;
+    double ssd;		/* sample standard deviation */
     double skewness;
     double kurtosis;
 
@@ -173,7 +174,7 @@ analyze_file( long n, int outofrange, int invalid, int blank, int dblblank )
 }
 
 static struct sgl_column_stats
-analyze_sgl_column( double *data, long n, long nr )
+analyze_sgl_column( double *data, long n, long nc )
 {
     struct sgl_column_stats res;
 
@@ -193,19 +194,19 @@ analyze_sgl_column( double *data, long n, long nr )
     struct pair *tmp = (struct pair *)gp_alloc( n*sizeof(struct pair),
 					      "analyze_sgl_column" );
 
-    if ( nr > 0 ) {
-	res.sx = nr;
-	res.sy = n / nr;
+    if ( nc > 0 ) {
+	res.sx = nc;
+	res.sy = n / nc;
     } else {
 	res.sx = 0;
 	res.sy = n;
     }
 
     /* Mean and centre of gravity */
-    for( i=0; i<n; i++ ) {
+    for (i=0; i<n; i++) {
 	s  += data[i];
 	s2 += data[i]*data[i];
-	if ( nr > 0 ) {
+	if ( nc > 0 ) {
 	    cx += data[i]*(i % res.sx);
 	    cy += data[i]*(i / res.sx);
 	}
@@ -216,16 +217,17 @@ analyze_sgl_column( double *data, long n, long nr )
     res.sum_sq = s2;
 
     /* Standard deviation, mean absolute deviation, skewness, and kurtosis */
-    for( i=0; i<n; i++ ) {
+    for (i=0; i<n; i++) {
 	double t = data[i] - res.mean;
-	ad += abs(t);
+	ad += fabs(t);
 	d  += t;
 	d2 += t*t;
 	d3 += t*t*t;
 	d4 += t*t*t*t;
     }
-    /* two-pass algorithm for variance */
-    var = (d2 - d * d / n) / n;  /* population, not sample */
+
+    /* population (not sample) variance, stddev, skew, kurtosis */
+    var = (d2 - d * d / n) / n;
     res.stddev = sqrt(var);
     res.adev = ad / n;
     if (var != 0.0) {
@@ -240,7 +242,10 @@ analyze_sgl_column( double *data, long n, long nr )
     res.skewness_err = sqrt(6.0 / n);
     res.kurtosis_err = sqrt(24.0 / n);
 
-    for( i=0; i<n; i++ ) {
+    /* sample standard deviation */
+    res.ssd = res.stddev * sqrt((double)(n) / (double)(n-1));
+
+    for (i=0; i<n; i++) {
 	tmp[i].val = data[i];
 	tmp[i].index = i;
     }
@@ -291,7 +296,7 @@ analyze_two_columns( double *x, double *y,
     double s = 0;
     double ssyy, ssxx, ssxy;
 
-    for( i=0; i<n; i++ ) {
+    for (i=0; i<n; i++) {
 	s += x[i] * y[i];
     }
     res.sum_xy = s;
@@ -400,6 +405,7 @@ sgl_column_output_nonformat( struct sgl_column_stats s, char *x )
 {
     fprintf( print_out, "%s%s\t%f\n", "mean",     x, s.mean );
     fprintf( print_out, "%s%s\t%f\n", "stddev",   x, s.stddev );
+    fprintf( print_out, "%s%s\t%f\n", "ssd",      x, s.ssd );
     fprintf( print_out, "%s%s\t%f\n", "skewness", x, s.skewness );
     fprintf( print_out, "%s%s\t%f\n", "kurtosis", x, s.kurtosis );
     fprintf( print_out, "%s%s\t%f\n", "adev",     x, s.adev);
@@ -421,10 +427,10 @@ sgl_column_output_nonformat( struct sgl_column_stats s, char *x )
 
     /* If data set is matrix */
     if ( s.sx > 0 ) {
-	fprintf( print_out, "%s%s\t%ld\n","index_min_x",  x, (s.min.index) / s.sx );
-	fprintf( print_out, "%s%s\t%ld\n","index_min_y",  x, (s.min.index) % s.sx );
-	fprintf( print_out, "%s%s\t%ld\n","index_max_x",  x, (s.max.index) / s.sx );
-	fprintf( print_out, "%s%s\t%ld\n","index_max_y",  x, (s.max.index) % s.sx );
+	fprintf( print_out, "%s%s\t%ld\n","index_min_x",  x, (s.min.index) % s.sx );
+	fprintf( print_out, "%s%s\t%ld\n","index_min_y",  x, (s.min.index) / s.sx );
+	fprintf( print_out, "%s%s\t%ld\n","index_max_x",  x, (s.max.index) % s.sx );
+	fprintf( print_out, "%s%s\t%ld\n","index_max_y",  x, (s.max.index) / s.sx );
 	fprintf( print_out, "%s%s\t%f\n","cog_x",  x, s.cog_x );
 	fprintf( print_out, "%s%s\t%f\n","cog_y",  x, s.cog_y );
     } else {
@@ -462,6 +468,7 @@ sgl_column_output( struct sgl_column_stats s, long n )
 
     fprintf( print_out, "  Mean:          %s\n", fmt( buf, s.mean ) );
     fprintf( print_out, "  Std Dev:       %s\n", fmt( buf, s.stddev ) );
+    fprintf( print_out, "  Sample StdDev: %s\n", fmt( buf, s.ssd ) );
     fprintf( print_out, "  Skewness:      %s\n", fmt( buf, s.skewness ) );
     fprintf( print_out, "  Kurtosis:      %s\n", fmt( buf, s.kurtosis ) );
     fprintf( print_out, "  Avg Dev:       %s\n", fmt( buf, s.adev ) );
@@ -478,9 +485,9 @@ sgl_column_output( struct sgl_column_stats s, long n )
     /* For matrices, the quartiles and the median do not make too much sense */
     if ( s.sx > 0 ) {
 	fprintf( print_out, "  Minimum:       %s [%*ld %ld ]\n", fmt(buf, s.min.val), width,
-	     (s.min.index) / s.sx, (s.min.index) % s.sx);
+	     (s.min.index) % s.sx, (s.min.index) / s.sx);
 	fprintf( print_out, "  Maximum:       %s [%*ld %ld ]\n", fmt(buf, s.max.val), width,
-	     (s.max.index) / s.sx, (s.max.index) % s.sx);
+	     (s.max.index) % s.sx, (s.max.index) / s.sx);
 	fprintf( print_out, "  COG:           %s %s\n", fmt(buf, s.cog_x), fmt(buf2, s.cog_y) );
     } else {
 	/* FIXME:  The "position" are randomly selected from a non-unique set. Bad! */
@@ -495,9 +502,9 @@ sgl_column_output( struct sgl_column_stats s, long n )
 
 static void
 two_column_output( struct sgl_column_stats x,
-			struct sgl_column_stats y,
-			struct two_column_stats xy,
-			long n )
+		   struct sgl_column_stats y,
+		   struct two_column_stats xy,
+		   long n )
 {
     int width = 1;
     char bfx[32];
@@ -505,7 +512,7 @@ two_column_output( struct sgl_column_stats x,
     char blank[32];
 
     if ( n > 0 )
-	width = 1 + (int)( log10( (double)n ) );
+	width = 1 + (int)log10((double)n);
 
     /* Non-formatted to disk */
     if ( print_out != stdout && print_out != stderr ) {
@@ -533,6 +540,7 @@ two_column_output( struct sgl_column_stats x,
     fprintf( print_out, "* COLUMNS:\n" );
     fprintf( print_out, "  Mean:          %s %s %s\n", fmt(bfx, x.mean),   blank, fmt(bfy, y.mean) );
     fprintf( print_out, "  Std Dev:       %s %s %s\n", fmt(bfx, x.stddev), blank, fmt(bfy, y.stddev ) );
+    fprintf( print_out, "  Sample StdDev: %s %s %s\n", fmt(bfx, x.ssd), blank, fmt(bfy, y.ssd ) );
     fprintf( print_out, "  Skewness:      %s %s %s\n", fmt(bfx, x.skewness), blank, fmt(bfy, y.skewness) );
     fprintf( print_out, "  Kurtosis:      %s %s %s\n", fmt(bfx, x.kurtosis), blank, fmt(bfy, y.kurtosis) );
     fprintf( print_out, "  Avg Dev:       %s %s %s\n", fmt(bfx, x.adev), blank, fmt(bfy, y.adev ) );
@@ -602,7 +610,6 @@ create_and_set_var( double val, char *prefix, char *base, char *suffix )
      */
     udv_ptr = add_udv_by_name(varname);
     udv_ptr->udv_value = data;
-    udv_ptr->udv_undef = FALSE;
 
     free( varname );
 }
@@ -624,6 +631,7 @@ sgl_column_variables( struct sgl_column_stats s, char *prefix, char *suffix )
 {
     create_and_set_var( s.mean,     prefix, "mean",     suffix );
     create_and_set_var( s.stddev,   prefix, "stddev",   suffix );
+    create_and_set_var( s.ssd,      prefix, "ssd",      suffix );
     create_and_set_var( s.skewness, prefix, "skewness", suffix );
     create_and_set_var( s.kurtosis, prefix, "kurtosis", suffix );
     create_and_set_var( s.adev,     prefix, "adev",     suffix );
@@ -641,10 +649,12 @@ sgl_column_variables( struct sgl_column_stats s, char *prefix, char *suffix )
 
     /* If data set is matrix */
     if ( s.sx > 0 ) {
-	create_and_set_var( (s.min.index) / s.sx, prefix, "index_min_x", suffix );
-	create_and_set_var( (s.min.index) % s.sx, prefix, "index_min_y", suffix );
-	create_and_set_var( (s.max.index) / s.sx, prefix, "index_max_x", suffix );
-	create_and_set_var( (s.max.index) % s.sx, prefix, "index_max_y", suffix );
+	create_and_set_var( (s.min.index) % s.sx, prefix, "index_min_x", suffix );
+	create_and_set_var( (s.min.index) / s.sx, prefix, "index_min_y", suffix );
+	create_and_set_var( (s.max.index) % s.sx, prefix, "index_max_x", suffix );
+	create_and_set_var( (s.max.index) / s.sx, prefix, "index_max_y", suffix );
+	create_and_set_var( s.sx, prefix, "size_x", suffix );
+	create_and_set_var( s.sy, prefix, "size_y", suffix );
     } else {
 	create_and_set_var( s.median,         prefix, "median",      suffix );
 	create_and_set_var( s.lower_quartile, prefix, "lo_quartile", suffix );
@@ -705,7 +715,6 @@ statsrequest(void)
 {
     int i;
     int columns;
-    int columnsread;
     double v[2];
     static char *file_name = NULL;
 
@@ -721,12 +730,8 @@ statsrequest(void)
     long out_of_range;     /* number pts rejected, because out of range */
 
     struct file_stats res_file;
-    struct sgl_column_stats res_x, res_y;
-    struct two_column_stats res_xy;
-
-    float *matrix;            /* matrix data. This must be float. */
-    int nc, nr;               /* matrix dimensions. */
-    int index;
+    struct sgl_column_stats res_x = {0}, res_y = {0};
+    struct two_column_stats res_xy = {0};
 
     /* Vars for variable handling */
     static char *prefix = NULL;       /* prefix for user-defined vars names */
@@ -743,14 +748,11 @@ statsrequest(void)
     parse_range(FIRST_Y_AXIS);
 
     /* Initialize */
-    columnsread = 2;
     invalid = 0;          /* number of missing/invalid records */
     blanks = 0;           /* number of blank lines */
     doubleblanks = 0;     /* number of repeated blank lines */
     out_of_range = 0;     /* number pts rejected, because out of range */
     n = 0;                /* number of records retained */
-    nr = 0;               /* Matrix dimensions */
-    nc = 0;
     max_n = INITIAL_DATA_SIZE;
 
     free(data_x);
@@ -761,7 +763,7 @@ statsrequest(void)
     if ( !data_x || !data_y )
       int_error( NO_CARET, "Internal error: out of memory in stats" );
 
-    n = invalid = blanks = doubleblanks = out_of_range = nr = 0;
+    n = invalid = blanks = doubleblanks = out_of_range = 0;
 
     /* Get filename */
     free ( file_name );
@@ -772,59 +774,24 @@ statsrequest(void)
     else
 	int_error(i, "missing filename or datablock");
 
-    /* ===========================================================
-    v923z: insertion for treating matrices
-      EAM: only handles ascii matrix with uniform grid,
-           and fails to apply any input data transforms
-      =========================================================== */
-    if ( almost_equals(c_token, "mat$rix") ) {
-	df_open(file_name, 3, NULL);
-	index = df_num_bin_records - 1;
-
-	/* We take these values as set by df_determine_matrix_info
-	See line 1996 in datafile.c */
-	nc = df_bin_record[index].scan_dim[0];
-	nr = df_bin_record[index].scan_dim[1];
-	n = nc * nr;
-
-	matrix = (float *)df_bin_record[index].memory_data;
-
-	/* Fill up a vector, so that we can use the existing code. */
-	/* FIXME: matrix code does not actually use data_x         */
-	if ( !redim_vec(&data_x, n) || !redim_vec(&data_y, n)) {
-	    int_error( NO_CARET,
-		   "Out of memory in stats: too many datapoints (%d)?", n );
-	}
-	for( i=0; i < n; i++ ) {
-	    data_y[i] = (double)matrix[i];
-	}
-	/* We can close the file here, there is nothing else to do */
-	df_close();
-	/* We will invoke single column statistics for the matrix */
-	columns = 1;
-
-    } else { /* Not a matrix */
+    /* Jan 2015: We used to handle ascii matrix data as a special case but
+     * the code did not work correctly.  Since df_read_matrix() dummies up
+     * ascii matrix data to look as if had been presented as a binary blob,
+     * we should be able to proceed with no special attention other than
+     * to set the effective number of columns to 1.
+     */
+    if (TRUE) {
 	columns = df_open(file_name, 2, NULL); /* up to 2 using specs allowed */
 
 	if (columns < 0)
 	    int_error(NO_CARET, "Can't read data file");
 
-	if (columns > 2 )
-	    int_error(c_token, "Need 0 to 2 using specs for stats command");
-
-	/* If the user has set an explicit locale for numeric input, apply it
-	   here so that it affects data fields read from the input file. */
-	/* v923z: where exactly should this be? here or before the matrix case?
-	 * I think, we should move everything here to before trying to open the file.
-	 * There is no point in trying to read anything, if the axis is logarithmic, e.g.
-	 */
-	set_numeric_locale();
-
 	/* For all these below: we could save the state, switch off, then restore */
 	if ( axis_array[FIRST_X_AXIS].log || axis_array[FIRST_Y_AXIS].log )
 	    int_error( NO_CARET, "Stats command not available with logscale active");
 
-	if ( axis_array[FIRST_X_AXIS].datatype == DT_TIMEDATE || axis_array[FIRST_Y_AXIS].datatype == DT_TIMEDATE )
+	if (axis_array[FIRST_X_AXIS].datatype == DT_TIMEDATE
+	||  axis_array[FIRST_Y_AXIS].datatype == DT_TIMEDATE )
 	    int_error( NO_CARET, "Stats command not available in timedata mode");
 
 	if ( polar )
@@ -833,46 +800,35 @@ statsrequest(void)
 	if ( parametric )
 	    int_error( NO_CARET, "Stats command not available in parametric mode" );
 
+	/* If the user has set an explicit locale for numeric input, apply it */
+	/* here so that it affects data fields read from the input file. */
+	set_numeric_locale();
+
 	/* The way readline and friends work is as follows:
 	 - df_open will return the number of columns requested in the using spec
 	   so that "columns" will be 0, 1, or 2 (no using, using 1, using 1:2)
 	 - readline always returns the same number of columns (for us: 1 or 2)
-	 - using 1:2 = return two columns, skipping lines w/ bad data
-	 - using 1   = return sgl column (supply zeros (0) for the second col)
-	 - no using  = return two columns (first two), fail on bad data
-
-	 We need to know how many columns to process. If columns==1 or ==2
-	 (that is, if there was a using spec), all is clear and we use the
-	 value of columns.
-	 But: if columns is 0, then we need to figure out the number of cols
-	 read from the return value of readline. If readline ever returns
-	 1, we take that; only if it always returns 2 do we assume two cols.
+	 - using n:m = return two columns, skipping lines w/ bad data
+	 - using n   = return single column (supply zeros (0) for the second col)
+	 - no using  = first two columns if both are present on the first line of data
+		       else first column only
 	 */
-
 	while( (i = df_readline(v, 2)) != DF_EOF ) {
-	    columnsread = ( i > columnsread ? i : columnsread );
 
 	    if ( n >= max_n ) {
 		max_n = (max_n * 3) / 2; /* increase max_n by factor of 1.5 */
 
 		/* Some of the reallocations went bad: */
-		if ( 0 || !redim_vec(&data_x, max_n) || !redim_vec(&data_y, max_n) ) {
+		if ( !redim_vec(&data_x, max_n) || !redim_vec(&data_y, max_n) ) {
 		    df_close();
 		    int_error( NO_CARET,
-		       "Out of memory in stats: too many datapoints (%d)?",
-		       max_n );
+		       "Out of memory in stats: too many datapoints (%d)?", max_n );
 		}
 	    } /* if (need to extend storage space) */
 
 	    switch (i) {
 	    case DF_MISSING:
 	    case DF_UNDEFINED:
-	      /* Invalids are only recognized if the syntax is like this:
-		     stats "file" using ($1):($2)
-		 If the syntax is simply:
-		     stats "file" using 1:2
-		 then df_readline simply skips invalid records (does not
-		 return anything!) Status: 2009-11-02 */
 	      invalid += 1;
 	      continue;
 
@@ -897,6 +853,7 @@ statsrequest(void)
 	      } else {
 		out_of_range++;
 	      }
+	      columns = 1;
 	      break;
 
 	    case 2: /* Read two columns successfully  */
@@ -908,6 +865,7 @@ statsrequest(void)
 	      } else {
 		out_of_range++;
 	      }
+	      columns = 2;
 	      break;
 	    }
 	} /* end-while : done reading file */
@@ -916,17 +874,10 @@ statsrequest(void)
 	/* now resize fields to actual length: */
 	redim_vec(&data_x, n);
 	redim_vec(&data_y, n);
-
-	/* figure out how many columns where really read... */
-	if ( columns == 0 )
-	    columns = columnsread;
-
-    }  /* end of case when the data file is not a matrix */
+    }
 
     /* Now finished reading user input; return to C locale for internal use*/
     reset_numeric_locale();
-
-    /* PKJ - TODO: similar for logscale, polar/parametric, timedata */
 
     /* No data! Try to explain why. */
     if ( n == 0 ) {
@@ -971,11 +922,17 @@ statsrequest(void)
 
     /* Do the actual analysis */
     res_file = analyze_file( n, out_of_range, invalid, blanks, doubleblanks );
-    if ( columns == 1 ) {
-	res_y = analyze_sgl_column( data_y, n, nr );
-    }
 
-    if ( columns == 2 ) {
+    /* Jan 2015: Revised detection and handling of matrix data */
+    if (df_matrix) {
+	int nc = df_bin_record[df_num_bin_records-1].scan_dim[0];
+	res_y = analyze_sgl_column( data_y, n, nc );
+	columns = 1;
+
+    } else if (columns == 1) {
+	res_y = analyze_sgl_column( data_y, n, 0 );
+
+    } else {
 	/* If there are two columns, then the data file is not a matrix */
 	res_x = analyze_sgl_column( data_x, n, 0 );
 	res_y = analyze_sgl_column( data_y, n, 0 );

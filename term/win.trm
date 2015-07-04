@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: win.trm,v 1.124 2014/04/03 00:33:39 markisch Exp $
+ * $Id: win.trm,v 1.133 2014/12/18 14:35:40 broeker Exp $
  */
 
 /* GNUPLOT - win.trm */
@@ -73,6 +73,7 @@ TERM_PUBLIC void WIN_graphics __PROTO((void));
 TERM_PUBLIC void WIN_move __PROTO((unsigned int x, unsigned int y));
 TERM_PUBLIC void WIN_vector __PROTO((unsigned int x, unsigned int y));
 TERM_PUBLIC void WIN_linetype __PROTO((int lt));
+TERM_PUBLIC void WIN_dashtype(int type, t_dashtype *custom_dash_pattern);
 TERM_PUBLIC void WIN_put_text __PROTO((unsigned int x, unsigned int y, const char *str));
 TERM_PUBLIC int WIN_justify_text __PROTO((enum JUSTIFY mode));
 TERM_PUBLIC int WIN_text_angle __PROTO((int ang));
@@ -100,7 +101,7 @@ TERM_PUBLIC void WIN_enhanced_flush __PROTO((void));
 TERM_PUBLIC void WIN_image __PROTO((unsigned int, unsigned int, coordval *, gpiPoint *, t_imagecolor));
 TERM_PUBLIC void WIN_layer __PROTO((t_termlayer syncpoint));
 TERM_PUBLIC void WIN_hypertext __PROTO((int type, const char * text));
-TERM_PUBLIC void WIN_modify_plots __PROTO((unsigned int operations));
+TERM_PUBLIC void WIN_modify_plots __PROTO((unsigned int operations, int plotno));
 
 /* Initialization values - guess now, scale later */
 #define WIN_XMAX (24000)
@@ -121,7 +122,7 @@ TERM_PUBLIC void WIN_modify_plots __PROTO((unsigned int operations));
 /* Interface routines - create list of actions for Windows */
 
 enum WIN_id { WIN_DEFAULT, WIN_MONOCHROME, WIN_COLOR, WIN_GTITLE,
-	      WIN_ENHANCED, WIN_NOENHANCED, WIN_FONT, WIN_SIZE,
+	      WIN_ENHANCED, WIN_NOENHANCED, WIN_FONT, WIN_SIZE, WIN_WSIZE,
 	      WIN_POSITION, WIN_CLOSE, WIN_BACKGROUND, WIN_FONTSCALE,
 	      WIN_LINEWIDTH, WIN_SOLID, WIN_DASHED, WIN_ROUND, WIN_BUTT,
 	      WIN_OTHER };
@@ -145,6 +146,7 @@ static struct gen_table WIN_opts[] =
     { "lw", WIN_LINEWIDTH },
     { "ti$tle", WIN_GTITLE },
     { "siz$e", WIN_SIZE },
+    { "ws$ize", WIN_WSIZE },
     { "pos$ition", WIN_POSITION },
     { "cl$ose", WIN_CLOSE },
     { NULL, WIN_OTHER }
@@ -165,7 +167,7 @@ WIN_options()
 	TBOOLEAN set_background = FALSE, set_fontscale = FALSE;
 	TBOOLEAN set_linewidth = FALSE, set_size = FALSE;
 	TBOOLEAN set_position = FALSE, set_number = FALSE;
-	TBOOLEAN set_rounded = FALSE;
+	TBOOLEAN set_wsize = FALSE, set_rounded = FALSE;
 	TBOOLEAN color, dashed, rounded;
 	COLORREF background;
 	double fontscale, linewidth;
@@ -259,6 +261,8 @@ WIN_options()
 			break;
 		case WIN_SIZE: {
 			c_token++;
+			if (set_wsize)
+				int_error(c_token, "conflicting size options");
 			if (END_OF_COMMAND)
 				int_error(c_token,"size requires 'width,heigth'");
 			win_width = real_expression();
@@ -268,6 +272,21 @@ WIN_options()
 			if (win_width < 1 || win_height < 1)
 				int_error(c_token, "size is out of range");
 			set_size = TRUE;
+			break;
+		}
+		case WIN_WSIZE: {
+			c_token++;
+			if (set_size)
+				int_error(c_token, "conflicting size options");
+			if (END_OF_COMMAND)
+				int_error(c_token,"windowsize requires 'width,heigth'");
+			win_width = real_expression();
+			if (!equals(c_token++,","))
+				int_error(c_token,"windowsize requires 'width,heigth'");
+			win_height = real_expression();
+			if (win_width < 1 || win_height < 1)
+				int_error(c_token, "windowsize canvas size is out of range");
+			set_wsize = TRUE;
 			break;
 		}
 		case WIN_POSITION: {
@@ -312,7 +331,7 @@ WIN_options()
 				}
 				if (*s) {
 					set_font = TRUE;
-					strncpy(fontname, s, MAXFONTNAME);
+					safe_strncpy(fontname, s, MAXFONTNAME);
 					free(s);
 				}
 			} else {
@@ -373,20 +392,26 @@ WIN_options()
 		graphwin->fontscale = fontscale;
 	if (set_linewidth)
 		graphwin->linewidth = linewidth;
-	if (set_size) {
+	if (set_size || set_wsize) {
 		graphwin->Size.x = win_width;
-		graphwin->Size.y = win_height + graphwin->StatusHeight;
+		graphwin->Size.y = win_height;
+	}
+	if (set_size) {
+		graphwin->Canvas.x = win_width;
+		graphwin->Canvas.y = win_height;
+	}
+	if (set_wsize) {
+		graphwin->Canvas.x = 0;
+		graphwin->Canvas.y = 0;
 	}
 	if (set_position) {
 		graphwin->Origin.x = win_x;
 		graphwin->Origin.y = win_y;
-		/* TODO: apply now */
 	}
 	if (set_title) {
 		free (graphwin->Title);
 		graphwin->Title = (title) ?  title : strdup(WINGRAPHTITLE);
 		GraphChangeTitle(graphwin);
-		/* TODO: apply now */
 	}
 	if (set_fontsize)
 		graphwin->deffontsize = graphwin->fontsize = fontsize;
@@ -405,6 +430,8 @@ WIN_options()
 	}
 
 	/* update graph window */
+	if ((set_position || set_size || set_wsize) && GraphHasWindow(graphwin))
+		GraphUpdateWindowPosSize(graphwin);
 	if (GraphHasWindow(graphwin) && IsIconic(graphwin->hWndGraph))
 		ShowWindow(graphwin->hWndGraph, SW_SHOWNORMAL);
 	GraphRedraw(graphwin);
@@ -449,6 +476,13 @@ WIN_update_options()
 	if (graphwin->linewidth != 1)
 		sprintf(&(term_options[strlen(term_options)]),
 			" linewidth %.1f", graphwin->linewidth);
+
+	if (graphwin->Canvas.x != 0)
+		sprintf(&(term_options[strlen(term_options)]),
+			" size %i,%i", graphwin->Canvas.x, graphwin->Canvas.y);
+	else if (graphwin->Size.x != CW_USEDEFAULT)
+		sprintf(&(term_options[strlen(term_options)]),
+			" wsize %i,%i", graphwin->Size.x, graphwin->Size.y);
 }
 
 
@@ -517,6 +551,13 @@ WIN_linetype(int lt)
 		GraphOp(graphwin, W_line_type, lt, 0, NULL);
 		WIN_last_linetype = lt;
 	}
+}
+
+
+TERM_PUBLIC void
+WIN_dashtype(int dt, t_dashtype *custom_dash_pattern)
+{
+	GraphOpSize(graphwin, W_dash_type, dt, 0, (char *) custom_dash_pattern, sizeof(t_dashtype));
 }
 
 
@@ -829,8 +870,8 @@ WIN_set_font(const char *font)
 		} else {
 			/* full font information supplied */
 			char fontname[MAXFONTNAME];
-			strncpy(fontname, font, size - font);
-			fontname[size - font] = '\0';
+			memcpy(fontname, font, size - font);
+			fontname[size-font] = '\0';
 			sscanf(size + 1, "%i", &fontsize);
 			GraphOp(graphwin, W_font, fontsize, 0, fontname);
 		}
@@ -865,8 +906,8 @@ TERM_PUBLIC void
 WIN_layer(t_termlayer syncpoint)
 {
 	/* ignore LAYER_RESET in multiplot mode */
-    if (((syncpoint == TERM_LAYER_RESET) || 
-	     (syncpoint == TERM_LAYER_RESET_PLOTNO)) && 
+    if (((syncpoint == TERM_LAYER_RESET) ||
+	     (syncpoint == TERM_LAYER_RESET_PLOTNO)) &&
 		multiplot)
 				return;
 	GraphOp(graphwin, W_layer, syncpoint, 0, NULL);
@@ -890,10 +931,10 @@ WIN_boxed_text(unsigned int x, unsigned int y, int option)
 #endif
 
 
-TERM_PUBLIC void 
-WIN_modify_plots(unsigned int operations)
+TERM_PUBLIC void
+WIN_modify_plots(unsigned int operations, int plotno)
 {
-	GraphModifyPlots(graphwin, operations);
+	GraphModifyPlots(graphwin, operations, plotno);
 }
 
 #endif /* TERM_BODY */
@@ -907,7 +948,7 @@ TERM_TABLE_START(win_driver)
     WIN_text, null_scale, WIN_graphics, WIN_move, WIN_vector,
     WIN_linetype, WIN_put_text, WIN_text_angle,
     WIN_justify_text, WIN_point, do_arrow, WIN_set_font,
-    WIN_set_pointsize, 
+    WIN_set_pointsize,
     TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH
         |TERM_LINEWIDTH|TERM_FONTSCALE | TERM_ENHANCED_TEXT,
     WIN_text /* suspend */ , WIN_resume,
@@ -931,7 +972,7 @@ TERM_TABLE_START(win_driver)
 #ifdef EAM_BOXED_TEXT
     , WIN_boxed_text
 #endif
-	, WIN_modify_plots
+    , WIN_modify_plots, WIN_dashtype
 TERM_TABLE_END(win_driver)
 
 #undef LAST_TERM
@@ -964,7 +1005,7 @@ START_HELP(windows)
 "                            {linewdith <scale>}",
 "                            {background <rgb color>}",
 "                            {title \"Plot Window Title\"}",
-"                            {size <width>,<height>}",
+"                            {{size | wsize} <width>,<height>}",
 "                            {position <x>,<y>}",
 "                            {close}",
 "",
@@ -987,7 +1028,8 @@ START_HELP(windows)
 " `linewidth` and `fontscale` can be used to scale the width of lines and",
 " the size of text.",
 " `title` changes the title of the graph window.",
-" `size` defines the width and height of the window in pixel and `position`",
+" `size` defines the width and height of the window's drawing area in pixels,",
+" `wsize` defines the actual size of the window itself and `position` defines",
 " the origin of the window i.e. the position of the top left corner on the",
 " screen (again in pixel). These options override any default settings",
 " from the `wgnuplot.ini` file.",
@@ -1055,12 +1097,13 @@ START_HELP(windows)
 "",
 " `Choose Font...` selects the font used in the graphics window.",
 "",
+#ifdef WIN_CUSTOM_PENS
 " `Line Styles...` allows customization of the line colors and styles.",
 "",
+#endif
 " `Update wgnuplot.ini` saves the current window locations, window sizes, text",
 " window font, text window font size, graph window font, graph window font",
-" size, background color and linestyles to the initialization file",
-" `wgnuplot.ini`.",
+" size, background color to the initialization file `wgnuplot.ini`.",
 "",
 "^<HR align=\"left\" width=\"100\">",
 " (*) Note that this menu is only available by pressing the right mouse button",
@@ -1178,6 +1221,7 @@ START_HELP(windows)
 "       GraphAntialiasing=1",
 "       GraphFastRotation=1",
 "       GraphBackground=255 255 255",
+#ifdef WIN_CUSTOM_PENS
 "       Border=0 0 0 0 0",
 "       Axis=192 192 192 2 2",
 "       Line1=0 0 255 0 0",
@@ -1185,6 +1229,7 @@ START_HELP(windows)
 "       Line3=255 0 0 0 2",
 "       Line4=255 0 255 0 3",
 "       Line5=0 0 128 0 4",
+#endif
 "",
 "^ <h3>Text window options</h3> ",
 "",
@@ -1206,6 +1251,7 @@ START_HELP(windows)
 "^ <h3>Graph window options</h3>",
 "",
 " The `GraphFont` entry specifies the font name and size in points.",
+#ifdef WIN_CUSTOM_PENS
 "",
 " The five",
 " numbers given in the `Border`, `Axis` and `Line` entries are the `Red`",
@@ -1216,6 +1262,7 @@ START_HELP(windows)
 " line width is 1 pixel.  If `Linestyle` is negative, it specifies the width of",
 " a SOLID line in pixels.  Line1 and any linestyle used with the `points` style",
 " must be SOLID with unit width.",
+#endif
 "",
 " See `graph-menu`."
 END_HELP(windows)

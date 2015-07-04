@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.887 2014/05/05 06:17:36 sfeam Exp $
+C RCS $Id: gnuplot.doc,v 1.951 2015/06/26 20:51:18 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -166,13 +166,16 @@ C
 
  If you need help as a gnuplot user, please use the newsgroup
            comp.graphics.apps.gnuplot
- We prefer that you read the messages through the newsgroup rather than
- subscribing to the mailing list which is also available and carries the same
- set of messages. Instructions for subscribing to gnuplot mailing lists may be
+
+ Instructions for subscribing to gnuplot mailing lists may be
  found via the gnuplot development website on SourceForge
 ^ <a href="http://sourceforge.net/projects/gnuplot">
            http://sourceforge.net/projects/gnuplot
 ^ </a>
+
+ Please note that before you write to any of the gnuplot mailing lists, 
+ you have to subscribe to the list first.  This is necessary to keep the
+ spam level down.  
 
  The address for mailing to list members is:
            gnuplot-info@lists.sourceforge.net
@@ -203,7 +206,7 @@ C
  * Interactive terminals support hypertext labels that only appear when the
  mouse hovers over the label's anchor point.
 
- * New coordinate system (Degrees, Minutes, Seconds). See `set xdata geographic`.
+ * New coordinate system (Degrees, Minutes, Seconds). See `set xtics geographic`.
 
  * The default format for axis labels is "% h" ("$%h$" for LaTeX terminals).
  This format is like the C standard format %g except that the exponential term,
@@ -241,24 +244,29 @@ C
 
  * Bit-shift operators >> and <<.
 
- * New plot styles: `with parallelaxes`, labeled contours.
+ * New plot styles: `with parallelaxes`, `with table`, labeled contours.
+
+ * Shell invocation of gnuplot can pass parameters to a gnuplot script.
+ gnuplot -c scriptfile.gp ARG1 ARG2 ARG3 ...
 
 3 New commands
 #start
-# history !N                               # re-execute prior command by number
 # import f(x) from "plugin.so"             # load function from shared library
+# set history {quiet|numers} {full|trim}   # controls output of history command
+# history !N                               # re-execute prior command by number
 # plot <datafile> skip N                   # skip lines at start of ascii data file
 # plot ... smooth mcsplines                # monotonic cubic spline fit to data
-# plot ... with parallelaxes               # new plot style
 # reset session                            # restore initial state of current session
 # set arrow <tag> from <start> length <len> angle <ang>
 # set colorsequence default|classic|podo   # colors used by successive plot elements
+# set monochrome                           # alternative set of linetypes
 # set dashtype <tag> <dash-spec>           # user-defined dash patterns
 # set link x2 via f(x) inverse g(x)        # allows non-linear axis scaling
 # set fit quiet|results|brief|verbose      # control the amount of fit output
-# set multiplot next|previous              # out-of-order plotting to an autolayout
 # set contours; splot ... with labels      # label contour lines with numeric values
 # set style textbox                        # text elements can be enclosed in a box
+# set view map {scale}                     # allows resizing a 3D projection plot
+# set multiplot {next|previous}            # navigate within the auto-layout grid
 #end
 
 2 Changes in version 5
@@ -279,9 +287,11 @@ C
  millisecond precision.
 
  * The function `timecolumn(N,"timeformat")` now has 2 parameters. Because the
- required second parameter is not associated with any particular data axis, this
+ new second parameter is not associated with any particular data axis, this
  allows using the `timecolumn` function to read time data for reasons other than
- specifying the x or y coordinate.
+ specifying the x or y coordinate. This functionality replaces the command
+ sequence `set xdata time; set timefmt "timeformat"`.  It allows combining time
+ data read from multiple files with different formats within a single plot.
 
  * The `reverse` keyword of the `set [axis]range` command affects only
  autoscaling. It does not invert or otherwise alter the meaning of a command
@@ -632,8 +642,10 @@ C
 #\verb| | & \verb|{/Times:Italic abc}| & {\it abc} & print abc in font Times with style italic\\
 #\verb| | & \verb|{/Arial:Bold=20 abc}| & \Large\textsf{\textbf{abc}} & print abc in boldface Arial font size 20\\
 %c c l .
-%.TE", /* ugly - doc2ms uses @ for column separator, but here we */
-%.TS", /* need @ in table, so end and restart the table ! */
+C ugly - doc2ms uses @ for column separator, but here we
+C  need @ in table, so end and restart the table !
+%.TE
+%.TS
 %center box tab ($) ;
 %c c l .
 %Control$Examples$Explanation
@@ -782,6 +794,14 @@ C
  Complex constants are expressed as {<real>,<imag>}, where <real> and <imag>
  must be numerical constants.  For example, {3,2} represents 3 + 2i; {0,1}
  represents 'i' itself.  The curly braces are explicitly required here.
+
+=octal
+=hexadecimal
+ Integer constants are interpreted via the C library routine strtoll().
+ This means that constants beginning with "0" are interpreted as octal,
+ and constants beginning with "0x" or "0X" are interpreted as hexadecimal.
+
+ Floating point constants are interpreted via the C library routin atof().
 
 =division
  Note that gnuplot uses both "real" and "integer" arithmetic, like FORTRAN and
@@ -1066,15 +1086,15 @@ C marker below is used to signal this to doc2html:
  argument in radians.
 4 EllipticK
 #EllipticK(k) & real k $\in$ (-1:1) & $K(k)$ complete elliptic integral of the first kind \\
-%EllipticK(k)@real k in (-1:1)@$K k$ complete elliptic integral of the first kind
+%EllipticK(k)@real k in (-1:1)@$K ( k )$ complete elliptic integral of the first kind
  See `elliptic integrals`.
 4 EllipticE
 #EllipticE(k) & real k $\in$ [-1:1] & $E(k)$ complete elliptic integral of the second kind \\
-%EllipticE(k)@real k in [-1:1]@ $E k$ complete elliptic integral of the second kind
+%EllipticE(k)@real k in [-1:1]@ $E ( k )$ complete elliptic integral of the second kind
  See `elliptic integrals`.
 4 EllipticPi
 #EllipticPi(n,k) & real n$<$1, real k $\in$ (-1:1) & $\Pi(n,k)$ complete elliptic integral of the third kind \\
-%EllipticPi(n,k)@ real n<1, real k in (-1:1)@ $Pi n,k$ complete elliptic integral of the third kind
+%EllipticPi(n,k)@ real n<1, real k in (-1:1)@ $Pi ( n,k )$ complete elliptic integral of the third kind
  See `elliptic integrals`.
 4 besj0
 ?expressions functions besj0
@@ -1345,20 +1365,20 @@ C marker below is used to signal this to doc2html:
 ?expressions functions cerf
 ?cerf
 #cerf(z) & complex &  complex error function \\
-%cerf(z)@complex@complex error function \\
+%cerf(z)@complex@complex error function
  `cerf(z)` is the complex version of the error function erf(x)
 4 cdawson
 ?expressions functions cdawson
 ?cdawson
 =dawson
-%cdawson(z) @ complex @ complex Dawson's integral \\
+%cdawson(z)@complex@complex Dawson's integral
 #cdawson(z)&complex&complex extension of Dawson's integral $D(z)={\frac{\sqrt{\pi}}{2}e^{-z^2} erfi(z)} $ \\
  `cdawson(z)` returns Dawson's Integral evaluated for the complex argument z.
  cdawson(z) = sqrt(pi)/2 * exp(-z^2) * erfi(z)
 4 faddeeva
 ?expressions functions faddeeva
 ?faddeeva
-%faddeeva(z) @ complex @ rescaled complex error function w(z) = exp(-z^2) * erfc(-i*z) \\
+%faddeeva(z)@complex@rescaled complex error function w(z) = exp(-z^2) * erfc(-i*z)
 #faddeeva(z)&complex&rescaled complex error function $w(z) = e^{-z^2}~ erfc(-iz) $ \\
  `Faddeeva(z)` returns the rescaled complex error function 
   w(z) = exp(-z^2) * erfc(-i*z)
@@ -1366,13 +1386,13 @@ C marker below is used to signal this to doc2html:
 4 erfi
 ?expressions functions erfi
 ?erfi
-%erfi(x) @ real @ imaginary error function erfi(x) = -i * erf(ix) \\
+%erfi(x)@real@imaginary error function erfi(x) = -i * erf(ix)
 #erfi(x)&real&imaginary error function $erf(x) = -i * erf(ix)$ \\
  Imaginary error function erfi(x) = -i * erf(ix)
 4 Voigt Profile
 ?expressions functions VP
 ?VP
-%VP(x,sigma,gamma) @ real @ Voigt profile \\
+%VP(x,sigma,gamma)@real@Voigt profile
 #VP(x,$\sigma$,$\gamma$)&real& Voigt profile $ VP(x,\sigma,\gamma) = {\int^{\infty}_{-\infty}{G(x^\prime;\sigma) L(x-x^\prime;\gamma) dx^\prime }} $ \\
  `VP(x,sigma,gamma)` corresponds to the Voigt profile defined by convolution of
  a Gaussian G(x;sigma) with a Lorentzian L(x;gamma).
@@ -1463,16 +1483,12 @@ C marker below is used to signal this to doc2html:
  This can be used to import external functions into gnuplot scripts using
  'f(x) = real(system(sprintf("somecommand %f", x)))'.
 4 word
-?expressions functions word
-?word
 =word
 #word("string",n) & string, int & returns the nth word in "string" \\
 %word("string",n)@string, int@returns the nth word in "string"
  `word("string",n)` returns the nth word in string. For example,
  `word("one two three",2)` returns the string "two".
 4 words
-?expressions functions words
-?words
 =words
 #words("string") & string & returns the number of words in "string" \\
 %words("string")@string@returns the number of words in "string"
@@ -1492,7 +1508,7 @@ C marker below is used to signal this to doc2html:
 ?expressions functions column
 ?column
 #column(x) & int or string & column $x$ during datafile manipulation. \\
-%column(x)@int or string@ column $x$ during datafile manipulation.
+%column(x)@int or string@column $x$ during datafile manipulation.
  `column(x)` may be used only in expressions as part of `using` manipulations
  to fits or datafile plots.  It evaluates to the numerical value of the contents
  of column x. See `plot datafile using`.
@@ -1500,7 +1516,7 @@ C marker below is used to signal this to doc2html:
 ?expressions functions columnhead
 ?columnhead
 #columnhead(x) & int & string containing first entry of column $x$ in datafile. \\
-%columnhead(x)@int@ string containing first entry of column $x$ in datafile.
+%columnhead(x)@int@string containing first entry of column $x$ in datafile.
  `columnhead(x)` may only be used in expressions as part of `using` manipulations
  to fits or datafile plots.  It evaluates to a string containing the contents of
  column x in the first line of data. See `plot datafile using`.
@@ -1508,7 +1524,7 @@ C marker below is used to signal this to doc2html:
 ?expressions functions exists
 ?exists
 #exists("X") & string & returns 1 if a variable named X is defined, 0 otherwise. \\
-%exists("X")@string@ returns 1 if a variable named X is defined, 0 otherwise.
+%exists("X")@string@returns 1 if a variable named X is defined, 0 otherwise.
  The argument to exists() is a string constant or a string variable;
  if the string contains the name of a defined variable, the function returns 1.
  Otherwise the function returns 0.
@@ -1517,7 +1533,7 @@ C marker below is used to signal this to doc2html:
 ?hsv2rgb
 ?hsv
 #hsv2rgb(h,s,v) & h,s,v $\in$ [0:1] & 24bit RGB color value. \\
-%hsv2rgb(h,s,v)@h,s,v $\in$ [0:1]@ 24bit RGB color value.
+%hsv2rgb(h,s,v)@h,s,v in [0:1]@24bit RGB color value.
  The HSV (Hue/Saturation/Value) triplet is converted to an equivalent RGB value.
 4 stringcolumn
 ?expressions functions stringcolumn
@@ -1525,7 +1541,7 @@ C marker below is used to signal this to doc2html:
 ?expressions functions strcol
 ?strcol
 #stringcolumn(x) & int or string & content of column $x$ as a string. \\
-%stringcolumn(x)@int or string@ content column $x$ as a string.
+%stringcolumn(x)@int or string@content column $x$ as a string.
  `stringcolumn(x)` may be used only in expressions as part of `using` manipulations
  to fits or datafile plots.  It returns the content of column x as a string variable.
  See `plot datafile using`.
@@ -1533,8 +1549,8 @@ C marker below is used to signal this to doc2html:
 ?expressions functions timecolumn
 ?timecolumn
 #timecolumn(N,"timeformat") & int, string & time data from column $N$ during data input. \\
-%timecolumn(N,"timeformat")@int, string@ time data from column $N$ during data input.
- `timecolumn(N,"timeformat)` may be used only in expressions as part of `using`
+%timecolumn(N,"timeformat")@int, string@time data from column $N$ during data input.
+ `timecolumn(N,"timeformat")` may be used only in expressions as part of `using`
  manipulations to fits or datafile plots.   See `plot datafile using`.
 
  It reads string data starting at column N as a time/date value and uses "timeformat"
@@ -1617,12 +1633,12 @@ C marker below is used to signal this to doc2html:
 ?expressions functions valid
 ?valid
 #valid(x) & int & test validity of $\mbox{column}(x)$ during datafile manip.\\
-%valid(x)@int@ test validity of column($x$) during datafile manip.
+%valid(x)@int@test validity of column($x$) during datafile manip.
  `valid(x)` may be used only in expressions as part of `using` manipulations
  to fits or datafile plots.  See `plot datafile using`.
 
 #value("name") & string & returns the value of the named variable.\\
-%value("name")@string@ returns the current value of the named variable.
+%value("name")@string@returns the current value of the named variable.
 @end table
 
 4 elliptic integrals
@@ -1670,6 +1686,32 @@ C marker below is used to signal this to doc2html:
  string that does not correspond to a currently defined variable,
  value() returns NaN.
 
+4 Counting and extracting words
+?expressions functions word
+?expressions functions words
+?words
+?word
+ `word("string",n)` returns the nth word in string. For example,
+ `word("one two three",2)` returns the string "two".
+
+ `words("string")` returns the number of words in string. For example,
+ `words(" a b c d")` returns 4.
+
+ The `word` and `words` functions provide limited support for quoted strings, 
+ both single and double quotes can be used:
+       print words("\"double quotes\" or 'single quotes'")   # 3
+ A starting quote must either be preceeded by a white space, or start the 
+ string. This means that apostrophes in the middle or at the end of words are 
+ considered as parts of the respective word:
+       print words("Alexis' phone doesn't work") # 4
+ Escaping quote characters is not supported. If you want to keep certain quotes,
+ the respective section must be surrounded by the other kind of quotes:
+       s = "Keep \"'single quotes'\" or '\"double quotes\"'"
+       print word(s, 2) # 'single quotes'
+       print word(s, 4) # "double quotes"
+ Note, that in this last example the escaped quotes are necessary only for the 
+ string definition.
+
 3 Operators
 ?expressions operators
 ?operators
@@ -1711,6 +1753,7 @@ C be able to print them. So we have to typeset this table without using
 C eqn (at least that's the only solution I found, without any real docs
 C on *roff and eqn
 C First, terminate the table doc2ms.c already started:
+%c c l .
 %.TE
 C ... then turn off eqn delimiters:
 %.EQ
@@ -1728,7 +1771,6 @@ C ... and restart the table:
 %!@!a@* logical negation
 %!@a!@* factorial
 %$@$3@* call arg/column during `using` manipulation
-%_
 @end table
 
 ^<table align="center" border="1" rules="groups" frame="hsides" cellpadding="3">
@@ -1842,7 +1884,7 @@ C ... and restart the table:
 %|@a|b@* bitwise inclusive OR
 %&&@a&&b@* logical AND
 %||@a||b@* logical OR
-%=@a = b@assignment
+%\&=@a = b@assignment
 %,@(a,b)@serial evaluation
 %.@a.b@string concatenation
 %eq@A eq B@string equality
@@ -1913,7 +1955,7 @@ C ... and restart the table:
 %c c l .
 %Symbol@Example@Explanation
 %_
-%?:@a?b:c@* ternary operation
+%?:@a?b:c@ternary operation
 
 @end table
 
@@ -1996,8 +2038,8 @@ C ... and restart the table:
       GRAPH_Y = (Y - GPVAL_Y_MIN) / (GPVAL_Y_MAX - GPVAL_Y_MIN)
       SCREEN_X = GPVAL_TERM_XMIN + GRAPH_X * (GPVAL_TERM_XMAX - GPVAL_TERM_XMIN) 
       SCREEN_Y = GPVAL_TERM_YMIN + GRAPH_Y * (GPVAL_TERM_YMAX - GPVAL_TERM_YMIN)
-      FRAC_X = SCREEN_X / GPVAL_TERM_XSIZE
-      FRAC_Y = SCREEN_Y / GPVAL_TERM_YSIZE
+      FRAC_X = SCREEN_X * GPVAL_TERM_SCALE / GPVAL_TERM_XSIZE
+      FRAC_Y = SCREEN_Y * GPVAL_TERM_SCALE / GPVAL_TERM_YSIZE
 
 =errors
 =error state
@@ -2286,6 +2328,7 @@ Ffigure_newsyntax
       plot sin(x) lt palette frac 0.3   # fractional value along the palette
 
  See `colorspec`, `show colornames`, `hsv`, `set palette`, `cbrange`.
+ See also `set monochrome`.
 
  Linetypes also have an associated dot-dash pattern although not all terminal
  types are capable of using it. Gnuplot version 5 allows you to specify the
@@ -2303,7 +2346,7 @@ Ffigure_newsyntax
 
  Syntax:
 
-       ... {linecolor | lc} {<colorspec> | <n>}
+       ... {linecolor | lc} {"colorname" | <colorspec> | <n>}
        ... {textcolor | tc} {<colorspec> | {linetype | lt} <n>}
 
  where <colorspec> has one of the following forms:
@@ -2428,7 +2471,7 @@ Ffigure_newsyntax
                            # dot (.) hyphen (-) underscore(_) and space.
        dashtype (s1,e1,s2,e2,s3,e3,s4,e4)  # dash pattern specified by 1 to 4
                            # numerical pairs <solid length>, <emptyspace length> 
- 
+
  Example:
        # Two functions using linetype 1 but distinguished by dashtype
        plot f1(x) with lines lt 1 dt solid, f2(x) with lines lt 1 dt 3
@@ -2448,7 +2491,7 @@ Ffigure_newsyntax
  the original string and the converted numerical sequence.
 
 3 linestyles vs linetypes
-? linestyles vs linetypes
+?linestyles vs linetypes
  A `linestyle` is a temporary association of properties linecolor, linewidth,
  dashtype, and pointtype.  It is defined using the command `set style line`.
  Once you have defined a linestyle, you can use it in a plot command to control
@@ -2465,7 +2508,7 @@ Ffigure_newsyntax
       plot sin(x) with linespoints ls 5          # user-defined line style 5
 
 2 layers
-? layers
+?layers
 =behind
 =front
 =back
@@ -2482,7 +2525,7 @@ Ffigure_newsyntax
       the plot legend (`key`)
       front
  Within each layer elements are drawn in the order
-      objects (rectangles, circles, ellipse, polygons) in numerical order
+      objects (rectangles, circles, ellipses, polygons) in numerical order
       labels in numerical order
       arrows in numerical order
  In the case of multiple plots on a single page (multiplot mode) this order 
@@ -2618,7 +2661,26 @@ Ffigure_newsyntax
 
  Note that after a zoom by mouse, you can read the new ranges as GPVAL_X_MIN,
  GPVAL_X_MAX, GPVAL_Y_MIN, and GPVAL_Y_MAX, see `gnuplot-defined variables`.
+2 Persist
+?persist
+ Many gnuplot terminals (aqua, pm, qt, x11, windows, wxt, ...) open separate 
+ display windows on the screen into which plots are drawn.  The `persist` option 
+ tells gnuplot to leave these windows open when the main program exits.
+ It has no effect on non-interactive terminal output.
+ For example if you issue the command
 
+      gnuplot -persist -e 'plot [-5:5] sinh(x)'
+
+ gnuplot will open a display window, draw the plot into it, and then exit,
+ leaving the display window containing the plot on the screen.  Depending on
+ the terminal type, some mousing operations may still be possible in the
+ persistent window.  However operations like zoom/unzoom that require redrawing
+ the plot are generally not possible because the main program has already exited.
+
+ You can also specify `persist` or `nopersist` at the time you set a new terminal
+ type. For example
+
+      set term qt persist size 700,500
 
 2 Plotting
 ?plotting
@@ -2663,9 +2725,8 @@ Ffigure_newsyntax
  `gnuplotrc`.  The location of this file is determined when the program is built
  and is reported by `show loadpath`.  The program then looks in the user's HOME
  directory for a file called `.gnuplot` on Unix-like systems or `GNUPLOT.INI` on
- other systems.  (Windows and OS/2 will look for it in the directory named in
- the environment variable `GNUPLOT`; Windows will use `USERPROFILE` if GNUPLOT
- is not defined).
+ other systems.  (OS/2 will look for it in the directory named in
+ the environment variable `GNUPLOT`; Windows will use `APPDATA`).
  Note: The program can be configured to look first in the current directory,
  but this is not recommended because it is bad security practice.
 2 String constants and string variables
@@ -2913,12 +2974,13 @@ Ffigure_newsyntax
  etc.
 
  Internally all times and dates are converted to the number of seconds from
- the year 1970.  The command `set timefmt` defines the format for all inputs:
- data files, ranges, tics, label positions---in short, anything that accepts a
- data value must receive it in this format.  Since only one input format can
- be in force at a given time, all time/date quantities being input at the same
- time must be presented in the same format.  Thus if both x and y data in a
- file are time/date, they must be in the same format.
+ the year 1970.  The command `set timefmt` defines the default format for all
+ inputs: data files, ranges, tics, label positions -- anything that accepts a
+ time data value defaults to receiving it in this format.  Only one default
+ format can be in effect at a given time. Thus if both x and y data in a file
+ are time/date, by default they are interpreted in the same format. However
+ this default can be replaced when reading any particular file or column of
+ input using the `timecolumn` function in the corresponding `using` specifier.
 
  The conversion to and from seconds assumes Universal Time (which is the same
  as Greenwich Standard Time).  There is no provision for changing the time
@@ -2929,12 +2991,12 @@ Ffigure_newsyntax
 
  Commands like `show xrange` will re-interpret the integer according to
  `timefmt`.  If you change `timefmt`, and then `show` the quantity again, it
- will be displayed in the new `timefmt`.  For that matter, if you give the
- deactivation command (like `set xdata`), the quantity will be shown in its
- numerical form.
+ will be displayed in the new `timefmt`.  For that matter, if you reset the
+ data type flag for that axis (e.g. `set xdata`), the quantity will be shown
+ in its numerical form.
 
  The commands `set format` or `set tics format` define the format that will be
- used for tic labels, whether or not the specified axis is time/date.
+ used for tic labels, whether or not input for the specified axis is time/date.
 
  If time/date information is to be plotted from a file, the `using` option
  _must_ be used on the `plot` or `splot` command.  These commands simply use
@@ -3351,7 +3413,7 @@ Ffigure_filledcurves
  where the option can be one of the following
 
      [closed | {above | below}
-     {x1 | x2 | y1 | y2 | r}[=<a>] | xy=<x>,<y>]
+     {x1 | x2 | y | r}[=<a>] | xy=<x>,<y>]
 
  The first variant, `closed`, treats the curve itself as a closed polygon.
  This is the default if there are two columns of input data.
@@ -3362,8 +3424,7 @@ Ffigure_filledcurves
      filledcurves closed   ... just filled closed curve,
      filledcurves x1       ... x1 axis,
      filledcurves x2       ... x2 axis, etc for y1 and y2 axes,
-     filledcurves y1=0     ... line y=0 (at y1 axis) ie parallel to x1 axis,
-     filledcurves y2=42    ... line y=42 (at y2 axis) ie parallel to x2, etc,
+     filledcurves y=42     ... line at y=42, i.e. parallel to x axis,
      filledcurves xy=10,20 ... point 10,20 of x1,y1 axes (arc-like shape).
      filledcurves above r=1.5  the area of a polar plot outside radius 1.5
 
@@ -3857,6 +3918,9 @@ Ffigure_parallel
  By default gnuplot will automatically determine the range and scale of the
  individual axes from the input data, but the usual `set axis range` commands
  can be used to customize this.  See `set paxis`.
+
+ The maximum number of parallel axes is fixed at the time the program is built.
+ The maximum for this copy of gnuplot is reported by "show version long".
 2 points
 ?plotting styles points
 ?style points
@@ -3867,7 +3931,7 @@ Ffigure_points
  1 or 2 columns of basic input data are required in 2D plots; 1 or 3 columns are
  required in 3D plots.  See `style lines`.  Additional input columns may be used
  to provide information such as variable point size or variable point color.
- 
+
  The first 8 point types are shared by all terminals.  Individual terminals may
  provide a much larger number of distinct point types.  Use the `test` command
  to show what is provided by the current terminal.  Alternatively any single
@@ -4291,11 +4355,9 @@ Ffigure_mapcontours
 ?exit
  The commands `exit` and `quit`, as well as the END-OF-FILE character (usually
  Ctrl-D) terminate input from the current input stream: terminal session, pipe,
- and file input (pipe).
-
- If input streams are nested (inherited `load` scripts), then reading will
- continue in the parent stream. When the top level stream is closed, the
- program itself will exit.
+ or file input (pipe).  If input streams are nested (inherited `load` scripts),
+ then reading will continue in the parent stream. When the top level stream is
+ closed, the program itself will exit.
 
  The command `exit gnuplot` will immediately and unconditionally cause gnuplot
  to exit even if the input stream is multiply nested.  In this case any open
@@ -4303,23 +4365,33 @@ Ffigure_mapcontours
 
        bind "ctrl-x" "unset output; exit gnuplot"
 
+ The command `exit error "error message"` simulates a program error.
+ In interactive mode it prints the error message and returns to the command
+ line, breaking out of all nested loops or calls.  In non-interactive mode
+ the program will exit.
+
  See help for `batch/interactive` for more details.
 2 fit
 ?commands fit
 ?fit
 ?least-squares
 ?Marquardt
- The `fit` command fits a user-supplied expression to a set of data points (x,z)
- or (x,y,z) or (x1, x2, x3, ..., xN, z), using the nonlinear least-squares
- Marquardt-Levenberg algorithm.  The dummy parameters x1, ..., xN must be
- assigned names either using the `set dummy` command or using an in-line range
- specifier in the `fit` command.  The expression must evaluate to a real number.
- The parameters to be varied during fitting are specified by the keyword `via`.
+ The `fit` command fits a user-supplied real-valued expression to a set of
+ data points, using the nonlinear least-squares Marquardt-Levenberg
+ algorithm. There can be up to 12 independent variables, there is always 1
+ dependent variable, and any number of parameters can be fitted.
+ Optionally, error estimates can be input for weighting the data points.
+
+ The basic use of `fit` is best explained by a simple example:
+
+       f(x) = a + b*x + c*x**2
+       fit f(x) 'measured.dat' using 1:2 via a,b,c
+       plot 'measured.dat' u 1:2, f(x)
 
  Syntax:
        fit {<ranges>} <expression>
            '<datafile>' {datafile-modifiers}
-           {noerrors | zerror | errors z}
+           {{unitweights} | {y|xy|z}error | errors <var1>{,<var2>,...}}
            via '<parameter file>' | <var1>{,<var2>,...}
 
  Ranges may be specified to filter the data used in fitting.
@@ -4328,48 +4400,79 @@ Ffigure_mapcontours
  analogous to `plot`; see `plot ranges`.
 
  <expression> can be any valid `gnuplot` expression, although the most common is
- a previously user-defined function of the form f(x) or f(x,y).
+ a previously user-defined function of the form f(x) or f(x,y). It must be 
+ real-valued.
+ The names of the independent variables are set by the `set dummy` command,
+ or in the <ranges> part of the command (see below); by default, the first
+ two are called x and y.
+ Furthermore, the expression should depend on one or more variables whose
+ value is to be determined by the fitting procedure.
 
  <datafile> is treated as in the `plot` command.  All the `plot datafile`
  modifiers (`using`, `every`,...) except `smooth` are applicable to `fit`.
  See `plot datafile`.
 
- The function being fit may have up to 12 independent variables (more if
- specially configured).  In the absence of a `using` specification, the fit
- implicitly assumes there is only a single independent variable:
+ The datafile contents can be interpreted flexibly by providing a `using`
+ qualifier as with plot commands. For example to generate the independent
+ variable x as the sum of columns 2 and 3, while taking z from column 6 and 
+ requesting equal weights:
 
-       z                           # 1 independent variable (line number)
-       x:z                         # 1 independent variable (1st column)
+       fit ... using ($2+$3):6
 
- The interpretation of additional columns in the using spec is as follows:
+ In the absence of a `using` specification, the fit implicitly assumes
+ there is only a single independent variable. If the file itself, or the
+ using specification, contains only a single column of data, the line
+ number is taken as the independent variable.
+ If a `using` specification is given, there can be up to 12 independent
+ variables (and more if specially configured at compile time). 
 
-       z:s                         # 1 independent variable (line number)
-       x:z{:s}                     # 1 independent variable
-       x:y:z{:s}                   # 2 independent variables
-       x1:x2:x3:z{:s}              # 3 independent variables
-       x1:x2:x3:...:xN:z{:s}       # N independent variables
+ The `unitweights` option, which is the default, causes all data points to be
+ weighted equally. This can be changed by using the `errors` keyword to read
+ error estimates of one or more of the variables from the data file. These
+ error estimates are interpreted as the standard deviation s of the
+ corresponding variable value and used to compute a weight for the datum as
+ 1/s**2.
 
- If specified using the `errors` or `zerrors` keyword, the last column `s` is
- interpreted as the standard deviation of the corresponding z value and is
- used to compute a weight for the datum, 1/s**2.  Otherwise, all data points
- are weighted equally, with a weight of one.  Note that if you do not specify
- `using` specs at all, no z errors are read from the datafile even if it does
- have a third column.
+ In case of error estimates of the independent variables, these weights are
+ further multiplied by fitting function derivatives according to the 
+ "effective variance method" (Jay Orear, Am. J. Phys., Vol. 50, 1982).
 
- Since the number of using specifiers is ambiguous, you need to specify which
- columns correspond to errors using the `error` keyword. `noerror` means that
- no errors `s` are supplied.  `zerror` is an alias for `errors z` and you may
- use the alias `yerror` in the following common case where we denote the
- dependent variable with y instead of z:
+ The `errors` keyword is to be followed by a comma-separated list of one or
+ more variable names for which errors are to be input; the dependent variable
+ z must always be among them, while independent variables are optional.
+ For each variable in this list, an additional column will be read from the
+ file, containing that variable's error estimate. Again, flexible
+ interpretation is possible by providing the `using` qualifier.
+ Note that the number of independent variables is thus implicitly given by the
+ total number of columns in the `using` qualifier, minus 1 (for the dependent
+ variable), minus the number of variables in the `errors` qualifier.
 
-       x:y:s     yerror    (similar to `plot` with `yerrorbars`)
+ As an example, if one has 2 independent variables, and errors for the
+ first independent variable and the dependent variable, one uses
+ the `errors x,z` qualifier, and a `using` qualifier with 5 columns,
+ which are interpreted as x:y:z:sx:sz (where x and y are the independent
+ variables, z the dependent variable, and sx and sz the standard
+ deviations of x and z).
 
- Note that for compatibility reasons with `gnuplot` versions prior to 5.0,
- the `error` keyword is not required.  If you do not specify the error columns
- explicitly, there must be two more `using` qualifiers (z and s) than there are
- independent variables, unless there is only one variable.  `gnuplot` then uses
- the following formats, depending on the number of columns given in the `using`
- specifcation:
+ A few shorthands for the `errors` qualifier are available:
+ `yerrors` (for fits with 1 column of independent variable), and
+ `zerrors` (for the general case) are all equivalent to `errors z`,
+ indicating that there is a single extra column with errors of the
+ dependent variable.
+
+ `xyerrors`, for the case of 1 independent variable, indicates that there
+ are two extra columns, with errors of both the independent and the
+ dependent variable.  In this case the errors on x and y are treated by
+ Orear's effective variance method.
+
+ Note that `yerror` and `xyerror` are similar in both form and interpretation
+ to the `yerrorlines` and `xyerrorlines` 2D plot styles.
+
+ With the command `set fit v4` the fit command syntax is compatible with
+ `gnuplot` version 4 and before.  Then there must be two more `using`
+ qualifiers (z and s) than there are independent variables, unless there is
+ only one variable.  `gnuplot` then uses the following formats, depending on
+ the number of columns given in the `using` specification:
 
        z                           # 1 independent variable (line number)
        x:z                         # 1 independent variable (1st column)
@@ -4378,18 +4481,9 @@ Ffigure_mapcontours
        x1:x2:x3:z:s                # 3 independent variables (5 columns total)
        x1:x2:x3:...:xN:z:s         # N independent variables (N+2 columns total)
 
- Please beware that this means that you always have to supply z-errors s in a
- fit with two independent variables x, y if you do not specify the `{no}error`
- keyword.  There must be two more `using` qualifiers (z and s) than there are
- independent variables, unless there is only one independent variable.
-
-
- The datafile contents can be interpreted flexibly by providing a `using`
- qualifier as with plot commands. For example to generate the independent
- variable x as the sum of columns 2 and 3, while taking z from column 6 and 
- requesting unit weights:
-
-       fit ... noerrors using ($2+$3):6
+ Please beware that this means that you have to supply z-errors s in a fit with
+ two or more independent variables. If you want unit weights you need to supply
+ them explicitly by using e.g. then format x:y:z:(1).
 
  The dummy variable names may be changed when specifying a range as noted above.
  The first range corresponds to the first `using` spec, and so on.  A range may
@@ -4411,16 +4505,16 @@ Ffigure_mapcontours
        fit f(x) 'measured.dat' via 'start.par'
        fit f(x) 'measured.dat' using 3:($7-5) via 'start.par'
        fit f(x) './data/trash.dat' using 1:2:3 yerror via a, b, c
-       fit g(x,y) 'surface.dat' using 1:2:3 noerror via a, b, c
+       fit g(x,y) 'surface.dat' using 1:2:3 via a, b, c
        fit a0 + a1*x/(1 + a2*x/(1 + a3*x)) 'measured.dat' via a0,a1,a2,a3
-       fit a*x + b*y 'surface.dat' using 1:2:3 noerror via a,b
-       fit [*:*][yaks=*:*] a*x+b*yaks 'surface.dat' u 1:2:3 noerror via a,b
+       fit a*x + b*y 'surface.dat' using 1:2:3 via a,b
+       fit [*:*][yaks=*:*] a*x+b*yaks 'surface.dat' u 1:2:3 via a,b
 
-       fit [][][t=*:*] a*x + b*y + c*t 'foo.dat' using 1:2:3:4 noerror via a,b,c
+       fit [][][t=*:*] a*x + b*y + c*t 'foo.dat' using 1:2:3:4 via a,b,c
 
        set dummy x1, x2, x3, x4, x5
        h(x1,x2,x3,x4,s5) = a*x1 + b*x2 + c*x3 + d*x4 + e*x5
-       fit h(x1,x2,x3,x4,x5) 'foo.dat' using 1:2:3:4:5:6 noerror via a,b,c,d,e
+       fit h(x1,x2,x3,x4,x5) 'foo.dat' using 1:2:3:4:5:6 via a,b,c,d,e
 
  After each iteration step, detailed information about the current state
  of the fit is written to the display.  The same information about the
@@ -4530,7 +4624,7 @@ Ffigure_mapcontours
  and subsequently halted from the keyboard (see `fit`).  The user variable
  FIT_CONVERGED contains 1 if the previous fit command terminated due to
  convergence; it contains 0 if the previous fit terminated for any other
- reason.
+ reason. FIT_NITER contains the number of iterations that were done during the last fit.
 
  Often the function to be fitted will be based on a model (or theory) that
  attempts to describe or predict the behaviour of the data.  Then `fit` can
@@ -5137,8 +5231,8 @@ Ffigure_mapcontours
  Each plot element consists of a definition, a function, or a data source
  together with optional properties or modifiers:
        plot-element:
-            {sampling-range} {<iteration>}
-            <definition> | <function> | <data source>
+            {<iteration>}
+            <definition> | {sampling-range} <function> | <data source>
             {axes <axes>} {<title-spec>}
             {with <style>}
 
@@ -5150,6 +5244,9 @@ Ffigure_mapcontours
  was defined previously.  Multiple datafiles, data blocks, and/or functions may
  be plotted in a single plot command separated by commas.
  See `data`, `inline data`, `functions`.
+
+ A plot-element that contains the definition of a function or variable does not 
+ create any visible output, see third example below.
 
  Examples:
        plot sin(x)
@@ -5842,6 +5939,35 @@ Ffigure_mapcontours
 ?bezier
  The `bezier` option approximates the data with a Bezier curve of degree n
  (the number of data points) that connects the endpoints.
+5 bins
+?commands plot datafile bins
+?plot datafile bins
+?plot bins
+?data-file bins
+?datafile bins
+?bins
+ This option is EXPERIMENTAL (implementation details may change).
+ Syntax:
+      plot 'DATA' using <XCOL> {:<YCOL>} bins{=<NBINS>}
+           {binrange [<LOW>:<HIGH>]}
+ The `bins` option to a `plot` command first sorts the original data into
+ equal width bins on x and then plots a single value per bin.  The default
+ number of bins is controlled by `set samples`, but this can be changed by
+ giving an explicit number of bins in the command.
+
+ If no binrange is given, the range is taken from the current x axis range.
+ Any data points outside this range will be ignored.
+
+ If only a single column is given in the using clause then each data point
+ contributes a count of 1 to the accumulation of total counts in the bin for
+ that x coordinate value.  If a second column is given then the value in that
+ column is added to the accumulation for the bin.  Thus the following two plot
+ commnad are equivalent:
+      plot 'DATA" using N bins=20
+      set samples 20
+      plot 'DATA' using (column(N)):(1)
+
+ For related plotting styles see `smooth frequency` and `smooth kdensity`.
 5 csplines
 ?commands plot datafile smooth csplines
 ?plot datafile smooth csplines
@@ -6001,19 +6127,29 @@ Ffigure_mapcontours
 
        plot 'filename' using 1:2, '' using 1:3
 
+ The filename can also be reused over subsequent plot commands, however `save`
+ then only records the name in a comment.        
+
  The special filenames '+' and '++' are a mechanism to allow the full range of
  `using` specifiers and plot styles with inline functions.  Normally a function
  plot can only have a single y (or z) value associated with each sampled point.
  The pseudo-file '+' treats the sampled points as column 1, and allows
  additional column values to be specified via a `using` specification, just as
- for a true input file.  The number of samples returned is controlled by
- `set samples`.  By default samples are generated over the full range on x, but
- an independent sampling range can be provided immediately before the '+'
- (see `plot sampling`).
- Example:
+ for a true input file. By default samples are generated over the full range as
+ set by `set xrange`, with the sampling controlled via `set samples`.
 
-       plot '+' using ($1):(sin($1)):(sin($1)**2) with filledcurves
-       plot $MYDATA, [sample=5:25] '+' using (sample):(f(sample)) with lines
+       plot '+' using ($1):(sin($1)):(sin($1)**2) with filledcurves 
+
+ An independent sampling range can be provided immediately before the '+'. Like
+ in normal function plots, a name can be assigned to the independent variable. 
+ If given for the first plot element, the sampling range specifier has to be 
+ preceeded by the `sample` keyword (see also `plot sampling`).
+
+       plot sample [beta=0:2*pi] '+' using (sin(beta)):(cos(beta)) with lines
+
+ Additionally, the range specifier of '+' supports giving a sampling increment.       
+
+       plot $MYDATA, [t=-3:25:1] '+' using (t):(f(t)) 
 
  Similarly the pseudo-file '++' returns 2 columns of data forming a regular
  grid of [x,y] coordinates with the number of points along x controlled by
@@ -6729,7 +6865,7 @@ Ffigure_mapcontours
       lines        dots       steps     errorbars     xerrorbar    xyerrorlines
       points       impulses   fsteps    errorlines    xerrorlines  yerrorbars
       linespoints  labels     histeps   financebars   xyerrorbars  yerrorlines
-      surface      vectors
+      surface      vectors    parallelaxes
  or
       boxes            boxplot        ellipses       image
       boxerrorbars     candlesticks   filledcurves   rgbimage
@@ -6839,10 +6975,10 @@ Ffigure_mapcontours
        plot 'd1' t "good" w l lt 2 lw 3, 'd2' t "bad" w l lt 2 lw 1
 
  This plots filled curve of x*x and a color stripe:
-       plot x*x with filledcurve closed, 40 with filledcurve y1=10
+       plot x*x with filledcurve closed, 40 with filledcurve y=10
 
  This plots x*x and a color box:
-       plot x*x, (x>=-5 && x<=5 ? 40 : 1/0) with filledcurve y1=10 lt 8
+       plot x*x, (x>=-5 && x<=5 ? 40 : 1/0) with filledcurve y=10 lt 8
 
  This plots a surface with color lines:
        splot x*x-y*y with line palette
@@ -6861,6 +6997,12 @@ Ffigure_mapcontours
        print <expression> {, <expression>, ...}
 
  See `expressions`.  The output file can be set with `set print`.
+ See also `printerr`.
+2 printerr
+?command printerr
+?printerr
+ `printerr` is the same as print except that output is always sent to stderr
+ even if a prior `set print` command remains in effect.
 2 pwd
 ?commands pwd
 ?pwd
@@ -7004,7 +7146,7 @@ Ffigure_mapcontours
 
  The following are _not_ affected by `reset`.
       `set term` `set output` `set loadpath` `set fontpath` `set linetype`
-      `set encoding` `set decimalsign` `set locale` `set psdir`
+      `set encoding` `set decimalsign` `set locale` `set psdir` `set fit`
 
  Note that `reset` does not necessarily return settings to the state they
  were in at program entry, because the default values may have been altered by
@@ -7084,9 +7226,6 @@ Ffigure_mapcontours
  corresponding `unset` command.  See also the `reset` command, which returns
  all settable parameters to default values.
 
- If a variable contains time/date data, `show` will display it according to
- the format currently defined by `set timefmt`, even if that was not in effect
- when the variable was initially defined.
 =iteration
  The `set` and `unset` commands may optionally contain an iteration clause.
  See `plot for`.
@@ -7425,7 +7564,8 @@ Ffigure_mapcontours
  `splot` they usually do not.
 
  Syntax:
-       set border {<integer>} {front | back} {linewidth | lw <line_width>}
+       set border {<integer>}
+                  {front | back | behind} {linewidth | lw <line_width>}
                   {{linestyle | ls <line_style>} | {linetype | lt <line_type>}}
        unset border
        show border
@@ -7522,6 +7662,10 @@ Ffigure_mapcontours
  (`front`). If you want the border to be drawn behind the plot elements,
  use `set border back`.
 
+ In hidden3d plots the lines making up the border are normally subject to the
+ same hidden3d processing as the plot elements. `set border behind` will
+ override this default.
+
  Using the optional <line_style>, <line_type> and <line_width> specifiers, the
  way the border lines are drawn can be influenced (limited by what the current
  terminal driver supports).
@@ -7600,6 +7744,15 @@ Ffigure_mapcontours
 
  To set the box width to an absolute value of 2 use
        set boxwidth 2 absolute
+3 color
+?commands set color
+?set color
+ Gnuplot supports two alternative sets of linetypes. The default set uses a
+ different color for each linetype, although it also allows you to draw dotted
+ or dashed lines in that color.  The alternative monochrome set uses only
+ dot/dash pattern or linewidth to distinguish linetypes. The `set color`
+ command selects the color linetypes.  See `set monochrome`, `set linetype`,
+ and `set colorsequence`.
 3 colorsequence
 ?commands set colorsequence
 ?set colorsequence
@@ -7886,7 +8039,7 @@ Ffigure_mapcontours
  color to a particular linetype or linestyle. To see the list of known color
  names, use the command `show colornames`.   Example:
 
-       set style line 1 linecolor rgb "sea-green"
+       set style line 1 linecolor "sea-green"
 3 contour
 ?commands set contour
 ?commands unset contour
@@ -8388,21 +8541,24 @@ Ffigure_missing
 ?set fit errorvariables
 ?set fit logfile
 ?set fit script
+?set fit v4
+?set fit v5
  The `set fit` command controls the options for the `fit` command.
 
  Syntax:
-       set fit {logfile {"<filename>"|default}}
+       set fit {nolog | logfile {"<filename>"|default}}
                {{no}quiet|results|brief|verbose}
                {{no}errorvariables}
                {{no}covariancevariables}
                {{no}errorscaling}
                {{no}prescale}
-               {maxiter <value>|none}
+               {maxiter <value>|default}
                {limit <epsilon>|default}
-               {limit_abs <epsilon_abs>   
+               {limit_abs <epsilon_abs>}   
                {start-lambda <value>|default}
                {lambda-factor <value>|default}
                {script {"<command>"|default}}
+               {v4 | v5}
        unset fit
        show fit
 
@@ -8428,7 +8584,7 @@ Ffigure_missing
         set fit errorvariables
         fit f(x) 'datafile' using 1:2 via a, b
         print "error of a is:", a_err
-        set label 'a=%6.2f', a, '+/- %6.2f', a_err
+        set label 1 sprintf("a=%6.2f +/- %6.2f", a, a_err)
         plot 'datafile' using 1:2, f(x)
 
  If the `errorscaling` option is specified, which is the default, the
@@ -8474,6 +8630,10 @@ Ffigure_missing
  the name of the first parameter and combining the two parameter names by
  "_". For example given the parameters "a" and "b" the covariance variable is
  named "FIT_COV_a_b".
+
+ In version 5 the syntax of the fit command changed and it now defaults to
+ unitweights if no 'error' keyword is given.  The `v4` option restores the
+ default behavior of gnuplot version 4, see also `fit`.
 3 fontpath
 ?commands set fontpath
 ?commands show fontpath
@@ -8526,8 +8686,7 @@ Ffigure_missing
  or with the `set tics format` or individual `set {axis}tics format` commands.
 
  Syntax:
-       set format {<axes>} {"<format-string>"}
-       set format {<axes>} {'<format-string>'}
+       set format {<axes>} {"<format-string>"} {numeric|timedate|geographic}
        show format
 
  where <axes> is either `x`, `y`, `xy`, `x2`, `y2`, `z`, `cb` or nothing
@@ -8630,7 +8789,6 @@ Ffigure_missing
 %%b@mantissa of ISO/IEC 80000 notation (ki, Mi, Gi, Ti, Pi, Ei, Zi, Yi)
 %%B@prefix of ISO/IEC 80000 notation (ki, Mi, Gi, Ti, Pi, Ei, Zi, Yi)
 %%P@multiple of pi
-%_
 @end table
 
 ^<table align="center" border="1" rules="groups" frame="hsides" cellpadding="3">
@@ -8740,7 +8898,7 @@ Ffigure_missing
        %y           year, 0-68 for 2000-2068, 69-99 for 1969-1999
        %Y           year, 4-digit
 #\begin{tabular}{|cl|} \hline
-#\multicolumn{2}{|c|}{Tic-mark label Date/Time Format Specifiers}\\
+#\multicolumn{2}{|c|}{Date Specifiers}\\
 #\hline \hline
 #Format & Explanation \\ \hline
 #\verb@%a@ & abbreviated name of day of the week \\
@@ -8796,7 +8954,6 @@ Ffigure_missing
 %%W@week of the year (week starts on Monday)
 %%y@year, 0-99 in range 1969-2068
 %%Y@year, 4-digit
-%_
 @end table
 
 
@@ -8806,7 +8963,7 @@ Ffigure_missing
 ^  <col align="left">
 ^</colgroup>
 ^<thead>
-^<tr>    <th>Format</th>    <th>Explanation</th></tr>
+^<tr>    <th>Date Format</th>    <th>Explanation</th></tr>
 ^</thead>
 ^<tbody>
 ^<tr>    <td><tt>%a</tt></td>    <td>abbreviated name of day of the week</td></tr>
@@ -8837,23 +8994,79 @@ Ffigure_missing
 ^</tbody>
 ^</table>
 
- Except for the non-numerical formats, these may be preceded by a "0" ("zero",
- not "oh") to pad the field length with leading zeroes, and a positive digit,
- to define the minimum field width (which will be overridden if the specified
- width is not large enough to contain the number).  The %S format also accepts
- a precision specifier so that fractional seconds can be written.
- There is a 24-character limit to the length of the printed text;
- longer strings will be truncated.
+ Numerical formats may be preceded by a "0" ("zero") to pad the field with
+ leading zeroes, and preceded by a positive digit to define the minimum field
+ width.  The %S, and %t formats also accept a precision specifier so that
+ fractional hours/minutes/seconds can be written.
 
- Examples:
+@start table - first is interactive cleartext form
+       Format       Explanation
+       %tH          +/- hours relative to time=0 (does not wrap at 24)
+       %tM          +/- minutes relative to time=0
+       %tS          +/- seconds associated with previous tH or tM field
+#\begin{tabular}{|cl|} \hline
+#\multicolumn{2}{|c|}{Time Specifiers}\\
+#\hline \hline
+#Format & Explanation \\ \hline
+#\verb@%tH@ & +/- hours relative to time=0 (does not wrap at 24) \\
+#\verb@%tM@ & +/- minutes relative to time=0 \\
+#\verb@%tS@ & +/- seconds associated with previous tH or tM field \\
+%c l .
+%Format@Explanation
+%_
+%%tH@+/- hours relative to time=0 (does not wrap at 24)
+%%tM@+/- minutes relative to time=0
+%%tS@+/- seconds associated with previous tH or tM field
+@end table
 
- Suppose the text is "76/12/25 23:11:11".  Then
-       set format x                 # defaults to "12/25/76" \n "23:11"
+
+^<table align="center" border="1" rules="groups" frame="hsides" cellpadding="3">
+^<colgroup>
+^  <col align="center">
+^  <col align="left">
+^</colgroup>
+^<thead>
+^<tr>    <th>Time Format</th>    <th>Explanation</th></tr>
+^</thead>
+^<tbody>
+^<tr>    <td><tt>%tH</tt></td>    <td>+/- hours relative to time=0 (does not wrap at 24)</td></tr>
+^<tr>    <td><tt>%tM</tt></td>    <td>+/- minutes relative to time=0</td></tr>
+^<tr>    <td><tt>%tS</tt></td>    <td>+/- seconds associated with previous tH or tM field</td></tr>
+^</tbody>
+^</table>
+
+5 Examples
+?commands set format date_specifiers examples
+?commands set format time_specifiers examples
+?set format date_specifiers examples
+?set format time_specifiers examples
+?set date_specifiers examples
+?set time_specifiers examples
+?date_specifiers examples
+?time_specifiers examples
+
+ Examples of date format:
+
+ Suppose the x value in seconds corresponds a time slightly before midnight
+ on 25 Dec 1976. The text printed for a tic label at this position would be
+
+       set format x                 # defaults to "12/25/76 \n 23:11"
        set format x "%A, %d %b %Y"  # "Saturday, 25 Dec 1976"
        set format x "%r %D"         # "11:11:11 pm 12/25/76"
 
- Suppose the text is "98/07/06 05:04:03.123456".  Then
-       set format x "%1y/%2m/%3d %01H:%02M:%06.3S"  # "98/ 7/  6 5:04:03.123"
+ Examples of time format:
+
+ The date format specifiers encode a time in seconds as a clock time on a 
+ particular day.  So hours run only from 0-23, minutes from 0-59, and negative
+ values correspond to dates prior to the epoch (1-Jan-1970). In order to report
+ a time value in seconds as some number of hours/minutes/seconds relative to a
+ time 0, use time formats %tH %tM %tS.  To report a value of -3672.50 seconds
+
+       set format x                 # default date format "12/31/69 \n 22:58"
+       set format x "%tH:%tM:%tS"   # "-01:01:12"
+       set format x "%.2tH hours"   # "-1.02 hours"
+       set format x "%tM:%.2tS"     # "-61:12.50"
+
 3 function style
 ?set function style
  This form of the command is deprecated. Please see `set style function`.
@@ -8972,6 +9185,7 @@ Ffigure_missing
 
  As of gnuplot version 4.6, hidden3d also affects 3D plotting styles `points`,
  `labels`, `vectors`, and `impulses` even if no surface is present in the graph.
+ Unobscured portions of each vector are drawn as line segments (no arrowheads).
  Individual plots within the graph may be explicitly excluded from this
  processing by appending the extra option `nohidden3d` to the `with` specifier.
 
@@ -9140,12 +9354,13 @@ Ffigure_missing
                | {at <position>}}
              {left | right | center} {top | bottom | center}
              {vertical | horizontal} {Left | Right}
+             {{no}enhanced}
              {{no}opaque}
              {{no}reverse} {{no}invert}
              {samplen <sample_length>} {spacing <vertical_spacing>}
              {width <width_increment>} {height <height_increment>}
              {{no}autotitle {columnheader}}
-             {title "<text>"} {{no}enhanced}
+             {title {"<text>"} {{no}enhanced} {center | left | right}}
              {font "<face>,<size>"} {textcolor <colorspec>}
              {{no}box {linestyle <style> | linetype <type> | linewidth <width>}}
              {maxcols {<max no. of columns> | auto}}
@@ -9173,6 +9388,10 @@ Ffigure_missing
  `Right` (default).  The text and sample can be reversed (`reverse`) and a
  box can be drawn around the key (`box {...}`) in a specified `linetype`
  and `linewidth`, or a user-defined `linestyle`.
+
+ The text in the key is set in `enhanced` mode by default, this can be changed 
+ with the `{no}enhanced` option, also independently for the key title only and
+ for each individual plot.
 
  By default the key is built up one plot at a time. That is, the key symbol and
  title are drawn at the same time as the corresponding plot.  That means newer
@@ -9208,8 +9427,9 @@ Ffigure_missing
        plot "datafile" using (($2+$3)/$4) title columnhead(3) with lines
 
  An overall title can be put on the key (`title "<text>"`)---see also `syntax`
- for the distinction between text in single- or double-quotes.  The key title
- uses the same justification as do the plot titles.
+ for the distinction between text in single- or double-quotes. The justification
+ of the title defaults to center and can be changed by the keywords `right` or
+ `left`
 
  The defaults for `set key` are `on`, `right`, `top`, `vertical`, `Right`,
  `noreverse`, `noinvert`, `samplen 4`, `spacing 1.25`, `title ""`, and
@@ -9513,6 +9733,15 @@ Ffigure_missing
        plot 'data' using 1:2:0 with labels hypertext point pt 7 \
             title 'mouse over point to see its order in data set'
 
+ EXPERIMENTAL (implementation details may change):
+ Text of the form "image{<xsize>,<ysize>}:<filename>{\n<caption text>}" will
+ trigger display of the image file in a pop-up box. The optional size overrides
+ a default box size 300x200.  The types of image file recognized may vary by
+ terminal type, but *.png should always work. Any additional text lines
+ following the image filename are displayed as usual for hypertext.
+ Example:
+       set label 7 "image:../figures/Fig7_inset.png\nFigure 7 caption..."
+       set label 7 at 10,100 hypertext point pt 7
 3 linetype
 ?commands set linetype
 ?commands show linetype
@@ -9535,16 +9764,12 @@ Ffigure_missing
  definition of a temporary linestyle derived from the base linetype 1.
 
  `Note`: This command was introduced in gnuplot version 4.6.  It supersedes an
- older rather cryptic command "set style increment user".
- The older command is now deprecated.
+ older rather cryptic command "set style increment user" that is now deprecated.
 
  This mechanism can be used to define a set of personal preferences for the
  sequence of lines used in gnuplot.  The recommended way to do this is to add
  to the run-time initialization file ~/.gnuplot a sequence of commands like
 
-       if ((GPVAL_VERSION < 4.5) \
-       ||  (!strstrt(GPVAL_COMPILE_OPTIONS,"+USER_LINETYPES"))) \
-           exit
        set linetype 1 lc rgb "dark-violet" lw 2 pt 0
        set linetype 2 lc rgb "sea-green"   lw 2 pt 7
        set linetype 3 lc rgb "cyan"        lw 2 pt 6 pi -1
@@ -9746,11 +9971,12 @@ Ffigure_missing
  world.dem: mapping demos.
 ^ </a>
 3 margin
-?commands set margin
-?commands show margin
+?commands set margins
+?commands show margins
 ?set margin
-?show margin
-?margin
+?set margins
+?show margins
+?margins
  The `margin` is the distance between the plot border and the outer edge of the
  canvas. The size of the margin is chosen automatically, but can be overridden
  by the `set margin` commands.  `show margin` shows the current settings.
@@ -9758,10 +9984,11 @@ Ffigure_missing
  plot itself, see `set offsets`.
 
  Syntax:
-       set bmargin {{at screen} <margin>}
        set lmargin {{at screen} <margin>}
        set rmargin {{at screen} <margin>}
        set tmargin {{at screen} <margin>}
+       set bmargin {{at screen} <margin>}
+       set margins <left>, <right>, <bottom>, <top>
        show margin
 
  The default units of <margin> are character heights or widths, as appropriate.
@@ -9782,6 +10009,31 @@ Ffigure_missing
  labels will be included in either the margin calculation or the calculation
  of the positions of other text to be written in the margin.  This can lead
  to tic labels overwriting other text if the axis is very close to the border.
+3 monochrome
+?commands set monochrome
+?set monochrome
+?monochrome
+ Syntax:
+      set monochrome {linetype N <linetype properties>}
+
+ The `set monochrome` command selects an alternative set of linetypes that
+ differ by dot/dash pattern or line width rather than by color.  This command
+ replaces the monochrome option offered by certain terminal types in earlier 
+ versions of gnuplot.  For backward compatibility these terminal types now
+ implicitly invoke "set monochrome" if their own "mono" option is present.
+ For example,
+      set terminal pdf mono
+ is equivalent to
+      set terminal pdf
+      set mono
+
+ Selecting monochrome mode does not prevent you from explicitly drawing lines
+ using RGB or palette colors, but see also `set palette gray`.
+ Six monochrome linetypes are defined by default.  You can change their
+ properties or add additional monochrome linetypes by using the full form of the
+ command.  Changes made to the monochrome linetypes do not affect the color
+ linetypes and vice versa.  To restore the usual set of color linetypes, use
+ either `unset monochrome` or `set color`.
 3 mouse
 ?commands set mouse
 ?commands unset mouse
@@ -9812,13 +10064,14 @@ Ffigure_missing
  on the most recent plot within the multiplot (like replot does).
 
  Syntax:
-       set mouse {doubleclick <ms>} {nodoubleclick} \
-                 {{no}zoomcoordinates} \
-                 {noruler | ruler {at x,y}} \
-                 {polardistance{deg|tan} | nopolardistance} \
-                 {format <string>} \
-                 {mouseformat <int>/<string>} \
-                 {{no}labels {"labeloptions"}} \
+       set mouse {doubleclick <ms>} {nodoubleclick}
+                 {{no}zoomcoordinates}
+                 {zoomfactors <xmultiplier>, <ymultiplier>}
+                 {noruler | ruler {at x,y}}
+                 {polardistance{deg|tan} | nopolardistance}
+                 {format <string>}
+                 {mouseformat <int>/<string>}
+                 {{no}labels {"labeloptions"}}
                  {{no}zoomjump} {{no}verbose}
        unset mouse
 
@@ -9855,8 +10108,9 @@ Ffigure_missing
 ?set mouse doubleclick
 ?mouse doubleclick
  The doubleclick resolution is given in milliseconds and used for Button 1,
- which copies the current mouse position to the `clipboard`.  The default value
- is 300 ms.  Setting the value to 0 ms triggers the copy on a single click.
+ which copies the current mouse position to the `clipboard` on some terminals.
+ The default value is 300 ms.  Setting the value to 0 ms triggers the copy on
+ a single click.
 4 mouseformat
 ?set mouse format
 ?set mouse mouseformat
@@ -9932,6 +10186,7 @@ Ffigure_missing
 ?unset multiplot
 ?multiplot
 ?nomultiplot
+?layout
  The command `set multiplot` places `gnuplot` in the multiplot mode, in which
  several plots are placed on the same page, window, or screen.
 
@@ -10020,10 +10275,34 @@ Ffigure_missing
  left to right.  Each plot will have a horizontal size of 1.1/2 and a vertical
  size of 0.9/3.
 
- Another possibility is to set explicit margins for each plot with options
- `margins` and `spacing`. With `margins` you set the outer margins of the whole
- multiplot grid, given as fractions of the whole drawing area. This can be very
- useful if only some plots have labels but their sizes should all be equal.
+ Another possibility is to set uniform margins for all plots in the layout with
+ options `layout margins` and `spacing`, which must be used together. With
+ `margins` you set the outer margins of the whole multiplot grid. 
+
+ `spacing` gives the gap size between two adjacent subplots, and can also
+ be given in `character` or `screen` units. If a single value is given,
+ it is used for both x and y direction, otherwise two different values
+ can be selected.
+
+ If one value has no unit, the one of the preceding margin setting is used.
+
+ Example:
+       set multiplot layout 2,2 margins 0.1, 0.9, 0.1, 0.9 spacing 0.0
+
+ In this case the two left-most subplots will have left boundaries at screen
+ coordinate 0.1, the two right-most subplots will have right boundaries at
+ screen coordinate 0.9, and so on.  Because the spacing between subplots is
+ given as 0, their inner boundaries will superimpose.
+
+ Example:
+       set multiplot layout 2,2 margins char 5,1,1,2 spacing screen 0, char 2
+
+ This produces a layout in which the boundary of both left subplots is
+ 5 character widths from the left edge of the canvas, the right boundary of the
+ right subplots is 1 character width from the canvas edge.
+ The overall bottom margin is one character height and the overall top margin
+ is 2 character heights. There is no horizontal gap between the two columns of
+ subplots. The vertical gap between subplots is equal to 2 character heights.
 
  Example:
        set multiplot layout 2,2 columnsfirst margins 0.1,0.9,0.1,0.9 spacing 0.1
@@ -10452,8 +10731,9 @@ Ffigure_missing
        show paxis <axisno> {range | tics}
  The `set paxis` command is equivalent to the `set xrange` and `set xtics`
  commands except that it acts on one of the axes p1, p2, ... used in parallel
- axis plots.  The normal options to these commands are accepted although not
- all options make sense for this kind of plot.  See `set xrange`, `set xtics`.
+ axis plots.  See `parallelaxes`, `set xrange`, and `set xtics`.
+ The normal options to the range and tics commands are accepted although not
+ all options make sense for parallel axis plots.
 3 plot
 ?commands show plot
 ?show plot
@@ -10569,8 +10849,6 @@ Ffigure_missing
  "colorbox", and refers to the indexing variable as lying on the colorbox axis.
  See `set colorbox`, `set cbrange`.
 
- 3. To use pm3d coloring to generate a two-dimensional plot rather than a 3D
- surface, use `set view map` or `set pm3d map`.
 4 position
 ?pm3d position
  Color surface can be drawn at the base or top (then it is a gray/color planar
@@ -10707,7 +10985,7 @@ Ffigure_missing
        set pm3d at s depthorder border lw 0.2 lt black
        unset hidden3d
        unset surf
-       splot x*x+y*y linecolor rgb "blue"	# otherwise it would be black
+       splot x*x+y*y linecolor rgb "blue"   # otherwise it would be black
 
  NB: The deprecated option `set pm3d hidden3d N` is still accepted. It is 
  equivalent to `set pm3d border ls N`.
@@ -10732,12 +11010,16 @@ Ffigure_missing
  Note: Currently color interpolation is always linear, even if corners2color
  is set to a nonlinear scheme such as the geometric mean.
 4 deprecated_options
+?set pm3d deprecated_options
 ?pm3d deprecated_options
+?set pm3d map
+?pm3d map
+?map
  There used to be an option {transparent|solid} to this command.  Now
  you get the same effect from `set grid {front|layerdefault}`, respectively.
 
- The command `set pm3d map` is equivalent to `set pm3d at b`; `set view map`;
- `set style data pm3d`; `set style func pm3d`;.
+ The old command `set pm3d map` is equivalent to `set pm3d at b;
+ set view map scale 1.0; set style data pm3d; set style func pm3d;`
 3 palette
 ?commands set palette
 ?commands show palette
@@ -10989,7 +11271,14 @@ Ffigure_missing
        gamma = 2.2
        color(gray) = gray**(1./gamma)
        set palette model RGB functions color(gray), color(gray), color(gray)
-
+4 gray
+?commands set palette gray
+?set palette gray
+?set palette grey
+?palette gray
+ `set palette gray` switches to a grayscale palette shading from 0.0 = black
+ to 1.0 = white.  `set palette color` is an easy way to switch back from the
+ gray palette to the last color mapping.
 4 cubehelix
 ?commands set palette cubehelix
 ?set palette cubehelix
@@ -11196,7 +11485,7 @@ Ffigure_missing
        set print "|<shell_command>"
        set print $datablock [append]
 
- Without "<filename>", the output file is restored to <STDERR>.  The <filename>
+ `set print` with no parameters restores output to <STDERR>.  The <filename>
  "-" means <STDOUT>. The `append` flag causes the file to be opened in append
  mode.  A <filename> starting with "|" is opened as a pipe to the
  <shell_command> on platforms that support piping.
@@ -11221,6 +11510,8 @@ Ffigure_missing
 3 raxis
 ?commands set raxis
 ?raxis
+?set raxis
+?unset raxis
  The commands `set raxis` and `unset raxis` toggle whether the polar axis
  is drawn separately from grid lines and the x axis.  If the minimum of the
  current rrange is non-zero (and not autoscaled), then a white circle is drawn
@@ -11360,7 +11651,7 @@ Ffigure_missing
  Default plotting styles are chosen with the `set style data` and
  `set style function` commands.  See `plot with` for information about how to
  override the default plotting style for individual functions and data sets.
- See `plotting styles` for a complete list of styles.
+ See `plotting styles` or `plot with` for a complete list of styles.
 
  Syntax:
        set style function <style>
@@ -11433,12 +11724,12 @@ Ffigure_missing
  `<backangle>` is the angle (in degrees) the back branches make with the arrow
  (in the same direction as `<angle>`). It is ignored if the style is `nofilled`.
 
- Specifying `filled` produces filled arrow heads (if heads are used).
- Specifying `noborder` draws filled arrow heads but does not draw a line
- around the arrow head. This has two effects.  The arrow head is slightly
- smaller. The tip of the arrow head lies exactly on the endpoint of the vector.
- If the border is drawn, the tip extends beyond the endpoint by some fraction
- of the border linewidth.  Not all terminals support filled arrow heads.
+ Specifying `filled` produces filled arrow heads with a border line around the
+ arrow head.  Specifying `noborder` produces filled arrow heads with no border.
+ In this case the tip of the arrow head lies exactly on the endpoint of the
+ vector and the arrow head is slightly smaller overall. Dashed arrows should
+ always use `noborder`, since a dashed border is ugly.
+ Not all terminals support filled arrow heads.
 
  The line style may be selected from a user-defined list of line styles
  (see `set style line`) or may be defined here by providing values for
@@ -11543,8 +11834,8 @@ Ffigure_missing
        set style data <plotting-style>
        show style data
 
- See `plotting styles` for the choices.  If no choice is given, the choices are
- listed.  `show style data` shows the current default data plotting style.
+ See `plotting styles` for the choices.
+ `show style data` shows the current default data plotting style.
 4 set style fill
 ?commands set style fill
 ?commands show style fill
@@ -11617,7 +11908,7 @@ Ffigure_missing
 #win        &     yes &     yes &     yes \\
 #wxt        &     yes &     yes &     yes \\
 #x11        &      no &     yes &      no \\
-%c l .
+%c c c c .
 %Terminal@solid@pattern@pm3d
 %_
 %gif@no@yes@no
@@ -11629,7 +11920,6 @@ Ffigure_missing
 %win@yes@yes@yes
 %wxt@yes@yes@yes
 %x11@no@yes@no
-%_
 @end table
 
 ^<table align="center" border="1" rules="groups" frame="hsides" cellpadding="3">
@@ -11942,7 +12232,7 @@ Ffigure_missing
  The combination `unset surface; set contour base` is useful for displaying
  contours on the grid base.  See also `set contour`. 
 
- If an 3D data set is recognizable as a mesh (grid) then by default the program
+ If a 3D data set is recognizable as a mesh (grid) then by default the program
  implicitly treats the plot style `with lines` as requesting a gridded surface.
  See `grid_data`.  The command `set surface explicit` suppresses this expansion,
  plotting only the individual lines described by separate datablocks in the
@@ -12064,7 +12354,7 @@ Ffigure_missing
                 {in | out} {front | back}
                 {{no}rotate {by <ang>}} {offset <offset> | nooffset}
                 {left | right | center | autojustify}
-                { format "formatstring" } { font "name{,<size>}" }
+                {format "formatstring"} {font "name{,<size>}"} {{no}enhanced}
                 { textcolor <colorspec> }
        set tics scale {default | <major> {,<minor>}}
        unset tics
@@ -12117,8 +12407,8 @@ Ffigure_missing
  desired, justification can be overridden with an explicit `left`, `right` or
  `center` keyword. `autojustify` restores the default behavior.
 
- `set tics` with no options restores to place tics inwards. Every other
- options are retained.
+ `set tics` with no options restores mirrored, inward-facing tic marks for
+ the primary axes. All other settings are retained.
 
  See also `set xtics` for more control of major (labeled) tic marks and
  `set mxtics` for control of minor tic marks.  These commands provide control
@@ -12181,12 +12471,8 @@ Ffigure_missing
  It has no meaning unless the command `set *data time` is given also.
 
  Syntax:
-       set timefmt {<axis>} "<format string>"
+       set timefmt "<format string>"
        show timefmt
-
- The optional <axis> argument allows to specify different time input formats
- for individual axes.  If it is omitted, the format string is applied to all
- axes.
 
  The string argument tells `gnuplot` how to read timedata from the datafile.
  The valid formats are:
@@ -12233,7 +12519,6 @@ Ffigure_missing
 %%S@second, integer 0--60 on output, (double) on input
 %%b@three-character abbreviation of the name of the month
 %%B@name of the month
-%_
 @end table
 
 
@@ -12530,7 +12815,7 @@ Ffigure_missing
  An analogous command acts on each of the other axes.
 
  Syntax:
-       set xdata {time | geographic}
+       set xdata time
        show xdata
 
  The same syntax applies to `ydata`, `zdata`, `x2data`, `y2data` and `cbdata`.
@@ -12538,49 +12823,32 @@ Ffigure_missing
  The `time` option signals that data represents a time/date in seconds.
  The current version of gnuplot stores time to a millisecond precision.
 
- The `geographic` option signals that data represents a geographical coordinate
- measured in degrees/minutes/seconds.
-
  If no option is specified, the data interpretation reverts to normal.
 4 time
 ?commands set xdata time
 ?set xdata time
  `set xdata time` indicates that the x coordinate is to be interpreted as a
- date or time to millisecond precision.
+ date or time to millisecond precision. Equivalent commands exist for
+ `set ydata time` and so on.
 
- See `set timefmt` to tell gnuplot how to read date or time data from a file.
- The time/date is converted to seconds from start of the century.  There is
- currently only one timefmt, which implies that all the time/date columns must
- conform to this format.  Specification of ranges should be supplied as quoted
- strings according to this format to avoid interpretation of the time/date as
- an expression.
+ Two separate formats control interpretation of time data.
+ Input data is read from a file using the `timefmt` for that axis.
+ See `set timefmt`. 
+ Use quoted strings in this same `timefmt` to specify the axis range.
 
- By default the function 'strftime' (type "man strftime" on unix to look it up)
- is used to label axis tickmarks.  `gnuplot` tries to figure out a reasonable
- format for this.  You can customize the label format using `set format x`.
+ Example:
+
+      set xdata time
+      set timefmt x "%d-%b-%Y"
+      set xrange ["01-Jan-2013" : "31-Dec-2014"]
+
+ For output, i.e. tick labels along that axis or coordinates output by mousing,
+ the function 'strftime' (type "man strftime" on unix to look it up) is used to
+ convert from the internal time in seconds to a string representation of a date.
+ `gnuplot` tries to figure out a reasonable format for this.  You can customize
+ the format using either `set format x` or `set xtics format`.
  See `time_specifiers` for a special set of time format specifiers.
  See also `time/date` for more information.
-4 geographic
-?commands set xdata geographic
-?set xdata geographic
-?geographic
- `set xdata geographic` indicates that the x coordinate is to be interpreted as
- a geographic coordinate measured in degrees.  Use `set format x` to establish
- how the coordinate appears as an axis tick label.  The format specifiers for
- geographic data are as follows:
-        %D                   = integer degrees
-        %<width.precision>d  = floating point degrees
-        %M                   = integer minutes
-        %<width.precision>m  = floating point minutes
-        %S                   = integer seconds
-        %<width.precision>s  = floating point seconds
-        %E                   = label with E/W instead of +/-
-        %N                   = label with N/S instead of +/-
- For example, the command `set format x "%Ddeg %5.2mmin %E"` will cause 
- x coordinate -1.51 to be labeled as `" 1deg 30.60min W"`.
-
- If no special format is provided, the coordinate will be reported as a decimal
- number of degrees.
 3 xdtics
 ?commands set xdtics
 ?commands unset xdtics
@@ -12834,7 +13102,8 @@ Ffigure_missing
                   | <incr>
                   | <start>, <incr> {,<end>}
                   | ({"<label>"} <pos> {<level>} {,{"<label>"}...) }
-                 { format "formatstring" } { font "name{,<size>}" }
+                 {format "formatstring"} {font "name{,<size>}"} {{no}enhanced}
+                 { numeric | timedate | geographic }
                  { rangelimited }
                  { textcolor <colorspec> }
        unset xtics
@@ -12975,30 +13244,66 @@ Ffigure_missing
 
  Minor (unlabeled) tics can be added automatically by the `set mxtics`
  command, or at explicit positions by the `set xtics ("" <pos> 1, ...)` form.
-4 xtics time_data
-?set xtics time_axis tics
-?xtics time_axis tics
-?time_axis tics
- In case of timeseries data, axis tic position values must be given as quoted
- dates or times according to the format `timefmt`. If the <start>, <incr>, <end>
- form is used, <start> and <end> must be given according to `timefmt`, but
- <incr> must be in seconds.  Times will be written out according to the format
- given on `set format`, however.
+4 xtics timedata
+?set xtics timedata
+?xtics timedata tics
+?timedata tics
+ Times and dates are stored internally as a number of seconds.
+
+ Input: Non-numeric time and date values are converted to seconds on input using
+ the format specifier in `timefmt`.  Axis positions and range limits also may be
+ given as quoted dates or times interpreted using `timefmt`.
+ If the <start>, <incr>, <end> form is used, <incr> must be in seconds.
+ Use of `timefmt` to interpret input data, range, and tic positions is triggered
+ by `set xdata time`.
+
+ Output: Axis tic labels are generated using a separate format specified either
+ by `set format` or `set xtics format`.  By default the usual numeric format
+ specifiers are expected (`set xtics numeric`).  Other options are geographic
+ coordinates (`set xtics geographic`), or times or dates (`set xtics time`).
+
+ Note: For backward compatibility with earlier gnuplot versions, the command
+ `set xdata time` will implicitly also act do `set xtics time`, and `set xdata`
+ or `unset xdata` will implicitly reset to `set xtics numeric`.  However you
+ can change this with a later call to `set xtics`.
 
  Examples:
-       set xdata time
-       set timefmt "%d/%m"
-       set xtics format "%b %d"
+       set xdata time           # controls interpretation of input data
+       set timefmt "%d/%m"      # format used to read input data
+       set xtics timedate       # controls interpretation of output format
+       set xtics format "%b %d" # format used for tic labels
        set xrange ["01/12":"06/12"]
        set xtics "01/12", 172800, "05/12"
 
        set xdata time
        set timefmt "%d/%m"
-       set xtics format "%b %d"
+       set xtics format "%b %d" time
        set xrange ["01/12":"06/12"]
        set xtics ("01/12", "" "03/12", "05/12")
  Both of these will produce tics "Dec 1", "Dec 3", and "Dec 5", but in the
  second example the tic at "Dec 3" will be unlabeled.
+4 geographic
+?commands set xtics geographic
+?set xtics geographic
+?geographic
+ `set xtics geographic` indicates that x-axis values are to be interpreted as
+ a geographic coordinate measured in degrees.  Use `set xtics format` or 
+ `set format x` to specify the appearance of the axis tick labels.
+ The format specifiers for geographic data are as follows:
+        %D                   = integer degrees
+        %<width.precision>d  = floating point degrees
+        %M                   = integer minutes
+        %<width.precision>m  = floating point minutes
+        %S                   = integer seconds
+        %<width.precision>s  = floating point seconds
+        %E                   = label with E/W instead of +/-
+        %N                   = label with N/S instead of +/-
+ For example, the command `set format x "%Ddeg %5.2mmin %E"` will cause 
+ x coordinate -1.51 to be labeled as `" 1deg 30.60min W"`.
+
+ If the xtics are left in the default state (`set xtics numeric`) the coordinate
+ will be reported as a decimal number of degrees, and `format` will be assumed
+ to contain normal numeric format specifiers rather than the special set above.
 4 xtics rangelimited
 ?set xtics rangelimited
 ?xtics rangelimited
@@ -13498,18 +13803,33 @@ Ffigure_missing
 4 matrix
 ?commands plot datafile matrix
 ?commands splot datafile matrix
-?plot datafile matrix binary
-?splot datafile matrix binary
-?plot binary matrix
-?splot binary matrix
-?plot matrix binary
-?splot matrix binary
-?matrix binary
+?plot datafile matrix
+?splot datafile matrix
 ?binary matrix
- Gnuplot can interpret matrix input in two different ways.
- The first of these assumes a uniform grid of x and y coordinates, and assigns
- each value in the input matrix to one element of this uniform grid.
+?matrix
+ Gnuplot can interpret matrix data input in two different ways.
+
+ The first of these assumes a uniform grid of x and y coordinates and assigns
+ each value in the input matrix to one element M[i,j] of this uniform grid.
+ The assigned x coordinates are the integers [0:NCOLS-1].
+ The assigned y coordinates are the integers [0:NROWS-1].
  This is the default for text data input, but not for binary input.
+ See `matrix uniform` for examples and additional keywords.
+
+ The second interpretation assumes a non-uniform grid with explicit x and y
+ coordinates. The first row of input data contains the y coordinates; 
+ the first column of input data contains the x coordinates.  For binary input
+ data, the first element of the first row must contain the number of columns.
+ This is the default for `binary matrix` input, but requires an additional
+ keyword `nonuniform` for text input data.
+ See `matrix nonuniform` for examples.
+
+5 uniform
+?commands plot datafile matrix uniform
+?commands splot datafile matrix uniform
+?datafile matrix uniform
+?matrix uniform
+?binary matrix uniform
  Example commands for plotting uniform matrix data:
       splot 'file' matrix using 1:2:3          # text input
       splot 'file' binary general using 1:2:3  # binary input
@@ -13520,17 +13840,32 @@ Ffigure_missing
      z31 z32 z33 z34 ...
  and so forth.
 
+ For text input, if the first row contains column labels rather than data,
+ use the additional keyword `columnheaders`.   Similarly if the first field
+ in each row contains a label rather than data, use the additional keyword
+ `rowheaders`.  Here is an example that uses both:
+     $DATA << EOD
+     xxx A   B   C   D
+     aa  z11 z12 z13 z14
+     bb  z21 z22 z23 z24
+     cc  z31 z32 z33 z34
+     EOD
+     plot $DATA matrix columnheaders rowheaders with image
+
  For text input, a blank line or comment line ends the matrix, and starts a new
  surface mesh.  You can select among the meshes inside a file by the `index`
  option to the `splot` command, as usual. 
-=nonuniform
-?nonuniform
- The second interpretation assumes a non-uniform grid with explicit x and y
- coordinates. The first row of input data contains the y coordinates; 
- the first column of input data contains the x coordinates.  For binary input
- data, the first element of the first row must contain the number of data
- columns. (This number is ignored for text input).  Both the coordinates and
- the data values in a binary input are treated as single precision floats.
+5 nonuniform
+?commands plot datafile matrix nonuniform
+?commands splot datafile matrix nonuniform
+?datafile matrix nonuniform
+?matrix nonuniform
+?binary matrix nonuniform
+ The first row of input data contains the y coordinates. 
+ The first column of input data contains the x coordinates.
+ For binary input data, the first field of the first row must contain the
+ number of columns. (This number is ignored for text input).
+
  Example commands for plotting non-uniform matrix data:
       splot 'file' nonuniform matrix using 1:2:3  # text input
       splot 'file' binary matrix using 1:2:3      # binary input
@@ -13555,7 +13890,12 @@ Ffigure_missing
 
  These triplets are then converted into `gnuplot` iso-curves and then
  `gnuplot` proceeds in the usual manner to do the rest of the plotting.
-
+5 examples
+?commands plot datafile matrix examples
+?commands splot datafile matrix examples
+?datafile matrix examples
+?matrix examples
+?binary matrix examples
  A collection of matrix and vector manipulation routines (in C) is provided
  in `binary.c`.  The routine to write binary data is
 
@@ -13686,7 +14026,7 @@ Ffigure_missing
 ?stats
 ?statistics
  Syntax:
-      stats {<ranges>} 'filename' {using N{:M}} {name 'prefix'} {{no}output}
+      stats {<ranges>} 'filename' {matrix | using N{:M}} {name 'prefix'} {{no}output}
 
  This command prepares a statistical summary of the data in one or two columns
  of a file. The using specifier is interpreted in the same way as for plot
@@ -13699,24 +14039,42 @@ Ffigure_missing
  In addition to printed output, the program stores the individual statistics
  into three sets of variables.
  The first set of variables reports how the data is laid out in the file:
-      STATS_records           # total number of in-range data records
+@start table
+      STATS_records           # total number of in-range data records (N)
       STATS_outofrange        # number of records filtered out by range limits
       STATS_invalid           # number of invalid/incomplete/missing records
       STATS_blank             # number of blank lines in the file
       STATS_blocks            # number of indexable datablocks in the file
       STATS_columns           # number of data columns in the first row of data
+#\begin{tabular}{|lcl|} \hline
+#\verb@STATS_records@    & $~~N~~$ &  total number of in-range data records  \\
+#\verb@STATS_outofrange@ & $~~~~~$  &  number of records filtered out by range limits  \\
+#\verb@STATS_invalid@    & $~~~~~$  &  number of invalid/incomplete/missing records  \\
+#\verb@STATS_blank@      & $~~~~~$  &  number of blank lines in the file  \\
+#\verb@STATS_blocks@     & $~~~~~$  &  number of indexable datablocks in the file  \\
+#\verb@STATS_columns@    & $~~~~~$  &  number of data columns in the first row of data  \\
+%l l .
+%Variable@Description
+%_
+%STATS_records@total number of in-range data records
+%STATS_outofrange@number of records filtered out by range limits
+%STATS_invalid@number of invalid/incomplete/missing records
+%STATS_blank@number of blank lines in the file
+%STATS_blocks@number of indexable datablocks in the file
+%STATS_columns@number of data columns in the first row of data
+@end table
 
- The second set reports properties of the in-range data from a single
- column.  If the corresponding axis is autoscaled then no range limits
- are applied. If a single column is used, it is affected by the y-axis
- settings. Otherwise the x-axis settings apply to the first and the
- y-axis settings to the second column.
+ The second set reports properties of the in-range data from a single column.
+ This column is treated as y. If the y axis is autoscaled then no range limits
+ are applied. Otherwise only values in the range [ymin:ymax] are considered.
 
- If two columns are being analysed in a single `stats` command, the
- suffix "_x" or "_y" is appended to each variable name.
+ If two columns are analysed jointly by a single `stats` command, the suffix
+ "_x" or "_y" is appended to each variable name.
  I.e. STATS_min_x is the minimum value found in the first column, while
  STATS_min_y is the minimum value found in the second column.
+ In this case points are filtered by testing against both xrange and yrange.
 
+@start table
       STATS_min               # minimum value of in-range data points
       STATS_max               # maximum value of in-range data points
       STATS_index_min         # index i for which data[i] == STATS_min
@@ -13724,20 +14082,67 @@ Ffigure_missing
       STATS_lo_quartile       # value of the lower (1st) quartile boundary
       STATS_median            # median value
       STATS_up_quartile       # value of the upper (3rd) quartile boundary
-      STATS_mean              # mean value of in-range data points
-      STATS_stddev            # standard deviation of the in-range data points
-      STATS_skewness          # skewness of in-range data points
-      STATS_kurtosis          # excess kurtosis of in-range data points
-      STATS_adev              # mean absolute deviation of the data points
+      STATS_mean              # mean value of the in-range data points
+      STATS_ssd               # sample standard deviation of the in-range data
+                                   = sqrt( Sum[(y-ymean)^2] / (N-1) )
+      STATS_stddev            # population standard deviation of the in-range data
+                                   = sqrt( Sum[(y-ymean)^2] / N )
       STATS_sum               # sum
       STATS_sumsq             # sum of squares
+      STATS_skewness          # skewness of the in-range data points
+      STATS_kurtosis          # kurtosis of the in-range data points
+      STATS_adev              # mean absolute deviation of the in-range data points
       STATS_mean_err          # standard error of the mean value
       STATS_stddev_err        # standard error of the standard deviation
       STATS_skewness_err      # standard error of the skewness
-      STATS_kurtosis_err      # standard error of the excess kurtosis
+      STATS_kurtosis_err      # standard error of the kurtosis
+#\begin{tabular}{|lrll|} \hline
+#\verb@STATS_min@ && $\min(y)$ &  minimum value of in-range data points \\
+#\verb@STATS_max@ && $\max(y)$ &  maximum value of in-range data points \\
+#\verb@STATS_index_min@ && $i \mid y_i = \min(y)$ &  index i for which data[i] == STATS\_min \\
+#\verb@STATS_index_max@ && $i \mid y_i = \max(y)$ &  index i for which data[i] == STATS\_max \\
+#\verb@STATS_mean@ & $\bar{y}=$ & $\frac{1}{N}\sum{y}$ &  mean value of the in-range data points \\
+#\verb@STATS_stddev@ & $\sigma_y=$ & $\sqrt{\frac{1}{N}{\sum{{(y-\bar{y})}^2}}}$ &  population standard deviation of the in-range data \\
+#\verb@STATS_ssd@ & $s_y=$ & $\sqrt{\frac{1}{N-1}{\sum{{(y-\bar{y})}^2}}}$ &  sample standard deviation of the in-range data \\
+#\verb@STATS_lo_quartile@ && ~ &  value of the lower (1st) quartile boundary \\
+#\verb@STATS_median@ && ~ &  median value \\
+#\verb@STATS_up_quartile@ && ~ &  value of the upper (3rd) quartile boundary \\
+#\verb@STATS_sum@ && $\sum{y}$ &  sum \\
+#\verb@STATS_sumsq@ && $\sum{y^2}$ &  sum of squares \\
+#\verb@STATS_skewness@ && $\frac{1}{N\sigma^3}\sum{(y-\bar{y})^3}$ &  skewness of the in-range data points \\
+#\verb@STATS_kurtosis@ && $\frac{1}{N\sigma^4}\sum{(y-\bar{y})^4}$ &  kurtosis of the in-range data points \\
+#\verb@STATS_adev@ && $\frac{1}{N}\sum{|{y}-\bar{y}|}$ &  mean absolute deviation of the in-range data \\
+#\verb@STATS_mean_err@ && $\sigma_y / \sqrt{N}$ &  standard error of the mean value \\
+#\verb@STATS_stddev_err@ && $\sigma_y / \sqrt{2N}$ &  standard error of the standard deviation \\
+#\verb@STATS_skewness_err@ && $\sqrt{6/N}$ &  standard error of the skewness \\
+#\verb@STATS_kurtosis_err@ && $\sqrt{24/N}$ &  standard error of the kurtosis \\
+%l c l .
+%Variable@ @Description
+%_
+%STATS_min@$min ( y )$@minimum value of in-range data points
+%STATS_max@$max ( y )$@maximum value of in-range data points
+%STATS_index_min@$i~|~y sub i = min ( y )$@index i for which data[i] == STATS_min
+%STATS_index_max@$i~|~y sub i = max ( y )$@index i for which data[i] == STATS_max
+%STATS_lo_quartile@ @value of the lower (1st) quartile boundary
+%STATS_median@ @median value
+%STATS_up_quartile@ @value of the upper (3rd) quartile boundary
+%STATS_mean@$y bar = 1 over N sum y$@mean value of the in-range data points
+%STATS_ssd@$sigma sub y = sqrt { 1 over { N - 1 } sum { ( y - y bar ) sup 2  } }$@sample standard deviation of the in-range data
+%STATS_stddev@$s sub y = sqrt { 1 over N sum { ( y - y bar ) sup 2 } }$@population standard deviation of the in-range data
+%STATS_sum@$sum y$@sum
+%STATS_sumsq@$sum y sup 2$@sum of squares
+%STATS_skewness@$1 over { N  sigma sup 3} sum { left ( y - y bar right ) sup 3}$@skewness of the in-range data points
+%STATS_kurtosis@$1 over { N  sigma sup 4} sum { left ( y - y bar right ) sup 4}$@kurtosis of the in-range data points
+%STATS_adev@$1 over N sum | y - y bar |$@mean absolute deviation of the in-range data points
+%STATS_mean_err@$sigma sub y / sqrt N$@standard error of the mean value
+%STATS_stddev_err@$sigma sub y / sqrt { 2 N }$ @standard error of the standard deviation
+%STATS_skewness_err@$sqrt { 6 / N }$@standard error of the skewness
+%STATS_kurtosis_err@$sqrt { 24 / N }$@standard error of the kurtosis
+@end table
 
  The third set of variables is only relevant to analysis of two data columns.
-      STATS_correlation       # correlation coefficient between x and y values
+@start table
+      STATS_correlation       # sample correlation coefficient between x and y values
       STATS_slope             # A corresponding to a linear fit y = Ax + B
       STATS_slope_err         # uncertainty of A
       STATS_intercept         # B corresponding to a linear fit y = Ax + B
@@ -13745,6 +14150,31 @@ Ffigure_missing
       STATS_sumxy             # sum of x*y
       STATS_pos_min_y         # x coordinate of a point with minimum y value
       STATS_pos_max_y         # x coordinate of a point with maximum y value
+#\begin{tabular}{|lll|} \hline
+#\verb@STATS_correlation@ &   &  sample correlation coefficient between x and y values \\
+#\verb@STATS_slope@       &   &  A corresponding to a linear fit y = Ax + B \\
+#\verb@STATS_slope_err@   &   &  uncertainty of A \\
+#\verb@STATS_intercept@   &   &  B corresponding to a linear fit y = Ax + B \\
+#\verb@STATS_intercept_err@ &   &  uncertainty of B \\
+#\verb@STATS_sumxy@       &   &  sum of x*y \\
+#\verb@STATS_pos_min_y@   &   &  x coordinate of a point with minimum y value \\
+#\verb@STATS_pos_max_y@   &   &  x coordinate of a point with maximum y value \\
+%l l .
+%Variable@Description
+%_
+%STATS_correlation@sample correlation coefficient between x and y values
+%STATS_slope@A corresponding to a linear fit $y = A x + B$
+%STATS_slope_err@uncertainty of A
+%STATS_intercept@B corresponding to a linear fit $y = A x + B$
+%STATS_intercept_err@uncertainty of B
+%STATS_sumxy@sum of $x times y$,  $sum x~y$
+%STATS_pos_min_y@x coordinate of a point with minimum y value
+%STATS_pos_max_y@x coordinate of a point with maximum y value
+@end table
+
+ When `matrix` is specified, the `using` option is ignored and the "z"-values 
+ are treated as one-dimensional data set. The matrix dimensions are saved in the
+ variables STATS_size_x and STATS_size_y.
 
  It may be convenient to track the statistics from more than one file at the
  same time. The `name` option causes the default prefix "STATS" to be replaced
@@ -13764,8 +14194,7 @@ Ffigure_missing
  mean value of points N/2 and (N+2)/2. Equivalent treatment is used for the
  quartile boundaries.
 
- For an example of using the `stats` command to help annotate a subsequent plot,
- see
+ For an example of using the `stats` command to annotate a subsequent plot, see
 ^ <a href="http://www.gnuplot.info/demo/stats.html">
  stats.dem.
 ^ </a>
@@ -13799,6 +14228,19 @@ Ffigure_missing
  RGB components of the current color `palette`. It also plots the apparent net
  intensity as calculated using NTSC coefficients to map RGB onto a grayscale.
  The profile values are also loaded into a datablock named $PALETTE.
+2 toggle
+?commands toggle
+?toggle
+ Syntax:
+       toggle {<plotno> | "plottitle" | all}
+
+ This command has the same effect as left-clicking on the key entry for a plot
+ currently displayed by an interactive terminal (qt, wxt, x11). If the plot is
+ showing, it is toggled off;  if it is currently hidden, it is toggled on.
+ `toggle all` acts on all active plots, equivalent to the hotkey "i".
+ `toggle "title"` requires an exact match to the plot title.  `toggle "ti*"`
+ acts on the first plot whose title matches the characters before the final '*'.
+ If the current terminal is not interactive, the toggle command has no effect.
 2 undefine
 ?commands undefine
 ?undefine
@@ -13843,6 +14285,10 @@ Ffigure_missing
  Subsequent use of this linetype will use whatever characteristics and color
  that is native to the current terminal type (i.e. the default linetypes
  properties available in gnuplot versions prior to 4.6).
+3 monochrome
+?unset monochrome
+ Switches the active set of linetypes from monochrome to color.
+ Equivalent to `set color`.
 3 output
 ?unset output
  Because some terminal types allow multiple plots to be written into a single
@@ -13860,10 +14306,14 @@ Ffigure_missing
 2 update
 ?commands update
 ?update
- This command writes the current values of the fit parameters into the given
- file, formatted as an initial-value file (as described in the `fit`section).
- This is useful for saving the current values for later use or for restarting
- a converged or stopped fit.
+ This command updates the current values of variables stored in the given
+ file, which has to be formatted as an initial-value file (as described in the
+ `fit` section).
+
+ If the file name does not exist, a new file is created containing all
+ currently defined user variables. All variables not used in the last fit
+ are marked as "#FIXED". This is useful for saving the current values of fit
+ variables for later use or for restarting a converged or stopped fit.
 
  Syntax:
        update <filename> {<filename>}
@@ -13874,10 +14324,9 @@ Ffigure_missing
  Otherwise, if the file already exists, `gnuplot` first renames it by
  appending `.old` and then opens a new file.  That is, "`update 'fred'`"
  behaves the same as "`!rename fred fred.old; update 'fred.old' 'fred'`".
- [On DOS and other systems that use the twelve-character "filename.ext"
- naming convention, "ext" will be "`old`" and "filename" will be related
- (hopefully recognizably) to the initial name.  Renaming is not done at all
- on VMS systems, since they use file-versioning.]
+ If renaming is not possible because that file already exists, update aborts
+ with an error message. [Renaming is not done at all on VMS systems, since
+ they use file-versioning.] 
 
  Please see `fit` for more information.
 2 While

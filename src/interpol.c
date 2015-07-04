@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: interpol.c,v 1.45 2014/01/31 03:43:39 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: interpol.c,v 1.52 2015/06/26 20:51:18 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - interpol.c */
@@ -179,9 +179,8 @@ typedef double five_diag[5];
 
 static int next_curve __PROTO((struct curve_points * plot, int *curve_start));
 static int num_curves __PROTO((struct curve_points * plot));
-static void eval_kdensity __PROTO((struct curve_points *cp, 
-				   int first_point, int num_points, double sr,
-				   coordval *px, coordval *py));
+static double eval_kdensity __PROTO((struct curve_points *cp, 
+				   int first_point, int num_points, double x));
 static void do_kdensity __PROTO((struct curve_points *cp, int first_point,
 				 int num_points, struct coordinate *dest));
 static double *cp_binomial __PROTO((int points));
@@ -194,7 +193,7 @@ static spline_coeff *cp_approx_spline __PROTO((struct curve_points * plot, int f
 static spline_coeff *cp_tridiag __PROTO((struct curve_points * plot, int first_point, int num_points));
 static void do_cubic __PROTO((struct curve_points * plot, spline_coeff * sc, int first_point, int num_points, struct coordinate * dest));
 static void do_freq __PROTO((struct curve_points *plot,	int first_point, int num_points));
-int compare_points __PROTO((SORTFUNC_ARGS p1, SORTFUNC_ARGS p2));
+static int compare_points __PROTO((SORTFUNC_ARGS p1, SORTFUNC_ARGS p2));
 
 
 /*
@@ -254,37 +253,34 @@ num_curves(struct curve_points *plot)
 
    The implementation is based closely on the implementation for Bezier
    curves, except for the way the actual interpolation is generated.
+
+   EAM Feb 2015 - Revise to handle logscaled y axis and to 
+   pass in an actual x coordinate rather than a fraction of the min/max range.
+   NB: This code does not deal with logscaled x axis.
+   FIXME: It's silly to recalculate the mean/stddev/bandwidth every time.
 */
 
 /* eval_kdensity is a modification of eval_bezier */
-static void 
+static double
 eval_kdensity ( 
     struct curve_points *cp,
     int first_point,	/* where to start in plot->points (to find x-range) */
     int num_points,	/* to determine end in plot->points */
-    double sr,		/* position inside curve, range [0:1] */
-    coordval *px,	/* OUTPUT: x and y */
-    coordval *py ) {
+    double x		/* x value at which to calculate y */
+    ) {
 
     unsigned int i;
-    unsigned int n = num_points - 1;
     struct coordinate GPHUGE *this_points = (cp->points) + first_point;
   
-    double x, y, tmp;
+    double y, Z, ytmp;
     double avg, sigma;
-    double min =  DBL_MAX;
-    double max = -DBL_MAX;
     double bandwidth, default_bandwidth;
 
     avg = 0.0;
     sigma = 0.0;
-    for (i = 0; i <= n; i++) {
-      avg   += this_points[i].x;
-      sigma += this_points[i].x * this_points[i].x;
-
-      /* Find min and max of x-range. Necessary since points not sorted! */
-      min = this_points[i].x < min ? this_points[i].x : min;
-      max = this_points[i].x > max ? this_points[i].x : max;
+    for (i = 0; i < num_points; i++) {
+	avg   += this_points[i].x;
+	sigma += this_points[i].x * this_points[i].x;
     }
     avg /= (double)num_points;
     sigma = sqrt( sigma/(double)num_points - avg*avg ); /* Standard Deviation */
@@ -300,20 +296,19 @@ eval_kdensity (
     } else
 	bandwidth = cp->smooth_parameter;
 
-    x = min + sr*(max-min); /* The current x-value */
-
     y = 0;
-    for (i = 0; i <= n; i++) {
-      tmp = ( x - this_points[i].x )/bandwidth;
-      y += this_points[i].y * exp( - 0.5*tmp*tmp ) / bandwidth;
+    for (i = 0; i < num_points; i++) {
+	Z = ( x - this_points[i].x )/bandwidth;
+	ytmp = this_points[i].y;
+	y += AXIS_DE_LOG_VALUE(cp->y_axis,ytmp) * exp( -0.5*Z*Z ) / bandwidth;
     }
     y /= sqrt(2.0*M_PI);
 
-    *px = x;
-    *py = y;
+    return y;
 }
 
 /* do_kdensity is based on do_bezier, except for the call to eval_bezier */
+/* EAM Feb 2015: Don't touch xrange, but recalculate y limits  */
 static void 
 do_kdensity( 
     struct curve_points *cp,
@@ -322,56 +317,33 @@ do_kdensity(
     struct coordinate *dest)	/* where to put the interpolated data */
 {
     int i;
-    coordval x, y;
-
-    /* min and max in internal (eg logged) co-ordinates. We update
-     * these, then update the external extrema in user co-ordinates
-     * at the end.
-     */
-
-    double ixmin, ixmax, iymin, iymax;
-    double sxmin, sxmax, symin, symax;	/* starting values of above */
+    double x, y;
+    double sxmin, sxmax, step;
 
     x_axis = cp->x_axis;
     y_axis = cp->y_axis;
 
-    ixmin = sxmin = AXIS_LOG_VALUE(x_axis, X_AXIS.min);
-    ixmax = sxmax = AXIS_LOG_VALUE(x_axis, X_AXIS.max);
-    iymin = symin = AXIS_LOG_VALUE(y_axis, Y_AXIS.min);
-    iymax = symax = AXIS_LOG_VALUE(y_axis, Y_AXIS.max);
+    if (X_AXIS.log)
+	int_error(NO_CARET, "kdensity cannot handle logscale x axis");
+    sxmin = X_AXIS.min;
+    sxmax = X_AXIS.max;
+
+    step = (sxmax - sxmin) / (samples_1 - 1);
 
     for (i = 0; i < samples_1; i++) {
-        eval_kdensity( cp, first_point, num_points,
-		       (double) i / (double) (samples_1 - 1),
-		       &x, &y );
+	x = sxmin + i * step;
+        y = eval_kdensity( cp, first_point, num_points, x );
 
 	/* now we have to store the points and adjust the ranges */
 	dest[i].type = INRANGE;
-	STORE_AND_FIXUP_RANGE( dest[i].x, x, dest[i].type, ixmin, ixmax, 
-			       X_AXIS.autoscale, NOOP, continue);
-	STORE_AND_FIXUP_RANGE( dest[i].y, y, dest[i].type, iymin, iymax, 
-			       Y_AXIS.autoscale, NOOP, NOOP);
-
+	dest[i].x = x;
+	STORE_WITH_LOG_AND_UPDATE_RANGE( dest[i].y, y, dest[i].type, y_axis,
+				cp->noautoscale, NOOP, NOOP);
 	dest[i].xlow = dest[i].xhigh = dest[i].x;
 	dest[i].ylow = dest[i].yhigh = dest[i].y;
-
 	dest[i].z = -1;
     }
-
-    UPDATE_RANGE(ixmax > sxmax, X_AXIS.max, ixmax, x_axis);
-    UPDATE_RANGE(ixmin < sxmin, X_AXIS.min, ixmin, x_axis);
-    UPDATE_RANGE(iymax > symax, Y_AXIS.max, iymax, y_axis);
-    UPDATE_RANGE(iymin < symin, Y_AXIS.min, iymin, y_axis);
 }
-
-
-/*
- * build up a cntr_struct list from curve_points
- * this funtion is only used for the alternate entry point to
- * Gershon's code and thus commented out
- ***deleted***
- */
-
 
 /* HBB 990205: rewrote the 'bezier' interpolation routine,
  * to prevent numerical overflow and other undesirable things happening
@@ -1018,12 +990,12 @@ gen_interp_frequency(struct curve_points *plot)
 {
     int i, j, curves;
     int first_point, num_points;
-    double y, y_total;
+    double y;
+    double y_total = 0.0;
 
     curves = num_curves(plot);
 
     if (plot->plot_smooth == SMOOTH_CUMULATIVE_NORMALISED) {
-	y_total = 0.0;
 	first_point = 0;
 
 	for (i = 0; i < curves; i++) {
@@ -1047,7 +1019,7 @@ gen_interp_frequency(struct curve_points *plot)
         /* If cumulative, replace the current y-value with the
            sum of all previous y-values. This assumes that the
            data has already been sorted by x-values. */
-        if( plot->plot_smooth == SMOOTH_CUMULATIVE ) {
+        if (plot->plot_smooth == SMOOTH_CUMULATIVE) {
             y = 0;
             for (j = first_point; j < first_point + num_points; j++) {
                 if (plot->points[j].type == UNDEFINED) 
@@ -1128,9 +1100,9 @@ gen_interp(struct curve_points *plot)
 	    free((char *) bc);
 	    break;
 	case SMOOTH_KDENSITY:
-	  do_kdensity( plot, first_point, num_points, 
+	    do_kdensity( plot, first_point, num_points, 
 		       new_points + i * (samples_1 + 1));
-	  break;
+	    break;
 	default:		/* keep gcc -Wall quiet */
 	    ;
 	}
@@ -1159,8 +1131,7 @@ gen_interp(struct curve_points *plot)
 /* HBB 20010720: To avoid undefined behaviour that would be caused by
  * casting functions pointers around, changed arguments to what
  * qsort() *really* wants */
-/* HBB 20010720: removed 'static' to avoid HP-sUX gcc bug */
-int
+static int
 compare_points(SORTFUNC_ARGS arg1, SORTFUNC_ARGS arg2)
 {
     struct coordinate const *p1 = arg1;
@@ -1282,7 +1253,7 @@ cp_implode(struct curve_points *cp)
 			cp->points[j].type = OUTRANGE;
 		is_outrange:
 		    ;
-		} /* if(! all inrange) */
+		} /* if (! all inrange) */
 
 		j++;		/* next valid entry */
 		k = 0;		/* to read */
@@ -1331,6 +1302,12 @@ cp_implode(struct curve_points *cp)
 	    }
 	    j++;		/* next valid entry */
 	}
+
+	/* FIXME: Monotonic cubic splines support only a single curve per data set */
+	if (j < cp->p_count && cp->plot_smooth == SMOOTH_MONOTONE_CSPLINE) {
+	    break;
+	}
+
 	/* insert invalid point to separate curves */
 	if (j < cp->p_count) {
 	    cp->points[j].type = UNDEFINED;
@@ -1358,14 +1335,16 @@ mcs_interp(struct curve_points *plot)
     int i;
 
     /* These will track the resulting smoothed curve */
-    struct coordinate *new_points = gp_alloc((samples_1+1) * sizeof(coordinate), "mcs");
+    /* V5: Try to ensure that the sampling is fine enough to pass through the original points */
+    int Nsamp = (samples_1 > 2*N) ? samples_1 : 2*N;
+    struct coordinate *new_points = gp_alloc((Nsamp+1) * sizeof(coordinate), "mcs");
     double sxmin = AXIS_LOG_VALUE(plot->x_axis, X_AXIS.min);
     double sxmax = AXIS_LOG_VALUE(plot->x_axis, X_AXIS.max);
     double xstart, xend, xstep;
 
     xstart = GPMAX(p[0].x, sxmin);
     xend = GPMIN(p[N-1].x, sxmax);
-    xstep = (xend - xstart) / (samples_1 - 1);
+    xstep = (xend - xstart) / (Nsamp - 1);
 
     /* Calculate spline coefficients */
 #define DX	xlow
@@ -1399,7 +1378,7 @@ mcs_interp(struct curve_points *plot)
     }
 
     /* Use the coefficients C1, C2, C3 to interpolate over the requested range */
-    for (i = 0; i < samples_1; i++) {
+    for (i = 0; i < Nsamp; i++) {
 	double x = xstart + i * xstep;
 	double y;
 	TBOOLEAN exact = FALSE;
@@ -1440,8 +1419,8 @@ mcs_interp(struct curve_points *plot)
     /* Replace original data with the interpolated curve */
     free(p);
     plot->points = new_points;
-    plot->p_count = samples_1;
-    plot->p_max = samples_1 + 1;
+    plot->p_count = Nsamp;
+    plot->p_max = Nsamp + 1;
 
 #undef DX
 #undef SLOPE
@@ -1449,3 +1428,99 @@ mcs_interp(struct curve_points *plot)
 #undef C2
 #undef C3
 }
+
+#ifdef SMOOTH_BINS_OPTION
+/*
+ * Binned histogram of input values.
+ *   plot FOO using N:(1) bins{=<nbins>} {binrange=[binlow:binhigh]} with boxes
+ * If no binrange is given, the range is taken from the x axis range.
+ * In the latter case "set xrange" may exclude some data points,
+ * while "set auto x" will include all data points.
+ */
+void
+make_bins(struct curve_points *plot, int nbins, double binlow, double binhigh)
+{
+    int i, binno;
+    double *bin;
+    double bottom, top, binwidth, range;
+    struct axis *xaxis = &axis_array[plot->x_axis];
+    struct axis *yaxis = &axis_array[plot->y_axis];
+    double ymax = 0;
+    int N = plot->p_count;
+
+    /* Divide the range on X into the requested number of bins.
+     * NB: This range is independent of the values of the points.
+     */
+    if (binlow == 0 && binhigh == 0) {
+	bottom = xaxis->data_min;
+	top = xaxis->data_max;
+    } else {
+	bottom = binlow;
+	top = binhigh;
+    }
+    bottom = axis_log_value(xaxis, bottom);
+    top = axis_log_value(xaxis, top);
+    binwidth = (top - bottom) / (nbins - 1);
+    bottom -= binwidth/2.;
+    top += binwidth/2.;
+    range = top - bottom;
+
+    bin = gp_alloc(nbins*sizeof(double), "bins");
+    for (i=0; i<nbins; i++)
+ 	bin[i] = 0;
+    for (i=0; i<N; i++) {
+	if (plot->points[i].type == UNDEFINED)
+	    continue;
+	binno = floor(nbins * (plot->points[i].x - bottom) / range);
+        /* FIXME: Should outrange points be dumped in the first/last bin? */
+	if (0 <= binno && binno < nbins)
+	    bin[binno] += axis_de_log_value(yaxis, plot->points[i].y);
+    }
+
+    if (xaxis->autoscale & AUTOSCALE_MIN) {
+	if (xaxis->min > bottom)
+	    xaxis->min = bottom;
+    }
+    if (xaxis->autoscale & AUTOSCALE_MAX) {
+	if (xaxis->max < top)
+	    xaxis->max = top;
+    }
+
+    /* Replace the original data with one entry per bin.
+     * new x = midpoint of bin
+     * new y = number of points in the bin
+     */
+    plot->p_count = nbins;
+    plot->points = gp_realloc( plot->points, nbins * sizeof(struct coordinate), "curve_points");
+    for (i=0; i<nbins; i++) {
+	double bincent = bottom + (0.5 + (double)i) * binwidth;
+	plot->points[i].type = INRANGE;
+	plot->points[i].x     = bincent;
+	plot->points[i].xlow  = bincent - binwidth/2.;
+	plot->points[i].xhigh = bincent + binwidth/2.;
+	plot->points[i].y     = axis_log_value(yaxis, bin[i]);
+	plot->points[i].ylow  = plot->points[i].y;
+	plot->points[i].yhigh = plot->points[i].y;
+	plot->points[i].z = 0;	/* FIXME: leave it alone? */
+	if (inrange(axis_de_log_value(xaxis, bincent), xaxis->min, xaxis->max)) {
+	    if (ymax < bin[i])
+		ymax = bin[i];
+	} else {
+	    plot->points[i].type = OUTRANGE;
+	}
+	FPRINTF((stderr, "bin[%d] %g %g\n", i, plot->points[i].x, plot->points[i].y));
+    }
+
+    if (yaxis->autoscale & AUTOSCALE_MIN) {
+	if (yaxis->min > 0)
+	    yaxis->min = 0;
+    }
+    if (yaxis->autoscale & AUTOSCALE_MAX) {
+	if (yaxis->max < ymax)
+	    yaxis->max = ymax;
+    }
+
+    /* Clean up */
+    free(bin);
+}
+#endif

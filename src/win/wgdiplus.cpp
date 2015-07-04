@@ -1,5 +1,5 @@
 /*
- * $Id: wgdiplus.cpp,v 1.13 2014/04/03 00:31:15 markisch Exp $
+ * $Id: wgdiplus.cpp,v 1.20 2014/12/24 17:39:07 markisch Exp $
  */
 
 /*
@@ -348,7 +348,7 @@ SetFont_gdiplus(Graphics &graphics, LPRECT rect, LPGW lpgw, char * fontname, int
 	if (bold) * bold = 0;
 	if (underline) * underline = 0;
 
-	LPWSTR family = UnicodeText(fontname, S_ENC_DEFAULT);
+	LPWSTR family = UnicodeText(fontname, lpgw->encoding);
 	free(fontname);
 	const FontFamily * fontFamily = new FontFamily(family);
 	free(family);
@@ -588,8 +588,14 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 		xdash = MulDiv(curptr->x, rr-rl-1, lpgw->xmax) + rl;
 		ydash = MulDiv(curptr->y, rt-rb+1, lpgw->ymax) + rb - 1;
 
-		/* finish last polygon */
-		if ((lastop == W_vect) && (curptr->op != W_vect)) {
+		/* ignore superfluous moves - see bug #1523 */
+		/* FIXME: we should do this in win.trm, not here */
+		if ((lastop == W_vect) && (curptr->op == W_move) && (xdash == ppt[polyi -1].x) && (ydash == ppt[polyi -1].y)) {
+		    curptr->op = 0;
+		}
+
+		/* finish last polygon / polyline */
+		if ((lastop == W_vect) && (curptr->op != W_vect) && (curptr->op != 0)) {
 			if (polyi >= 2) {
 				gdiplusPolyline(graphics, pen, ppt, polyi);
 				/* move internal state to last point */
@@ -653,6 +659,15 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 					keysample = true;
 					break;
 				case TERM_LAYER_END_KEYSAMPLE:
+					/* grey out keysample if graph is hidden */
+					if ((plotno <= lpgw->maxhideplots) && lpgw->hideplot[plotno - 1]) {
+						ARGB argb = Color::MakeARGB(128, 192, 192, 192);
+						Color transparentgrey(argb);
+						SolidBrush greybrush(transparentgrey);
+						LPRECT bb = lpgw->keyboxes + plotno - 1;
+						graphics.FillRectangle(&greybrush, INT(bb->left), INT(bb->bottom),
+						                       bb->right - bb->left, bb->top - bb->bottom);
+					}
 					keysample = false;
 					break;
 				case TERM_LAYER_RESET:
@@ -679,7 +694,8 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 		/* Hide this layer? Do not skip commands which could affect key samples: */
 		if (!(skipplot || (gridline && lpgw->hidegrid)) ||
 			keysample || (curptr->op == W_line_type) || (curptr->op == W_setcolor)
-			          || (curptr->op == W_pointsize) || (curptr->op == W_line_width)) {
+			          || (curptr->op == W_pointsize) || (curptr->op == W_line_width)
+			          || (curptr->op == W_dash_type)) {
 
 		/* special case hypertexts */
 		if ((hypertext != NULL) && (hypertype == TERM_HYPERTEXT_TOOLTIP)) {
@@ -774,6 +790,32 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 			break;
 		}
 
+		case W_dash_type: {
+			int dt = static_cast<int>(curptr->x);
+
+			if (dt >= 0) {
+				dt %= WGNUMPENS;
+				dt += 2;
+				cur_penstruct.lopnStyle = lpgw->monopen[dt].lopnStyle;
+				pen.SetDashStyle(static_cast<DashStyle>(cur_penstruct.lopnStyle));
+			} else if (dt == DASHTYPE_SOLID) {
+				cur_penstruct.lopnStyle = PS_SOLID;
+				pen.SetDashStyle(static_cast<DashStyle>(cur_penstruct.lopnStyle));
+			} else if (dt == DASHTYPE_AXIS) {
+				dt = 1;
+				cur_penstruct.lopnStyle =
+					lpgw->dashed ? lpgw->monopen[dt].lopnStyle : lpgw->colorpen[dt].lopnStyle;
+				pen.SetDashStyle(static_cast<DashStyle>(cur_penstruct.lopnStyle));
+			} else if (dt == DASHTYPE_CUSTOM) {
+				t_dashtype * dash = static_cast<t_dashtype *>(LocalLock(curptr->htext));
+				INT count = 0;
+				while ((dash->pattern[count] != 0.) && (count < DASHPATTERN_LENGTH)) count++;
+				pen.SetDashPattern(dash->pattern, count);
+				LocalUnlock(curptr->htext);
+			}
+			break;
+		}
+
 		case W_text_encoding:
 			lpgw->encoding = (set_encoding_id) curptr->x;
 			break;
@@ -839,8 +881,13 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 			if (str) {
 				RECT extend;
 
-				GraphChangeFont(lpgw, lpgw->fontname, lpgw->fontsize, hdc, *rect);
+				/* Setup GDI fonts: force re-make */
+				int save_fontsize = lpgw->fontsize;
+				lpgw->fontsize = -1;
+				GraphChangeFont(lpgw, lpgw->fontname, save_fontsize, hdc, *rect);
 				SetFont(lpgw, hdc);
+				lpgw->fontsize = save_fontsize;
+
 				draw_enhanced_text(lpgw, hdc, rect, xdash, ydash, str);
 				draw_get_enhanced_text_extend(&extend);
 				if (keysample) {
@@ -1049,6 +1096,7 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 					break;
 				}
 				case FS_EMPTY:
+					/* FIXME: Instead of filling with background color, we should not fill at all in this case! */
 					/* fill with background color */
 					solid_fill_brush.SetColor(gdiplusCreateColor(lpgw->background, 1.));
 					fill_brush = &solid_fill_brush;
@@ -1126,13 +1174,15 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 		}
 
 		case W_pointsize:
-			if (curptr->x != 0) {
+			if (curptr->x > 0) {
 				double pointsize = curptr->x / 100.0;
 				htic = pointsize * MulDiv(lpgw->htic, rr-rl, lpgw->xmax) + 1;
 				vtic = pointsize * MulDiv(lpgw->vtic, rb-rt, lpgw->ymax) + 1;
-				/* invalidate point symbol cache */
-				last_symbol = 0;
+			} else {
+				htic = vtic = 0;
 			}
+			/* invalidate point symbol cache */
+			last_symbol = 0;
 			break;
 
 		case W_line_width:
@@ -1183,7 +1233,7 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 			solid_pen.SetColor(pcolor);
 
 			/* invalidate point symbol cache */
-			if (last_color != color)					
+			if (last_color != color)
 				last_symbol = 0;
 
 			/* remember this color */
@@ -1417,11 +1467,11 @@ drawgraph_gdiplus(LPGW lpgw, HDC hdc, LPRECT rect)
 				const float pointshapes[6][10] = {
 					{-1, -1, +1, -1, +1, +1, -1, +1, 0, 0}, /* box */
 					{0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, /* dummy, circle */
-					{ 0, +1, -1,  0,  0, -1, +1,  0, 0, 0}, /* diamond */
 					{ 0, -4./3, -4./3, 2./3,
 						4./3,  2./3, 0, 0}, /* triangle */
 					{ 0, 4./3, -4./3, -2./3,
 						4./3,  -2./3, 0, 0}, /* inverted triangle */
+					{ 0, +1, -1,  0,  0, -1, +1,  0, 0, 0}, /* diamond */
 					{ 0, 1, 0.95106, 0.30902, 0.58779, -0.80902,
 						-0.58779, -0.80902, -0.95106, 0.30902} /* pentagon */
 				};

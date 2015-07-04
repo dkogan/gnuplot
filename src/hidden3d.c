@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.97 2013/12/22 20:47:25 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.108 2015/05/08 18:32:12 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - hidden3d.c */
@@ -303,8 +303,8 @@ static void color_edges __PROTO((long int new_edge, long int old_edge,
 				 int style_above, int style_below));
 static void build_networks __PROTO((struct surface_points * plots,
 				    int pcount));
-int compare_edges_by_zmin __PROTO((SORTFUNC_ARGS p1, SORTFUNC_ARGS p2));
-int compare_polys_by_zmax __PROTO((SORTFUNC_ARGS p1, SORTFUNC_ARGS p2));
+static int compare_edges_by_zmin __PROTO((SORTFUNC_ARGS p1, SORTFUNC_ARGS p2));
+static int compare_polys_by_zmax __PROTO((SORTFUNC_ARGS p1, SORTFUNC_ARGS p2));
 static void sort_edges_by_z __PROTO((void));
 static void sort_polys_by_z __PROTO((void));
 static TBOOLEAN get_plane __PROTO((p_polygon p, t_plane plane));
@@ -807,7 +807,7 @@ cover_point_poly(p_vertex v1, p_vertex v2, double u, p_polygon poly)
 static long int
 store_polygon(long vnum1, polygon_direction direction, long crvlen)
 {
-    long int v[POLY_NVERT];
+    long int v[POLY_NVERT] = {0};
     p_vertex v1, v2, v3;
     p_polygon p;
 
@@ -1068,14 +1068,14 @@ build_networks(struct surface_points *plots, int pcount)
 
 	/* count 'curves' (i.e. isolines) and vertices in this plot */
 	nverts = 0;
-	if(this_plot->plot_type == FUNC3D) {
+	if (this_plot->plot_type == FUNC3D) {
 	    ncrvs = 0;
-	    for(icrvs = this_plot->iso_crvs;
+	    for (icrvs = this_plot->iso_crvs;
 		icrvs; icrvs = icrvs->next) {
 		ncrvs++;
 	    }
 	    nverts += ncrvs * crvlen;
-	} else if(this_plot->plot_type == DATA3D) {
+	} else if (this_plot->plot_type == DATA3D) {
 	    ncrvs = this_plot->num_iso_read;
 	    if (this_plot->has_grid_topology)
 		nverts += ncrvs * crvlen;
@@ -1115,6 +1115,14 @@ build_networks(struct surface_points *plots, int pcount)
 	case VECTOR:
 	    nv += 2 * nverts;
 	    ne += nverts;
+	    break;
+	case DOTS:
+	    this_plot->lp_properties.flags |= LP_SHOW_POINTS;
+	    this_plot->lp_properties.p_type = -1;
+	case IMAGE:
+	case RGBIMAGE:
+	case RGBA_IMAGE:
+	    /* Ignore these */
 	    break;
 	case POINTSTYLE:
 	default:
@@ -1169,10 +1177,15 @@ build_networks(struct surface_points *plots, int pcount)
 	above = this_plot->hidden3d_top_linetype;
 	below = above + hiddenBacksideLinetypeOffset;
 
+	/* The "nosurface" flag is interpreted by hidden3d mode to mean */
+	/* "don't draw this surface".  I.e. draw only the contours.	*/
+	if (this_plot->opt_out_of_surface)
+	    above = below = LT_NODRAW;
+
 	/* This is a special flag indicating that the user specified an	*/
 	/* explicit surface color in the splot command.			*/
-	if (above == LT_SINGLECOLOR-1)
-	    above = below = LT_SINGLECOLOR;
+	if ((lp->flags & LP_EXPLICIT_COLOR))
+	    below = above;
 
 	/* We will not actually draw PM3D surfaces here, but their 	*/
 	/* edges can be used to calculate occlusion of lines, including */
@@ -1211,7 +1224,7 @@ build_networks(struct surface_points *plots, int pcount)
 		    long int thisvertex;
 		    struct coordinate labelpoint;
 
-		    lp->pointflag = 1; /* Labels can use the code for hidden points */
+		    lp->flags |= LP_SHOW_POINTS; /* Labels can use the code for hidden points */
 		    labelpoint.type = INRANGE;
 		    for (label = this_plot->labels->next; label != NULL; label = label->next) {
 			labelpoint.x = label->place.x;
@@ -1286,6 +1299,12 @@ build_networks(struct surface_points *plots, int pcount)
 			}
 			if (basevertex > 0)
 			    store_edge(basevertex, edir_impulse, 0, lp, above);
+			break;
+
+		    case IMAGE:
+		    case RGBIMAGE:
+		    case RGBA_IMAGE:
+			/* Ignore these */
 			break;
 
 		    case POINTSTYLE:
@@ -1507,8 +1526,7 @@ build_networks(struct surface_points *plots, int pcount)
 /* Sort the elist in order of growing zmax. Uses qsort on an array of
  * plist indices, and then fills in the 'next' fields in struct
  * polygon to store the resulting order inside the plist */
-/* HBB 20010720: removed 'static' to avoid HP-sUX gcc bug */
-int
+static int
 compare_edges_by_zmin(SORTFUNC_ARGS p1, SORTFUNC_ARGS p2)
 {
     return SIGN(vlist[elist[*(const long *) p1].v2].z
@@ -1546,8 +1564,7 @@ sort_edges_by_z()
     free(sortarray);
 }
 
-/* HBB 20010720: removed 'static' to avoid HP-sUX gcc bug */
-int
+static int
 compare_polys_by_zmax(SORTFUNC_ARGS p1, SORTFUNC_ARGS p2)
 {
     return (SIGN(plist[*(const long *) p1].zmax
@@ -1632,9 +1649,15 @@ static void
 draw_vertex(p_vertex v)
 {
     unsigned int x, y;
+    int p_type;
+
+    if (v->lp_style == NULL)
+	return;
+    
+    p_type = v->lp_style->p_type;
 
     TERMCOORD(v, x, y);
-    if (v->lp_style && v->lp_style->p_type >= -1 && !clip_point(x,y)) {
+    if ((p_type >= -1 || p_type == PT_CHARACTER) && !clip_point(x,y)) {
 	struct t_colorspec *tc = &(v->lp_style->pm3d_color);
 
 	if (v->label)  {
@@ -1647,7 +1670,7 @@ draw_vertex(p_vertex v)
 	    struct lp_style_type style = *(v->lp_style);
 	    load_linetype(&style, (int)v->real_z);
 	    tc = &style.pm3d_color;
-	    apply_pm3dcolor(tc, term);
+	    apply_pm3dcolor(tc);
 	}
 	else if (tc->type == TC_RGB && tc->lt == LT_COLORFROMCOLUMN)
 	    set_rgbcolor_var((unsigned int)v->real_z);
@@ -1663,7 +1686,10 @@ draw_vertex(p_vertex v)
 	    (term->pointsize)(pointsize * v->original->CRD_PTSIZE);
 #endif
 
-	(term->point)(x,y, v->lp_style->p_type);
+	if (p_type == PT_CHARACTER)
+	    (term->put_text)(x, y, (char *)(&(v->lp_style->p_char)));
+	else
+	    (term->point)(x,y, p_type);
 
 	/* vertex has been drawn --> flag it as done */
 	v->lp_style = NULL;
@@ -1697,7 +1723,7 @@ draw_edge(p_edge e, p_vertex v1, p_vertex v2)
     } else
 
     /* This handles explicit 'lc rgb' in the plot command */
-    if (color.type == TC_RGB && e->style == LT_SINGLECOLOR) {
+    if (color.type == TC_RGB && (lptemp.flags & LP_EXPLICIT_COLOR)) {
 	recolor = TRUE;
     } else
 
@@ -1737,8 +1763,22 @@ draw_edge(p_edge e, p_vertex v1, p_vertex v2)
 	    lptemp.p_type = e->style;
     }
 
+    /* Only the original tip of an arrow should show an arrowhead */
+    /* FIXME:  Arrowhead lines are not themselves subject to hidden line removal */
+    if (arrow) {
+	if (e->v2 != v2-vlist && e->v1 != v1-vlist) {
+		lptemp.p_type = 0;
+	} else if (e->style == PT_BACKARROW) {
+	    if (e->v2 == v2-vlist && e->v1 != v1-vlist)
+		lptemp.p_type = 0;
+	} else {
+	    if (e->v1 == v1-vlist && e->v2 != v2-vlist)
+		lptemp.p_type = 0;
+	}
+    }
+
     draw3d_line_unconditional(v1, v2, &lptemp, color);
-    if (e->lp->pointflag) {
+    if ((e->lp->flags & LP_SHOW_POINTS)) {
 	draw_vertex(v1);
 	draw_vertex(v2);
     }
@@ -1911,8 +1951,8 @@ in_front(
     grid_y_low = coord_to_treecell(ymin);
     grid_y_high = coord_to_treecell(ymax);
 
-    for (grid_x = grid_x_low; grid_x <= grid_x_high; grid_x ++)
-	for (grid_y = grid_y_low; grid_y <= grid_y_high; grid_y ++)
+    for (grid_x = grid_x_low; grid_x <= grid_x_high; grid_x++)
+	for (grid_y = grid_y_low; grid_y <= grid_y_high; grid_y++)
 	    for (listhead = quadtree[grid_x][grid_y];
 		 listhead >= 0;
 		 listhead = qlist[listhead].next)
@@ -2211,7 +2251,7 @@ draw_label_hidden(p_vertex v, struct lp_style_type *lp, int x, int y)
     vlist[thisvertex] = *v;
     vlist[thisvertex].lp_style = lp; /* Not sure this is necessary */
 
-    lp->pointflag = 1; /* Labels can use the code for hidden points */
+    lp->flags |= LP_SHOW_POINTS; /* Labels can use the code for hidden points */
 
     edgenum = make_edge(thisvertex, thisvertex, lp, lp->l_type, -1);
 

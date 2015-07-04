@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.162 2014/04/28 21:16:13 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.182 2015/06/23 22:37:22 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -118,13 +118,6 @@ static int mouse_x = -1, mouse_y = -1;
  * system(s)
  */
 static double real_x, real_y, real_x2, real_y2;
-
-
-/* mouse_polar_distance is set to TRUE if user wants to see the
- * distance between the ruler and mouse pointer in polar coordinates
- * too (otherwise, distance in cartesian coordinates only is shown) */
-/* int mouse_polar_distance = FALSE; */
-/* moved to the struct mouse_setting_t (joze) */
 
 
 /* status of buttons; button i corresponds to bit (1<<i) of this variable
@@ -258,7 +251,7 @@ static void bind_remove __PROTO((bind_t * b));
 static void bind_append __PROTO((char *lhs, char *rhs, char *(*builtin) (struct gp_event_t * ge)));
 static void recalc_ruler_pos __PROTO((void));
 static void turn_ruler_off __PROTO((void));
-static int nearest_label_tag __PROTO((int x, int y, struct termentry * t));
+static int nearest_label_tag __PROTO((int x, int y));
 static void remove_label __PROTO((int x, int y));
 static void put_label __PROTO((char *label, double x, double y));
 
@@ -495,41 +488,26 @@ GetAnnotateString(char *s, double x, double y, int mode, char *fmt)
 static char *
 xDateTimeFormat(double x, char *b, int mode)
 {
-    time_t xtime_position = SEC_OFFS_SYS + x;
-    struct tm *pxtime_position = gmtime(&xtime_position);
+    struct tm tm;
 
-    if (pxtime_position == NULL) {
-	b[0] = NUL;
-	return b;
-    }
     switch (mode) {
     case MOUSE_COORDINATES_XDATE:
-	sprintf(b, "%d. %d. %04d", pxtime_position->tm_mday, (pxtime_position->tm_mon) + 1,
-# if 1
-		(pxtime_position->tm_year) + ((pxtime_position->tm_year <= 68) ? 2000 : 1900)
-# else
-		((pxtime_position->tm_year) < 100) ? (pxtime_position->tm_year) : (pxtime_position->tm_year) - 100
-		/*              (pxtime_position->tm_year)+1900 */
-# endif
-	    );
+	ggmtime(&tm, x);
+	sprintf(b, "%d. %d. %04d", tm.tm_mday, tm.tm_mon + 1, tm.tm_year);
 	break;
     case MOUSE_COORDINATES_XTIME:
-	sprintf(b, "%d:%02d", pxtime_position->tm_hour, pxtime_position->tm_min);
+	ggmtime(&tm, x);
+	sprintf(b, "%d:%02d", tm.tm_hour, tm.tm_min);
 	break;
     case MOUSE_COORDINATES_XDATETIME:
-	sprintf(b, "%d. %d. %04d %d:%02d", pxtime_position->tm_mday, (pxtime_position->tm_mon) + 1,
-# if 1
-		(pxtime_position->tm_year) + ((pxtime_position->tm_year <= 68) ? 2000 : 1900),
-# else
-		((pxtime_position->tm_year) < 100) ? (pxtime_position->tm_year) : (pxtime_position->tm_year) - 100,
-		/*              (pxtime_position->tm_year)+1900, */
-# endif
-		pxtime_position->tm_hour, pxtime_position->tm_min);
+	ggmtime(&tm, x);
+	sprintf(b, "%d. %d. %04d %d:%02d", tm.tm_mday, tm.tm_mon + 1, tm.tm_year,
+		tm.tm_hour, tm.tm_min);
 	break;
     case MOUSE_COORDINATES_TIMEFMT:
 	/* FIXME HBB 20000507: timefmt is for *reading* timedata, not
 	 * for writing them! */
-	gstrftime(b, 0xff, axis_array[FIRST_X_AXIS].timefmt, x);
+	gstrftime(b, 0xff, timefmt, x);
 	break;
     default:
 	sprintf(b, mouse_setting.fmt, x);
@@ -546,7 +524,7 @@ xDateTimeFormat(double x, char *b, int mode)
 do {								\
     if (x >= VERYLARGE)	break;					\
     if (axis_array[axis].datatype == DT_TIMEDATE) {		\
-	char *format = copy_or_invent_formatstring(axis);	\
+	char *format = copy_or_invent_formatstring(&axis_array[axis]);	\
 	while (strchr(format,'\n'))				\
 	     *(strchr(format,'\n')) = ' ';			\
 	gstrftime(sp, 40, format, x);				\
@@ -694,6 +672,7 @@ apply_zoom(struct t_zoom *z)
     /* EAM Jun 2007 - The autoscale save/restore was too complicated, and broke
      * refresh. Just save/restore the complete axis state and have done with it.
      * Well, not _quite_ the complete state.  The labels are maintained dynamically.
+     * Apr 2015 - The same is now true (dynamic storage) for ticfmt, formatstring.
      */
     if (zoom_now == zoom_head) {
 	int i;
@@ -701,6 +680,8 @@ apply_zoom(struct t_zoom *z)
 	    axis_array_copy[i].label = axis_array[i].label;
 	    axis_array_copy[i].ticdef.def.user = axis_array[i].ticdef.def.user;
 	    axis_array_copy[i].ticdef.font = axis_array[i].ticdef.font;
+	    axis_array_copy[i].ticfmt = axis_array[i].ticfmt;
+	    axis_array_copy[i].formatstring = axis_array[i].formatstring;
 	}
 	memcpy(axis_array, axis_array_copy, sizeof(axis_array));
 	s[0] = '\0';	/* FIXME:  Is this better than calling replotrequest()? */
@@ -1007,7 +988,7 @@ builtin_set_plots_visible(struct gp_event_t *ge)
 	return "`builtin-set-plots-visible`";
     }
     if (term->modify_plots)
-	term->modify_plots(MODPLOTS_SET_VISIBLE);
+	term->modify_plots(MODPLOTS_SET_VISIBLE, -1);
     return (char *) 0;
 }
 
@@ -1018,7 +999,7 @@ builtin_set_plots_invisible(struct gp_event_t *ge)
 	return "`builtin-set-plots-invisible`";
     }
     if (term->modify_plots)
-	term->modify_plots(MODPLOTS_SET_INVISIBLE);
+	term->modify_plots(MODPLOTS_SET_INVISIBLE, -1);
     return (char *) 0;
 }
 
@@ -1029,7 +1010,7 @@ builtin_invert_plot_visibilities(struct gp_event_t *ge)
 	return "`builtin-invert-plot-visibilities`";
     }
     if (term->modify_plots)
-	term->modify_plots(MODPLOTS_INVERT_VISIBILITIES);
+	term->modify_plots(MODPLOTS_INVERT_VISIBILITIES, -1);
     return (char *) 0;
 }
 
@@ -1150,11 +1131,9 @@ builtin_toggle_ruler(struct gp_event_t *ge)
 	MousePosToGraphPosReal(ruler.px, ruler.py, &ruler.x, &ruler.y, &ruler.x2, &ruler.y2);
 	(*term->set_ruler) (ruler.px, ruler.py);
 	if ((u = add_udv_by_name("MOUSE_RULER_X"))) {
-	    u->udv_undef = FALSE;
 	    Gcomplex(&u->udv_value,ruler.x,0);
 	}
 	if ((u = add_udv_by_name("MOUSE_RULER_Y"))) {
-	    u->udv_undef = FALSE;
 	    Gcomplex(&u->udv_value,ruler.y,0);
 	}
 	if (display_ipc_commands()) {
@@ -1380,11 +1359,6 @@ event_keypress(struct gp_event_t *ge, TBOOLEAN current)
      * which is a bad thing if you are in the  middle of a mousing operation.
      */
 
-#ifdef _Windows
-    if (paused_for_mouse & PAUSE_KEYSTROKE)
-	kill_pending_Pause_dialog();
-#endif
-    
     if ((paused_for_mouse & PAUSE_KEYSTROKE) && (c > '\0') && current) {
 	load_mouse_variables(x, y, FALSE, c);
 	return;
@@ -1394,7 +1368,6 @@ event_keypress(struct gp_event_t *ge, TBOOLEAN current)
 	if (bind_matches(&keypress, ptr)) {
 	    struct udvt_entry *keywin;
 	    if ((keywin = add_udv_by_name("MOUSE_KEY_WINDOW"))) {
-		keywin->udv_undef = FALSE;
 		Ginteger(&keywin->udv_value, ge->winid);
 	    }
 	    /* Always honor keys set with "bind all" */
@@ -1661,11 +1634,14 @@ zoom_around_mouse(int zoom_key)
 	x2max = rescale(SECOND_X_AXIS, w2, w1);
       	y2max = rescale(SECOND_Y_AXIS, w2, w1);
     } else {
-	double scale = (zoom_key=='+') ? 0.75 : 1.25;
-	rescale_around_mouse(&xmin,  &xmax,  FIRST_X_AXIS,  real_x,  scale);
-	rescale_around_mouse(&ymin,  &ymax,  FIRST_Y_AXIS,  real_y,  scale);
-	rescale_around_mouse(&x2min, &x2max, SECOND_X_AXIS, real_x2, scale);
-	rescale_around_mouse(&y2min, &y2max, SECOND_Y_AXIS, real_y2, scale);
+	int zsign = (zoom_key=='+') ? -1 : 1;
+	double xscale = pow(1.25, zsign * mouse_setting.xmzoom_factor);
+	double yscale = pow(1.25, zsign * mouse_setting.ymzoom_factor);
+	/* {x,y}zoom_factor = 0: not zoom, = 1: 0.8/1.25 zoom */
+	rescale_around_mouse(&xmin,  &xmax,  FIRST_X_AXIS,  real_x,  xscale);
+	rescale_around_mouse(&ymin,  &ymax,  FIRST_Y_AXIS,  real_y,  yscale);
+	rescale_around_mouse(&x2min, &x2max, SECOND_X_AXIS, real_x2, xscale);
+	rescale_around_mouse(&y2min, &y2max, SECOND_Y_AXIS, real_y2, yscale);
     }
     do_zoom(xmin, ymin, x2min, y2min, xmax, ymax, x2max, y2max);
     if (display_ipc_commands())
@@ -1820,7 +1796,12 @@ event_buttonpress(struct gp_event_t *ge)
     } else if (ALMOST2D) {
         if (!setting_zoom_region) {
 	    if (1 == b) {
-	      /* not bound in 2d graphs */
+		/* "pause button1" or "pause any" takes precedence over key bindings */
+		if (paused_for_mouse & PAUSE_BUTTON1) {
+		    load_mouse_variables(mouse_x, mouse_y, TRUE, b);
+		    trap_release = TRUE;	/* Don't trigger on release also */
+		    return;
+		}
 	    } else if (2 == b) {
 		/* not bound in 2d graphs */
 	    } else if (3 == b && 
@@ -2019,7 +2000,8 @@ event_buttonrelease(struct gp_event_t *ge)
 	    do_save_3dplot(first_3dplot, plot3d_num, 0);
 	}
 	if (term->set_cursor)
-	    term->set_cursor(0, 0, 0);
+	    term->set_cursor((button & (1 << 1)) ? 1 : (button & (1 << 2)) ? 2 : 0,
+				0, 0);
     }
 
     /* Export current mouse coords to user-accessible variables also */
@@ -2034,17 +2016,8 @@ event_buttonrelease(struct gp_event_t *ge)
 	event_keypress(ge, TRUE);
 	ge->par1 = save;	/* needed for "pause mouse" */
     }
-
-#ifdef _Windows
-    if (paused_for_mouse & PAUSE_CLICK) {
-	/* remove pause message box after 'pause mouse' */
-#ifndef WGP_CONSOLE
-	paused_for_mouse = 0;
-#endif
-	kill_pending_Pause_dialog();
-    }
-#endif
 }
+
 
 static void
 event_motion(struct gp_event_t *ge)
@@ -2077,8 +2050,8 @@ event_motion(struct gp_event_t *ge)
 	     * we compare the movement in x and y direction, and
 	     * change either scale or zscale */
 	    double relx, rely;
-	    relx = fabs(mouse_x - start_x) / term->h_tic;
-	    rely = fabs(mouse_y - start_y) / term->v_tic;
+	    relx = (double)abs(mouse_x - start_x) / (double)term->h_tic;
+	    rely = (double)abs(mouse_y - start_y) / (double)term->v_tic;
 
 	    if (modifier_mask & Mod_Shift) {
 		xyplane.z += (1 + fabs(xyplane.z))
@@ -2189,14 +2162,16 @@ event_reset(struct gp_event_t *ge)
 
     if (paused_for_mouse) {
 	paused_for_mouse = 0;
-#ifdef _Windows
-	/* remove pause message box after 'pause mouse' */
+#ifdef WIN32
+	/* close pause message box */
 	kill_pending_Pause_dialog();
 #endif
 	/* This hack is necessary on some systems in order to prevent one  */
 	/* character of input from being swallowed when the plot window is */
 	/* closed. But which systems, exactly?                             */
-	if (term && (!strncmp("x11",term->name,3) || !strncmp("wxt",term->name,3)))
+	if (term && (!strncmp("x11",term->name,3) 
+		 || !strncmp("wxt",term->name,3)
+		 || !strncmp("qt",term->name,2)))
 	    ungetc('\n',stdin);
     }
 
@@ -2258,8 +2233,15 @@ do_event(struct gp_event_t *ge)
 	event_buttonrelease(ge);
 	break;
     case GE_replot:
-	/* used only by ggi.trm */
-	do_string("replot");
+	/* auto-generated replot (e.g. from replot-on-resize) */
+	/* FIXME: more terminals should use this! */
+	if (replot_line == NULL || replot_line[0] == '\0')
+	    break;
+	if (!strncmp(replot_line,"test",4))
+	    break;
+	if (multiplot)
+	    break;
+	do_string_replot("");
 	break;
     case GE_reset:
 	event_reset(ge);
@@ -2528,8 +2510,7 @@ bind_display(char *lhs)
 	char fmt[] = " %-17s  %s\n";
 	fprintf(stderr, "\n");
 	/* mouse buttons */
-	fprintf(stderr, fmt, "2x<B1>",
-		"print coordinates to clipboard using `clipboardformat`\n                    (see keys '3', '4')");
+	fprintf(stderr, fmt, "<B1> doubleclick", "send mouse coordinates to clipboard (pm win wxt x11)");
 	fprintf(stderr, fmt, "<B2>", "annotate the graph using `mouseformat` (see keys '1', '2')");
 	fprintf(stderr, fmt, "", "or draw labels if `set mouse labels is on`");
 	fprintf(stderr, fmt, "<Ctrl-B2>", "remove label close to pointer if `set mouse labels` is on");
@@ -2800,9 +2781,9 @@ turn_ruler_off()
 	    (*term->set_ruler) (-1, -1);
 	}
 	if ((u = add_udv_by_name("MOUSE_RULER_X")))
-	    u->udv_undef = TRUE;
+	    u->udv_value.type = NOTDEFINED;
 	if ((u = add_udv_by_name("MOUSE_RULER_Y")))
-	    u->udv_undef = TRUE;
+	    u->udv_value.type = NOTDEFINED;
 	if (display_ipc_commands()) {
 	    fprintf(stderr, "turning ruler off.\n");
 	}
@@ -2810,7 +2791,7 @@ turn_ruler_off()
 }
 
 static int
-nearest_label_tag(int xref, int yref, struct termentry *t)
+nearest_label_tag(int xref, int yref)
 {
     double min = -1;
     int min_tag = -1;
@@ -2836,7 +2817,7 @@ nearest_label_tag(int xref, int yref, struct termentry *t)
 	     * threshold around the label */
 	    double tic_diff_squared;
 	    int htic, vtic;
-	    get_offsets(this_label, t, &htic, &vtic);
+	    get_offsets(this_label, &htic, &vtic);
 	    tic_diff_squared = htic * htic + vtic * vtic;
 	    if (diff_squared < tic_diff_squared) {
 		min = diff_squared;
@@ -2851,7 +2832,7 @@ nearest_label_tag(int xref, int yref, struct termentry *t)
 static void
 remove_label(int x, int y)
 {
-    int tag = nearest_label_tag(x, y, term);
+    int tag = nearest_label_tag(x, y);
     if (-1 != tag) {
 	char cmd[0x40];
 	sprintf(cmd, "unset label %d", tag);
@@ -2901,48 +2882,39 @@ load_mouse_variables(double x, double y, TBOOLEAN button, int c)
     MousePosToGraphPosReal(x, y, &real_x, &real_y, &real_x2, &real_y2);
 
     if ((current = add_udv_by_name("MOUSE_BUTTON"))) {
-	current->udv_undef = !button;
 	Ginteger(&current->udv_value, button?c:-1);
+	if (!button)
+	    current->udv_value.type = NOTDEFINED;
     }
     if ((current = add_udv_by_name("MOUSE_KEY"))) {
-	current->udv_undef = FALSE;
 	Ginteger(&current->udv_value,c);
     }
     if ((current = add_udv_by_name("MOUSE_CHAR"))) {
 	char *keychar = gp_alloc(2,"key_char");
 	keychar[0] = c;
 	keychar[1] = '\0';
-	if (!current->udv_undef)
-	    gpfree_string(&current->udv_value);
-	current->udv_undef = FALSE;
+	gpfree_string(&current->udv_value);
 	Gstring(&current->udv_value,keychar);
     }
     if ((current = add_udv_by_name("MOUSE_X"))) {
-	current->udv_undef = FALSE;
 	Gcomplex(&current->udv_value,real_x,0);
     }
     if ((current = add_udv_by_name("MOUSE_Y"))) {
-	current->udv_undef = FALSE;
 	Gcomplex(&current->udv_value,real_y,0);
     }
     if ((current = add_udv_by_name("MOUSE_X2"))) {
-	current->udv_undef = FALSE;
 	Gcomplex(&current->udv_value,real_x2,0);
     }
     if ((current = add_udv_by_name("MOUSE_Y2"))) {
-	current->udv_undef = FALSE;
 	Gcomplex(&current->udv_value,real_y2,0);
     }
     if ((current = add_udv_by_name("MOUSE_SHIFT"))) {
-	current->udv_undef = FALSE;
 	Ginteger(&current->udv_value, modifier_mask & Mod_Shift);
     }
     if ((current = add_udv_by_name("MOUSE_ALT"))) {
-	current->udv_undef = FALSE;
 	Ginteger(&current->udv_value, modifier_mask & Mod_Alt);
     }
     if ((current = add_udv_by_name("MOUSE_CTRL"))) {
-	current->udv_undef = FALSE;
 	Ginteger(&current->udv_value, modifier_mask & Mod_Ctrl);
     }
     return;

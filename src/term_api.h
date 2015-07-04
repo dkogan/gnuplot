@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.132 2014/04/18 04:07:19 sfeam Exp $
+ * $Id: term_api.h,v 1.142 2015/06/02 23:32:28 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -45,6 +45,9 @@
 
 #include "color.h"
 #include "tables.h"
+#ifdef OS2
+# include "mousecmn.h"
+#endif
 
 /* Constants that are interpreted by terminal driver routines */
 
@@ -57,7 +60,6 @@
 #define LT_UNDEFINED  (-5)
 #define LT_COLORFROMCOLUMN  (-6)	/* Used by hidden3d code */
 #define LT_DEFAULT    (-7)
-#define LT_SINGLECOLOR  (-8)		/* Used by hidden3d code */
 
 /* Pre-defined dash types */
 #define DASHTYPE_CUSTOM (-3)
@@ -105,13 +107,14 @@ typedef enum t_linecap {
 
 typedef struct t_dashtype {
 	float pattern[DASHPATTERN_LENGTH];
-	char* str;
+	char dstring[8];
 } t_dashtype;
 
-#define DEFAULT_DASHPATTERN {{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f}, NULL}
+#define DEFAULT_DASHPATTERN {{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f}, \
+                             {0,0,0,0,0,0,0,0} }
 
 typedef struct lp_style_type {	/* contains all Line and Point properties */
-    int     pointflag;		/* 0 if points not used, otherwise 1 */
+    int     flags;		/* e.g. LP_SHOW_POINTS */
     int     l_type;
     int	    p_type;
     int     d_type;		/* Dashtype */
@@ -126,10 +129,24 @@ typedef struct lp_style_type {	/* contains all Line and Point properties */
 
 #define DEFAULT_LP_STYLE_TYPE {0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, PTSZ_DEFAULT, 0, DEFAULT_COLORSPEC, DEFAULT_DASHPATTERN}
 
+/* Bit definitions for lp_style_type.flags */
+#define LP_SHOW_POINTS     (0x1) /* if not set, ignore the point properties of this line style */
+#define LP_NOT_INITIALIZED (0x2) /* internal flag used in set.c:parse_label_options */
+#define LP_EXPLICIT_COLOR  (0x4) /* set by lp_parse if the user provided a color spec */
+
 #define DEFAULT_COLOR_SEQUENCE { 0x9400d3, 0x009e73, 0x56b4e9, 0xe69f00, \
                                  0xf0e442, 0x0072b2, 0xe51e10, 0x000000 }
 #define PODO_COLOR_SEQUENCE { 0x000000, 0xe69f00, 0x56b4e9, 0x009e73, \
                               0xf0e442, 0x0072b2, 0xd55e00, 0xcc79a7 }
+
+#define DEFAULT_MONO_LINETYPES { \
+	{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, 1 /* dt 2 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, 2 /* dt 3 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, 3 /* dt 4 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, 0 /* dt 1 */, 0, 2.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, DASHTYPE_CUSTOM, 0, 1.2 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, {{16.,8.,2.,5.,2.,5.,2.,8.},{0,0,0,0,0,0,0,0}}} \
+}
 
 typedef enum e_arrow_head {
 	NOHEAD = 0,
@@ -180,7 +197,8 @@ typedef enum termlayer {
 	TERM_LAYER_BEGIN_PM3D_MAP,
 	TERM_LAYER_END_PM3D_MAP,
 	TERM_LAYER_BEGIN_IMAGE,
-	TERM_LAYER_END_IMAGE
+	TERM_LAYER_END_IMAGE,
+	TERM_LAYER_3DPLOT
 } t_termlayer;
 
 /* Options used by the terminal entry point term->waitforinput(). */
@@ -205,7 +223,8 @@ typedef enum t_textbox_options {
 	TEXTBOX_OUTLINE,
 	TEXTBOX_BACKGROUNDFILL,
 	TEXTBOX_MARGINS,
-	TEXTBOX_FINISH
+	TEXTBOX_FINISH,
+	TEXTBOX_GREY
 } t_textbox_options;
 #endif
 
@@ -217,11 +236,6 @@ typedef enum t_fillstyle { FS_EMPTY, FS_SOLID, FS_PATTERN, FS_DEFAULT,
 /* Color construction for an image, palette lookup or rgb components. */
 typedef enum t_imagecolor { IC_PALETTE, IC_RGB, IC_RGBA }
 	     t_imagecolor;
-/* Holder for various image properties */
-typedef struct t_image {
-    t_imagecolor type; /* See above */
-    TBOOLEAN fallback; /* true == don't use terminal-specific code */
-} t_image;
 
 /* Operations possible with term->modify_plots() */
 #define MODPLOTS_SET_VISIBLE         (1<<0)
@@ -347,7 +361,7 @@ typedef struct TERMENTRY {
     void (*boxed_text) __PROTO((unsigned int, unsigned int, int));
 #endif
 
-    void (*modify_plots) __PROTO((unsigned int operations));
+    void (*modify_plots) __PROTO((unsigned int operations, int plotno));
 
     void (*dashtype) __PROTO((int type, t_dashtype *custom_dash_pattern));
 
@@ -400,6 +414,7 @@ extern TBOOLEAN curr_arrow_headfixedsize;
 
 /* Recycle count for user-defined linetypes */
 extern int linetype_recycle_count;
+extern int mono_recycle_count;
 
 /* Current 'output' file: name and open filehandle */
 extern char *outstr;
@@ -417,6 +432,7 @@ extern FILE *gpoutfile;
 extern FILE *gppsfile;
 extern char *PS_psdir;
 
+extern TBOOLEAN monochrome;
 extern TBOOLEAN multiplot;
 
 /* 'set encoding' support: index of current encoding ... */
@@ -458,6 +474,7 @@ struct termentry *change_term __PROTO((const char *name, int length));
 
 void write_multiline __PROTO((unsigned int, unsigned int, char *, JUSTIFY, VERT_JUSTIFY, int, const char *));
 int estimate_strlen __PROTO((char *));
+char *estimate_plaintext __PROTO((char *));
 void list_terms __PROTO((void));
 char* get_terminals_names __PROTO((void));
 struct termentry *set_term __PROTO((void));

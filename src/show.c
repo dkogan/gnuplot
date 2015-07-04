@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.323 2014/05/01 18:19:46 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.349 2015/06/02 22:30:18 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -166,21 +166,21 @@ static void show_plot __PROTO((void));
 static void show_variables __PROTO((void));
 
 static void show_linestyle __PROTO((int tag));
-static void show_linetype __PROTO((int tag));
+static void show_linetype __PROTO((struct linestyle_def *listhead, int tag));
 static void show_arrowstyle __PROTO((int tag));
 static void show_arrow __PROTO((int tag));
 
 static void show_ticdef __PROTO((AXIS_INDEX));
+static void show_ticdefp __PROTO((struct axis *));
        void show_position __PROTO((struct position * pos));
 static void show_functions __PROTO((void));
 
 static int var_show_all = 0;
 
-/* following code segment appears over and over again */
-
-#define SHOW_NUM_OR_TIME(x, axis) SAVE_NUM_OR_TIME(stderr, x, axis)
-
+/* following code segments appear over and over again */
 #define SHOW_ALL_NL { if (!var_show_all) (void) putc('\n',stderr); }
+
+#define PROGRAM "G N U P L O T"
 
 /******* The 'show' command *******/
 void
@@ -307,7 +307,14 @@ show_command()
 	break;
     case S_LINETYPE:
 	CHECK_TAG_GT_ZERO;
-	show_linetype(tag);
+	show_linetype(first_perm_linestyle, tag);
+	break;
+    case S_MONOCHROME:
+	if (equals(c_token,"lt") || almost_equals(c_token,"linet$ype")) {
+	    c_token++;
+	    CHECK_TAG_GT_ZERO;
+	}
+	show_linetype(first_mono_linestyle, tag);
 	break;
     case S_DASHTYPE:
 	CHECK_TAG_GT_ZERO;
@@ -1043,7 +1050,8 @@ show_version(FILE *fp)
     if (almost_equals(c_token, "l$ong")) {
 
 	c_token++;
-	fprintf(stderr, "Compile options:\n%s\n", compile_options);
+	fprintf(stderr, "Compile options:\n%s", compile_options);
+	fprintf(stderr, "MAX_PARALLEL_AXES=%d\n\n", MAX_PARALLEL_AXES);
 
 #ifdef X11
 	{
@@ -1159,8 +1167,9 @@ show_border()
     if (!draw_border)
 	fprintf(stderr, "\tborder is not drawn\n");
     else {
-	fprintf(stderr, "\tborder %d is drawn in %s of the plot elements with\n\t ",
-	    draw_border, border_layer == LAYER_BACK ? "back" : "front");
+	fprintf(stderr, "\tborder %d is drawn in %s layer with\n\t ",
+	    draw_border, 
+	    border_layer == LAYER_BEHIND ? "behind" : border_layer == LAYER_BACK ? "back" : "front");
 	save_linetype(stderr, &border_lp, FALSE);
 	fputc('\n',stderr);
     }
@@ -1255,15 +1264,11 @@ show_clip()
 
     fprintf(stderr, "\tpoint clip is %s\n", (clip_points) ? "ON" : "OFF");
 
-    if (clip_lines1)
-	fputs("\tdrawing and clipping lines between inrange and outrange points\n", stderr);
-    else
-	fputs("\tnot drawing lines between inrange and outrange points\n", stderr);
+    fprintf(stderr, "\t%sdrawing and clipping lines with one end out of range (clip one)\n",
+	clip_lines1 ? "" : "not ");
 
-    if (clip_lines2)
-	fputs("\tdrawing and clipping lines between two outrange points\n", stderr);
-    else
-	fputs("\tnot drawing lines between two outrange points\n", stderr);
+    fprintf(stderr, "\t%sdrawing and clipping lines with both ends out of range (clip two)\n",
+	clip_lines2 ? "" : "not ");
 }
 
 
@@ -1364,13 +1369,13 @@ show_dgrid3d()
     SHOW_ALL_NL;
 
     if (dgrid3d)
-      if( dgrid3d_mode == DGRID3D_QNORM ) {
+      if (dgrid3d_mode == DGRID3D_QNORM) {
 	fprintf(stderr,
 		"\tdata grid3d is enabled for mesh of size %dx%d, norm=%d\n",
 		dgrid3d_row_fineness,
 		dgrid3d_col_fineness,
 		dgrid3d_norm_value );
-      } else if( dgrid3d_mode == DGRID3D_SPLINES ){
+      } else if (dgrid3d_mode == DGRID3D_SPLINES) {
 	fprintf(stderr,
 		"\tdata grid3d is enabled for mesh of size %dx%d, splines\n",
 		dgrid3d_row_fineness,
@@ -1438,8 +1443,11 @@ show_format()
 
     fprintf(stderr, "\ttic format is:\n");
 #define SHOW_FORMAT(_axis)						\
-    fprintf(stderr, "\t  %s-axis: \"%s\"\n", axis_name(_axis),	\
-	    conv_text(axis_array[_axis].formatstring));
+    fprintf(stderr, "\t  %s-axis: \"%s\"%s\n", axis_name(_axis),	\
+	    conv_text(axis_array[_axis].formatstring),			\
+	    axis_array[_axis].tictype == DT_DMS ? " geographic" :	\
+	    axis_array[_axis].tictype == DT_TIMEDATE ? " time" :	\
+	    "");
     SHOW_FORMAT(FIRST_X_AXIS );
     SHOW_FORMAT(FIRST_Y_AXIS );
     SHOW_FORMAT(SECOND_X_AXIS);
@@ -1670,19 +1678,20 @@ show_grid()
 static void
 show_raxis()
 {
-    fprintf(stderr,"raxis is %sdrawn\n",raxis ? "" : "not ");
+    fprintf(stderr,"\traxis is %sdrawn\n",raxis ? "" : "not ");
 }
 
 static void
 show_paxis()
 {
     int p = int_expression();
-    if (p <=0 || p > MAX_PARALLEL_AXES)
-	int_error(c_token, "expecting parallel axis number 1 - %d",MAX_PARALLEL_AXES);
+    if (p <=0 || p > num_parallel_axes)
+	int_error(c_token, "no such parallel axis is active");
+    fputs("\n\t", stderr);
     if (equals(c_token, "range"))
-	show_range(PARALLEL_AXES+p-1);
+	save_prange(stderr, &parallel_axis[p-1]);
     else if (almost_equals(c_token, "tic$s"))
-	show_ticdef(PARALLEL_AXES+p-1);
+	show_ticdefp(&parallel_axis[p-1]);
     c_token++;
 }
 
@@ -1699,10 +1708,10 @@ show_zeroaxis(AXIS_INDEX axis)
     } else
 	fprintf(stderr, "\t%szeroaxis is OFF\n", axis_name(axis));
 
-    if ((axis / SECOND_AXES) == 0) {
-	/* this is a 'first' axis. To output secondary axis, call self
-	 * recursively: */
-	show_zeroaxis(axis + SECOND_AXES);
+    /* If this is a 'first' axis. To output secondary axis, call self
+     * recursively: */
+    if (AXIS_IS_FIRST(axis)) {
+	show_zeroaxis(AXIS_MAP_FROM_FIRST_TO_SECOND(axis));
     }
 }
 
@@ -1748,7 +1757,7 @@ show_label(int tag)
 		save_textcolor(stderr, &this_label->textcolor);
 	    if (this_label->noenhanced)
 		fprintf(stderr, " noenhanced");
-	    if (this_label->lp_properties.pointflag == 0)
+	    if ((this_label->lp_properties.flags & LP_SHOW_POINTS) == 0)
 		fprintf(stderr, " nopoint");
 	    else {
 		fprintf(stderr, " point with color of");
@@ -1830,14 +1839,9 @@ show_keytitle()
     legend_key *key = &keyT;
     SHOW_ALL_NL;
 
-    fprintf(stderr, "\tkey title is \"%s\"\n", conv_text(key->title));
-    if (key->font && *(key->font))
-	fprintf(stderr,"\t  font \"%s\"\n", key->font);
-    if (key->textcolor.type != TC_LT || key->textcolor.lt != LT_BLACK) {
-	fputs("\t ", stderr);
-	save_textcolor(stderr, &(key->textcolor));
-	fputs("\n", stderr);
-    }
+    fprintf(stderr, "\tkey title is \"%s\"\n", conv_text(key->title.text));
+    if (key->title.font && *(key->title.font))
+	fprintf(stderr,"\t  font \"%s\"\n", key->title.font);
 }
 
 
@@ -1952,6 +1956,13 @@ show_key()
 	fprintf(stderr, "%d for vertical alignment\n", key->maxrows);
     else
 	fputs("calculated automatically\n", stderr);
+    if (key->font && *(key->font))
+	fprintf(stderr,"\t  font \"%s\"\n", key->font);
+    if (key->textcolor.type != TC_LT || key->textcolor.lt != LT_BLACK) {
+	fputs("\t ", stderr);
+	save_textcolor(stderr, &(key->textcolor));
+	fputs("\n", stderr);
+    }
 
     show_keytitle();
 }
@@ -1960,18 +1971,9 @@ show_key()
 void
 show_position(struct position *pos)
 {
-    static const char *msg[] = { "(first axes) ", "(second axes) ",
-				 "(graph units) ", "(screen units) ",
-				 "(character units) "};
-
-    assert(first_axes == 0 && second_axes == 1 && graph == 2 && screen == 3 &&
-	   character == 4);
-
-    fprintf(stderr, "(%s%g, %s%g, %s%g)",
-	    pos->scalex == first_axes ? "" : msg[pos->scalex], pos->x,
-	    pos->scaley == pos->scalex ? "" : msg[pos->scaley], pos->y,
-	    pos->scalez == pos->scaley ? "" : msg[pos->scalez], pos->z);
-
+    fprintf(stderr,"(");
+    save_position(stderr, pos, FALSE);
+    fprintf(stderr,")");
 }
 
 
@@ -2031,19 +2033,19 @@ show_margin()
     else
 	fputs("\tlmargin is computed automatically\n", stderr);
 
-    if (bmargin.scalex == screen)
-	fprintf(stderr, "\tbmargin is set to screen %g\n", bmargin.x);
-    else if (bmargin.x >= 0)
-	fprintf(stderr, "\tbmargin is set to %g\n", bmargin.x);
-    else
-	fputs("\tbmargin is computed automatically\n", stderr);
-
     if (rmargin.scalex == screen)
 	fprintf(stderr, "\trmargin is set to screen %g\n", rmargin.x);
     else if (rmargin.x >= 0)
 	fprintf(stderr, "\trmargin is set to %g\n", rmargin.x);
     else
 	fputs("\trmargin is computed automatically\n", stderr);
+
+    if (bmargin.scalex == screen)
+	fprintf(stderr, "\tbmargin is set to screen %g\n", bmargin.x);
+    else if (bmargin.x >= 0)
+	fprintf(stderr, "\tbmargin is set to %g\n", bmargin.x);
+    else
+	fputs("\tbmargin is computed automatically\n", stderr);
 
     if (tmargin.scalex == screen)
 	fprintf(stderr, "\ttmargin is set to screen %g\n", tmargin.x);
@@ -2274,7 +2276,7 @@ show_palette_gradient()
 	return;
     }
 
-    for( i=0; i<sm_palette.gradient_num; ++i ) {
+    for (i=0; i<sm_palette.gradient_num; i++) {
         gray = sm_palette.gradient[i].pos;
         r = sm_palette.gradient[i].col.r;
         g = sm_palette.gradient[i].col.g;
@@ -2599,7 +2601,9 @@ show_fit()
             "\tfit will%s scale parameter errors with the reduced chi square\n",
             fit_errorscaling ? "" : " not");
 
-    if (fitlogfile != NULL) {
+    if (fit_suppress_log) {
+	fprintf(stderr,"\tfit will not create a log file\n");
+    } else if (fitlogfile != NULL) {
 	fprintf(stderr,
 	        "\tlog-file for fits was set by the user to \n\t'%s'\n",
 	        fitlogfile);
@@ -2615,7 +2619,7 @@ show_fit()
     }
 
     v = get_udv_by_name((char *)FITLIMIT);
-    d = ((v != NULL) && (!v->udv_undef)) ? real(&(v->udv_value)) : -1.0;
+    d = ((v != NULL) && (v->udv_value.type != NOTDEFINED)) ? real(&(v->udv_value)) : -1.0;
     fprintf(stderr, "\tfits will be considered to have converged if  delta chisq < chisq * %g",
 	((d > 0.) && (d < 1.)) ? d : DEF_FIT_LIMIT);
     if (epsilon_abs > 0.)
@@ -2623,25 +2627,29 @@ show_fit()
     fprintf(stderr, "\n");
 
     v = get_udv_by_name((char *)FITMAXITER);
-    if ((v != NULL) && (!v->udv_undef) && (real_int(&(v->udv_value)) > 0))
+    if ((v != NULL) && (v->udv_value.type != NOTDEFINED) && (real_int(&(v->udv_value)) > 0))
 	fprintf(stderr, "\tfit will stop after a maximum of %i iterations\n",
 	        real_int(&(v->udv_value)));
     else
 	fprintf(stderr, "\tfit has no limit in the number of iterations\n");
 
     v = get_udv_by_name((char *)FITSTARTLAMBDA);
-    d = ((v != NULL) && (!v->udv_undef)) ? real(&(v->udv_value)) : -1.0;
+    d = ((v != NULL) && (v->udv_value.type != NOTDEFINED)) ? real(&(v->udv_value)) : -1.0;
     if (d > 0.)
 	fprintf(stderr, "\tfit will start with lambda = %g\n", d);
 
     v = get_udv_by_name((char *)FITLAMBDAFACTOR);
-    d = ((v != NULL) && (!v->udv_undef)) ? real(&(v->udv_value)) : -1.0;
+    d = ((v != NULL) && (v->udv_value.type != NOTDEFINED)) ? real(&(v->udv_value)) : -1.0;
     if (d > 0.)
 	fprintf(stderr, "\tfit will change lambda by a factor of %g\n", d);
 
+    if (fit_v4compatible)
+	fprintf(stderr, "\tfit command syntax is backwards compatible to version 4\n");
+    else
+	fprintf(stderr, "\tfit will default to `unitweights` if no `error`keyword is given on the command line.\n");
     fprintf(stderr, "\tfit can run the following command when interrupted:\n\t\t'%s'\n", getfitscript());
     v = get_udv_by_name("GPVAL_LAST_FIT");
-    if (v != NULL && !v->udv_undef)
+    if (v != NULL && v->udv_value.type != NOTDEFINED)
 	fprintf(stderr, "\tlast fit command was: %s\n", v->udv_value.v.string_val);
 }
 
@@ -2898,10 +2906,8 @@ show_range(AXIS_INDEX axis)
     SHOW_ALL_NL;
     if (axis_array[axis].datatype == DT_TIMEDATE)
 	fprintf(stderr, "\tset %sdata time\n", axis_name(axis));
-    else if (axis_array[axis].datatype == DT_DMS)
-	fprintf(stderr, "\tset %sdata geographic\n", axis_name(axis));
     fprintf(stderr,"\t");
-    save_range(stderr, axis);
+    save_prange(stderr, axis_array + axis);
 }
 
 
@@ -2959,7 +2965,7 @@ show_data_is_timedate(AXIS_INDEX axis)
     SHOW_ALL_NL;
     fprintf(stderr, "\t%s is set to %s\n", axis_name(axis),
 	    axis_array[axis].datatype == DT_TIMEDATE ? "time" :
-	    axis_array[axis].datatype == DT_DMS ? "geographic" :
+	    axis_array[axis].datatype == DT_DMS ? "geographic" :  /* obsolete */
 	    "numerical");
 }
 
@@ -2968,24 +2974,9 @@ show_data_is_timedate(AXIS_INDEX axis)
 static void
 show_timefmt()
 {
-    int axis;
-
     SHOW_ALL_NL;
-
-    if ((axis = lookup_table(axisname_tbl, c_token)) >= 0) {
-	c_token++;
-	fprintf(stderr, "\tread format for time on %s axis is \"%s\"\n",
-		axis_name(axis),
-		conv_text(axis_array[axis].timefmt));
-    } else {
-        /* show all currently active time axes' formats: */
-	for (axis = 0; axis<AXIS_ARRAY_SIZE; axis++)
-	    if (axis_array[axis].datatype == DT_TIMEDATE)
-		fprintf(stderr,
-			"\tread format for time on %s axis is \"%s\"\n",
-			axis_name(axis),
-			conv_text(axis_array[axis].timefmt));
-    }
+    fprintf(stderr, "\tDefault format for reading time data is \"%s\"\n",
+	timefmt);
 }
 
 /* process 'show link' command */
@@ -2994,10 +2985,10 @@ show_link()
 {
     if (END_OF_COMMAND || almost_equals(c_token,"x$2"))
 	if (axis_array[SECOND_X_AXIS].linked_to_primary)
-	    save_range(stderr, SECOND_X_AXIS);
+	    save_prange(stderr, axis_array + SECOND_X_AXIS);
     if (END_OF_COMMAND || almost_equals(c_token,"y$2"))
 	if (axis_array[SECOND_Y_AXIS].linked_to_primary)
-	    save_range(stderr, SECOND_Y_AXIS);
+	    save_prange(stderr, axis_array + SECOND_Y_AXIS);
     if (!END_OF_COMMAND)
 	c_token++;
 }
@@ -3124,6 +3115,8 @@ show_mouse()
 	} else {
 	    fprintf(stderr, "\tButton 2 draws temporary labels\n");
 	}
+	fprintf(stderr, "\tzoom factors are x: %g   y: %g\n",
+		mouse_setting.xmzoom_factor, mouse_setting.ymzoom_factor);
 	fprintf(stderr, "\tzoomjump is %s\n",
 	    mouse_setting.warp_pointer ? "on" : "off");
 	fprintf(stderr, "\tcommunication commands will %sbe shown\n",
@@ -3177,7 +3170,7 @@ show_variables()
 	    udv = udv->next_udv;
 	    continue;
 	}
-	if (udv->udv_undef) {
+	if (udv->udv_value.type == NOTDEFINED) {
 	    FPRINTF((stderr, "\t%-*s is undefined\n", len, udv->udv_name));
 	} else {
 	    fprintf(stderr, "\t%-*s ", len, udv->udv_name);
@@ -3212,12 +3205,12 @@ show_linestyle(int tag)
 
 /* Show linetype number <tag> (0 means show all) */
 static void
-show_linetype(int tag)
+show_linetype(struct linestyle_def *listhead, int tag)
 {
     struct linestyle_def *this_linestyle;
     TBOOLEAN showed = FALSE;
 
-    for (this_linestyle = first_perm_linestyle; this_linestyle != NULL;
+    for (this_linestyle = listhead; this_linestyle != NULL;
 	 this_linestyle = this_linestyle->next) {
 	if (tag == 0 || tag == this_linestyle->tag) {
 	    showed = TRUE;
@@ -3229,7 +3222,7 @@ show_linetype(int tag)
     if (tag > 0 && !showed)
 	int_error(c_token, "linetype not found");
 
-    if (tag == 0 && linetype_recycle_count != 0)
+    if (tag == 0 && linetype_recycle_count != 0 && listhead == first_perm_linestyle)
 	fprintf(stderr, "\tLinetypes repeat every %d unless explicitly defined\n",
 		linetype_recycle_count);
 }
@@ -3291,40 +3284,40 @@ show_arrowstyle(int tag)
 
 /* called by show_tics */
 static void
-show_ticdef(AXIS_INDEX axis)
+show_ticdefp(struct axis *this_axis)
 {
     struct ticmark *t;
 
-    const char *ticfmt = conv_text(axis_array[axis].formatstring);
+    const char *ticfmt = conv_text(this_axis->formatstring);
 
     fprintf(stderr, "\t%s-axis tics are %s, \
 \tmajor ticscale is %g and minor ticscale is %g\n",
-	    axis_name(axis),
-	    (axis_array[axis].tic_in ? "IN" : "OUT"),
-	    axis_array[axis].ticscale, axis_array[axis].miniticscale);
+	    axis_name(this_axis->index),
+	    (this_axis->tic_in ? "IN" : "OUT"),
+	    this_axis->ticscale, this_axis->miniticscale);
 
-    fprintf(stderr, "\t%s-axis tics:\t", axis_name(axis));
-    switch (axis_array[axis].ticmode & TICS_MASK) {
+    fprintf(stderr, "\t%s-axis tics:\t", axis_name(this_axis->index));
+    switch (this_axis->ticmode & TICS_MASK) {
     case NO_TICS:
 	fputs("OFF\n", stderr);
 	return;
     case TICS_ON_AXIS:
 	fputs("on axis", stderr);
-	if (axis_array[axis].ticmode & TICS_MIRROR)
-	    fprintf(stderr, " and mirrored %s", (axis_array[axis].tic_in ? "OUT" : "IN"));
+	if (this_axis->ticmode & TICS_MIRROR)
+	    fprintf(stderr, " and mirrored %s", (this_axis->tic_in ? "OUT" : "IN"));
 	break;
     case TICS_ON_BORDER:
 	fputs("on border", stderr);
-	if (axis_array[axis].ticmode & TICS_MIRROR)
+	if (this_axis->ticmode & TICS_MIRROR)
 	    fputs(" and mirrored on opposite border", stderr);
 	break;
     }
 
-    if (axis_array[axis].ticdef.rangelimited)
+    if (this_axis->ticdef.rangelimited)
 	fprintf(stderr, "\n\t  tics are limited to data range");
     fputs("\n\t  labels are ", stderr);
-    if (axis_array[axis].manual_justify) {
-    	switch (axis_array[axis].label.pos) {
+    if (this_axis->manual_justify) {
+    	switch (this_axis->label.pos) {
     	case LEFT:{
 		fputs("left justified, ", stderr);
 		break;
@@ -3341,17 +3334,23 @@ show_ticdef(AXIS_INDEX axis)
     } else
         fputs("justified automatically, ", stderr);
     fprintf(stderr, "format \"%s\"", ticfmt);
-    if (axis_array[axis].tic_rotate) {
+    fprintf(stderr, "%s", 
+	this_axis->tictype == DT_DMS ? " geographic" :
+	this_axis->tictype == DT_TIMEDATE ? " timedate" :
+	"");
+    if (this_axis->ticdef.enhanced == FALSE)
+	fprintf(stderr,"  noenhanced");
+    if (this_axis->tic_rotate) {
 	fprintf(stderr," rotated");
-	fprintf(stderr," by %d",axis_array[axis].tic_rotate);
+	fprintf(stderr," by %d",this_axis->tic_rotate);
 	fputs(" in 2D mode, terminal permitting,\n\t", stderr);
     } else
 	fputs(" and are not rotated,\n\t", stderr);
     fputs("    offset ",stderr);
-    show_position(&axis_array[axis].ticdef.offset);
+    show_position(&this_axis->ticdef.offset);
     fputs("\n\t",stderr);
 
-    switch (axis_array[axis].ticdef.type) {
+    switch (this_axis->ticdef.type) {
     case TIC_COMPUTED:{
 	    fputs("  intervals computed automatically\n", stderr);
 	    break;
@@ -3366,15 +3365,15 @@ show_ticdef(AXIS_INDEX axis)
 	}
     case TIC_SERIES:{
 	    fputs("  series", stderr);
-	    if (axis_array[axis].ticdef.def.series.start != -VERYLARGE) {
+	    if (this_axis->ticdef.def.series.start != -VERYLARGE) {
 		fputs(" from ", stderr);
-		SHOW_NUM_OR_TIME(axis_array[axis].ticdef.def.series.start, axis);
+		save_num_or_time_input(stderr, this_axis->ticdef.def.series.start, this_axis);
 	    }
-	    fprintf(stderr, " by %g%s", axis_array[axis].ticdef.def.series.incr,
-		    axis_array[axis].datatype == DT_TIMEDATE ? " secs" : "");
-	    if (axis_array[axis].ticdef.def.series.end != VERYLARGE) {
+	    fprintf(stderr, " by %g%s", this_axis->ticdef.def.series.incr,
+		    this_axis->datatype == DT_TIMEDATE ? " secs" : "");
+	    if (this_axis->ticdef.def.series.end != VERYLARGE) {
 		fputs(" until ", stderr);
-		SHOW_NUM_OR_TIME(axis_array[axis].ticdef.def.series.end, axis);
+		save_num_or_time_input(stderr, this_axis->ticdef.def.series.end, this_axis);
 	    }
 	    putc('\n', stderr);
 	    break;
@@ -3389,12 +3388,12 @@ show_ticdef(AXIS_INDEX axis)
 	}
     }
 
-    if (axis_array[axis].ticdef.def.user) {
+    if (this_axis->ticdef.def.user) {
 	fputs("\t  explicit list (", stderr);
-	for (t = axis_array[axis].ticdef.def.user; t != NULL; t = t->next) {
+	for (t = this_axis->ticdef.def.user; t != NULL; t = t->next) {
 	    if (t->label)
 		fprintf(stderr, "\"%s\" ", conv_text(t->label));
-	    SHOW_NUM_OR_TIME(t->position, axis);
+	    save_num_or_time_input(stderr, t->position, this_axis);
 	    if (t->level)
 		fprintf(stderr," %d",t->level);
 	    if (t->next)
@@ -3403,15 +3402,22 @@ show_ticdef(AXIS_INDEX axis)
 	fputs(")\n", stderr);
     }
 
-    if (axis_array[axis].ticdef.textcolor.type != TC_DEFAULT) {
+    if (this_axis->ticdef.textcolor.type != TC_DEFAULT) {
         fputs("\t ", stderr);
-	save_textcolor(stderr, &axis_array[axis].ticdef.textcolor);
+	save_textcolor(stderr, &this_axis->ticdef.textcolor);
         fputs("\n", stderr);
     }
 
-    if (axis_array[axis].ticdef.font && *axis_array[axis].ticdef.font) {
-        fprintf(stderr,"\t  font \"%s\"\n", axis_array[axis].ticdef.font);
+    if (this_axis->ticdef.font && *this_axis->ticdef.font) {
+        fprintf(stderr,"\t  font \"%s\"\n", this_axis->ticdef.font);
     }
+}
+
+/* called by show_tics */
+static void
+show_ticdef(AXIS_INDEX axis)
+{
+    show_ticdefp(&axis_array[axis]);
 }
 
 /* Display a value in human-readable form. */

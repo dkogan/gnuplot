@@ -1,6 +1,6 @@
 /*
- *  $Id: lua.trm,v 1.21 2012/10/17 04:32:13 sfeam Exp $
- *  $Date: 2012/10/17 04:32:13 $
+ *  $Id: lua.trm,v 1.27 2015/01/20 02:10:43 sfeam Exp $
+ *  $Date: 2015/01/20 02:10:43 $
  *  $Rev: 99 $
  */
 
@@ -59,6 +59,7 @@ TERM_PUBLIC void LUA_graphics __PROTO((void));
 TERM_PUBLIC void LUA_move __PROTO((unsigned int x, unsigned int y));
 TERM_PUBLIC void LUA_vector __PROTO((unsigned int ux, unsigned int uy));
 TERM_PUBLIC void LUA_linetype __PROTO((int linetype));
+TERM_PUBLIC void LUA_dashtype __PROTO((int type, t_dashtype *custom_dash_type));
 TERM_PUBLIC void LUA_put_text __PROTO((unsigned int x, unsigned int y, const char str[]));
 TERM_PUBLIC int  LUA_text_angle __PROTO((int ang));
 TERM_PUBLIC int  LUA_justify_text __PROTO((enum JUSTIFY mode));
@@ -76,6 +77,9 @@ TERM_PUBLIC void LUA_set_color __PROTO((t_colorspec *));
 TERM_PUBLIC void LUA_filled_polygon __PROTO((int, gpiPoint *));
 TERM_PUBLIC void LUA_image __PROTO((unsigned, unsigned, coordval *, gpiPoint *, t_imagecolor));
 TERM_PUBLIC void LUA_path __PROTO((int p));
+#ifdef EAM_BOXED_TEXT
+TERM_PUBLIC void LUA_boxed_text __PROTO((unsigned int, unsigned int, int));
+#endif
 
 /* defaults */
 #define LUA_XMAX 10000.0
@@ -371,7 +375,7 @@ LUA_GP_get_all_variables(lua_State *L) {
       continue;
     }
     lua_newtable(L);
-    if (udv->udv_undef) {
+    if (udv->udv_value.type == NOTDEFINED) {
       lua_pushnil(L);
       lua_rawseti(L, -2, 2);
     } else {
@@ -722,8 +726,8 @@ LUA_get_colorstyle(int style) {
     case TC_LINESTYLE:/* Use the color of line style <n> (only for "internal" use or unsused?) */
       style_str = "LINESTYLE";
       break;
-    case TC_RGB:      /* Explicit RGB triple provided by user */
-      style_str = "RGB";
+    case TC_RGB:      /* Explicit RGBA values provided by user */
+      style_str = "RGBA";
       break;
     case TC_CB:       /* "palette cb <value>" (only for "internal" use or unsused?) */
       style_str = "CB";
@@ -918,6 +922,30 @@ LUA_linetype(int linetype)
   }
 }
 
+
+TERM_PUBLIC void
+LUA_dashtype(int type, t_dashtype *custom_dash_type)
+{
+    int i = 0;
+
+    if(LUA_init_luaterm_function("dashtype")) {
+	lua_pushinteger(L, type);
+	lua_newtable(L);
+	if (type == DASHTYPE_CUSTOM) {
+	    while (custom_dash_type->pattern[i] > 0) {
+		lua_pushnumber(L, custom_dash_type->pattern[i]);
+		i++;
+		lua_rawseti(L, -2, i);
+	    }
+	} else {
+	    lua_pushinteger(L, 0);
+	    lua_rawseti(L, -2, 1);
+	}
+	LUA_call_report(lua_pcall(L, 2, 1, tb));
+	lua_term_result = (int)lua_tointeger(L, -1);
+	lua_pop(L, 1);
+    }
+}
 
 
 TERM_PUBLIC void
@@ -1153,6 +1181,7 @@ LUA_set_color (t_colorspec *colorspec)
 
   double gray = colorspec->value;
   rgb_color color = {0.,0.,0.};
+  double opacity = 1.0;
 
   if(LUA_init_luaterm_function("set_color")) {
     if (colorspec->type == TC_FRAC) {
@@ -1161,6 +1190,7 @@ LUA_set_color (t_colorspec *colorspec)
               1 : floor(gray * sm_palette.colors) / sm_palette.colors;
       rgb1_from_gray( gray, &color );
     } else if (colorspec->type == TC_RGB) {
+      opacity = 1.0 - (double)(colorspec->lt >> 24 & 255) / 255.;
       color.r = (double)((colorspec->lt >> 16 ) & 255) / 255.;
       color.g = (double)((colorspec->lt >> 8 ) & 255) / 255.;
       color.b = (double)(colorspec->lt & 255) / 255.;
@@ -1173,10 +1203,11 @@ LUA_set_color (t_colorspec *colorspec)
     lua_pushstring(L, LUA_get_colorstyle(colorspec->type));
     lua_pushinteger(L, colorspec->lt);
     lua_pushnumber(L, colorspec->value);
+    lua_pushnumber(L, opacity);
     lua_pushnumber(L, color.r);
     lua_pushnumber(L, color.g);
     lua_pushnumber(L, color.b);
-    LUA_call_report(lua_pcall(L, 6, 1, tb));
+    LUA_call_report(lua_pcall(L, 7, 1, tb));
     lua_term_result = (int)lua_tointeger(L, -1);
     lua_pop(L, 1);
   }
@@ -1269,7 +1300,7 @@ LUA_image (unsigned m, unsigned n, coordval *image, gpiPoint *corner, t_imagecol
   if(LUA_init_luaterm_function("image")) {
     int i;
     rgb_color rgb1;
-    coordval alpha;
+    coordval alpha = 0;
     char *image_file = NULL;
 
 #ifdef LUA_EXTERNAL_IMAGES
@@ -1345,6 +1376,40 @@ LUA_image (unsigned m, unsigned n, coordval *image, gpiPoint *corner, t_imagecol
   }
 }
 
+#ifdef EAM_BOXED_TEXT
+
+TERM_PUBLIC void
+LUA_boxed_text __PROTO((unsigned int x, unsigned int y, int option))
+{
+    const char *option_str = "UNKNOWN";
+    switch (option) {
+    case TEXTBOX_INIT:
+	option_str = "INIT";
+	break;
+    case TEXTBOX_OUTLINE:
+	option_str = "OUTLINE";
+	break;
+    case TEXTBOX_BACKGROUNDFILL:
+	option_str = "BACKGROUNDFILL";
+	break;
+    case TEXTBOX_MARGINS:
+	option_str = "MARGINS";
+	break;
+    default:
+	break;
+    }
+	    
+    if(LUA_init_luaterm_function("boxed_text")) {
+	lua_pushinteger(L, x);
+	lua_pushinteger(L, y);
+	lua_pushstring(L, option_str);
+	LUA_call_report(lua_pcall(L, 3, 1, tb));
+	lua_term_result = (int)lua_tointeger(L, -1);
+	lua_pop(L, 1);
+    }
+}
+
+#endif
 
 #endif /* TERM_BODY */
 
@@ -1370,6 +1435,12 @@ TERM_TABLE_START(lua_driver)
    , LUA_layer
    , LUA_path
    , LUA_TSCALE
+    , NULL /* hypertext */
+#ifdef EAM_BOXED_TEXT
+    , LUA_boxed_text
+#endif
+    , NULL /* modify plots */
+    , LUA_dashtype
 TERM_TABLE_END(lua_driver)
 
 #undef LAST_TERM
@@ -1394,6 +1465,12 @@ TERM_TABLE_START(tikz_driver)
    , LUA_layer
    , LUA_path
    , LUA_TSCALE
+    , NULL /* hypertext */
+#ifdef EAM_BOXED_TEXT
+    , LUA_boxed_text
+#endif
+    , NULL /* modify plots */
+    , LUA_dashtype
 TERM_TABLE_END(tikz_driver)
 
 #undef LAST_TERM
@@ -1430,7 +1507,9 @@ START_HELP(lua)
 " All arguments will be provided to the selected script for further",
 " evaluation. E.g. 'set term lua tikz help' will cause the script itself",
 " to print additional help on options and choices for the script.",
-#include "lua/gnuplot-tikz.help"
+#ifdef HAVE_LUA
+#include "gnuplot-tikz.help"
+#endif
 ""
 END_HELP(lua)
 START_HELP(tikz)

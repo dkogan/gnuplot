@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_term.h,v 1.25 2014/04/20 20:23:35 lodewyck Exp $
+ * $Id: wxt_term.h,v 1.28 2014/12/14 19:39:38 markisch Exp $
  */
 
 /* GNUPLOT - wxt_term.h */
@@ -97,7 +97,7 @@ void wxt_hypertext(int type, const char *text);
 void wxt_boxed_text(unsigned int x, unsigned int y, int option);
 #endif
 
-void wxt_modify_plots(unsigned int);
+void wxt_modify_plots(unsigned int, int);
 
 void wxt_dashtype(int type, t_dashtype *custom_dash_pattern);
 
@@ -109,6 +109,7 @@ void wxt_close_terminal_window __PROTO((int number));
 void wxt_update_title __PROTO((int number));
 void wxt_update_size __PROTO((int number));
 void wxt_update_position __PROTO((int number));
+TBOOLEAN wxt_active_window_opened(void);
 TBOOLEAN wxt_window_opened(void);
 
 /* state variables shared between wxt.trm and wxt_gui.cpp */
@@ -122,6 +123,7 @@ extern int wxt_persist;
 extern int wxt_raise;
 extern int wxt_ctrl;
 extern int wxt_toggle;
+extern int wxt_redraw;
 extern char wxt_set_fontname[MAX_ID_LEN + 1];
 extern int wxt_set_fontsize;
 extern double wxt_set_fontscale;

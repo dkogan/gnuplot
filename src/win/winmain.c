@@ -1,5 +1,5 @@
 /*
- * $Id: winmain.c,v 1.74 2014/03/30 18:33:21 markisch Exp $
+ * $Id: winmain.c,v 1.79 2014/12/14 19:39:38 markisch Exp $
  */
 
 /* GNUPLOT - win/winmain.c */
@@ -69,6 +69,7 @@
 #endif
 #include <io.h>
 #include <sys/stat.h>
+#include "alloc.h"
 #include "plot.h"
 #include "setshow.h"
 #include "version.h"
@@ -81,6 +82,11 @@
 #endif
 #ifdef WXWIDGETS
 #include "wxterminal/wxt_term.h"
+#endif
+#ifdef HAVE_LIBCACA
+# define TERM_PUBLIC_PROTO
+# include "caca.trm"
+# undef TERM_PUBLIC_PROTO
 #endif
 
 
@@ -133,22 +139,25 @@ CheckMemory(LPSTR str)
         }
 }
 
+
 int
 Pause(LPSTR str)
 {
-        pausewin.Message = str;
-        return (PauseBox(&pausewin) == IDOK);
+	pausewin.Message = str;
+	return (PauseBox(&pausewin) == IDOK);
 }
 
+
 void
-kill_pending_Pause_dialog ()
+kill_pending_Pause_dialog()
 {
-        if (pausewin.bPause == FALSE) /* no Pause dialog displayed */
-            return;
-        /* Pause dialog displayed, thus kill it */
-        DestroyWindow(pausewin.hWndPause);
-        pausewin.bPause = FALSE;
+	if (!pausewin.bPause) /* no Pause dialog displayed */
+	    return;
+	/* Pause dialog displayed, thus kill it */
+	DestroyWindow(pausewin.hWndPause);
+	pausewin.bPause = FALSE;
 }
+
 
 /* atexit procedure */
 void
@@ -317,8 +326,8 @@ GetLanguageCode()
 		if (strcmp(lang, "JPN") == 0)
 			lang[1] = 'A';
 		/* prefer lower case */
-		lang[0] = tolower(lang[0]);
-		lang[1] = tolower(lang[1]);
+		lang[0] = tolower((unsigned char)lang[0]);
+		lang[1] = tolower((unsigned char)lang[1]);
 		/* only use two character sequence */
 		lang[2] = NUL;
 	}
@@ -397,10 +406,11 @@ ReadMainIni(LPSTR file, LPSTR section)
 
 
 #ifndef WGP_CONSOLE
-int PASCAL WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                   LPSTR lpszCmdLine, int nCmdShow)
+int WINAPI
+WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpszCmdLine, int nCmdShow)
 #else
-int main(int argc, char **argv)
+int
+main(int argc, char **argv)
 #endif
 {
 	LPSTR tail;
@@ -888,7 +898,7 @@ int fake_pclose(FILE *stream)
 	/* Finally, execute command with redirected stdin. */
 	if (pipe_type == 'w') {
 		char * cmd;
-		cmd = (char *) malloc(strlen(pipe_command) + strlen(pipe_filename) + 10);
+		cmd = (char *) gp_alloc(strlen(pipe_command) + strlen(pipe_filename) + 10, "fake_pclose");
 		/* FIXME: this won't work for binary data. We need a proper `cat` replacement. */
 		sprintf(cmd, "type %s | %s", pipe_filename, pipe_command);
 		rc = system(cmd);
@@ -967,6 +977,8 @@ int ConsoleGetch()
 		} else
 			break;
 	} while (1);
+
+	return '\r';
 }
 
 #endif /* WGP_CONSOLE */
@@ -1021,22 +1033,22 @@ static char win_prntmp[MAX_PRT_LEN+1];
 FILE *
 open_printer()
 {
-    char *temp;
+	char *temp;
 
-    if ((temp = getenv("TEMP")) == (char *)NULL)
-        *win_prntmp = '\0';
-    else  {
-        strncpy(win_prntmp, temp, MAX_PRT_LEN);
-        /* stop X's in path being converted by mktemp */
-        for (temp = win_prntmp; *temp; temp++)
-            *temp = tolower(*temp);
-        if ((strlen(win_prntmp) > 0) && (win_prntmp[strlen(win_prntmp) - 1] != '\\'))
-            strcat(win_prntmp,"\\");
-    }
-    strncat(win_prntmp, "_gptmp", MAX_PRT_LEN - strlen(win_prntmp));
-    strncat(win_prntmp, "XXXXXX", MAX_PRT_LEN - strlen(win_prntmp));
-    mktemp(win_prntmp);
-    return fopen(win_prntmp, "w");
+	if ((temp = getenv("TEMP")) == (char *)NULL)
+		*win_prntmp = '\0';
+	else  {
+		safe_strncpy(win_prntmp, temp, MAX_PRT_LEN);
+		/* stop X's in path being converted by mktemp */
+		for (temp = win_prntmp; *temp != NUL; temp++)
+			*temp = tolower((unsigned char)*temp);
+		if ((strlen(win_prntmp) > 0) && (win_prntmp[strlen(win_prntmp) - 1] != '\\'))
+			strcat(win_prntmp, "\\");
+	}
+	strncat(win_prntmp, "_gptmp", MAX_PRT_LEN - strlen(win_prntmp));
+	strncat(win_prntmp, "XXXXXX", MAX_PRT_LEN - strlen(win_prntmp));
+	mktemp(win_prntmp);
+	return fopen(win_prntmp, "w");
 }
 
 void
@@ -1098,7 +1110,7 @@ win_lower_terminal_group(void)
 
 
 /* returns true if there are any graph windows open (win terminal) */
-TBOOLEAN
+static TBOOLEAN
 WinWindowOpened(void)
 {
 	LPGW lpgw;
@@ -1113,15 +1125,28 @@ WinWindowOpened(void)
 }
 
 
-#ifndef WGP_CONSOLE
-void
-WinPersistTextClose(void)
+/* returns true if there are any graph windows open (wxt/caca/win terminals) */
+/* Note: This routine is used to handle "persist". Do not test for qt windows here 
+         since they run in a separate process */
+TBOOLEAN
+WinAnyWindowOpen(void)
 {
 	TBOOLEAN window_opened = WinWindowOpened();
 #ifdef WXWIDGETS
 	window_opened |= wxt_window_opened();
 #endif
-	if (!window_opened &&
+#ifdef HAVE_LIBCACA
+	window_opened |= CACA_window_opened();
+#endif
+	return window_opened;
+}
+
+
+#ifndef WGP_CONSOLE
+void
+WinPersistTextClose(void)
+{
+	if (!WinAnyWindowOpen() &&
 		(textwin.hWndParent != NULL) && !IsWindowVisible(textwin.hWndParent))
 		PostMessage(textwin.hWndParent, WM_CLOSE, 0, 0);
 }

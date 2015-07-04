@@ -188,6 +188,7 @@ static bool qt_setPosition = false;
 static bool qt_setSize   = true;
 static int  qt_setWidth  = qt_optionWidth;
 static int  qt_setHeight = qt_optionHeight;
+static bool qt_is_3Dplot = false;
 
 /* ------------------------------------------------------
  * Helpers
@@ -394,11 +395,11 @@ bool qt_processTermEvent(gp_event_t* event)
 // Called before first plot after a set term command.
 void qt_init()
 {
-    if (qt)
+	if (qt)
 		return;
-    ensureOptionsCreated();
+	ensureOptionsCreated();
 
-    qt = new QtGnuplotState();
+	qt = new QtGnuplotState();
 
 	// If we are not connecting to an existing QtGnuplotWidget, start a QtGnuplotApplication
 	if (qt_option->Widget.isEmpty())
@@ -537,7 +538,7 @@ void qt_text_wrapper()
 	if (!qt)
 		return;
 
-	// Remember scale to update the status bar while the plot is inactive
+	// Remember scale so that we can update the status bar while the plot is inactive
 	qt->out << GEScale;
 
 	const int axis_order[4] = {FIRST_X_AXIS, FIRST_Y_AXIS, SECOND_X_AXIS, SECOND_Y_AXIS};
@@ -557,6 +558,9 @@ void qt_text_wrapper()
 		qt->out << lower/qt_oversamplingF << scale/qt_oversamplingF;
 		qt->out << (axis_array[axis_order[i]].log ? axis_array[axis_order[i]].log_base : 0.);
 	}
+	// Flag whether this was a 3D plot (not mousable in 'persist' mode)
+	qt->out << qt_is_3Dplot;
+	qt_is_3Dplot = false;
 
 	qt_text();
 }
@@ -688,8 +692,10 @@ void qt_linetype(int lt)
 		qt->out << GEPenColor << qt_colorList[lt % 9 + 3];
 }
 
-void qt_dashtype (int type, t_dashtype *custom_dash_type)
+void qt_dashtype(int type, t_dashtype *custom_dash_type)
 {
+	double empirical_scale = 0.55;
+
 	switch (type) {
 	case DASHTYPE_SOLID:
 		qt->out << GEPenStyle << Qt::SolidLine;
@@ -701,8 +707,8 @@ void qt_dashtype (int type, t_dashtype *custom_dash_type)
 		if (custom_dash_type) {
 			QVector<qreal> dashpattern;
 			for (int j = 0; j < 8 && custom_dash_type->pattern[j] > 0; j++) {
-				dashpattern.append(
-					custom_dash_type->pattern[j] * qt_optionDashLength );
+				dashpattern.append( custom_dash_type->pattern[j]
+					* qt_optionDashLength * empirical_scale);
 			}
 			qt->out << GEDashPattern << dashpattern;
 			qt->out << GEPenStyle << Qt::CustomDashLine;
@@ -713,9 +719,10 @@ void qt_dashtype (int type, t_dashtype *custom_dash_type)
 		if (type > 0) {
 			Qt::PenStyle style;
 			style =
-				(type%4 == 1) ? Qt::DashLine :
-				(type%4 == 2) ? Qt::DashDotLine :
-				(type%4 == 3) ? Qt::DashDotDotLine :
+				(type%5 == 1) ? Qt::DashLine :
+				(type%5 == 2) ? Qt::DotLine :
+				(type%5 == 3) ? Qt::DashDotLine :
+				(type%5 == 4) ? Qt::DashDotDotLine :
 					      Qt::SolidLine ;
 			qt->out << GEPenStyle << style;
 		} else {
@@ -725,7 +732,7 @@ void qt_dashtype (int type, t_dashtype *custom_dash_type)
 	}
 }
 
-int qt_set_font (const char* font)
+int qt_set_font(const char* font)
 {
 	ensureOptionsCreated();
 	int  qt_previousFontSize = qt->currentFontSize;
@@ -911,22 +918,10 @@ void qt_set_clipboard(const char s[])
 {
 	if (!qt)
 		return;
-	qt->out << GECopyClipboard << s;
+	qt->out << GECopyClipboard << QString(s);
 	qt_flushOutBuffer();
 }
 #endif // USE_MOUSE
-
-
-struct ScopeCounter {
-	ScopeCounter(int & var)
-		: mVar(var)
-	{ mVar++; }
-
-	~ScopeCounter()
-	{ mVar--; }
-private:
-	int& mVar;
-};
 
 
 int qt_waitforinput(int options)
@@ -1022,22 +1017,13 @@ int qt_waitforinput(int options)
 	int fd = fileno(stdin);
 #endif
 	HANDLE h[2];	// list of handles to wait for
-	DWORD idx = 0;	// count of handles to wait for and current index
-	DWORD idx_stdin = -1;	// return value MsgWaitForMultipleObjects for stdin
-	DWORD idx_socket = -1;	// return value MsgWaitForMultipleObjects for the Qt socket
-	DWORD idx_msg = -1;		// return value MsgWaitForMultipleObjects for message queue events
+	int idx = 0;	// count of handles to wait for and current index
+	int idx_stdin = -1;	// return value MsgWaitForMultipleObjects for stdin
+	int idx_socket = -1;	// return value MsgWaitForMultipleObjects for the Qt socket
+	int idx_msg = -1;		// return value MsgWaitForMultipleObjects for message queue events
 	int c = NUL;
 	bool waitOK = true;
 	bool quitLoop = false;
-#if 0  // Maybe not necessary after all?
-	static int nrConcurrentCalls = 0;
-	ScopeCounter scopeCounter(nrConcurrentCalls);
-
-	// avoid recursion when check_for_mouse_events() is called as a result of a
-	// keypress sent from Qt
-	if ((nrConcurrentCalls > 1) && (options == TERM_ONLY_CHECK_MOUSING))
-		return NUL;
-#endif
 #ifndef WGP_CONSOLE
 	if (options != TERM_ONLY_CHECK_MOUSING)
 		TextStartEditing(&textwin);
@@ -1072,7 +1058,7 @@ int qt_waitforinput(int options)
 	WinMessageLoop();
 
 	do {
-		DWORD waitResult = -1;
+		int waitResult = -1;
 		
 #ifndef WGP_CONSOLE
 		// Process pending key events of the text console
@@ -1093,8 +1079,9 @@ int qt_waitforinput(int options)
 #ifdef WGP_CONSOLE
 			if (!isatty(fd)) {
 				DWORD dw;
-				GetExitCodeThread(h, &dw);
-				CloseHandle(h);
+
+				GetExitCodeThread(h[0], &dw);
+				CloseHandle(h[0]);
 				c = dw;
 				quitLoop = true;
 			} else 
@@ -1182,6 +1169,9 @@ int qt_waitforinput(int options)
 
 void qt_atexit()
 {
+	if (!qt)
+		return;
+
 	if (qt_optionPersist || persist_cl)
 	{
 		qt->out << GEDesactivate;
@@ -1265,10 +1255,12 @@ void qt_options()
 	bool set_dash = false;
 	bool set_dashlength = false;
 
+#ifndef WIN32
 	if (term_interlock != NULL && term_interlock != (void *)qt_init) {
 		term = NULL;
 		int_error(NO_CARET, "The qt terminal cannot be used in a wxt session");
 	}
+#endif
 
 #define SETCHECKDUP(x) { c_token++; if (x) duplication = true; x = true; }
 
@@ -1463,6 +1455,8 @@ void qt_layer( t_termlayer syncpoint )
 		qt->out << GELayer << QTLAYER_END_KEYSAMPLE; break;
 	case TERM_LAYER_BEFORE_ZOOM:
 		qt->out << GELayer << QTLAYER_BEFORE_ZOOM; break;
+	case TERM_LAYER_3DPLOT:
+		qt_is_3Dplot = true; break;
     	default:
 		break;
     }
@@ -1481,14 +1475,16 @@ void qt_boxed_text(unsigned int x, unsigned int y, int option)
 }
 #endif
 
-void qt_modify_plots(unsigned int ops)
+void qt_modify_plots(unsigned int ops, int plotno)
 {
+	if (!qt)
+		return;
 	if ((ops & MODPLOTS_INVERT_VISIBILITIES) == MODPLOTS_INVERT_VISIBILITIES) {
-		qt->out << GEModPlots << QTMODPLOTS_INVERT_VISIBILITIES;
+		qt->out << GEModPlots << QTMODPLOTS_INVERT_VISIBILITIES << plotno;
 	} else if (ops & MODPLOTS_SET_VISIBLE) {
-		qt->out << GEModPlots << QTMODPLOTS_SET_VISIBLE;
+		qt->out << GEModPlots << QTMODPLOTS_SET_VISIBLE << plotno;
 	} else if (ops & MODPLOTS_SET_INVISIBLE) {
-		qt->out << GEModPlots << QTMODPLOTS_SET_INVISIBLE;
+		qt->out << GEModPlots << QTMODPLOTS_SET_INVISIBLE << plotno;
 	}
 	qt_flushOutBuffer();
 }

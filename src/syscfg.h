@@ -1,5 +1,5 @@
 /*
- * $Id: syscfg.h,v 1.54 2014/04/13 17:55:24 sfeam Exp $
+ * $Id: syscfg.h,v 1.56 2014/07/28 22:16:27 sfeam Exp $
  */
 
 /* GNUPLOT - syscfg.h */
@@ -109,7 +109,11 @@
 # ifndef _WIN32
 #  define _WIN32
 # endif
-# define OS "MS-Windows 32 bit"
+# ifdef _WIN64
+#  define OS "MS-Windows 64 bit"
+# else
+#  define OS "MS-Windows 32 bit"
+# endif
 /* introduced by Pedro Mendes, prm@aber.ac.uk */
 #  define far
 /* Fix for broken compiler headers
@@ -256,8 +260,17 @@
 #define GPFAR /* nothing */
 
 /* LFS support */
-#ifndef HAVE_OFF_T
-#define off_t long
+#if !defined(HAVE_FSEEKO) || !defined(HAVE_OFF_T)
+# if defined(HAVE_SYS_TYPES_H)
+#   include <sys/types.h>
+# endif
+# if defined(_MSC_VER)
+#   define off_t __int64
+# elif defined(__MINGW32__)
+#   define off_t off64_t
+# elif !defined(HAVE_OFF_T)
+#   define off_t long
+# endif
 #endif
 
 typedef double coordval;

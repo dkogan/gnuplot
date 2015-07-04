@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: color.c,v 1.113 2014/04/02 21:35:46 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: color.c,v 1.120 2015/04/16 05:11:01 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - color.c */
@@ -51,7 +51,7 @@ static t_sm_palette prev_palette = {
 
 static void draw_inside_color_smooth_box_postscript __PROTO((void));
 static void draw_inside_color_smooth_box_bitmap __PROTO((void));
-void cbtick_callback __PROTO((AXIS_INDEX axis, double place, char *text, int ticlevel,
+static void cbtick_callback __PROTO((struct axis *, double place, char *text, int ticlevel,
 			struct lp_style_type grid, struct ticmark *userlabels));
 
 
@@ -170,16 +170,17 @@ invalidate_palette()
 
 /*
    Set the colour on the terminal
-   Currently, each terminal takes care of remembering the current colour,
+   Each terminal takes care of remembering the current colour,
    so there is not much to do here.
+   FIXME: NaN could alternatively map to LT_NODRAW or TC_RGB full transparency
  */
 void
 set_color(double gray)
 {
     t_colorspec color;
-    color.type = TC_FRAC;
     color.value = gray;
-    color.lt = 0;
+    color.lt = LT_BACKGROUND;
+    color.type = (isnan(gray)) ? TC_LT : TC_FRAC;
     term->set_color(&color);
 }
 
@@ -190,7 +191,7 @@ set_rgbcolor_var(unsigned int rgbvalue)
     color.type = TC_RGB;
     *(unsigned int *)(&color.lt) = rgbvalue;
     color.value = -1;	/* -1 flags that this came from "rgb variable" */
-    apply_pm3dcolor(&color, term);
+    apply_pm3dcolor(&color);
 }
 
 void
@@ -200,7 +201,7 @@ set_rgbcolor_const(unsigned int rgbvalue)
     color.type = TC_RGB;
     *(unsigned int *)(&color.lt) = rgbvalue;
     color.value = 0;	/* 0 flags that this is a constant color */
-    apply_pm3dcolor(&color, term);
+    apply_pm3dcolor(&color);
 }
 
 void
@@ -253,49 +254,21 @@ filled_quadrangle(gpdPoint * corners)
     ifilled_quadrangle(icorners);
 }
 
-
+#ifdef PM3D_CONTOURS
 /*
    Makes mapping from real 3D coordinates, passed as coords array,
    to 2D terminal coordinates, then draws filled polygon
  */
 void
-filled_polygon_3dcoords(int points, struct coordinate GPHUGE * coords)
+filled_polygon_common(int points, struct coordinate GPHUGE * coords, TBOOLEAN fixed, double z)
 {
     int i;
     double x, y;
     gpiPoint *icorners;
     icorners = gp_alloc(points * sizeof(gpiPoint), "filled_polygon3d corners");
     for (i = 0; i < points; i++) {
-	map3d_xy_double(coords[i].x, coords[i].y, coords[i].z, &x, &y);
-	icorners[i].x = x;
-	icorners[i].y = y;
-    }
-#ifdef EXTENDED_COLOR_SPECS
-    if ((term->flags & TERM_EXTENDED_COLOR)) {
-	icorners[0].spec.gray = -1;	/* force solid color */
-    }
-#endif
-    if (default_fillstyle.fillstyle == FS_EMPTY)
-	icorners->style = FS_OPAQUE;
-    else
-	icorners->style = style_from_fill(&default_fillstyle);
-    term->filled_polygon(points, icorners);
-    free(icorners);
-}
-
-
-/*
-   Makes mapping from real 3D coordinates, passed as coords array, but at z coordinate
-   fixed (base_z, for instance) to 2D terminal coordinates, then draws filled polygon
- */
-void
-filled_polygon_3dcoords_zfixed(int points, struct coordinate GPHUGE * coords, double z)
-{
-    int i;
-    double x, y;
-    gpiPoint *icorners;
-    icorners = gp_alloc(points * sizeof(gpiPoint), "filled_polygon_zfix corners");
-    for (i = 0; i < points; i++) {
+	if (fixed)
+	    z = coords[i].z;
 	map3d_xy_double(coords[i].x, coords[i].y, z, &x, &y);
 	icorners[i].x = x;
 	icorners[i].y = y;
@@ -312,6 +285,24 @@ filled_polygon_3dcoords_zfixed(int points, struct coordinate GPHUGE * coords, do
     term->filled_polygon(points, icorners);
     free(icorners);
 }
+
+void
+filled_polygon_3dcoords(int points, struct coordinate GPHUGE * coords)
+{
+    filled_polygon_common(points, coords, FALSE, 0.0);
+}
+
+/*
+   Makes mapping from real 3D coordinates, passed as coords array, but at z coordinate
+   fixed (base_z, for instance) to 2D terminal coordinates, then draws filled polygon
+ */
+void
+filled_polygon_3dcoords_zfixed(int points, struct coordinate GPHUGE * coords, double z)
+{
+    filled_polygon_common(points, coords, TRUE, z);
+}
+
+#endif /* PM3D_CONTOURS */
 
 
 /*
@@ -436,20 +427,18 @@ draw_inside_color_smooth_box_bitmap()
     }
 }
 
-/* Notice HBB 20010720: would be static, but HP-UX gcc bug forbids
- * this, for now */
-void
+static void
 cbtick_callback(
-    AXIS_INDEX axis,
+    struct axis *this_axis,
     double place,
     char *text,
     int ticlevel,
     struct lp_style_type grid, /* linetype or -2 for no grid */
     struct ticmark *userlabels)
 {
-    int len = TIC_SCALE(ticlevel, COLOR_AXIS)
-	* (CB_AXIS.tic_in ? -1 : 1) * (term->h_tic);
-    double cb_place = (place - CB_AXIS.min) / (CB_AXIS.max - CB_AXIS.min);
+    int len = tic_scale(ticlevel, this_axis)
+	* (this_axis->tic_in ? -1 : 1) * (term->h_tic);
+    double cb_place = (place - this_axis->min) / (this_axis->max - this_axis->min);
 	/* relative z position along the colorbox axis */
     unsigned int x1, y1, x2, y2;
 
@@ -499,43 +488,43 @@ cbtick_callback(
 #	undef MINIMUM_SEPARATION
 
 	/* get offset */
-	map3d_position_r(&(axis_array[axis].ticdef.offset),
+	map3d_position_r(&(this_axis->ticdef.offset),
 			 &offsetx, &offsety, "cbtics");
 	/* User-specified different color for the tics text */
-	if (axis_array[axis].ticdef.textcolor.type != TC_DEFAULT)
-	    apply_pm3dcolor(&(axis_array[axis].ticdef.textcolor), term);
+	if (this_axis->ticdef.textcolor.type != TC_DEFAULT)
+	    apply_pm3dcolor(&(this_axis->ticdef.textcolor));
 	if (color_box.rotation == 'h') {
 	    int y3 = color_box.bounds.ybot - (term->v_char);
 	    int hrotate = 0;
 
-	    if (axis_array[axis].tic_rotate
-		&& (*term->text_angle)(axis_array[axis].tic_rotate))
-		    hrotate = axis_array[axis].tic_rotate;
+	    if (this_axis->tic_rotate
+		&& (*term->text_angle)(this_axis->tic_rotate))
+		    hrotate = this_axis->tic_rotate;
 	    if (len > 0) y3 -= len; /* add outer tics len */
 	    if (y3<0) y3 = 0;
 	    just = hrotate ? LEFT : CENTRE;
-	    if (axis_array[axis].manual_justify)
-		just = axis_array[axis].label.pos;
+	    if (this_axis->manual_justify)
+		just = this_axis->label.pos;
 	    write_multiline(x2+offsetx, y3+offsety, text,
 			    just, JUST_CENTRE, hrotate,
-			    axis_array[axis].ticdef.font);
+			    this_axis->ticdef.font);
 	    if (hrotate)
 		(*term->text_angle)(0);
 	} else {
 	    unsigned int x3 = color_box.bounds.xright + (term->h_char);
 	    if (len > 0) x3 += len; /* add outer tics len */
 	    just = LEFT;
-	    if (axis_array[axis].manual_justify)
-		just = axis_array[axis].label.pos;	    
+	    if (this_axis->manual_justify)
+		just = this_axis->label.pos;	    
 	    write_multiline(x3+offsetx, y2+offsety, text,
 			    just, JUST_CENTRE, 0.0,
-			    axis_array[axis].ticdef.font);
+			    this_axis->ticdef.font);
 	}
 	term_apply_lp_properties(&border_lp);	/* border linetype */
     }
 
     /* draw tic on the mirror side */
-    if (CB_AXIS.ticmode & TICS_MIRROR) {
+    if (this_axis->ticmode & TICS_MIRROR) {
 	if (color_box.rotation == 'h') {
 	    y1 = color_box.bounds.ytop;
 	    y2 = color_box.bounds.ytop + len;
@@ -676,13 +665,13 @@ draw_color_smooth_box(int plot_mode)
     /* draw tics */
     if (axis_array[COLOR_AXIS].ticmode) {
 	term_apply_lp_properties(&border_lp); /* border linetype */
-	gen_tics(COLOR_AXIS, cbtick_callback );
+	gen_tics(&axis_array[COLOR_AXIS], cbtick_callback );
     }
 
     /* write the colour box label */
     if (CB_AXIS.label.text) {
 	int x, y;
-	apply_pm3dcolor(&(CB_AXIS.label.textcolor),term);
+	apply_pm3dcolor(&(CB_AXIS.label.textcolor));
 	if (color_box.rotation == 'h') {
 	    int len = CB_AXIS.ticscale * (CB_AXIS.tic_in ? 1 : -1) * 
 		(term->v_tic);
@@ -705,7 +694,7 @@ draw_color_smooth_box(int plot_mode)
 	    widest_tic_strlen = 0;
 	    if (CB_AXIS.ticmode & TICS_ON_BORDER) {
 	      	widest_tic_strlen = 0; /* reset the global variable */
-		gen_tics(COLOR_AXIS, /* 0, */ widest_tic_callback);
+		gen_tics(&axis_array[COLOR_AXIS], widest_tic_callback);
 	    }
 	    map3d_position_r(&(CB_AXIS.label.offset), &x, &y, "smooth_box");
 #define DEFAULT_X_DISTANCE 0.0
@@ -723,7 +712,7 @@ draw_color_smooth_box(int plot_mode)
 		write_multiline(x, y, CB_AXIS.label.text, LEFT, JUST_TOP, 0, CB_AXIS.label.font);
 	    }
 	}
-	reset_textcolor(&(CB_AXIS.label.textcolor),term);
+	reset_textcolor(&(CB_AXIS.label.textcolor));
     }
 
 }

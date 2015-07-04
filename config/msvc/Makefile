@@ -1,5 +1,5 @@
 #
-# $Id: Makefile,v 1.21 2014/03/31 06:04:43 markisch Exp $
+# $Id: Makefile,v 1.25 2014/08/18 03:49:06 sfeam Exp $
 #
 # GNUPLOT Makefile Microsoft Visual C++ 2005 or newer
 
@@ -50,11 +50,7 @@ PDFLIB = 0
 WXT = 0
 # Build Cairo Terminals (cairolatex, epslatex, pdflatex)
 CAIRO = 1
-# Build qt terminal? WARNING: the qt terminal should build, but does not work correctly.
-# Only enable it if you want to work on fixing qt terminal on windows.
-# (Basic problem: qt_waitforinput() uses select() to wait on stdin and a named
-# pipe simultaneously. On Windows, this fails, because select() on Windows can
-# only be used on network sockets)
+# Build qt terminal?
 QT = 0
 # Set to one if you have Qt5 (instead of Qt4)
 QT5 = 1
@@ -459,14 +455,11 @@ doc2html.exe: $(D)windows\doc2html.c $(D)termdoc.c $(D)xref.c version.obj $(CORE
 
 # make binary demo files
 # WINDOWS_NO_GUI makes sure that wtext.h does not redefine fread() etc.
-$(M)bf_test.exe : $(S)\\bf_test.c dbinary.obj alloc.obj
-	$(CC) $(CFLAGS) /F 5000 /W1 /DWINDOWS_NO_GUI /Fe$(M)bf_test.exe $(S)\\bf_test.c dbinary.obj alloc.obj
+$(M)bf_test.exe : $(S)\\bf_test.c
+	$(CC) $(CFLAGS) /F 5000 /W1 /DWINDOWS_NO_GUI /Fe$(M)bf_test.exe $(S)\\bf_test.c
 	cd $(M)
 	bf_test
 	cd ..\\config\\msvc
-
-dbinary.obj: $(S)\\binary.c
-	$(CC) /c $(CFLAGS) /F 5000 /W1 /DWINDOWS_NO_GUI /Fodbinary.obj $(S)\\binary.c
 
 demo_plugin.dll: $(M)plugin\\demo_plugin.c
 	$(CC) $(CFLAGS) /LD /D_USRDLL /D_WINDLL $(M)plugin\\$*.c /link /out:$@
@@ -518,8 +511,8 @@ install:
 	if exist wgnuplot-ja.chm copy /Y wgnuplot-ja.chm $(DESTDIR)\bin
 	if exist wgnuplot.hlp copy /Y wgnuplot.hlp $(DESTDIR)\bin
 	copy /Y *.dll $(DESTDIR)\bin
-	if exist platform\ if not exist $(DESTDIR)\bin\platform mkdir $(DESTDIR)\bin\platform
-	if exist platform\ xcopy /Y /S platform $(DESTDIR)\bin\platform
+	if exist platform\ if not exist $(DESTDIR)\bin\platforms mkdir $(DESTDIR)\bin\platforms
+	if exist platform\ xcopy /Y /S platforms $(DESTDIR)\bin\platforms
 	if not exist $(DESTDIR)\$(GNUPLOT_PS_DIR) mkdir $(DESTDIR)\$(GNUPLOT_PS_DIR)
 	xcopy /Y $(T)PostScript\*.ps $(DESTDIR)\$(GNUPLOT_PS_DIR)
 	if not exist $(DESTDIR)\$(GNUPLOT_JS_DIR) mkdir $(DESTDIR)\$(GNUPLOT_JS_DIR)
@@ -548,4 +541,4 @@ install:
 
 zip:
 	$(MAKE) DESTDIR=.\gnuplot install
-	zip -mro9 gp470-msvc-win32.zip gnuplot
+	zip -mro9 gp500-msvc-win32.zip gnuplot

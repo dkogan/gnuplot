@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: parse.c,v 1.87 2014/03/30 19:05:46 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: parse.c,v 1.93 2015/06/03 22:55:46 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - parse.c */
@@ -53,6 +53,7 @@ static int parse_recursion_level;
 /* Exported globals: the current 'dummy' variable names */
 char c_dummy_var[MAX_NUM_VAR][MAX_ID_LEN+1];
 char set_dummy_var[MAX_NUM_VAR][MAX_ID_LEN+1] = { "x", "y" };
+int  fit_dummy_var[MAX_NUM_VAR];
 TBOOLEAN scanning_range_in_progress = FALSE;
 
 /* This is used by plot_option_using() */
@@ -470,10 +471,7 @@ parse_primary_expression()
 	}
 	add_action(DOLLARS)->v_arg = a;
     } else if (isanumber(c_token)) {
-	/* work around HP 9000S/300 HP-UX 9.10 cc limitation ... */
-	/* HBB 20010724: use this code for all platforms, then */
 	union argument *foo = add_action(PUSHC);
-
 	convert(&(foo->v_arg), c_token);
 	c_token++;
     } else if (isletter(c_token)) {
@@ -492,7 +490,10 @@ parse_primary_expression()
 		struct udvt_entry *udv = add_udv(c_token+2);
 		union argument *foo = add_action(PUSHC);
 		foo->v_arg.type = INTGR;
-		foo->v_arg.v.int_val = udv->udv_undef ? 0 : 1;
+		if (udv->udv_value.type == NOTDEFINED)
+		    foo->v_arg.v.int_val = 0;
+		else
+		    foo->v_arg.v.int_val = 1;
 		c_token += 4;  /* skip past "defined ( <foo> ) " */
 		return;
 	    }
@@ -515,6 +516,10 @@ parse_primary_expression()
 		/* So far sprintf is the only built-in function */
 		/* with a variable number of arguments.         */
 		if (!strcmp(ft[whichfunc].f_name,"sprintf"))
+		    add_action(PUSHC)->v_arg = num_params;
+
+		/* v4 timecolumn only had 1 param; v5 has 2. Accept either */
+		if (!strcmp(ft[whichfunc].f_name,"timecolumn"))
 		    add_action(PUSHC)->v_arg = num_params;
 
 		/* The column() function has side effects requiring special handling */
@@ -553,9 +558,11 @@ parse_primary_expression()
 	    if (equals(c_token, c_dummy_var[0])) {
 		c_token++;
 		add_action(PUSHD1)->udf_arg = dummy_func;
+		fit_dummy_var[0]++;
 	    } else if (equals(c_token, c_dummy_var[1])) {
 		c_token++;
 		add_action(PUSHD2)->udf_arg = dummy_func;
+		fit_dummy_var[1]++;
 	    } else {
 		int i, param = 0;
 
@@ -568,6 +575,7 @@ parse_primary_expression()
 			c_token++;
 			add_action(PUSHC)->v_arg = num_params;
 			add_action(PUSHD)->udf_arg = dummy_func;
+			fit_dummy_var[i]++;
 			break;
 		    }
 		}
@@ -1042,6 +1050,8 @@ add_udv(int t_num)
 {
     char varname[MAX_ID_LEN+1];
     copy_str(varname, t_num, MAX_ID_LEN);
+    if (token[t_num].length > MAX_ID_LEN-1)
+	int_warn(t_num, "truncating variable name that is too long");
     return add_udv_by_name(varname);
 }
 
@@ -1102,7 +1112,7 @@ is_builtin_function(int t_num)
 t_iterator *
 check_for_iteration()
 {
-    char *errormsg = "Expecting iterator \tfor [<var> = <start> : <end>]\n\t\t\tor\tfor [<var> in \"string of words\"]";
+    char *errormsg = "Expecting iterator \tfor [<var> = <start> : <end> {: <incr>}]\n\t\t\tor\tfor [<var> in \"string of words\"]";
     int nesting_depth = 0;
     t_iterator *iter = NULL;
     t_iterator *this_iter = NULL;
@@ -1118,6 +1128,7 @@ check_for_iteration()
 	int iteration_current;
 	int iteration = 0;
 	TBOOLEAN empty_iteration;
+	TBOOLEAN just_once = FALSE;
 
 	c_token++;
 	if (!equals(c_token++, "[") || !isletter(c_token))
@@ -1133,13 +1144,13 @@ check_for_iteration()
 	    if (equals(c_token,":")) {
 	    	c_token++;
 	    	iteration_increment = int_expression();
+		if (iteration_increment == 0)
+		    int_error(c_token-1, errormsg);
 	    }
 	    if (!equals(c_token++, "]"))
 	    	int_error(c_token-1, errormsg);
-	    if (iteration_udv->udv_undef == FALSE)
-		gpfree_string(&(iteration_udv->udv_value));
+	    gpfree_string(&(iteration_udv->udv_value));
 	    Ginteger(&(iteration_udv->udv_value), iteration_start);
-	    iteration_udv->udv_undef = FALSE;
 	}
 	else if (equals(c_token++, "in")) {
 	    iteration_string = try_to_get_string();
@@ -1149,10 +1160,8 @@ check_for_iteration()
 	    	int_error(c_token-1, errormsg);
 	    iteration_start = 1;
 	    iteration_end = gp_words(iteration_string);
-	    if (iteration_udv->udv_undef == FALSE)
-	    	gpfree_string(&(iteration_udv->udv_value));
+	    gpfree_string(&(iteration_udv->udv_value));
 	    Gstring(&(iteration_udv->udv_value), gp_word(iteration_string, 1));
-	    iteration_udv->udv_undef = FALSE;
 	}
 	else /* Neither [i=B:E] or [s in "foo"] */
 	    int_error(c_token-1, errormsg);
@@ -1162,15 +1171,22 @@ check_for_iteration()
 	empty_iteration = FALSE;	
 	if ( (iteration_udv != NULL)
 	&&   ((iteration_end > iteration_start && iteration_increment < 0)
-	   || (iteration_end < iteration_start && iteration_increment > 0)))
+	   || (iteration_end < iteration_start && iteration_increment > 0))) {
 		empty_iteration = TRUE;
+		FPRINTF((stderr,"Empty iteration\n"));
+	}
 
-	/* allocating a node of the linked list and initializing its fields */
-	/* iterating just once is the same as not iterating at all, 
-	 * so we skip building the node in that case */
-	if (iteration_increment 
-	&& (iteration_start != iteration_end)
-	&& (abs(iteration_end - iteration_start) >= abs(iteration_increment))) {
+	/* Allocating a node of the linked list nested iterations. */
+	/* Iterating just once is the same as not iterating at all */
+	/* so we skip building the node in that case.		   */
+	if (iteration_start == iteration_end)
+	    just_once = TRUE;
+	if (iteration_start < iteration_end && iteration_end < iteration_start + iteration_increment)
+	    just_once = TRUE;
+	if (iteration_start > iteration_end && iteration_end > iteration_start + iteration_increment)
+	    just_once = TRUE;
+
+	if (!just_once) {
 	    this_iter = gp_alloc(sizeof(t_iterator), "iteration linked list");
 	    this_iter->iteration_udv = iteration_udv; 
 	    this_iter->iteration_string = iteration_string;
@@ -1181,7 +1197,7 @@ check_for_iteration()
 	    this_iter->iteration = iteration;
 	    this_iter->done = FALSE;
 	    this_iter->really_done = FALSE;
-	    this_iter->empty_iteration = FALSE;
+	    this_iter->empty_iteration = empty_iteration;
 	    this_iter->next = NULL;
 	    this_iter->prev = NULL;
 	    if (nesting_depth == 0) {
@@ -1195,7 +1211,7 @@ check_for_iteration()
 	    }
 	    iter->prev = this_iter; /* a shortcut: making the list circular */
 
-	    /* if one iteration in the chain is empty, the whole chain of iterations is empty, too */
+	    /* if one iteration in the chain is empty, the subchain of nested iterations is too */
 	    if (!iter->empty_iteration) 
 		iter->empty_iteration = empty_iteration;
 
