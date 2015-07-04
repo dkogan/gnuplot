@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 %:
-	dh $@ --parallel --with autoreconf
+	dh $@ --parallel
 
 export DEB_BUILD_MAINT_OPTIONS := hardening=+all
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
@@ -31,6 +31,7 @@ conf_opts += \
 	--with-readline=bsd
 
 override_dh_auto_configure:
+	./prepare
 	mkdir -p $(BUILDDIR_NOX)
 	cd $(BUILDDIR_NOX);  ./../../configure $(conf_opts) --with-qt=no --without-x --disable-wxwidgets
 	mkdir -p $(BUILDDIR_X11)
