@@ -1,3 +1,9 @@
+gnuplot5 (5.1~dima1-1) unstable; urgency=medium
+
+  * Snapshot
+
+ -- Dima Kogan <dima@secretsauce.net>  Fri, 03 Jul 2015 19:28:52 -0700
+
 gnuplot5 (5.0.1+dfsg1-2) unstable; urgency=medium
 
   [ Vincent Lefevre ]
