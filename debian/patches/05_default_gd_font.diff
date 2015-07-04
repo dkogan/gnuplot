@@ -1,17 +1,12 @@
-From: Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>
-Date: Sat, 26 Apr 2014 19:21:05 -0700
-Subject: 05_default_gd_font
+Description: change the default font
+Author: Anton Gladky <gladk@debian.org>
+Last-Update: 2015-06-16
 
+Index: gnuplot-5.0.1/term/gd.trm
 ===================================================================
----
- term/gd.trm | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/term/gd.trm b/term/gd.trm
-index c53f144..12a4d47 100644
---- a/term/gd.trm
-+++ b/term/gd.trm
-@@ -989,7 +989,7 @@ PNG_options()
+--- gnuplot-5.0.1.orig/term/gd.trm
++++ gnuplot-5.0.1/term/gd.trm
+@@ -990,7 +990,7 @@ PNG_options()
  	if (external_default)
  		png_state.ttffont = gp_strdup(external_default);
  	else	/* Might as well try some plausible font; it's no worse than failing immediately */

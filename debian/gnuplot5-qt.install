@@ -1,0 +1,3 @@
+debian/tmp/QT/usr/bin usr
+debian/tmp/QT/usr/lib usr
+debian/tmp/QT/usr/share/gnuplot5/gnuplot5-qt.gih usr/share/gnuplot5

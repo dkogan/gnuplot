@@ -1,16 +1,11 @@
-From: Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>
-Date: Sat, 26 Apr 2014 19:21:05 -0700
-Subject: 04_fix_libexecdir
+Description: fix libexecdir
+Author: Anton Gladky <gladk@debian.org>
+Last-Update: 2015-06-16
 
+Index: gnuplot-5.0.1/src/Makefile.am
 ===================================================================
----
- src/Makefile.am | 2 +-
- 1 file changed, 1 insertion(+), 1 deletion(-)
-
-diff --git a/src/Makefile.am b/src/Makefile.am
-index d48c335..dc8e477 100644
---- a/src/Makefile.am
-+++ b/src/Makefile.am
+--- gnuplot-5.0.1.orig/src/Makefile.am
++++ gnuplot-5.0.1/src/Makefile.am
 @@ -2,7 +2,7 @@
  AUTOMAKE_OPTIONS = foreign subdir-objects
  

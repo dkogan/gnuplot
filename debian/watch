@@ -1,2 +1,3 @@
 version=3
-http://sf.net/gnuplot/gnuplot-([\d.]+)\.tar\.gz
+opts=repacksuffix=+dfsg1,dversionmangle=s/\+dfsg\d*$// \
+http://sf.net/gnuplot/gnuplot-([\d.]+)\.(?:zip|tgz|tbz|txz|(?:tar\.(?:gz|bz2|xz)))

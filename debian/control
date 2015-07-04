@@ -1,24 +1,50 @@
-Source: gnuplot
-Section: math
-Priority: optional
+Source: gnuplot5
 Maintainer: Debian Science Team <debian-science-maintainers@lists.alioth.debian.org>
-Uploaders: Anton Gladky <gladky.anton@gmail.com>
-Standards-Version: 3.9.3
-DM-Upload-Allowed: yes
-Build-Depends: debhelper (>= 9), libpng-dev, libx11-dev, libxt-dev, 
- pkg-config, texinfo, texlive-latex-base, texlive-latex-recommended, 
- texlive-latex-extra, liblua5.1-dev,
- zlib1g-dev, libgd2-xpm-dev, libwxgtk2.8-dev, libcairo2-dev, 
- libpango1.0-dev, libedit-dev, autoconf, automake,
- libqt4-dev (>=4:4.5), lua5.1
+Uploaders: Anton Gladky <gladk@debian.org>
+Section: math
+Testsuite: autopkgtest
+Priority: optional
+Build-Depends: autoconf,
+               automake,
+               debhelper (>= 9),
+               dh-autoreconf,
+               libcairo2-dev,
+               libedit-dev,
+               libgd2-dev,
+               liblua5.1-dev,
+               libpango1.0-dev,
+               libpng-dev,
+               qtbase5-dev,
+               qtbase5-dev-tools,
+               qttools5-dev-tools,
+               latex2html,
+               libqt5webkit5-dev,
+               libqt5opengl5-dev,
+               libqt5svg5-dev,
+               libx11-dev,
+               libxt-dev,
+               pkg-config,
+               texinfo,
+               texlive-fonts-recommended,
+               texlive-font-utils,
+               texlive-latex-base,
+               texlive-latex-extra,
+               texlive-latex-recommended,
+               libwxgtk3.0-dev,
+               zlib1g-dev,
+               emacs24
+Standards-Version: 3.9.6
+Vcs-Browser: https://anonscm.debian.org/cgit/debian-science/packages/gnuplot5.git
+Vcs-Git: git://anonscm.debian.org/debian-science/packages/gnuplot5.git
 Homepage: http://gnuplot.sourceforge.net/
-Vcs-Git: git://git.debian.org/git/debian-science/packages/gnuplot.git
-Vcs-Browser: http://git.debian.org/?p=debian-science/packages/gnuplot.git
 
-Package: gnuplot
+Package: gnuplot5
 Architecture: all
-Depends: gnuplot-nox | gnuplot-x11 | gnuplot-qt, ${misc:Depends}
-Description: Command-line driven interactive plotting program
+Depends: gnuplot5-qt | gnuplot5-x11 | gnuplot5-nox,
+         ${misc:Depends}
+Suggests: gnuplot5-doc
+Provides: gnuplot
+Description: Command-line driven interactive plotting program, version 5
  Gnuplot is a portable command-line driven interactive data and function
  plotting utility that supports lots of output formats, including drivers
  for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output
@@ -31,16 +57,39 @@ Description: Command-line driven interactive plotting program
  This package is for transition and to install a full-featured gnuplot
  supporting the X11-output.
 
-Package: gnuplot-nox
+Package: gnuplot5-doc
+Architecture: all
+Section: doc
+Depends: ${misc:Depends}
+Description: Command-line driven interactive plotting program. Doc-package
+ Gnuplot is a portable command-line driven interactive data and function
+ plotting utility that supports lots of output formats, including drivers
+ for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output
+ is packaged in gnuplot5-x11.
+ .
+ Data files and self-defined functions can be manipulated by the internal
+ C-like language. Can perform smoothing, spline-fitting, or nonlinear fits,
+ and can work with complex numbers.
+ .
+ This package contains the additional documentation.
+
+Package: gnuplot5-nox
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Conflicts: gnuplot-x11, gnuplot-qt
-Recommends: groff, fonts-liberation
+Depends: gnuplot5-data (= ${source:Version}),
+         ${misc:Depends},
+         ${shlibs:Depends}
+Recommends: fonts-liberation,
+            groff
+Suggests: gnuplot5-doc
+Conflicts: gnuplot5-qt,
+           gnuplot5-x11
+Replaces: gnuplot5-qt,
+          gnuplot5-x11
 Description: Command-line driven interactive plotting program. No-X package
  Gnuplot is a portable command-line driven interactive data and function
  plotting utility that supports lots of output formats, including drivers
  for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output
- is packaged in gnuplot-x11. The QT-output is packaged in gnuplot-qt.
+ is packaged in gnuplot5-x11. The QT-output is packaged in gnuplot5-qt.
  .
  Data files and self-defined functions can be manipulated by the internal
  C-like language. Can perform smoothing, spline-fitting, or nonlinear fits,
@@ -48,31 +97,17 @@ Description: Command-line driven interactive plotting program. No-X package
  .
  This package is for working without an X server.
 
-Package: gnuplot-x11
+Package: gnuplot5-qt
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Conflicts: gnuplot-qt, gnuplot-nox
-Provides: gnuplot-nox
-Description: Command-line driven interactive plotting program. X-package
- Gnuplot is a portable command-line driven interactive data and function
- plotting utility that supports lots of output formats, including drivers
- for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output
- is packaged in gnuplot-x11.
- .
- Data files and self-defined functions can be manipulated by the internal
- C-like language. Can perform smoothing, spline-fitting, or nonlinear fits,
- and can work with complex numbers.
- .
- This package contains the terminal driver that enables gnuplot to plot
- images interactively under X11. Most users will want this, it is however
- packaged separately so that low-end systems don't need X installed to use
- gnuplot.
-
-Package: gnuplot-qt
-Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}
-Conflicts: gnuplot-x11, gnuplot-nox
-Provides: gnuplot-nox, gnuplot-x11
+Depends: gnuplot5-data (= ${source:Version}),
+         ${misc:Depends},
+         ${shlibs:Depends}
+Suggests: gnuplot5-doc
+Conflicts: gnuplot5-x11,
+           gnuplot5-nox
+Provides: gnuplot5-nox
+Replaces: gnuplot5-x11,
+          gnuplot5-nox
 Description: Command-line driven interactive plotting program. QT-package
  Gnuplot is a portable command-line driven interactive data and function
  plotting utility that supports lots of output formats, including drivers
@@ -87,5 +122,49 @@ Description: Command-line driven interactive plotting program. QT-package
  packaged separately so that low-end systems don't need X installed to use
  gnuplot.
  .
- The package provides gnuplot-x11 and gnuplot-nox terminals plus an
+ The package provides gnuplot5-x11 and gnuplot5-nox terminals plus an
  additional QT-terminal for output (not default one).
+
+Package: gnuplot5-x11
+Architecture: any
+Depends: gnuplot5-data (= ${source:Version}),
+         ${misc:Depends},
+         ${shlibs:Depends}
+Suggests: gnuplot5-doc
+Conflicts: gnuplot5-qt,
+           gnuplot5-nox
+Provides: gnuplot5-nox
+Replaces: gnuplot5-qt,
+          gnuplot5-nox
+Description: Command-line driven interactive plotting program. X-package
+ Gnuplot is a portable command-line driven interactive data and function
+ plotting utility that supports lots of output formats, including drivers
+ for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output
+ is packaged in gnuplot5-x11.
+ .
+ Data files and self-defined functions can be manipulated by the internal
+ C-like language. Can perform smoothing, spline-fitting, or nonlinear fits,
+ and can work with complex numbers.
+ .
+ This package contains the terminal driver that enables gnuplot to plot
+ images interactively under X11. Most users will want this, it is however
+ packaged separately so that low-end systems don't need X installed to use
+ gnuplot.
+
+Package: gnuplot5-data
+Architecture: all
+Section: doc
+Depends: aglfn,
+         gnuplot-tex,
+         ${misc:Depends}
+Description: Command-line driven interactive plotting program. Data-files
+ Gnuplot is a portable command-line driven interactive data and function
+ plotting utility that supports lots of output formats, including drivers
+ for many printers, (La)TeX, (x)fig, Postscript, and so on. The X11-output
+ is packaged in gnuplot-x11.
+ .
+ Data files and self-defined functions can be manipulated by the internal
+ C-like language. Can perform smoothing, spline-fitting, or nonlinear fits,
+ and can work with complex numbers.
+ .
+ This package contains data-files which are used by -nox, -x11 and -qt.

@@ -1,0 +1,44 @@
+Description: remove beos-specific code
+Author: Anton Gladky <gladk@debian.org>
+Last-Update: 2015-06-16
+
+Index: gnuplot-5.0.1/configure.in
+===================================================================
+--- gnuplot-5.0.1.orig/configure.in
++++ gnuplot-5.0.1/configure.in
+@@ -1318,7 +1318,6 @@ AC_OUTPUT([Makefile
+            share/Makefile
+            share/LaTeX/Makefile
+            src/Makefile
+-           src/beos/Makefile
+            src/wxterminal/Makefile
+            src/qtterminal/Makefile
+            term/Makefile
+@@ -1426,10 +1425,6 @@ if test "$is_msdos" = yes; then
+   AC_MSG_RESULT([  svga terminal (MSDOS/djgpp): yes])
+ fi
+ 
+-if test "$build_src_beos_subdir" = yes; then
+-  AC_MSG_RESULT([  be terminal (BeOS): yes])
+-fi
+-
+ if test "$is_next" = yes; then
+   AC_MSG_RESULT([  next terminal: yes])
+ fi
+Index: gnuplot-5.0.1/src/Makefile.am
+===================================================================
+--- gnuplot-5.0.1.orig/src/Makefile.am
++++ gnuplot-5.0.1/src/Makefile.am
+@@ -75,11 +75,7 @@ getcolor_x11.o: getcolor.c
+ bf_test_SOURCES = bf_test.c
+ bf_test_LIBS = -lm
+ 
+-if BUILD_SRC_BEOS_SUBDIR
+-d_beos = beos
+-endif
+-
+-SUBDIRS = $(d_beos) wxterminal qtterminal
++SUBDIRS = wxterminal qtterminal
+ 
+ EXTRA_gnuplot_SOURCES = strftime.c vms.c
+ 

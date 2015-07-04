@@ -1,0 +1,12 @@
+gnuplot5 (5.0.0~rc+dfsg-1) unstable; urgency=medium
+
+  gnuplot version 5 is providing /usr/bin/gnuplot symlink
+  through update-alternatives and has higher priority than
+  gnuplot version 4.
+
+  gnuplot5 provides also /usr/bin/gnuplot5 symlink. 
+  It points on installed gnuplot5i binary variant (-nox, -x11 or -qt).
+
+  Both gnuplot4 and gnuplot5 can be installed together.
+
+ -- Anton Gladky <gladk@debian.org>  Fri, 11 Jul 2014 23:36:40 +0200 

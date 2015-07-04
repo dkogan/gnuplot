@@ -1,0 +1,91 @@
+Description: generate info-file
+Author: Vincent Lefevre <vincent@vinc17.net>
+Reviewed-By: Anton Gladky <gladk@debian.org>
+Bug-Debian: http://bugs.debian.org/778757
+Last-Update: 2015-06-29
+
+Index: gnuplot5-5.0.1+dfsg1/docs/Makefile.am
+===================================================================
+--- gnuplot5-5.0.1+dfsg1.orig/docs/Makefile.am
++++ gnuplot5-5.0.1+dfsg1/docs/Makefile.am
+@@ -81,7 +81,7 @@ ELCS = gnuplot-eldoc.elc
+ CLEANFILES = allterm.h gnuplot.tex gnuplot.dvi gnuplot.aux gnuplot.log	\
+ gnuplot.toc gnuplot.ps gpcard.dvi gpcard.log gpcard.ps alldoc2gih	\
+ doc2gih gnuplot.gih doc2hlp gnuplot.hlp gnuplot.idx gnuplot.ilg		\
+-gnuplot.ind gnuplot.info* gnuplot.out doc2ipf gnuplot.ipf doc2ms	\
++gnuplot.ind gnuplot5.info* gnuplot.out doc2ipf gnuplot.ipf doc2ms	\
+ gnuplot.ms doc2rnh gnuplot.rnh doc2rtf gnuplot.rtf gnuplot.nroff	\
+ checkdoc gnuplot.txt gnuplot.tmp VERSION gnuplot.4tc gnuplot.4ct	\
+ gnuplot.idv gnuplot.xref gnuplot.lg figures pdffigures.aux		\
+@@ -301,7 +301,7 @@ wxhelp/doc2html: wxhelp/doc2html.o termd
+ 	$(LINK) $^
+ 
+ ### GNU info format
+-info: gnuplot.info
++info: gnuplot5.info
+ 
+ # Thanks to Bruce Ravel for doc2texi.el!
+ gnuplot.texi gnuplot-eldoc.el: $(srcdir)/doc2texi.el $(srcdir)/gnuplot.doc
+@@ -324,16 +324,16 @@ ${ELCS}: gnuplot-eldoc.el
+ 	   echo "No emacs found - cannot create gnuplot-eldoc.elc file" ; \
+ 	fi
+ 
+-gnuplot.info: gnuplot.texi
+-	$(MAKEINFO) -I$(srcdir) $(srcdir)/gnuplot.texi --no-split --force --output=$@
++gnuplot5.info: gnuplot.texi
++	$(MAKEINFO) -I$(srcdir) gnuplot.texi --no-split --force --output=$@
+ 
+-install-info: gnuplot.info
++install-info: gnuplot5.info
+ 	$(top_srcdir)/mkinstalldirs $(DESTDIR)$(infodir)
+-	$(INSTALL_DATA) gnuplot.info $(DESTDIR)$(infodir)/gnuplot.info
++	$(INSTALL_DATA) gnuplot5.info $(DESTDIR)$(infodir)/gnuplot5.info
+ 	@if (install-info --version && \
+ 	     install-info --version | fgrep -i -v debian) >/dev/null 2>&1; then \
+-	  echo "install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot.info";\
+-	  install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot.info || :;\
++	  echo "install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot5.info";\
++	  install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot5.info || :;\
+ 	else : ; fi
+ 
+ # this is how to make OS/2 ipfc documentation
+Index: gnuplot5-5.0.1+dfsg1/docs/doc2texi.el
+===================================================================
+--- gnuplot5-5.0.1+dfsg1.orig/docs/doc2texi.el
++++ gnuplot5-5.0.1+dfsg1/docs/doc2texi.el
+@@ -79,7 +79,7 @@
+ ;;
+ ;; Then you can do
+ ;;
+-;;      makeinfo gnuplot.info
++;;      makeinfo gnuplot5.info
+ ;;
+ ;; You may want to use the --no-split option.
+ ;;
+@@ -155,7 +155,7 @@ If PATTERN is omitted, it defaults to \"
+   "\\input texinfo   @c -*-texinfo-*-
+ 
+ @c %**start of header
+-@setfilename gnuplot.info
++@setfilename gnuplot5.info
+ @settitle Gnuplot: An Interactive Plotting Program
+ @setchapternewpage odd
+ @c %**end of header
+@@ -167,7 +167,7 @@ If PATTERN is omitted, it defaults to \"
+ 
+ @dircategory Math
+ @direntry
+-* GNUPLOT: (gnuplot).             An Interactive Plotting Program
++* GNUPLOT5: (gnuplot5).           An Interactive Plotting Program
+ @end direntry
+ 
+ @ifnottex
+@@ -460,7 +460,7 @@ particular conversion chore."
+     ("sun" "sun")
+     ("vms" "vws"))
+ 
+-  "Additional terminals to add to the converted gnuplot.info file.
++  "Additional terminals to add to the converted gnuplot5.info file.
+ 
+ The CARs of the items are strings to match against
+ `system-configuration', and the CDRs are the elements to add to

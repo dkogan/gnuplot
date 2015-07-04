@@ -1,5 +1,8 @@
-0001-04_fix_libexecdir.patch
-0002-05_default_gd_font.patch
-0003-08_do_not_set_qt_default_term.patch
-0004-no_plugin_demo.patch
-0005-autoscale-10-buffer.patch
+04_fix_libexecdir.diff
+05_default_gd_font.diff
+07_doc.patch
+08_disable_demo_plugin.patch
+09_remove_beos.patch
+10_removepicins.patch
+11_fix_linkage_wx.patch
+12_info.patch
