@@ -169,10 +169,10 @@ process_line( char *line, FILE *b)
 
     case 'F':			/* embedded figure */
 	    if (figures) {
-		line[strlen(line)-1]=NUL;
-		(void) fputs("\\parpic[r][rt]{\\includegraphics[width=3in,keepaspectratio]{",b);
-		fputs(line+1, b);
-		(void) fputs("}}\n",b);
+		// line[strlen(line)-1]=NUL;
+		// (void) fputs("\\parpic[r][rt]{\\includegraphics[width=3in,keepaspectratio]{",b);
+		// fputs(line+1, b);
+		// (void) fputs("}}\n",b);
 	    }
 	    break;
 
