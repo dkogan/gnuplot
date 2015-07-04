@@ -33,11 +33,11 @@ conf_opts += \
 override_dh_auto_configure:
 	./prepare
 	mkdir -p $(BUILDDIR_NOX)
-	cd $(BUILDDIR_NOX);  ./../../configure $(conf_opts) --with-qt=no --without-x --disable-wxwidgets
+	cd $(BUILDDIR_NOX);  ./../../configure $(conf_opts) --with-qt=no --without-x --disable-wxwidgets --disable-plugins
 	mkdir -p $(BUILDDIR_X11)
-	cd $(BUILDDIR_X11); ../../configure $(conf_opts) --with-qt=no --with-tutorial
+	cd $(BUILDDIR_X11); ../../configure $(conf_opts) --with-qt=no --with-tutorial --disable-plugins
 	mkdir -p $(BUILDDIR_QT)
-	cd $(BUILDDIR_QT); ../../configure $(conf_opts)  --enable-qt
+	cd $(BUILDDIR_QT); ../../configure $(conf_opts)  --enable-qt --disable-plugins
 
 override_dh_auto_build:
 	dh_auto_build -a -- -C $(BUILDDIR_NOX)/src
