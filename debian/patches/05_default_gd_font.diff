@@ -2,10 +2,10 @@ Description: change the default font
 Author: Anton Gladky <gladk@debian.org>
 Last-Update: 2015-06-16
 
-Index: gnuplot-5.0.1/term/gd.trm
+Index: gnuplot/term/gd.trm
 ===================================================================
---- gnuplot-5.0.1.orig/term/gd.trm
-+++ gnuplot-5.0.1/term/gd.trm
+--- gnuplot.orig/term/gd.trm
++++ gnuplot/term/gd.trm
 @@ -990,7 +990,7 @@ PNG_options()
  	if (external_default)
  		png_state.ttffont = gp_strdup(external_default);

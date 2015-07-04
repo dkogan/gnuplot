@@ -4,21 +4,21 @@ Reviewed-By: Anton Gladky <gladk@debian.org>
 Bug-Debian: http://bugs.debian.org/778757
 Last-Update: 2015-06-29
 
-Index: gnuplot5-5.0.1+dfsg1/docs/Makefile.am
+Index: gnuplot/docs/Makefile.am
 ===================================================================
---- gnuplot5-5.0.1+dfsg1.orig/docs/Makefile.am
-+++ gnuplot5-5.0.1+dfsg1/docs/Makefile.am
-@@ -81,7 +81,7 @@ ELCS = gnuplot-eldoc.elc
- CLEANFILES = allterm.h gnuplot.tex gnuplot.dvi gnuplot.aux gnuplot.log	\
- gnuplot.toc gnuplot.ps gpcard.dvi gpcard.log gpcard.ps alldoc2gih	\
- doc2gih gnuplot.gih doc2hlp gnuplot.hlp gnuplot.idx gnuplot.ilg		\
--gnuplot.ind gnuplot.info* gnuplot.out doc2ipf gnuplot.ipf doc2ms	\
-+gnuplot.ind gnuplot5.info* gnuplot.out doc2ipf gnuplot.ipf doc2ms	\
- gnuplot.ms doc2rnh gnuplot.rnh doc2rtf gnuplot.rtf gnuplot.nroff	\
- checkdoc gnuplot.txt gnuplot.tmp VERSION gnuplot.4tc gnuplot.4ct	\
- gnuplot.idv gnuplot.xref gnuplot.lg figures pdffigures.aux		\
-@@ -301,7 +301,7 @@ wxhelp/doc2html: wxhelp/doc2html.o termd
- 	$(LINK) $^
+--- gnuplot.orig/docs/Makefile.am
++++ gnuplot/docs/Makefile.am
+@@ -90,7 +90,7 @@ gpcard.log pdffigures.tex pdffigures.aux
+ 
+ CLEANFILES = allterm.h gnuplot.dvi figures.tex nofigures.tex		\
+ gnuplot.tex gnuplot.idx gnuplot.ilg gnuplot.ps gpcard.dvi gpcard.ps	\
+-gnuplot.gih gnuplot.hlp gnuplot.info* gnuplot.ipf gnuplot.ms		\
++gnuplot.gih gnuplot.hlp gnuplot5.info* gnuplot.ipf gnuplot.ms		\
+ gnuplot.rnh gnuplot.rtf gnuplot.nroff gnuplot.txt gnuplot-groff.dvi	\
+ gnuplot-groff.ps gnuplot.tmp VERSION gnuplot.4tc gnuplot.4ct		\
+ gnuplot.idv gnuplot.xref gnuplot.lg gnuplot.pdf wxhelp_figures		\
+@@ -311,7 +311,7 @@ wxhelp_figures: $(GNUPLOT_EXE) $(srcdir)
+ 	$(AM_V_GEN)touch $@
  
  ### GNU info format
 -info: gnuplot.info
@@ -26,33 +26,30 @@ Index: gnuplot5-5.0.1+dfsg1/docs/Makefile.am
  
  # Thanks to Bruce Ravel for doc2texi.el!
  gnuplot.texi gnuplot-eldoc.el: $(srcdir)/doc2texi.el $(srcdir)/gnuplot.doc
-@@ -324,16 +324,16 @@ ${ELCS}: gnuplot-eldoc.el
- 	   echo "No emacs found - cannot create gnuplot-eldoc.elc file" ; \
- 	fi
+@@ -335,15 +335,15 @@ ${ELCS}: gnuplot-eldoc.el
+ # automatically, using a line like info_TEXINFOS = gnuplot.texi.  But
+ # that only appears to work with a non-generated texi file for input.
  
 -gnuplot.info: gnuplot.texi
--	$(MAKEINFO) -I$(srcdir) $(srcdir)/gnuplot.texi --no-split --force --output=$@
 +gnuplot5.info: gnuplot.texi
-+	$(MAKEINFO) -I$(srcdir) gnuplot.texi --no-split --force --output=$@
+ 	$(AM_V_GEN) $(MAKEINFO) -I$(srcdir) $< --no-split --force --output=$@
  
 -install-info: gnuplot.info
 +install-info: gnuplot5.info
- 	$(top_srcdir)/mkinstalldirs $(DESTDIR)$(infodir)
--	$(INSTALL_DATA) gnuplot.info $(DESTDIR)$(infodir)/gnuplot.info
-+	$(INSTALL_DATA) gnuplot5.info $(DESTDIR)$(infodir)/gnuplot5.info
- 	@if (install-info --version && \
+ 	$(AM_V_at) $(top_srcdir)/mkinstalldirs $(DESTDIR)$(infodir)
+-	$(AM_V_at) $(INSTALL_DATA) gnuplot.info $(DESTDIR)$(infodir)/gnuplot.info
++	$(AM_V_at) $(INSTALL_DATA) gnuplot5.info $(DESTDIR)$(infodir)/gnuplot5.info
+ 	$(AM_V_at) if (install-info --version && \
  	     install-info --version | fgrep -i -v debian) >/dev/null 2>&1; then \
--	  echo "install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot.info";\
--	  install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot.info || :;\
-+	  echo "install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot5.info";\
-+	  install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot5.info || :;\
+-	  install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot.info || : ;\
++	  install-info --info-dir=$(DESTDIR)$(infodir) $(DESTDIR)$(infodir)/gnuplot5.info || : ;\
  	else : ; fi
  
  # this is how to make OS/2 ipfc documentation
-Index: gnuplot5-5.0.1+dfsg1/docs/doc2texi.el
+Index: gnuplot/docs/doc2texi.el
 ===================================================================
---- gnuplot5-5.0.1+dfsg1.orig/docs/doc2texi.el
-+++ gnuplot5-5.0.1+dfsg1/docs/doc2texi.el
+--- gnuplot.orig/docs/doc2texi.el
++++ gnuplot/docs/doc2texi.el
 @@ -79,7 +79,7 @@
  ;;
  ;; Then you can do

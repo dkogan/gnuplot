@@ -2,15 +2,15 @@ Description: removes picins latex include
 Author: Anton Gladky <gladk@debian.org>
 Last-Update: 2015-06-16
 
-Index: gnuplot-5.0.1/docs/Makefile.am
+Index: gnuplot/docs/Makefile.am
 ===================================================================
---- gnuplot-5.0.1.orig/docs/Makefile.am
-+++ gnuplot-5.0.1/docs/Makefile.am
-@@ -174,7 +174,6 @@ pdffigures: pdffigures.tex $(top_srcdir)
- pdffigures.tex:	figures
- 	@if [ -z pdffigures.tex ] ; then \
- 	  echo "\usepackage{graphicx}" > pdffigures.tex ; \
--	  echo "\usepackage{picins}" >> pdffigures.tex ; \
- 	fi
- 
- figures: allterm.h doc2tex$(EXEEXT) $(srcdir)/gnuplot.doc
+--- gnuplot.orig/docs/Makefile.am
++++ gnuplot/docs/Makefile.am
+@@ -186,7 +186,6 @@ gnuplot.pdf: figures.tex pdf_figures $(s
+ 	  touch figures.idx ; \
+ 	  rm -f pdffigures.tex ; \
+ 	  ( echo "\usepackage{graphicx}" > pdffigures.tex ; \
+-	    echo "\usepackage{picins}" >> pdffigures.tex ; \
+ 	  ) ; \
+ 	  TEXINPUTS=.:$(srcdir):$(top_srcdir):${TEXINPUTS}: $(PDFLATEX) $< ; \
+ 	  TEXINPUTS=.:$(srcdir):$(top_srcdir):${TEXINPUTS}: $(PDFLATEX) $< ; \
