@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.490 2015/05/08 18:32:12 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.499 2015/08/19 18:06:09 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -199,13 +199,17 @@ set_command()
 	unset_command();
     } else {
 
-	int save_token;
+	int save_token = c_token;
 	set_iterator = check_for_iteration();
 	if (empty_iteration(set_iterator)) {
 	    /* Skip iteration [i=start:end] where start > end */
 	    while (!END_OF_COMMAND) c_token++;
-	    cleanup_iteration(set_iterator);
+	    set_iterator = cleanup_iteration(set_iterator);
 	    return;
+	}
+	if (forever_iteration(set_iterator)) {
+	    set_iterator = cleanup_iteration(set_iterator);
+	    int_error(save_token, "unbounded iteration");
 	}
 	save_token = c_token;
 	ITERATE:
@@ -930,10 +934,30 @@ set_autoscale()
 static void
 set_bars()
 {
+    int save_token;
 
-    int save_token = ++c_token;
+    c_token++;
+
+    if (END_OF_COMMAND)
+	reset_bars();
 
     while (!END_OF_COMMAND) {
+
+	if (equals(c_token,"default")) {
+	    reset_bars();
+	    ++c_token;
+	    return;
+	}
+
+	/* Jul 2015 - allow a separate line type for error bars */
+	save_token = c_token;
+	lp_parse(&bar_lp, LP_ADHOC, FALSE);
+	if (c_token != save_token) {
+	    if (bar_lp.l_type == LT_DEFAULT)
+		bar_lp.l_type = LT_SOLID;
+	    continue;
+	}
+
 	if (almost_equals(c_token,"s$mall")) {
 	    bar_size = 0.0;
 	    ++c_token;
@@ -953,10 +977,6 @@ set_bars()
 	    bar_size = real_expression();
 	}
     }
-
-    if (save_token == c_token)
-	bar_size = 1.0;
-
 }
 
 
@@ -1255,9 +1275,12 @@ set_cntrlabel()
 		strncpy(contour_format,new,sizeof(contour_format));
 	    free(new);
 	} else if (equals(c_token, "font")) {
+	    char *ctmp;
 	    c_token++;
-	    free(clabel_font);
-	    clabel_font = try_to_get_string();
+	    if ((ctmp = try_to_get_string())) {
+		free(clabel_font);
+		clabel_font = ctmp;
+	    }
 	} else if (almost_equals(c_token, "one$color")) {
 	    c_token++;
 	    clabel_onecolor = TRUE;
@@ -1628,11 +1651,11 @@ set_encoding()
 #endif
     } else {
 	int temp = lookup_table(&set_encoding_tbl[0],c_token);
+	char *senc;
 
 	/* allow string variables as parameter */
-	if ((temp == S_ENC_INVALID) && isstringvalue(c_token)) {
+	if ((temp == S_ENC_INVALID) && isstringvalue(c_token) && (senc = try_to_get_string())) {
 	    int i;
-	    char *senc = try_to_get_string();
 	    for (i = 0; encoding_names[i] != NULL; i++)
 		if (strcmp(encoding_names[i], senc) == 0)
 		    temp = i;
@@ -1869,7 +1892,7 @@ set_fit()
 		c_token++;
 		free(fit_script);
 		fit_script = NULL;
-	    } else if ((tmp = try_to_get_string()) != NULL) {
+	    } else if ((tmp = try_to_get_string())) {
 		free(fit_script);
 		fit_script = tmp;
 	    } else {
@@ -2387,8 +2410,11 @@ set_key()
 	    if (!isstringvalue(c_token))
 		int_error(c_token,"expected font");
 	    else {
-		free(key->font);
-		key->font = try_to_get_string();
+		char *tmp = try_to_get_string();
+		if (tmp) {
+		    free(key->font);
+		    key->font = tmp;
+		}
 		c_token--;
 	    }
 	    break;
@@ -2844,6 +2870,8 @@ set_monochrome()
 static void
 set_mouse()
 {
+    char *ctmp;
+
     c_token++;
     mouse_setting.on = 1;
 
@@ -2878,9 +2906,9 @@ set_mouse()
 	    mouse_setting.label = 1;
 	    ++c_token;
 	    /* check if the optional argument "<label options>" is present */
-	    if (isstringvalue(c_token)) {
+	    if (isstringvalue(c_token) && (ctmp = try_to_get_string())) {
 		free(mouse_setting.labelopts);
-		mouse_setting.labelopts = try_to_get_string();
+		mouse_setting.labelopts = ctmp;
 	    }
 	} else if (almost_equals(c_token, "nola$bels")) {
 	    mouse_setting.label = 0;
@@ -2899,17 +2927,17 @@ set_mouse()
 	    ++c_token;
 	} else if (almost_equals(c_token, "fo$rmat")) {
 	    ++c_token;
-	    if (isstringvalue(c_token)) {
+	    if (isstringvalue(c_token) && (ctmp = try_to_get_string())) {
 		if (mouse_setting.fmt != mouse_fmt_default)
 		    free(mouse_setting.fmt);
-		mouse_setting.fmt = try_to_get_string();
+		mouse_setting.fmt = ctmp;
 	    } else
 		mouse_setting.fmt = mouse_fmt_default;
 	} else if (almost_equals(c_token, "mo$useformat")) {
 	    ++c_token;
-	    if (isstringvalue(c_token)) {
+	    if (isstringvalue(c_token) && (ctmp = try_to_get_string())) {
 		free(mouse_alt_string);
-		mouse_alt_string = try_to_get_string();
+		mouse_alt_string = ctmp;
 		if (!strlen(mouse_alt_string)) {
 		    free(mouse_alt_string);
 		    mouse_alt_string = NULL;
@@ -4464,7 +4492,9 @@ set_style()
 	    enum PLOT_STYLE temp_style = get_style();
 
 	    if ((temp_style & PLOT_STYLE_HAS_ERRORBAR)
-	    ||  (temp_style == LABELPOINTS) || (temp_style == HISTOGRAMS))
+	    ||  (temp_style == LABELPOINTS) || (temp_style == HISTOGRAMS)
+	    ||  (temp_style == IMAGE) || (temp_style == RGBIMAGE) || (temp_style == RGBA_IMAGE)
+	    ||  (temp_style == PARALLELPLOT))
 		int_error(c_token, "style not usable for function plots, left unchanged");
 	    else
 		func_style = temp_style;
@@ -4697,15 +4727,15 @@ set_terminal()
     } /* set term pop */
 
     /* `set term <normal terminal>' */
-    term = 0; /* in case set_term() fails */
+    /* NB: if set_term() exits via int_error() then term will not be changed */
     term = set_term();
+
     /* get optional mode parameters
      * not all drivers reset the option string before
      * strcat-ing to it, so we reset it for them
      */
     *term_options = 0;
-    if (term)
-	(*term->options)();
+    term->options();
     if (interactive && *term_options)
 	fprintf(stderr,"Options are '%s'\n",term_options);
     if ((term->flags & TERM_MONOCHROME))
@@ -5017,12 +5047,15 @@ set_xyplane()
 static void
 set_timefmt()
 {
+    char *ctmp;
     c_token++;
-    free(timefmt);
-    timefmt = try_to_get_string();
-    if (!timefmt) {
+
+    if ((ctmp = try_to_get_string())) {
+	free(timefmt);
+	timefmt = ctmp;
+    } else {
+	free(timefmt);
 	timefmt = gp_strdup(TIMEFMT);
-	int_error(c_token, "expecting form for timedata input");
     }
 }
 
@@ -5892,19 +5925,19 @@ load_tic_series(struct axis *this_axis)
 	    c_token++;
 	    end = get_num_or_time(this_axis);
 	}
+    }
 
-	if (start < end && incr <= 0)
-	    int_error(incr_token, "increment must be positive");
-	if (start > end && incr >= 0)
-	    int_error(incr_token, "increment must be negative");
-	if (start > end) {
-	    /* put in order */
-	    double numtics = floor((end * (1 + SIGNIF) - start) / incr);
+    if (start < end && incr <= 0)
+	int_error(incr_token, "increment must be positive");
+    if (start > end && incr >= 0)
+	int_error(incr_token, "increment must be negative");
+    if (start > end) {
+	/* put in order */
+	double numtics = floor((end * (1 + SIGNIF) - start) / incr);
 
-	    end = start;
-	    start = end + numtics * incr;
-	    incr = -incr;
-	}
+	end = start;
+	start = end + numtics * incr;
+	incr = -incr;
     }
 
     if (!tdef->def.mix) { /* remove old list */

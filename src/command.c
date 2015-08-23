@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.303 2015/06/23 22:37:22 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.310 2015/08/08 18:32:17 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -186,6 +186,11 @@ TBOOLEAN if_condition = FALSE;
 TBOOLEAN if_open_for_else = FALSE;
 
 static int clause_depth = 0;
+
+/* support for 'break' and 'continue' commands */
+static int iteration_depth = 0;
+static TBOOLEAN requested_break = FALSE;
+static TBOOLEAN requested_continue = FALSE;
 
 static int command_exit_status = 0;
 
@@ -418,6 +423,10 @@ do_line()
     c_token = 0;
     while (c_token < num_tokens) {
 	command();
+	if (iteration_early_exit()) {
+	    c_token = num_tokens;
+	    break;
+	}
 	if (command_exit_status) {
 	    command_exit_status = 0;
 	    return 1;
@@ -722,77 +731,55 @@ lower_command(void)
 
 #ifdef USE_MOUSE
 
-#define WHITE_AFTER_TOKEN(x) \
-(' ' == gp_input_line[token[x].start_index + token[x].length] \
-|| '\t' == gp_input_line[token[x].start_index + token[x].length] \
-|| '\0' == gp_input_line[token[x].start_index + token[x].length])
-
 /* process the 'bind' command */
+/* EAM - rewritten 2015 */
 void
 bind_command()
 {
-    char* lhs = (char*) 0;
-    char* rhs = (char*) 0;
+    char* lhs = NULL;
+    char* rhs = NULL;
     TBOOLEAN allwindows = FALSE;
     ++c_token;
 
-    if (!END_OF_COMMAND && equals(c_token,"!")) {
-	bind_remove_all();
-	++c_token;
-	return;
-    }
-
-    if (!END_OF_COMMAND && almost_equals(c_token,"all$windows")) {
+    if (almost_equals(c_token,"all$windows")) {
 	allwindows = TRUE;
 	c_token++;
     }
 
-    /* get left hand side: the key or key sequence */
-    if (!END_OF_COMMAND) {
+    /* get left hand side: the key or key sequence
+     * either (1) entire sequence is in quotes 
+     * or (2) sequence goes until the first whitespace
+     */
+    if (END_OF_COMMAND) {
+	; /* Fall through */
+    } else if (isstringvalue(c_token) && (lhs = try_to_get_string())) {
+	FPRINTF((stderr,"Got bind quoted lhs = \"%s\"\n",lhs));
+    } else {
 	char *first = gp_input_line + token[c_token].start_index;
-	int size = (int) (strchr(first, ' ') - first);
-	if (size < 0) {
-	    size = (int) (strchr(first, '\0') - first);
-	}
-	if (size < 0) {
-	    fprintf(stderr, "(bind_command) %s:%d\n", __FILE__, __LINE__);
-	    return;
-	}
-	if (!(isstring(c_token)) || !((lhs = try_to_get_string()))) {
-	    char *ptr = gp_alloc(size + 1, "bind_command->lhs");
-	    lhs = ptr;
-	    while (!END_OF_COMMAND) {
-		copy_str(ptr, c_token, token_len(c_token) + 1);
-		ptr += token_len(c_token);
-		if (WHITE_AFTER_TOKEN(c_token)) {
-		    break;
-		}
-		++c_token;
-	    }
-	    ++c_token;
-	}
+	int size = strcspn(first, " \";");
+	lhs = gp_alloc(size + 1, "bind_command->lhs");
+	strncpy(lhs, first, size);
+	lhs[size] = '\0';
+	FPRINTF((stderr,"Got bind unquoted lhs = \"%s\"\n",lhs));
+	while (gp_input_line + token[c_token].start_index < first+size)
+	    c_token++;
     }
 
-    /* get right hand side: the command. allocating the size
-     * of gp_input_line is too big, but shouldn't hurt too much. */
-    if (!END_OF_COMMAND) {
-	if (!(isstringvalue(c_token)) || !((rhs = try_to_get_string()))) {
-	    char *ptr = gp_alloc(strlen(gp_input_line) + 1, "bind_command->rhs");
-	    rhs = ptr;
-	    while (!END_OF_COMMAND) {
-		/* bind <lhs> ... ... ... */
-		copy_str(ptr, c_token, token_len(c_token) + 1);
-		ptr += token_len(c_token);
-		if (WHITE_AFTER_TOKEN(c_token)) {
-		    *ptr++ = ' ';
-		    *ptr = '\0';
-		}
-		c_token++;
-	    }
-	}
+    /* get right hand side: the command to bind
+     * either (1) quoted command
+     * or (2) the rest of the line
+     */
+    if (END_OF_COMMAND) {
+	; /* Fall through */
+    } else if (isstringvalue(c_token) && (rhs = try_to_get_string())) {
+        FPRINTF((stderr,"Got bind quoted rhs = \"%s\"\n",rhs));
+    } else {
+	int save_token = c_token;
+	while (!END_OF_COMMAND)
+	    c_token++;
+	m_capture( &rhs, save_token, c_token-1 );
+        FPRINTF((stderr,"Got bind unquoted rhs = \"%s\"\n",rhs));
     }
-
-    FPRINTF((stderr, "(bind_command) |%s| |%s|\n", lhs, rhs));
 
     /* bind_process() will eventually free lhs / rhs ! */
     bind_process(lhs, rhs, allwindows);
@@ -800,6 +787,40 @@ bind_command()
 }
 #endif /* USE_MOUSE */
 
+/*
+ * 'break' and 'continue' commands act as in the C language.
+ * Skip to the end of current loop iteration and (for break)
+ * do not iterate further
+ */
+void
+break_command()
+{
+    c_token++;
+    if (iteration_depth == 0)
+	return;
+    /* Skip to end of current iteration */
+    c_token = num_tokens;
+    /* request that subsequent iterations should be skipped also */
+    requested_break = TRUE;
+}
+
+void
+continue_command()
+{
+    c_token++;
+    if (iteration_depth == 0)
+	return;
+    /* Skip to end of current clause */
+    c_token = num_tokens;
+    /* request that remainder of this iteration be skipped also */
+    requested_continue = TRUE;
+}
+
+TBOOLEAN
+iteration_early_exit()
+{
+    return (requested_continue || requested_break);
+}
 
 /*
  * Command parser functions
@@ -951,6 +972,7 @@ history_command()
 
     } else {
 	int n = 0;		   /* print only <last> entries */
+	char *tmp;
 	TBOOLEAN append = FALSE;   /* rewrite output file or append it */
 	static char *name = NULL;  /* name of the output file; NULL for stdout */
 
@@ -964,8 +986,9 @@ history_command()
 	if (!END_OF_COMMAND && isanumber(c_token)) {
 	    n = int_expression();
 	}
-	free(name);
-	if ((name = try_to_get_string())) {
+	if ((tmp = try_to_get_string())) {
+	    free(name);
+	    name = tmp;
 	    if (!END_OF_COMMAND && almost_equals(c_token, "ap$pend")) {
 		append = TRUE;
 		c_token++;
@@ -1003,11 +1026,22 @@ do {                                                                        \
 } while (0)
 #endif
 
+/* Make a copy of an input line substring delimited by { and } */
+static char *
+new_clause(int clause_start, int clause_end)
+{
+    char *clause = gp_alloc(clause_end - clause_start, "clause");
+    memcpy(clause, &gp_input_line[clause_start+1], clause_end - clause_start);
+    clause[clause_end - clause_start - 1] = '\0';
+    return clause;
+}
+
 /* process the 'if' command */
 void
 if_command()
 {
     double exprval;
+    int end_token;
 
     if (!equals(++c_token, "("))	/* no expression */
 	int_error(c_token, "expecting (expression)");
@@ -1031,6 +1065,7 @@ if_command()
 		int_error(c_token,"expected {else-clause}");
 	    c_token = find_clause(&else_start, &else_end);
 	}
+	end_token = c_token;
 
 	if (exprval != 0) {
 	    clause_start = if_start;
@@ -1043,18 +1078,18 @@ if_command()
 	}
 	if_open_for_else = (else_start) ? FALSE : TRUE;
 
-	clause_depth++;
 	if (if_condition || else_start != 0) {
-	    /* Make a clean copy without the opening and closing braces */
-	    clause = gp_alloc(clause_end - clause_start, "clause");
-	    memcpy(clause, &gp_input_line[clause_start+1], clause_end - clause_start);
-	    clause[clause_end - clause_start - 1] = '\0';
-	    FPRINTF((stderr,"%s CLAUSE: \"{%s}\"\n",
-		    (exprval != 0.0) ? "IF" : "ELSE", clause));
+	    clause = new_clause(clause_start, clause_end);
+	    begin_clause();
 	    do_string_and_free(clause);
+	    end_clause();
 	}
 
-	c_token--; 	/* Let the parser see the closing curly brace */
+	if (iteration_early_exit())
+	    c_token = num_tokens;
+	else
+	    c_token = end_token;
+
 	return;
     }
 
@@ -1098,6 +1133,7 @@ if_command()
 void
 else_command()
 {
+    int end_token;
    /*
     * EAM May 2011
     * New if/else syntax permits else clause to appear on a new line
@@ -1112,16 +1148,20 @@ else_command()
 	    int_error(c_token,"Invalid {else-clause}");
 
 	c_token++;	/* Advance to the opening curly brace */
-	c_token = find_clause(&clause_start, &clause_end);
-	c_token--;	/* Let the parser eventually see the closing curly brace */
+	end_token = find_clause(&clause_start, &clause_end);
 
-	clause_depth++;
 	if (!if_condition) {
-	    clause = gp_alloc(clause_end - clause_start, "clause");
-	    memcpy(clause, &gp_input_line[clause_start+1], clause_end - clause_start);
-	    clause[clause_end - clause_start - 1] = '\0';
+	    clause = new_clause(clause_start, clause_end);
+	    begin_clause();
 	    do_string_and_free(clause);
+	    end_clause();
 	}
+
+	if (iteration_early_exit())
+	    c_token = num_tokens;
+	else
+	    c_token = end_token;
+
 	return;
     }
 
@@ -1152,6 +1192,7 @@ do_command()
 {
     t_iterator *do_iterator;
     int do_start, do_end;
+    int end_token;
     char *clause;
 
     c_token++;
@@ -1159,27 +1200,35 @@ do_command()
 
     if (!equals(c_token,"{"))
 	int_error(c_token,"expecting {do-clause}");
-    c_token = find_clause(&do_start, &do_end);
+    end_token = find_clause(&do_start, &do_end);
 
-    clause_depth++;
-    c_token--;	 /* Let the parser see the closing curly brace */
+    clause = new_clause(do_start, do_end);
+    begin_clause();
 
-    clause = gp_alloc(do_end - do_start + 2, "clause");
-    memcpy(clause, &gp_input_line[do_start+1], do_end - do_start);
-    clause[do_end - do_start - 1] = '\0';
-
+    iteration_depth++;
     if (empty_iteration(do_iterator))
 	strcpy(clause, ";");
 
     do {
+	requested_continue = FALSE;
 	do_string(clause);
+	if (requested_break)
+	    break;
     } while (next_iteration(do_iterator));
+    iteration_depth--;
 
     free(clause);
+    end_clause();
+    c_token = end_token;
     do_iterator = cleanup_iteration(do_iterator);
+    requested_break = FALSE;
+    requested_continue = FALSE;
 }
 
 /* process commands of the form 'while (foo) {...}' */
+/* FIXME:  For consistency there should be an iterator associated 
+ * with this statement.
+ */
 void
 while_command()
 {
@@ -1196,19 +1245,25 @@ while_command()
 	int_error(c_token,"expecting {while-clause}");
     end_token = find_clause(&do_start, &do_end);
 
-    clause = gp_alloc(do_end - do_start, "clause");
-    memcpy(clause, &gp_input_line[do_start+1], do_end - do_start);
-    clause[do_end - do_start - 1] = '\0';
-    clause_depth++;
+    clause = new_clause(do_start, do_end);
+    begin_clause();
 
+    iteration_depth++;
     while (exprval != 0) {
+	requested_continue = FALSE;
 	do_string(clause);
+	if (requested_break)
+	    break;
 	c_token = save_token;
 	exprval = real_expression();
     };
+    iteration_depth--;
 
+    end_clause();
     free(clause);
     c_token = end_token;
+    requested_break = FALSE;
+    requested_continue = FALSE;
 }
 
 /*
@@ -1311,6 +1366,7 @@ null_command()
 /* Find the start and end character positions within gp_input_line
  * bounding a clause delimited by {...}.
  * Assumes that c_token indexes the opening left curly brace.
+ * Returns the index of the first token after the closing curly brace.
  */
 int
 find_clause(int *clause_start, int *clause_end)
@@ -1356,6 +1412,7 @@ clause_reset_after_error()
     if (clause_depth)
 	FPRINTF((stderr,"CLAUSE RESET after error at depth %d\n",clause_depth));
     clause_depth = 0;
+    iteration_depth = 0;
 }
 
 /* helper routine to multiplex mouse event handling with a timed pause command */
@@ -1508,20 +1565,27 @@ pause_command()
 	free(buf); /* remove the previous message */
 	buf = gp_strdup("paused"); /* default message, used in Windows GUI pause dialog */
     } else {
-	free(buf);
-	buf = try_to_get_string();
-	if (!buf)
+	char *tmp = try_to_get_string();
+	if (!tmp)
 	    int_error(c_token, "expecting string");
 	else {
 #ifdef WIN32
-		char * nbuf = translate_string_encoding(buf, 0, encoding);
-		free(buf);
-		buf = nbuf;
+	    char * nbuf = translate_string_encoding(tmp, 0, encoding);
+	    free(tmp);
+	    free(buf);
+	    buf = nbuf;
 	    if (sleep_time >= 0)
-#elif defined(OS2)
-	    if (strcmp(term->name, "pm") != 0 || sleep_time >= 0)
-#endif /* _Windows */
 		fputs(buf, stderr);
+#elif defined(OS2)
+	    free(buf);
+	    buf = tmp;
+	    if (strcmp(term->name, "pm") != 0 || sleep_time >= 0)
+		fputs(buf, stderr);
+#else /* Not WIN32 or OS2 */
+	    free(buf);
+	    buf = tmp;
+	    fputs(buf, stderr);
+#endif
 	    text = 1;
 	}
     }
@@ -1590,6 +1654,7 @@ plot_command()
 {
     plot_token = c_token++;
     plotted_data_from_stdin = FALSE;
+    refresh_nplots = 0;
     SET_CURSOR_WAIT;
 #ifdef USE_MOUSE
     plot_mode(MODE_PLOT);
@@ -1803,6 +1868,7 @@ refresh_request()
 
     if (   ((first_plot == NULL) && (refresh_ok == E_REFRESH_OK_2D))
         || ((first_3dplot == NULL) && (refresh_ok == E_REFRESH_OK_3D))
+	|| (!*replot_line && (refresh_ok == E_REFRESH_NOT_OK))
        )
 	int_error(NO_CARET, "no active plot; cannot refresh");
 
@@ -1980,6 +2046,7 @@ splot_command()
 {
     plot_token = c_token++;
     plotted_data_from_stdin = FALSE;
+    refresh_nplots = 0;
     SET_CURSOR_WAIT;
 #ifdef USE_MOUSE
     plot_mode(MODE_SPLOT);
@@ -2172,11 +2239,12 @@ toggle_command()
 	else
 	    plot = NULL;
 	for (plotno = 0; plot != NULL; plot = plot->next, plotno++) {
-	    if (!strcmp(plot->title, plottitle)
-	    ||  (plottitle[length-1] == '*' && !strncmp(plot->title, plottitle, length-1))) {
-		foundit = TRUE;
-		break;
-	    }
+	    if (plot->title)
+		if (!strcmp(plot->title, plottitle)
+		||  (plottitle[length-1] == '*' && !strncmp(plot->title, plottitle, length-1))) {
+		    foundit = TRUE;
+		    break;
+		}
 	}
 	free(plottitle);
 	if (!foundit) {

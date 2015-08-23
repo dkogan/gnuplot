@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.165 2015/05/19 23:53:43 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.167 2015/08/01 04:25:56 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -1646,7 +1646,7 @@ load_one_range(struct axis *this_axis, double *a, t_autoscale *autoscale, t_auto
 		}
 		c_token++;
 	    } else {
-		int_error(c_token, "malformed range with constarint");
+		int_error(c_token, "malformed range with constraint");
             }
         } else if (equals(c_token, ">")) {
 	    int_error(c_token, "malformed range with constraint (use '<' only)");
@@ -1745,6 +1745,12 @@ load_range(struct axis *this_axis, double *a, double *b, t_autoscale autoscale)
     if (!equals(c_token, "]")) {
 	load_one_range(this_axis, b, &autoscale, AUTOSCALE_MAX );
     }
+
+    /* Not all the code can deal nicely with +/- infinity */
+    if (*a < -VERYLARGE)
+	*a = -VERYLARGE;
+    if (*b > VERYLARGE)
+	*b = VERYLARGE;
 
     return (autoscale);
 }
@@ -1847,16 +1853,10 @@ get_position_type(enum position_type *type, AXIS_INDEX *axes)
     if (almost_equals(c_token, "fir$st")) {
 	++c_token;
 	*type = first_axes;
-	*axes = FIRST_AXES;
-	return;
     } else if (almost_equals(c_token, "sec$ond")) {
 	++c_token;
 	*type = second_axes;
-	*axes = SECOND_AXES;
-	return;
-    } 
-    
-    if (almost_equals(c_token, "gr$aph")) {
+    } else if (almost_equals(c_token, "gr$aph")) {
 	++c_token;
 	*type = graph;
     } else if (almost_equals(c_token, "sc$reen")) {
@@ -1866,7 +1866,17 @@ get_position_type(enum position_type *type, AXIS_INDEX *axes)
 	++c_token;
 	*type = character;
     }
-    *axes = NO_AXIS;
+    switch (*type) {
+    case first_axes:
+	*axes = FIRST_AXES;
+	return;
+    case second_axes:
+	*axes = SECOND_AXES;
+	return;
+    default:
+	*axes = NO_AXIS;
+	return;
+    }
 }
 
 /* get_position() - reads a position for label,arrow,key,... */

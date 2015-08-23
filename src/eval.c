@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.123 2015/05/08 18:32:12 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.128 2015/08/21 20:45:03 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -490,7 +490,8 @@ pop_or_convert_from_string(struct value *v)
     if (v->type == STRING) {
 	char *eov;
 
-	if (strspn(v->v.string_val,"0123456789 ") == strlen(v->v.string_val)) {
+	if (*(v->v.string_val)
+	&&  strspn(v->v.string_val,"0123456789 ") == strlen(v->v.string_val)) {
 	    int i = atoi(v->v.string_val);
 	    gpfree_string(v);
 	    Ginteger(v, i);
@@ -499,6 +500,7 @@ pop_or_convert_from_string(struct value *v)
 	    if (v->v.string_val == eov) {
 		gpfree_string(v);
 		int_error(NO_CARET,"Non-numeric string found where a numeric expression was expected");
+		/* Note: This also catches syntax errors like "set term ''*0 " */
 	    }
 	    gpfree_string(v);
 	    Gcomplex(v, d, 0.);
@@ -626,9 +628,8 @@ execute_at(struct at_type *at_ptr)
     jump_offset = saved_jump_offset;
 }
 
-/* May 2013: Old hackery #ifdef'ed out so that input of Inf/NaN */
-/* values through evaluation is treated equivalently to direct  */
-/* input of a formated value.  See revised imageNaN demo.       */
+/* As of May 2013 input of Inf/NaN values through evaluation is treated */
+/* equivalently to direct input of a formated value.  See imageNaN.dem. */
 void
 evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
 {
@@ -649,36 +650,10 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
 
     if (errno == EDOM || errno == ERANGE)
 	undefined = TRUE;
-#if (1)	/* New code */
     else if (!undefined) {
 	(void) pop(val_ptr);
 	check_stack();
     }
-
-#else /* Old hackery */
-    else if (!undefined) { /* undefined (but not errno) may have been set by matherr */
-	(void) pop(val_ptr);
-	check_stack();
-	/* At least one machine (ATT 3b1) computes Inf without a SIGFPE */
-	if (val_ptr->type != STRING) {
-	    double temp = real(val_ptr);
-	    if (temp > VERYLARGE || temp < -VERYLARGE)
-		undefined = TRUE;
-	}
-    }
-#if defined(NeXT) || defined(ultrix)
-    /*
-     * linux was able to fit curves which NeXT gave up on -- traced it to
-     * silently returning NaN for the undefined cases and plowing ahead
-     * I can force that behavior this way.  (0.0/0.0 generates NaN)
-     */
-    if (undefined && (errno == EDOM || errno == ERANGE)) {	/* corey@cac */
-	undefined = FALSE;
-	errno = 0;
-	Gcomplex(val_ptr, 0.0 / 0.0, 0.0 / 0.0);
-    }
-#endif /* NeXT || ultrix */
-#endif /* old hackery */
 }
 
 void
@@ -757,6 +732,8 @@ del_udv_by_name(char *key, TBOOLEAN wildcard)
 	/* Forbidden to delete GPVAL_* */
 	if (!strncmp(udv_ptr->udv_name,"GPVAL",5))
 	    ;
+	else if (!strncmp(udv_ptr->udv_name,"GNUTERM",7))
+	    ;
 
  	/* exact match */
 	else if (!wildcard && !strcmp(key, udv_ptr->udv_name)) {
@@ -798,6 +775,7 @@ clear_udf_list()
 
 static void update_plot_bounds __PROTO((void));
 static void fill_gpval_axis __PROTO((AXIS_INDEX axis));
+static void fill_gpval_sysinfo __PROTO((void));
 static void set_gpval_axis_sth_double __PROTO((const char *prefix, AXIS_INDEX axis, const char *suffix, double value, int is_int));
 
 static void
@@ -978,6 +956,9 @@ update_gpval_variables(int context)
 	/* Permanent copy of user-clobberable variables pi and NaN */
 	fill_gpval_float("GPVAL_pi", M_PI);
 	fill_gpval_float("GPVAL_NaN", not_a_number());
+
+	/* System information */
+	fill_gpval_sysinfo();
     }
 
     if (context == 3 || context == 4) {
@@ -998,6 +979,64 @@ update_gpval_variables(int context)
     if (context == 6) {
 	fill_gpval_integer("GPVAL_TERM_WINDOWID", current_x11_windowid);
     }
+}
+
+/* System information is stored in GPVAL_BITS GPVAL_MACHINE GPVAL_SYSNAME */
+#ifdef HAVE_UNAME
+#include <sys/utsname.h>
+    struct utsname uts;
+#elif defined(_Windows)
+#include <windows.h>
+/* external header file findverion.h to find windows version from windows 2000 to 8.1*/
+#ifdef HAVE_FINDVERSION_H
+#include <findversion.h>
+#endif
+#endif
+
+void
+fill_gpval_sysinfo()
+{
+/* For linux/posix systems with uname */
+#ifdef HAVE_UNAME
+    struct utsname uts;
+    if (uname(&uts) < 0)
+	return;
+    fill_gpval_string("GPVAL_SYSNAME", uts.sysname);
+    fill_gpval_string("GPVAL_MACHINE", uts.machine);
+
+/* For Windows systems */
+#elif defined(_Windows)
+    SYSTEM_INFO stInfo;
+
+#ifdef HAVE_FINDVERSION_H
+    OSVERSIONINFOEX ret;
+    int exitCode = GetVersionExEx(&ret);
+    char s[30];
+    snprintf(s, 30, "Windows_NT-%d.%d", ret.dwMajorVersion, ret.dwMinorVersion);
+    fill_gpval_string("GPVAL_SYSNAME", s);
+#else
+    fill_gpval_string("GPVAL_SYSNAME", "Windows");
+#endif
+
+    GetSystemInfo( &stInfo );
+    switch( stInfo.wProcessorArchitecture )
+    {
+    case PROCESSOR_ARCHITECTURE_INTEL:
+        fill_gpval_string("GPVAL_MACHINE", "x86");
+        break;
+    case PROCESSOR_ARCHITECTURE_IA64:
+        fill_gpval_string("GPVAL_MACHINE", "ia64");
+       break;
+    case PROCESSOR_ARCHITECTURE_AMD64:
+        fill_gpval_string("GPVAL_MACHINE", "x86_64");
+        break;
+    default:
+        fill_gpval_string("GPVAL_MACHINE", "unknown");
+    }
+#endif
+
+/* For all systems */
+    fill_gpval_integer("GPVAL_BITS", 8*sizeof(void *));
 }
 
 /* Callable wrapper for the words() internal function */

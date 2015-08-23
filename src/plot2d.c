@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.361 2015/06/26 20:51:19 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.364 2015/08/19 18:06:08 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -1933,6 +1933,7 @@ eval_plots()
     char *xtitle = NULL;
     int begin_token = c_token;  /* so we can rewind for second pass */
     int start_token=0, end_token;
+    int highest_iteration = 0;	/* last index reached in iteration [i=start:*] */
     legend_key *key = &keyT;
     char orig_dummy_var[MAX_ID_LEN+1];
 
@@ -2045,10 +2046,10 @@ eval_plots()
 
 	if (is_definition(c_token)) {
 	    define();
-	    if (!equals(c_token,",")) {
-		was_definition = TRUE;
-		continue;
-	    }
+	    if (equals(c_token,","))
+		c_token++;
+	    was_definition = TRUE;
+	    continue;
 
 	} else {
 	    int specs = 0;
@@ -2352,8 +2353,12 @@ eval_plots()
 
 		    if (this_plot->plot_style == IMAGE
 		    ||  this_plot->plot_style == RGBIMAGE
-		    ||  this_plot->plot_style == RGBA_IMAGE)
-			get_image_options(&this_plot->image_properties);
+		    ||  this_plot->plot_style == RGBA_IMAGE) {
+			if (this_plot->plot_type == FUNC)
+			    int_error(c_token, "This plot style is only for data files");
+			else
+			    get_image_options(&this_plot->image_properties);
+		    }
 
 		    if ((this_plot->plot_type == FUNC) &&
 			((this_plot->plot_style & PLOT_STYLE_HAS_ERRORBAR)
@@ -2787,7 +2792,8 @@ eval_plots()
 	    if (this_plot->plot_type == DATA) {
 		/* actually get the data now */
 		if (get_data(this_plot) == 0) {
-		    int_warn(NO_CARET,"Skipping data file with no valid points");
+		    if (!forever_iteration(plot_iterator))
+			int_warn(NO_CARET,"Skipping data file with no valid points");
 		    this_plot->plot_type = NODATA;
 		    goto SKIPPED_EMPTY_FILE;
 		}
@@ -2903,8 +2909,13 @@ eval_plots()
 	/* Iterate-over-plot mechanism */
 	if (empty_iteration(plot_iterator) && this_plot) {
 	    this_plot->plot_type = NODATA;
+	} else if (forever_iteration(plot_iterator) && (this_plot->plot_type == NODATA)) {
+	    highest_iteration = plot_iterator->iteration_current;
+	} else if (forever_iteration(plot_iterator) && (this_plot->plot_type == FUNC)) {
+	    int_error(NO_CARET,"unbounded iteration in function plot");
 	} else if (next_iteration(plot_iterator)) {
 	    c_token = start_token;
+	    highest_iteration = plot_iterator->iteration_current;
 	    continue;
 	}
 
@@ -3006,10 +3017,10 @@ eval_plots()
 
 	    if (is_definition(c_token)) {
 		define();
-		if (!equals(c_token,",")) {
-		    was_definition = TRUE;
-		    continue;
-		}
+		if (equals(c_token, ","))
+		    c_token++;
+		was_definition = TRUE;
+		continue;
 
 	    } else {
 		struct at_type *at_ptr;
@@ -3246,8 +3257,10 @@ eval_plots()
 
 	    /* Iterate-over-plot mechanism */
 	    if (next_iteration(plot_iterator)) {
-		c_token = start_token;
-		continue;
+		if (plot_iterator->iteration_current <= highest_iteration) {
+		    c_token = start_token;
+		    continue;
+		}
 	    }
 
 	    plot_iterator = cleanup_iteration(plot_iterator);

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.282 2015/05/08 18:32:12 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.285 2015/08/21 20:45:03 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -219,12 +219,13 @@ save_set_all(FILE *fp)
     fprintf(fp, "\
 %sset clip points\n\
 %sset clip one\n\
-%sset clip two\n\
-set bar %f %s\n",
+%sset clip two\n",
 	    (clip_points) ? "" : "un",
 	    (clip_lines1) ? "" : "un",
-	    (clip_lines2) ? "" : "un",
-	    bar_size, (bar_layer == LAYER_BACK) ? "back" : "front");
+	    (clip_lines2) ? "" : "un"
+	    );
+
+    save_bars(fp);
 
     if (draw_border) {
 	fprintf(fp, "set border %d %s", draw_border,
@@ -1222,12 +1223,6 @@ save_position(FILE *fp, struct position *pos, TBOOLEAN offset)
 	fprintf(fp, "%s%g", 
 	    pos->scalez == pos->scaley ? "" : coord_msg[pos->scalez], pos->z);
     }
-#if (0) /* v4 code */
-    fprintf(fp, "%s%g, %s%g, %s%g",
-	    pos->scalex == first_axes ? "" : coord_msg[pos->scalex], pos->x,
-	    pos->scaley == pos->scalex ? "" : coord_msg[pos->scaley], pos->y,
-	    pos->scalez == pos->scaley ? "" : coord_msg[pos->scalez], pos->z);
-#endif
 }
 
 
@@ -1497,6 +1492,9 @@ save_data_func_style(FILE *fp, const char *which, enum PLOT_STYLE style)
     case SURFACEGRID:
 	fputs("surfaces\n", fp);
 	break;
+    case PARALLELPLOT:
+	fputs("parallelaxes\n", fp);
+	break;
     case PLOT_STYLE_NONE:
     default:
 	fputs("---error!---\n", fp);
@@ -1577,6 +1575,23 @@ save_offsets(FILE *fp, char *lead)
 	roff.scalex == graph ? "graph " : "", roff.x,
 	toff.scaley == graph ? "graph " : "", toff.y,
 	boff.scaley == graph ? "graph " : "", boff.y);
+}
+
+void
+save_bars(FILE *fp)
+{
+    if (bar_size == 0.0) {
+	fprintf(fp, "unset errorbars\n");
+	return;
+    }
+    fprintf(fp, "set errorbars %s", (bar_layer == LAYER_BACK) ? "back" : "front");
+    if (bar_size > 0.0)
+	fprintf(fp, " %f ", bar_size);
+    else
+	fprintf(fp," fullwidth ");
+    if (bar_lp.l_type != LT_DEFAULT)
+	save_linetype(fp, &bar_lp, FALSE);
+    fputs("\n",fp);
 }
 
 void 

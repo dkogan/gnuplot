@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.237 2015/05/08 18:32:12 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.243 2015/08/21 20:45:03 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -61,21 +61,6 @@ static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.237 2015/05/08 18:32:12 s
 # include "help.h"
 #endif
 
-/* Sep 2013 - moved from axis.h in the process of doing away with it altogether */
-#if (1)	/* FIXME:  I'm 99% sure TRUE is fine, i.e. NEED_PALETTE is unnecessary. */
-	/* In any event, the alternative breaks splot with rgb variable */
-#define NEED_PALETTE(plot) TRUE
-#else
-#define NEED_PALETTE(plot) \
-    (  (pm3d.implicit == PM3D_IMPLICIT) \
-    || ((plot)->plot_style == PM3DSURFACE) \
-    || ((plot)->plot_style == IMAGE) \
-    || (plot)->lp_properties.pm3d_color.type == TC_CB \
-    || (plot)->lp_properties.pm3d_color.type == TC_FRAC \
-    || (plot)->lp_properties.pm3d_color.type == TC_Z \
-    )
-#endif
-
 /* global variables exported by this module */
 
 t_data_mapping mapping3d = MAP3D_CARTESIAN;
@@ -93,8 +78,8 @@ TBOOLEAN dgrid3d_kdensity = FALSE;
 
 static void calculate_set_of_isolines __PROTO((AXIS_INDEX value_axis, TBOOLEAN cross, struct iso_curve **this_iso,
 					       AXIS_INDEX iso_axis, double iso_min, double iso_step, int num_iso_to_use,
-					       AXIS_INDEX sam_axis, double sam_min, double sam_step, int num_sam_to_use,
-					       TBOOLEAN need_palette));
+					       AXIS_INDEX sam_axis, double sam_min, double sam_step, int num_sam_to_use
+					       ));
 static int get_3ddata __PROTO((struct surface_points * this_plot));
 static void eval_3dplots __PROTO((void));
 static void grid_nongrid_data __PROTO((struct surface_points * this_plot));
@@ -1101,12 +1086,10 @@ get_3ddata(struct surface_points *this_plot)
 		if (this_plot->lp_properties.l_type == LT_COLORFROMCOLUMN)
 		    cp->CRD_COLOR = color;
 
-		if (NEED_PALETTE(this_plot)) {
-		    if (pm3d_color_from_column) {
-			COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, color, cp->type, COLOR_AXIS, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
-		    } else {
-			COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, z, cp->type, COLOR_AXIS, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
-		    }
+		if (pm3d_color_from_column) {
+		    COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, color, cp->type, COLOR_AXIS, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+		} else {
+		    COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, z, cp->type, COLOR_AXIS, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 		}
 	    }
 
@@ -1225,12 +1208,11 @@ calculate_set_of_isolines(
     int num_iso_to_use,
     AXIS_INDEX sam_axis,
     double sam_min, double sam_step,
-    int num_sam_to_use,
-    TBOOLEAN need_palette)
+    int num_sam_to_use)
 {
     int i, j;
     struct coordinate GPHUGE *points = (*this_iso)->points;
-    int do_update_color = need_palette && (!parametric || (parametric && value_axis == FIRST_Z_AXIS));
+    int do_update_color = (!parametric || (parametric && value_axis == FIRST_Z_AXIS));
 
     for (j = 0; j < num_iso_to_use; j++) {
 	double iso = iso_min + j * iso_step;
@@ -1295,6 +1277,8 @@ eval_3dplots()
     int i;
     struct surface_points **tp_3d_ptr;
     int start_token=0, end_token;
+    int highest_iteration = 0;	/* last index reached in iteration [i=start:*] */
+    TBOOLEAN eof_during_iteration = FALSE;  /* set when for [n=start:*] hits NODATA */
     int begin_token;
     TBOOLEAN some_data_files = FALSE, some_functions = FALSE;
     TBOOLEAN was_definition = FALSE;
@@ -1353,10 +1337,10 @@ eval_3dplots()
 
 	if (is_definition(c_token)) {
 	    define();
-	    if (!equals(c_token,",")) {
-		was_definition = TRUE;
-		continue;
-	    }
+	    if (equals(c_token, ","))
+		c_token++;
+	    was_definition = TRUE;
+	    continue;
 
 	} else {
 	    int specs = -1;
@@ -1413,6 +1397,7 @@ eval_3dplots()
 
 		this_plot->plot_type = DATA3D;
 		this_plot->plot_style = data_style;
+		eof_during_iteration = FALSE;
 
 		df_set_plot_mode(MODE_SPLOT);
 		specs = df_open(name_str, MAXDATACOLS, (struct curve_points *)this_plot);
@@ -1574,8 +1559,15 @@ eval_3dplots()
 			this_plot->plot_style = POINTSTYLE;
 			this_plot->plot_type = NODATA;
 		    }
-		    if (this_plot->plot_style == TABLESTYLE)
-			int_error(NO_CARET, "use `plot with table` rather than `splot with table`"); 
+
+		    if (this_plot->plot_style == IMAGE
+		    ||  this_plot->plot_style == RGBA_IMAGE
+		    ||  this_plot->plot_style == RGBIMAGE) {
+			if (this_plot->plot_type == FUNC3D)
+			    int_error(c_token-1, "a function cannot be plotted as an image");
+			else
+			    get_image_options(&this_plot->image_properties);
+		    }
 
 		    if ((this_plot->plot_style | data_style) & PM3DSURFACE) {
 			if (equals(c_token, "at")) {
@@ -1586,10 +1578,8 @@ eval_3dplots()
 			}
 		    }
 
-		    if (this_plot->plot_style == IMAGE
-		    ||  this_plot->plot_style == RGBA_IMAGE
-		    ||  this_plot->plot_style == RGBIMAGE)
-			get_image_options(&this_plot->image_properties);
+		    if (this_plot->plot_style == TABLESTYLE)
+			int_error(NO_CARET, "use `plot with table` rather than `splot with table`"); 
 
 		    set_with = TRUE;
 		    continue;
@@ -1832,10 +1822,18 @@ eval_3dplots()
 	    assert(this_plot == *tp_3d_ptr);
 
 	    if (this_plot->plot_type == DATA3D) {
+
 		/*{{{  read data */
 		/* pointer to the plot of the first dataset (surface) in the file */
 		struct surface_points *first_dataset = this_plot;
 		int this_token = this_plot->token;
+
+		/* Error check to handle missing or unreadable file */
+		if (specs == DF_EOF) {
+		    /* FIXME: plot2d does ++line_num here; needed in 3D also? */
+		    this_plot->plot_type = NODATA;
+		    goto SKIPPED_EMPTY_FILE;
+		}
 
 		do {
 		    this_plot = *tp_3d_ptr;
@@ -1917,8 +1915,16 @@ eval_3dplots()
 		this_plot->iteration = plot_iterator ? plot_iterator->iteration : 0;
 	    }
 
+	    SKIPPED_EMPTY_FILE:
 	    if (empty_iteration(plot_iterator))
 		this_plot->plot_type = NODATA;
+	    if (forever_iteration(plot_iterator) && (this_plot->plot_type == NODATA)) {
+		highest_iteration = plot_iterator->iteration_current;
+		eof_during_iteration = TRUE;
+	    }
+	    if (forever_iteration(plot_iterator) && (this_plot->plot_type == FUNC3D)) {
+		int_error(NO_CARET, "unbounded iteration in function plot");
+	    }
 
 	}			/* !is_definition() : end of scope of this_plot */
 
@@ -1931,8 +1937,11 @@ eval_3dplots()
 	}
 
 	/* Iterate-over-plot mechanisms */
-	if (next_iteration(plot_iterator)) {
+	if (eof_during_iteration) {
+	    /* Nothing to do */ ;
+	} else if (next_iteration(plot_iterator)) {
 	    c_token = start_token;
+	    highest_iteration = plot_iterator->iteration_current;
 	    continue;
 	}
 
@@ -2037,10 +2046,10 @@ eval_3dplots()
 
 	    if (is_definition(c_token)) {
 		define();
-		if (!equals(c_token,",")) {
-		    was_definition = TRUE;
-		    continue;
-		}
+		if (equals(c_token,","))
+		    c_token++;
+		was_definition = TRUE;
+		continue;
 
 	    } else {
 		struct at_type *at_ptr;
@@ -2083,8 +2092,7 @@ eval_3dplots()
 					      v_axis, v_min, v_isostep,
 					      num_iso_to_use,
 					      u_axis, u_min, u_step,
-					      num_sam_to_use,
-					      NEED_PALETTE(this_plot));
+					      num_sam_to_use);
 
 		    if (!hidden3d) {
 			num_iso_to_use = iso_samples_1;
@@ -2094,8 +2102,7 @@ eval_3dplots()
 						  u_axis, u_min, u_isostep,
 						  num_iso_to_use,
 						  v_axis, v_min, v_step,
-						  num_sam_to_use,
-						  NEED_PALETTE(this_plot));
+						  num_sam_to_use);
 		    }
 		    /*}}} */
 		}		/* end of ITS A FUNCTION TO PLOT */
@@ -2115,8 +2122,10 @@ eval_3dplots()
 
 	    /* Iterate-over-plot mechanism */
 	    if (crnt_param == 0 && next_iteration(plot_iterator)) {
-		c_token = start_token;
-		continue;
+		if (plot_iterator->iteration_current <= highest_iteration) {
+		    c_token = start_token;
+		    continue;
+		}
 	    }
 
 	    if (crnt_param == 0)
@@ -2228,10 +2237,11 @@ eval_3dplots()
      * outlining the image.  Opt out of hidden3d for the {RGB}IMAGE
      * to avoid processing large amounts of data.
      */
-    if (plot_num) {
+    if (hidden3d && plot_num) {
 	struct surface_points *this_plot = first_3dplot;
 	do {
 	    if ((this_plot->plot_style == IMAGE || this_plot->plot_style == RGBIMAGE)
+	    && (this_plot->image_properties.nrows > 0 && this_plot->image_properties.ncols > 0)
 	    && !(this_plot->opt_out_of_hidden3d)) {
 
 		struct surface_points *new_plot = sp_alloc(2, 0, 0, 2);

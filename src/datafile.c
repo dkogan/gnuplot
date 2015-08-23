@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.305 2015/05/13 02:55:33 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.310 2015/08/21 20:45:02 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -288,6 +288,8 @@ static int df_skip_at_front = 0;
 static int df_pseudodata = 0;
 static int df_pseudorecord = 0;
 static int df_pseudospan = 0;
+static double df_pseudovalue_0 = 0;
+static double df_pseudovalue_1 = 0;
 
 /* for datablocks */
 static TBOOLEAN df_datablock = FALSE;
@@ -1331,10 +1333,9 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 	if (!data_fp)
 	    data_fp = stdin;
 	mixed_data_fp = TRUE;   /* don't close command file */
-    } else if (df_filename[0] == '+') {
-	if (strlen(df_filename) == 1)
+    } else if (!strcmp(df_filename,"+")) {
 	    df_pseudodata = 1;
-	else if (df_filename[1] == '+' && strlen(df_filename) == 2)
+    } else if (!strcmp(df_filename,"++")) {
 	    df_pseudodata = 2;
     } else if (df_filename[0] == '$') {
 	df_datablock = TRUE;
@@ -1372,7 +1373,8 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 	df_determine_matrix_info(data_fp);
 
 	/* Image size bookkeeping for ascii uniform matrices */
-	if (!df_binary_file) {
+	/* NB: If we're inside a 'stats' command there is no plot */
+	if (!df_binary_file && plot) {
 	    plot->image_properties.ncols = df_xpixels;
 	    plot->image_properties.nrows = df_ypixels;
 	    FPRINTF((stderr,"datafile.c:%d  ascii uniform matrix dimensions %d x %d \n",
@@ -1936,6 +1938,15 @@ df_readascii(double v[], int max)
 	} else
 	    df_tokenise(s);
 
+	/* df_tokenise already processed everything, but in the case of pseudodata
+	 * '+' or '++' the value itself was passed as an ascii string formatted by
+	 * "%g".  We can do better than this by substituting in the binary value.
+	 */
+	if (df_pseudodata > 0)
+	    df_column[0].datum = df_pseudovalue_0;
+	if (df_pseudodata > 1)
+	    df_column[1].datum = df_pseudovalue_1;
+
 	/* Always save the contents of the first row in case it is needed for
 	 * later access via column("header").  However, unless we know for certain that
 	 * it contains headers only, e.g. via parse_1st_row_as_headers or 
@@ -2379,8 +2390,8 @@ df_determine_matrix_info(FILE *fin)
 		df_bin_file_endianess = THIS_COMPILER_ENDIAN;
 
 		/* Save matrix dimensions in case it contains an image */
-		df_xpixels = nr;
-		df_ypixels = nc;
+		df_xpixels = nc;
+		df_ypixels = nr;
 
 		/* This matrix is the one (and only) requested by name.	*/
 		/* Dummy up index range and skip rest of file.		*/
@@ -3855,13 +3866,6 @@ plot_option_array(void)
     if (!equals(c_token, "="))
 	int_error(c_token, equal_symbol_msg);
 
-#if (0)
-    /* Removing this call reduces the order-dependence of binary options.	*/
-    /* However, it may also introduce some option persistance across plots.	*/
-    /* See Bug #3408082 */
-    clear_binary_records(DF_CURRENT_RECORDS);
-#endif
-
     do {
 	c_token++;
 
@@ -5302,6 +5306,7 @@ df_generate_pseudodata()
 
 	if (df_current_plot && df_current_plot->sample_var)
 	    Gcomplex(&(df_current_plot->sample_var->udv_value), t, 0.0);
+	df_pseudovalue_0 = t;
 	sprintf(line,"%g",t);
 	++df_pseudorecord;
     }
@@ -5354,10 +5359,14 @@ df_generate_pseudodata()
 	/* Duplicate algorithm from calculate_set_of_isolines() */
 	u = u_min + df_pseudorecord * u_step;
 	v = v_max - df_pseudospan * v_isostep;
-	if (parametric) 
-	    sprintf(line,"%g %g", u, v);
-	else
-	    sprintf(line,"%g %g", AXIS_DE_LOG_VALUE(u_axis,u), AXIS_DE_LOG_VALUE(v_axis,v));
+	if (parametric) {
+	    df_pseudovalue_0 = u;
+	    df_pseudovalue_1 = v;
+	} else {
+	    df_pseudovalue_0 = AXIS_DE_LOG_VALUE(u_axis,u);
+	    df_pseudovalue_1 = AXIS_DE_LOG_VALUE(v_axis,v);
+	}
+	sprintf(line,"%g %g", df_pseudovalue_0, df_pseudovalue_1);
 	++df_pseudorecord;
     }
 

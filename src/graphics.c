@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graphics.c,v 1.491 2015/06/15 22:28:48 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graphics.c,v 1.496 2015/08/21 20:45:03 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graphics.c */
@@ -68,6 +68,7 @@ t_position boff = {first_axes, first_axes, first_axes, 0.0, 0.0, 0.0};
 /* set bars */
 double bar_size = 1.0;
 int    bar_layer = LAYER_FRONT;
+struct lp_style_type bar_lp;
 
 /* key placement is calculated in boundary, so we need file-wide variables
  * To simplify adjustments to the key, we set all these once [depends on
@@ -349,22 +350,7 @@ place_objects(struct object *listhead, int layer, int dimensions)
 	    continue;
 
 	/* Extract line and fill style, but don't apply it yet */
-#if (0)	/* V5: Inherit default rectangle properties at the time of "set obj", not now */
-	if (this_object->lp_properties.l_type == LT_DEFAULT
-	    && this_object->object_type == OBJ_RECTANGLE)
-	    lpstyle = default_rectangle.lp_properties;
-	else
-#endif
 	    lpstyle = this_object->lp_properties;
-
-#if (0)
-	/* FIXME: I think this is redundant in V5 (done already in "set obj ...") */
-	if (lpstyle.pm3d_color.type == TC_LT) {
-	    lp_style_type temp;
-	    load_linetype(&temp, lpstyle.pm3d_color.lt + 1);
-	    lpstyle.pm3d_color = temp.pm3d_color;
-	}
-#endif
 
 	if (this_object->fillstyle.fillstyle == FS_DEFAULT
 	    && this_object->object_type == OBJ_RECTANGLE)
@@ -1591,8 +1577,6 @@ plot_bars(struct curve_points *plot)
     int tic = ERRORBARTIC;
     double halfwidth = 0;	/* Used to calculate full box width */
 
-    /* Limitation: no boxes with x errorbars */
-
     if ((plot->plot_style == YERRORBARS)
 	|| (plot->plot_style == XYERRORBARS)
 	|| (plot->plot_style == BOXERROR)
@@ -1663,17 +1647,23 @@ plot_bars(struct curve_points *plot)
 		check_for_variable_color(plot, &plot->varcolor[i]);
 	    }
 
+	    /* Error bars can now have a separate line style */
+	    if (bar_lp.l_type != LT_DEFAULT)
+		term_apply_lp_properties(&bar_lp);
 	    /* Error bars should be drawn in the border color for filled boxes
 	     * but only if there *is* a border color. */
-	    if ((plot->plot_style == BOXERROR) && t->fillbox)
-		(void) need_fill_border(&plot->fill_properties);
+	    else if ((plot->plot_style == BOXERROR) && t->fillbox)
+		need_fill_border(&plot->fill_properties);
 
-	    /* by here everything has been mapped */
-	    /* EAM Sep 2013 - use draw_clip_line rather than calculating it here */
+	    /* By here everything has been mapped */
+	    /* First draw the main part of the error bar */
+	    draw_clip_line(xM, ylowM, xM, yhighM);
+
+	    /* Even if error bars are dotted, the end lines are always solid */
+	    if (bar_lp.l_type != LT_DEFAULT)
+		term->dashtype(DASHTYPE_SOLID,NULL);
+
 	    if (!polar) {
-		/* draw the main bar */
-		draw_clip_line(xM, ylowM, xM, yhighM);
-
 		if (bar_size < 0.0) {
 		    /* draw the bottom tic same width as box */
 		    draw_clip_line(xlowM, ylowM, xhighM, ylowM);
@@ -1688,31 +1678,28 @@ plot_bars(struct curve_points *plot)
 				   (int)(xM + bar_size * tic), yhighM);
 		}
 	    } else { /* Polar error bars */
-		/* Draw the main bar */
-		draw_clip_line(xlowM, ylowM, xhighM, yhighM);
+	    /* Draw the whiskers perpendicular to the main bar */
+		if (bar_size > 0.0) {
+		    int x1, y1, x2, y2;
+		    double slope;
 
-		/* Draw the whiskers perpendicular to the main bar */
-		    if (bar_size > 0.0) {
-			int x1, y1, x2, y2;
-			double slope;
+		    slope = atan2((double)(yhighM - ylowM), (double)(xhighM - xlowM));
+		    x1 = xlowM - (bar_size * tic * sin(slope));
+		    x2 = xlowM + (bar_size * tic * sin(slope));
+		    y1 = ylowM + (bar_size * tic * cos(slope));
+		    y2 = ylowM - (bar_size * tic * cos(slope));
 
-			slope = atan2((double)(yhighM - ylowM), (double)(xhighM - xlowM));
-			x1 = xlowM - (bar_size * tic * sin(slope));
-			x2 = xlowM + (bar_size * tic * sin(slope));
-			y1 = ylowM + (bar_size * tic * cos(slope));
-			y2 = ylowM - (bar_size * tic * cos(slope));
+		    /* draw the bottom tic */
+		    draw_clip_line(x1, y1, x2, y2);
 
-			/* draw the bottom tic */
-			draw_clip_line(x1, y1, x2, y2);
-
-			x1 += xhighM - xlowM;
-			x2 += xhighM - xlowM;
-			y1 += yhighM - ylowM;
-			y2 += yhighM - ylowM;
-			/* draw the top tic */
-			draw_clip_line(x1, y1, x2, y2);
-		    }
+		    x1 += xhighM - xlowM;
+		    x2 += xhighM - xlowM;
+		    y1 += yhighM - ylowM;
+		    y2 += yhighM - ylowM;
+		    /* draw the top tic */
+		    draw_clip_line(x1, y1, x2, y2);
 		}
+	    }
 	}	/* for loop */
     }		/* if yerrorbars OR xyerrorbars OR yerrorlines OR xyerrorlines */
 
@@ -1745,8 +1732,17 @@ plot_bars(struct curve_points *plot)
 	    /* Check for variable color - June 2010 */
 	    check_for_variable_color(plot, &plot->varcolor[i]);
 
+	    /* Error bars can now have their own line style */
+	    if (bar_lp.l_type != LT_DEFAULT)
+		term_apply_lp_properties(&bar_lp);
+
 	    /* by here everything has been mapped */
 	    draw_clip_line(xlowM, yM, xhighM, yM);
+
+	    /* Even if error bars are dotted, the end lines are always solid */
+	    if (bar_lp.l_type != LT_DEFAULT)
+		term->dashtype(DASHTYPE_SOLID,NULL);
+
 	    if (bar_size > 0.0) {
 		draw_clip_line( xlowM, (int)(yM - bar_size * tic),
 				xlowM, (int)(yM + bar_size * tic));
@@ -3555,6 +3551,11 @@ map_position_r(
     double *x, double *y,
     const char *what)
 {
+    /* Catches the case of "first" or "second" coords on a log-scaled axis */
+    if (pos->x == 0)
+	*x = 0;
+    else
+
     switch (pos->scalex) {
     case first_axes:
 	{
@@ -3590,6 +3591,11 @@ map_position_r(
     /* Maybe they only want one coordinate translated? */
     if (y == NULL)
 	return;
+
+    /* Catches the case of "first" or "second" coords on a log-scaled axis */
+    if (pos->y == 0)
+	*y = 0;
+    else
 
     switch (pos->scaley) {
     case first_axes:
@@ -3785,9 +3791,11 @@ place_parallel_axes(struct curve_points *first_plot, int pcount, int layer)
     struct curve_points *plot = first_plot;
 
     /* Check for use of parallel axes */
-    for (j = 0; j < pcount; j++, plot = plot->next)
-	if (axes_in_use < plot->n_par_axes)
-	    axes_in_use = plot->n_par_axes;
+    for (j = 0; j < pcount; j++, plot = plot->next) {
+    	if (plot->plot_type == DATA && plot->plot_style == PARALLELPLOT && plot->p_count > 0)
+	    if (axes_in_use < plot->n_par_axes)
+		axes_in_use = plot->n_par_axes;
+    }
 
     /* Set up the vertical scales used by axis_map() */
     for (j = 0; j < axes_in_use; j++) {
@@ -4566,6 +4574,13 @@ process_image(void *plot, t_procimg_action action)
 			    int_warn(NO_CARET, "Visible pixel grid has a scan line longer than previous scan lines.");
 			    return;
 			}
+		    }
+
+		    /* This can happen if the data supplied for a matrix does not */
+		    /* match the matrix dimensions found when the file was opened */
+		    if (i_sub_image >= array_size) {
+			int_warn(NO_CARET,"image data corruption");
+			break;
 		    }
 
 		    pixel_M_N = i_image;

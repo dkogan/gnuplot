@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.225 2015/05/08 18:32:12 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.228 2015/08/19 18:06:09 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -153,8 +153,19 @@ unset_command()
     int i;
 
     c_token++;
+    save_token = c_token;
 
     set_iterator = check_for_iteration();
+    if (empty_iteration(set_iterator)) {
+	/* Skip iteration [i=start:end] where start > end */
+	while (!END_OF_COMMAND) c_token++;
+	set_iterator = cleanup_iteration(set_iterator);
+	return;
+    }
+    if (forever_iteration(set_iterator)) {
+	set_iterator = cleanup_iteration(set_iterator);
+	int_error(save_token, "unbounded iteration");
+    }
 
     found_token = lookup_table(&set_tbl[0],c_token);
 
@@ -697,6 +708,17 @@ unset_bars()
     bar_size = 0.0;
 }
 
+/* reset is different from unset */
+/* This gets called from 'set bars default' also */
+void
+reset_bars()
+{
+    struct lp_style_type def = DEFAULT_LP_STYLE_TYPE;
+    bar_lp = def;
+    bar_lp.l_type = LT_DEFAULT;
+    bar_size = 1.0;
+    bar_layer = LAYER_FRONT;
+}
 
 /* process 'unset border' command */
 static void
@@ -1537,7 +1559,7 @@ unset_terminal()
 
     term_reset();
 
-    if (original_terminal) {
+    if (original_terminal && original_terminal->udv_value.type != NOTDEFINED) {
 	char *termname = original_terminal->udv_value.v.string_val;
 	term = change_term(termname, strlen(termname));
     }
@@ -1832,9 +1854,6 @@ reset_command()
     filledcurves_opts_data.closeto = FILLEDCURVES_CLOSED;
     filledcurves_opts_func.closeto = FILLEDCURVES_CLOSED;
 
-    bar_size = 1.0;
-    bar_layer = LAYER_FRONT;
-
     unset_grid();
     grid_lp = default_grid_lp;
     mgrid_lp = default_grid_lp;
@@ -1847,6 +1866,7 @@ reset_command()
     hidden3d = FALSE;
 
     unset_angles();
+    reset_bars();
     unset_mapping();
 
     unset_size();

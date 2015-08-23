@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: parse.c,v 1.93 2015/06/03 22:55:46 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: parse.c,v 1.97 2015/08/19 18:06:08 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - parse.c */
@@ -171,9 +171,9 @@ const_express(struct value *valptr)
     return (valptr);
 }
 
-/* Used by plot2d/plot3d/fit:
- * Parse an expression that may return a string or may return a constant or may
- * be a dummy function using dummy variables x, y, ...
+/* Used by plot2d/plot3d/stats/fit:
+ * Parse an expression that may return a filename string, a datablock name,
+ * a constant, or a dummy function using dummy variables x, y, ...
  * If any dummy variables are present, set (*atptr) to point to an action table
  * corresponding to the parsed expression, and return NULL.
  * Otherwise evaluate the expression and return a string if there is one.
@@ -200,10 +200,8 @@ string_or_express(struct at_type **atptr)
     if (equals(c_token,"$"))
 	return parse_datablock_name();
 
-    if (isstring(c_token)) {
-	str = try_to_get_string();
+    if (isstring(c_token) && (str = try_to_get_string()))
 	return str;
-    }
 
     /* parse expression */
     temp_at();
@@ -224,8 +222,15 @@ string_or_express(struct at_type **atptr)
 	struct value val;
 
 	evaluate_at(at, &val);
-	if (!undefined && val.type == STRING)
-	    str = val.v.string_val;
+	if (!undefined && val.type == STRING) {
+	    /* prevent empty string variable from treated as special file '' or "" */
+	    if (*val.v.string_val == '\0') {
+		free(val.v.string_val);
+		str = strdup(" ");
+	    } else {
+		str = val.v.string_val;
+	    }
+	}
     }
 
     /* prepare return */
@@ -1140,7 +1145,11 @@ check_for_iteration()
 	    iteration_start = int_expression();
 	    if (!equals(c_token++, ":"))
 	    	int_error(c_token-1, errormsg);
-	    iteration_end = int_expression();
+	    if (equals(c_token,"*")) {
+		iteration_end = INT_MAX;
+		c_token++;
+	    } else
+		iteration_end = int_expression();
 	    if (equals(c_token,":")) {
 	    	c_token++;
 	    	iteration_increment = int_expression();
@@ -1248,8 +1257,10 @@ next_iteration(t_iterator *iter)
 	    gpfree_string(&(this_iter->iteration_udv->udv_value));
 	    Gstring(&(this_iter->iteration_udv->udv_value), 
 		    gp_word(this_iter->iteration_string, this_iter->iteration_current));
-    } else
-	    this_iter->iteration_udv->udv_value.v.int_val = this_iter->iteration_current;	
+	} else {
+	    gpfree_string(&(this_iter->iteration_udv->udv_value));
+	    Ginteger(&(this_iter->iteration_udv->udv_value), this_iter->iteration_current);	
+	}
 	
 	this_iter = this_iter->prev;
     }
@@ -1266,8 +1277,11 @@ next_iteration(t_iterator *iter)
 	gpfree_string(&(this_iter->iteration_udv->udv_value));
 	Gstring(&(this_iter->iteration_udv->udv_value), 
 		gp_word(this_iter->iteration_string, this_iter->iteration_current));
-    } else
-	this_iter->iteration_udv->udv_value.v.int_val = this_iter->iteration_current;
+    } else {
+	/* This traps fatal user error of reassigning iteration variable to a string */
+	gpfree_string(&(this_iter->iteration_udv->udv_value));
+	Ginteger(&(this_iter->iteration_udv->udv_value), this_iter->iteration_current);	
+    }
     
     /* Mar 2014 revised to avoid integer overflow */
     if (this_iter->iteration_increment > 0
@@ -1314,6 +1328,15 @@ cleanup_iteration(t_iterator *iter)
 	iter = next;
     }
     return NULL;
+}
+
+TBOOLEAN
+forever_iteration(t_iterator *iter)
+{
+    if (!iter)
+	return FALSE;
+    else
+	return (iter->iteration_end == INT_MAX);
 }
 
 /* The column() function requires special handling because
