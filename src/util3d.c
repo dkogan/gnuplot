@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util3d.c,v 1.49 2015/06/03 17:32:45 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util3d.c,v 1.54 2016-05-09 03:32:27 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util3d.c */
@@ -59,6 +59,17 @@ static char *RCSid() { return RCSid("$Id: util3d.c,v 1.49 2015/06/03 17:32:45 sf
 /* Prototypes for local functions */
 static void mat_unit __PROTO((transform_matrix mat));
 static GP_INLINE void draw3d_point_unconditional __PROTO((p_vertex, struct lp_style_type *));
+
+#ifdef NONLINEAR_AXES
+static double map_x3d __PROTO((double));
+static double map_y3d __PROTO((double));
+static double map_z3d __PROTO((double));
+#else
+/* Function macros to map from user 3D space into normalized -1..1 */
+#define map_x3d(x) ((x-X_AXIS.min)*xscale3d + xcenter3d - 1.0)
+#define map_y3d(y) ((y-Y_AXIS.min)*yscale3d + ycenter3d - 1.0)
+#define map_z3d(z) ((z-floor_z)*zscale3d + zcenter3d - 1.0)
+#endif
 
 static void
 mat_unit(transform_matrix mat)
@@ -145,20 +156,19 @@ mat_mult(
  */
 void
 edge3d_intersect(
-    struct coordinate GPHUGE *points,	/* the points array */
-    int i0, int i1,
+    coordinate *p1, coordinate *p2,
     double *ex, double *ey, double *ez)	/* the point where it crosses an edge */
 {
     int count;
-    double ix = points[i0].x;
-    double iy = points[i0].y;
-    double iz = points[i0].z;
-    double ox = points[i1].x;
-    double oy = points[i1].y;
-    double oz = points[i1].z;
+    double ix = p1->x;
+    double iy = p1->y;
+    double iz = p1->z;
+    double ox = p2->x;
+    double oy = p2->y;
+    double oz = p2->z;
     double x, y, z;		/* possible intersection point */
 
-    if (points[i0].type == INRANGE) {
+    if (p1->type == INRANGE) {
 	/* swap points around so that ix/ix/iz are INRANGE and ox/oy/oz are OUTRANGE */
 	x = ix;
 	ix = ox;
@@ -228,7 +238,7 @@ edge3d_intersect(
 	    else if (inrange(AXIS_ACTUAL_MIN(FIRST_Z_AXIS), iz, oz))
 		*ez = AXIS_ACTUAL_MIN(FIRST_Z_AXIS);
 	    else {
-		graph_error("error in edge3d_intersect");
+		int_error(NO_CARET,"error in edge3d_intersect");
 	    }
 
 	    return;
@@ -245,7 +255,7 @@ edge3d_intersect(
 	    else if (inrange(AXIS_ACTUAL_MIN(FIRST_Y_AXIS), iy, oy))
 		*ey = AXIS_ACTUAL_MIN(FIRST_Y_AXIS);
 	    else {
-		graph_error("error in edge3d_intersect");
+		int_error(NO_CARET,"error in edge3d_intersect");
 	    }
 
 	    return;
@@ -295,7 +305,7 @@ edge3d_intersect(
 	    else if (inrange(AXIS_ACTUAL_MIN(FIRST_X_AXIS), ix, ox))
 		*ex = AXIS_ACTUAL_MIN(FIRST_X_AXIS);
 	    else {
-		graph_error("error in edge3d_intersect");
+		int_error(NO_CARET,"error in edge3d_intersect");
 	    }
 
 	    return;
@@ -402,18 +412,17 @@ edge3d_intersect(
  */
 TBOOLEAN			/* any intersection? */
 two_edge3d_intersect(
-    struct coordinate GPHUGE *points,	/* the points array */
-    int i0, int i1,
+    coordinate *p0, coordinate *p1,
     double *lx, double *ly, double *lz)	/* lx[2], ly[2], lz[2]: points where it crosses edges */
 {
     int count;
     /* global axis_array[FIRST_{X,Y,Z}_AXIS].{min,max} */
-    double ix = points[i0].x;
-    double iy = points[i0].y;
-    double iz = points[i0].z;
-    double ox = points[i1].x;
-    double oy = points[i1].y;
-    double oz = points[i1].z;
+    double ix = p0->x;
+    double iy = p0->y;
+    double iz = p0->z;
+    double ox = p1->x;
+    double oy = p1->y;
+    double oz = p1->z;
     double t[6];
     double swap;
     double x, y, z;		/* possible intersection point */
@@ -1025,13 +1034,43 @@ polyline3d_next(p_vertex v2, struct lp_style_type *lp)
     polyline3d_previous_vertex = *v2;
 }
 
-/*
- * Dummy up an x-axis scale so that we can share the 2D arrowhead routine.
- */
-void
-apply_3dhead_properties(struct arrow_style_type *arrow_properties)
+#ifdef NONLINEAR_AXES
+static double
+map_x3d(double x)
 {
-    X_AXIS.term_scale = (plot_bounds.xright - plot_bounds.xleft)
-			/ (X_AXIS.max - X_AXIS.min);
-    apply_head_properties(arrow_properties);
+    AXIS *xaxis = &axis_array[FIRST_X_AXIS];
+
+    if (xaxis->linked_to_primary) {
+	xaxis = xaxis->linked_to_primary;
+	x = eval_link_function(xaxis, x);
+    }
+
+    return ((x - xaxis->min)*xscale3d + xcenter3d - 1.0);
 }
+
+static double
+map_y3d(double y)
+{
+    AXIS *yaxis = &axis_array[FIRST_Y_AXIS];
+
+    if (yaxis->linked_to_primary) {
+	yaxis = yaxis->linked_to_primary;
+	y = eval_link_function(yaxis, y);
+    }
+
+    return ((y - yaxis->min)*yscale3d + ycenter3d - 1.0);
+}
+
+static double
+map_z3d(double z)
+{
+    AXIS *zaxis = &axis_array[FIRST_Z_AXIS];
+
+    if (zaxis->linked_to_primary) {
+	zaxis = zaxis->linked_to_primary;
+	z = eval_link_function(zaxis, z);
+    }
+
+    return ((z - floor_z1)*zscale3d + zcenter3d - 1.0);
+}
+#endif

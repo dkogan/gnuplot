@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.92 2015/07/05 17:53:32 sfeam Exp $
+ * $Id: gp_cairo.c,v 1.94 2016-03-05 03:10:27 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -345,12 +345,12 @@ void gp_cairo_set_linewidth(plot_struct *plot, double linewidth)
 	/* draw any open polygon set */
 	gp_cairo_end_polygon(plot);
 
-	if (linewidth < 0.25)	/* Admittedly arbitrary */
-	    linewidth = 0.25;
-	plot->linewidth = linewidth;
-
 	if (!strcmp(term->name,"pdfcairo"))
-		plot->linewidth *= 2;
+		linewidth *= 2;
+
+	if (linewidth < 0.20)	/* Admittedly arbitrary */
+	    linewidth = 0.20;
+	plot->linewidth = linewidth;
 
 }
 
@@ -818,6 +818,7 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 #ifdef MAP_SYMBOL
 	TBOOLEAN symbol_font_parsed = FALSE;
 #endif /*MAP_SYMBOL*/
+	int baseline_offset;
 
 
 	/* begin by stroking any open path */
@@ -873,9 +874,10 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 	/* EAM Dec 2012 - The problem is that avg_vchar is not kept in sync with the	*/
 	/* font size.  It is changed when the set_font command is received, not when	*/
 	/* it is executed in the display list. Try basing off plot->fontsize instead. 	*/
-	/* vert_just = ((double)ink_rect.height/2 +(double)ink_rect.y) / PANGO_SCALE;	*/
-	/* vert_just = avg_vchar/2;							*/
-	vert_just = 0.8 * (float)(plot->fontsize * plot->oversampling_scale);
+
+	baseline_offset = pango_layout_get_baseline(layout) / PANGO_SCALE;
+	vert_just = 0.5 * (float)(plot->fontsize * plot->oversampling_scale);
+	vert_just = baseline_offset - vert_just;
 
 	x = (double) x1;
 	y = (double) y1;
@@ -1267,7 +1269,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		return;
 
 	FPRINTF((stderr, "enhanced flush str=\"%s\" font=%s op=%d sf=%d wf=%d base=%f os=%d wt=%d sl=%d\n",
-		enhanced_text,
+		gp_cairo_enhanced_string,
 		gp_cairo_enhanced_font,
 		gp_cairo_enhanced_overprint,
 		gp_cairo_enhanced_showflag,
@@ -1562,6 +1564,7 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 	PangoRectangle ink_rect, logical_rect;
 	PangoLayout *layout;
 	double vert_just, arg, enh_x, enh_y, delta, deltax, deltay;
+	int baseline_offset;
 
 	/* Create a PangoLayout, set the font and text */
 	layout = gp_cairo_create_layout (plot->cr);
@@ -1571,10 +1574,12 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 	pango_layout_set_attributes (layout, gp_cairo_enhanced_AttrList);
 
 	pango_layout_get_extents(layout, &ink_rect, &logical_rect);
-	
-	/* NB: See explanatory comments in gp_cairo_draw_text() */
-	vert_just = 0.8 * (float)(plot->fontsize * plot->oversampling_scale);
 
+	/* NB: See explanatory comments in gp_cairo_draw_text() */
+	baseline_offset = pango_layout_get_baseline(layout) / PANGO_SCALE;
+	vert_just = 0.5 * (float)(plot->fontsize * plot->oversampling_scale);
+	vert_just = baseline_offset - vert_just;
+	
 	arg = plot->text_angle * M_PI/180;
 	enh_x = x - vert_just * sin(arg);
 	enh_y = y - vert_just * cos(arg);

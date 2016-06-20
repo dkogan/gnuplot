@@ -1,5 +1,5 @@
 /*
- * $Id: stdfn.h,v 1.51 2015/08/17 05:47:40 sfeam Exp $
+ * $Id: stdfn.h,v 1.53 2016/01/10 00:41:12 sfeam Exp $
  */
 
 /* GNUPLOT - stdfn.h */
@@ -154,7 +154,7 @@ double strtod();
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #else
-# ifdef HAVE_LIBC_H /* NeXT uses libc instead of unistd */
+# ifdef HAVE_LIBC_H
 #  include <libc.h>
 # endif
 #endif /* HAVE_UNISTD_H */
@@ -461,33 +461,6 @@ void          rewinddir __PROTO((DIR *));
 
 #define INT_STR_LEN (3*sizeof(int))
 
-
-/* HBB 20010223: moved this whole block from syscfg.h to here. It
- * needs both "syscfg.h" and <float.h> to have been #include'd before
- * this, since it relies on stuff like DBL_MAX */
-
-/* There is a bug in the NEXT OS. This is a workaround. Lookout for
- * an OS correction to cancel the following dinosaur
- *
- * Hm, at least with my setup (compiler version 3.1, system 3.3p1),
- * DBL_MAX is defined correctly and HUGE and HUGE_VAL are both defined
- * as 1e999. I have no idea to which OS version the bugfix below
- * applies, at least wrt. HUGE, it is inconsistent with the current
- * version. Since we are using DBL_MAX anyway, most of this isn't
- * really needed anymore.
- */
-
-#if defined ( NEXT ) && NX_CURRENT_COMPILER_RELEASE<310
-# if defined ( DBL_MAX)
-#  undef DBL_MAX
-# endif
-# define DBL_MAX 1.7976931348623157e+308
-# undef HUGE
-# define HUGE    DBL_MAX
-# undef HUGE_VAL
-# define HUGE_VAL DBL_MAX
-#endif /* NEXT && NX_CURRENT_COMPILER_RELEASE<310 */
-
 /*
  * Note about VERYLARGE:  This is the upper bound double (or float, if PC)
  * numbers. This flag indicates very large numbers. It doesn't have to
@@ -592,6 +565,11 @@ void          rewinddir __PROTO((DIR *));
 	       (z) = (max);			\
        }					\
     } while (0)
+#endif
+
+#ifndef clip_to_01
+#define clip_to_01(val)	\
+    ((val) < 0 ? 0 : (val) > 1 ? 1 : (val))
 #endif
 
 /* both min/max and MIN/MAX are defined by some compilers.

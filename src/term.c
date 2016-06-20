@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: term.c,v 1.316 2015/07/09 01:40:56 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: term.c,v 1.325 2016-04-15 17:55:49 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - term.c */
@@ -201,7 +201,7 @@ TBOOLEAN ignore_enhanced_text = FALSE;
 
 /* Recycle count for user-defined linetypes */
 int linetype_recycle_count = 0;
-int mono_recycle_count = 4;
+int mono_recycle_count = 0;
 
 
 /* Internal variables */
@@ -343,12 +343,6 @@ term_close_output()
     gppsfile = NULL;
 }
 
-#ifdef OS2
-# define POPEN_MODE ("wb")
-#else
-# define POPEN_MODE ("w")
-#endif
-
 /* assigns dest to outstr, so it must be allocated or NULL
  * and it must not be outstr itself !
  */
@@ -377,7 +371,15 @@ term_set_output(char *dest)
 #if defined(PIPES)
 	if (*dest == '|') {
 	    restrict_popen();
-	    if ((f = popen(dest + 1, POPEN_MODE)) == (FILE *) NULL)
+#ifdef _Windows
+	    if (term && (term->flags & TERM_BINARY))
+		f = popen(dest + 1, "wb");
+	    else
+		f = popen(dest + 1, "w");
+#else
+	    f = popen(dest + 1, "w");
+#endif
+	    if (f == (FILE *) NULL)
 		os_error(c_token, "cannot create pipe; output not changed");
 	    else
 		output_pipe_open = TRUE;
@@ -641,6 +643,12 @@ term_apply_lp_properties(struct lp_style_type *lp)
      *  The linetype might depend on the linewidth in some terminals.
      */
     (*term->linewidth) (lp->l_width);
+
+    /* LT_DEFAULT (used only by "set errorbars"?) means don't change it */
+    /* FIXME: If this causes problems, test also for LP_ERRORBAR_SET    */
+    if (lt == LT_DEFAULT)
+	;
+    else
 
     /* The paradigm for handling linetype and dashtype in version 5 is */
     /* linetype < 0 (e.g. LT_BACKGROUND, LT_NODRAW) means some special */
@@ -1223,15 +1231,15 @@ null_justify_text(enum JUSTIFY just)
 }
 
 
-/* Change scale of plot.
- * Parameters are x,y scaling factors for this plot.
- * Some terminals (eg latex) need to do scaling themselves.
+/* 
+ * Deprecated terminal function (pre-version 3)
  */
 static int
 null_scale(double x, double y)
 {
     (void) x;                   /* avoid -Wunused warning */
     (void) y;
+    int_error(NO_CARET, "Attempt to call deprecated terminal function");
     return FALSE;               /* can't be done */
 }
 
@@ -1483,9 +1491,6 @@ change_term(const char *origname, int length)
     term = t;
     term_initialised = FALSE;
 
-    if (term->scale != null_scale)
-	fputs("Warning: scale interface is not null_scale - may not work with multiplot\n", stderr);
-
     /* check that optional fields are initialised to something */
     if (term->text_angle == 0)
 	term->text_angle = null_text_angle;
@@ -1536,7 +1541,7 @@ void
 init_terminal()
 {
     char *term_name = DEFAULTTERM;
-#if (defined(MSDOS) && !defined(_Windows)) || defined(NEXT) || defined(SUN) || defined(X11)
+#if (defined(MSDOS) && !defined(_Windows)) || defined(SUN) || defined(X11)
     char *env_term = NULL;      /* from TERM environment var */
 #endif
 #ifdef X11
@@ -1554,26 +1559,12 @@ init_terminal()
 	term_name = vms_init();
 #endif /* VMS */
 
-#ifdef NEXT
-	env_term = getenv("TERM");
-	if (term_name == (char *) NULL
-	    && env_term != (char *) NULL && strcmp(env_term, "next") == 0)
-	    term_name = "next";
-#endif /* NeXT */
-
 #ifdef __BEOS__
 	env_term = getenv("TERM");
 	if (term_name == (char *) NULL
 	    && env_term != (char *) NULL && strcmp(env_term, "beterm") == 0)
 	    term_name = "be";
 #endif /* BeOS */
-
-#ifdef SUN
-	env_term = getenv("TERM");      /* try $TERM */
-	if (term_name == (char *) NULL
-	    && env_term != (char *) NULL && strcmp(env_term, "sun") == 0)
-	    term_name = "sun";
-#endif /* SUN */
 
 #ifdef QTTERM
 	if (term_name == (char *) NULL)
@@ -2817,14 +2808,14 @@ recycle:
 		return;
 	    }
 	}
-#if (0)
+
 	/* This linetype wasn't defined explicitly.		*/
 	/* Should we recycle one of the first N linetypes?	*/
 	if (tag > mono_recycle_count && mono_recycle_count > 0) {
 	    tag = (tag-1) % mono_recycle_count + 1;
 	    goto recycle;
 	}
-#endif
+
 	return;
     }
 
@@ -2848,8 +2839,8 @@ recycle:
 	    if (!recycled) {
 	    	lp->p_type = this->lp_properties.p_type;
 	    	lp->p_interval = this->lp_properties.p_interval;
-	    	lp->p_char = this->lp_properties.p_char;
 	    	lp->p_size = this->lp_properties.p_size;
+	    	memcpy(lp->p_char, this->lp_properties.p_char, sizeof(lp->p_char));
 	    }
 	    return;
 	} else {
@@ -2872,6 +2863,29 @@ recycle:
     lp->pm3d_color.lt = lp->l_type;
     lp->d_type = DASHTYPE_SOLID;
     lp->p_type = (tag <= 0) ? -1 : tag - 1;
+}
+
+/*
+ * Version 5 maintains a parallel set of linetypes for "set monochrome" mode.
+ * This routine allocates space and initializes the default set.
+ */
+void
+init_monochrome()
+{
+    struct lp_style_type mono_default[] = DEFAULT_MONO_LINETYPES;
+
+    if (first_mono_linestyle == NULL) {
+	int i, n = sizeof(mono_default) / sizeof(struct lp_style_type);
+	struct linestyle_def *new;
+	/* copy default list into active list */
+	for (i=n; i>0; i--) {
+	    new = gp_alloc(sizeof(struct linestyle_def), NULL);
+	    new->next = first_mono_linestyle;
+	    new->lp_properties = mono_default[i-1];
+	    new->tag = i;
+	    first_mono_linestyle = new;
+	}
+    }
 }
 
 /*

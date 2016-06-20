@@ -1,5 +1,5 @@
 #
-# $Id: all.dem,v 1.61 2015/01/13 18:17:29 sfeam Exp $
+# $Id: all.dem,v 1.71 2016-05-09 03:32:26 sfeam Exp $
 #
 # Executes all demos (OK, MOST demos) in this directory.
 # This serves as a series of unit tests for non-interactive capabilities.
@@ -46,6 +46,8 @@ print "******************** file fit.dem ********************"
 set fit quiet
 load "fit.dem"
 reset
+load "fitmulti.dem"
+reset
 
 print "******************** file named_var.dem ********************"
 load "named_var.dem"
@@ -69,6 +71,14 @@ reset
 
 print "******************** file boxplot.dem ********************"
 load "boxplot.dem"
+reset
+
+print "******************** file jitter.dem ********************"
+load "jitter.dem"
+reset
+
+print "******************** file violinplot.dem ********************"
+load "violinplot.dem"
 reset
 
 print "******************** file multiplt.dem ********************"
@@ -119,6 +129,10 @@ reset
 
 print "******************** file spline.dem ********************"
 load "spline.dem"
+reset
+
+print "******************** file monotonic_spline.dem **********"
+load "monotonic_spline.dem"
 reset
 
 print "******************** file binary.dem ********************"
@@ -172,6 +186,10 @@ reset
 
 print "********************** file rgb_variable.dem *********************"
 load "rgb_variable.dem"
+reset
+
+print "********************** file rgba_lines.dem *********************"
+load "rgba_lines.dem"
 reset
 
 print "********************** file varcolor.dem *********************"
@@ -238,8 +256,16 @@ print "********************** file tics.dem *********************"
 load "tics.dem"
 reset
 
+print "********************** file break_continue.dem *********************"
+load "break_continue.dem"
+reset
+
 print "********************** file callargs.dem *********************"
 load "callargs.dem"
+reset
+
+print "********************** file volatile.dem *********************"
+load "volatile.dem"
 reset
 
 print "********************** file datastrings.dem *********************"
@@ -261,6 +287,10 @@ reset
 print "********************** file histograms.dem *********************"
 load "histograms.dem"
 load "histograms2.dem"
+reset
+
+print "********************** file array.dem *********************"
+load "array.dem"
 reset
 
 print "**********************    Image formats    *********************"
@@ -295,7 +325,8 @@ print "********************** file key.dem *********************"
 load "key.dem"
 reset
 
-print "********************** file nokey.dem *********************"
+print "********************** file custom_key.dem *********************"
+load "custom_key.dem"
 load "nokey.dem"
 reset
 
@@ -323,11 +354,22 @@ print "********************** file parallel.dem *********************"
 load "parallel.dem"
 reset
 
+print "********************** nonlinear axis demos *********************"
+load "nonlinear1.dem"
+load "nonlinear2.dem"
+load "nonlinear3.dem"
+load "nonlinear4.dem"
+load "nonlinear5.dem"
+reset
+
 print "********************** file transparent.dem *********************"
 load "transparent.dem"
 reset
 
 print "********************** file transparent_solids.dem *********************"
 load "transparent_solids.dem"
+
+print "********************** file pm3d_lighting.dem *********************"
+load "pm3d_lighting.dem"
 pause 5
 reset

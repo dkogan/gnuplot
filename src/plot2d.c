@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.364 2015/08/19 18:06:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.389 2016-06-18 06:00:16 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -178,6 +178,8 @@ cp_free(struct curve_points *cp)
 
 	free(cp->title);
 	cp->title = NULL;
+	free(cp->title_position);
+	cp->title_position = NULL;
 	free(cp->points);
 	cp->points = NULL;
 	free(cp->varcolor);
@@ -208,7 +210,7 @@ void
 plotrequest()
 {
     int dummy_token = 0;
-    int t_axis;
+    AXIS_INDEX t_axis;
 
     if (!term)                  /* unknown */
 	int_error(c_token, "use 'set term' to set terminal type first");
@@ -231,6 +233,22 @@ plotrequest()
     AXIS_INIT2D(T_AXIS, 0);
     AXIS_INIT2D(POLAR_AXIS, 1);
     AXIS_INIT2D(COLOR_AXIS, 1);
+
+#ifdef NONLINEAR_AXES
+    /* Nonlinear mapping of x or y via linkage to a hidden primary axis. */
+    /* The user set autoscale for the visible axis; apply it also to the hidden axis. */
+    for (t_axis = 0; t_axis < NUMBER_OF_MAIN_VISIBLE_AXES; t_axis++) {
+	if (t_axis == SAMPLE_AXIS)
+	    continue;
+	if (axis_array[t_axis].linked_to_primary
+	&&  axis_array[t_axis].linked_to_primary->index == -t_axis) {
+	    AXIS *secondary = &axis_array[t_axis];
+	    AXIS *primary = secondary->linked_to_primary;
+	    primary->set_autoscale = secondary->set_autoscale;
+	    axis_init(primary, 1);
+	}
+    }
+#endif
 
     /* If we are called from a mouse zoom operation we should ignore	*/
     /* any range limits because otherwise the zoom won't zoom.		*/
@@ -289,13 +307,24 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 	struct axis *x_axis = &axis_array[this_plot->x_axis];
 	struct axis *y_axis = &axis_array[this_plot->y_axis];
 
-	/* IMAGE clipping is done elsewhere, so we don't need INRANGE/OUTRANGE
-	 * checks.  
-	 */
+	/* IMAGE clipping is done elsewhere, so we don't need INRANGE/OUTRANGE checks */
 	if (this_plot->plot_style == IMAGE || this_plot->plot_style == RGBIMAGE) {
 	    if (x_axis->set_autoscale || y_axis->set_autoscale)
 		process_image(this_plot, IMG_UPDATE_AXES);
 	    continue;
+	}
+
+	/* FIXME: I'm not entirely convinced this test does what the comment says. */
+	/*
+	 * If the state has been set to autoscale since the last plot,
+	 * mark everything INRANGE and re-evaluate the axis limits now.
+	 * Otherwise test INRANGE/OUTRANGE against previous data limits.
+	 */
+	if (!this_plot->noautoscale) {
+	    if (x_axis->set_autoscale & AUTOSCALE_MIN && x_axis->data_min < x_axis->min)
+		 x_axis->min = axis_log_value(x_axis, x_axis->data_min);
+	    if (x_axis->set_autoscale & AUTOSCALE_MAX && x_axis->data_max > x_axis->max)
+		 x_axis->max = axis_log_value(x_axis, x_axis->data_max);
 	}
 
 	for (i=0; i<this_plot->p_count; i++) {
@@ -305,11 +334,6 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 		continue;
 	    else
 		point->type = INRANGE;
-
-	    /* If the state has been set to autoscale since the last plot,
-	     * mark everything INRANGE and re-evaluate the axis limits now.
-	     * Otherwise test INRANGE/OUTRANGE against previous axis limits.
-	     */
 
 	    /* This autoscaling logic is identical to that in
 	     * refresh_3dbounds() in plot3d.c
@@ -553,10 +577,13 @@ get_data(struct curve_points *current_plot)
 
     case POINTSTYLE:
     case LINESPOINTS:
-	/* Allow 3rd column because of 'pointsize variable' */
-	/* Allow 4th column because of 'lc rgb variable' */
+	/* 1 column: y coordinate only */
+	/* 2 columns x and y coordinates */
+	/* Allow 1 extra column because of 'pointsize variable' */
+	/* Allow 1 extra column because of 'pointtype variable' */
+	/* Allow 1 extra column because of 'lc rgb variable'    */
 	min_cols = 1;
-	max_cols = 4;
+	max_cols = 5;
 	break;
 
     case PARALLELPLOT:
@@ -689,6 +716,10 @@ get_data(struct curve_points *current_plot)
 				break;
 		case PARALLELPLOT:
 				if (j < 4) int_error(NO_CARET,errmsg);
+				break;
+		case BOXPLOT:
+				/* Only the key sample uses this value */
+				v[j++] = current_plot->base_linetype + 1;
 				break;
 		default:
 		    break;
@@ -833,7 +864,7 @@ get_data(struct curve_points *current_plot)
 
 	case 1:
 	    /* only one number */
-	    if (current_plot->plot_smooth == SMOOTH_BINS) {
+	    if (default_smooth_weight(current_plot->plot_smooth)) { 
 		v[1] = 1.0;
 	    } else {
 		/* x is index, assign number to y */
@@ -918,6 +949,10 @@ get_data(struct curve_points *current_plot)
 	    } else if (current_plot->plot_style == BOXPLOT) {
 		store2d_point(current_plot, i++, v[0], v[1], v[0], v[0], v[1], v[1],
 				DEFAULT_BOXPLOT_FACTOR);
+	    } else if (current_plot->plot_style == FILLEDCURVES) {
+		v[2] = current_plot->filledcurves_options.at;
+		store2d_point(current_plot, i++, v[0], v[1], v[0], v[0],
+				  v[1], v[2], -1.0);
 	    } else {
 		double w;
 		if (current_plot->plot_style == CANDLESTICKS
@@ -1002,12 +1037,12 @@ get_data(struct curve_points *current_plot)
 		    i++;
 		    break;
 
-		case POINTSTYLE: /* x, y, variable point size */
+		case POINTSTYLE: /* x, y, variable point size or type */
 		case LINESPOINTS:
 		case IMPULSES:
 		case LINES:
 		case DOTS:
-		    store2d_point(current_plot, i++, v[0], v[1], v[0], v[0],
+		    store2d_point(current_plot, i++, v[0], v[1], v[0], v[2],
 				  v[1], v[1], v[2]);
 		    break;
 
@@ -1119,10 +1154,10 @@ get_data(struct curve_points *current_plot)
 
 	    case POINTSTYLE:
 	    case LINESPOINTS:
-		/* These are here only to catch the case where no using spec */
-		/* is given and there are more than 3 columns in the data file */
+		/* Either there is no using spec and more than 3 columns in the data file */
+		/* or this is x:y:variable_size:variable_type */
 		store2d_point(current_plot, i++, v[0], v[1], 
-				v[0], v[0], v[1], v[1], v[2]);
+				v[0], v[3], v[1], v[1], v[2]);
 		break;
 
 
@@ -1179,6 +1214,14 @@ get_data(struct curve_points *current_plot)
 
 		case RGBIMAGE:  /* x_center y_center r_value g_value b_value (rgb) */
 		    goto images;
+
+		case POINTSTYLE:
+		case LINESPOINTS:
+		    /* If there is no using spec and more than 4 columns in the data file */
+		    /* then use only the first 4 columns  x:y:variable_size:variable_type */
+		    store2d_point(current_plot, i++, v[0], v[1], 
+				    v[0], v[3], v[1], v[1], v[2]);
+		    break;
 
 		}               /* inner switch */
 
@@ -1335,9 +1378,10 @@ store2d_point(
 	    if (R_AXIS.min <= 0 || R_AXIS.autoscale & AUTOSCALE_MIN)
 		int_error(NO_CARET,"In log mode rrange must not include 0");
 	    y = AXIS_DO_LOG(POLAR_AXIS,y) - AXIS_DO_LOG(POLAR_AXIS,R_AXIS.min);
-	} else
-
-	if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
+	} else if (nonlinear(&R_AXIS)) {
+	    AXIS *shadow = R_AXIS.linked_to_primary;
+	    y = eval_link_function(shadow, y) - shadow->min;
+	} else if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
 	    /* we store internally as if plotting r(t)-rmin */
 		y -= R_AXIS.min;
 	}
@@ -1362,8 +1406,10 @@ store2d_point(
 	    if (R_AXIS.log) {
 		yhigh = AXIS_DO_LOG(POLAR_AXIS,yhigh)
 			- AXIS_DO_LOG(POLAR_AXIS,R_AXIS.min);
-	    } else
-	    if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
+	    } else if (nonlinear(&R_AXIS)) {
+		AXIS *shadow = R_AXIS.linked_to_primary;
+		yhigh = eval_link_function(shadow, yhigh) - shadow->min;
+	    } else if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
 		/* we store internally as if plotting r(t)-rmin */
 		yhigh -= R_AXIS.min;
 	    }
@@ -1379,8 +1425,10 @@ store2d_point(
 	    if (R_AXIS.log) {
 		ylow = AXIS_DO_LOG(POLAR_AXIS,ylow)
 		     - AXIS_DO_LOG(POLAR_AXIS,R_AXIS.min);
-	    } else
-	    if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
+	    } else if (nonlinear(&R_AXIS)) {
+		AXIS *shadow = R_AXIS.linked_to_primary;
+		ylow = eval_link_function(shadow, ylow) - shadow->min;
+	    } else if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
 		/* we store internally as if plotting r(t)-rmin */
 		ylow -= R_AXIS.min;
 	    }
@@ -1645,13 +1693,12 @@ boxplot_range_fiddling(struct curve_points *plot)
 	    axis_array[plot->x_axis].min -= 1 * extra_width;
     }
     if (axis_array[plot->x_axis].autoscale & AUTOSCALE_MAX) {
-	if (axis_array[plot->x_axis].max <= plot->points[N-1].x)
-	    axis_array[plot->x_axis].max += 1.5 * extra_width;
-	else if (axis_array[plot->x_axis].max <= plot->points[N-1].x + extra_width)
-	    axis_array[plot->x_axis].max += 1 * extra_width;
-	if (plot->boxplot_factors > 1) {
-	    axis_array[plot->x_axis].max += (plot->boxplot_factors - 1) * boxplot_opts.separation;
-	}
+	double nfactors = GPMAX( 0, plot->boxplot_factors - 1 );
+	double plot_max = plot->points[0].x + nfactors * boxplot_opts.separation;
+	if (axis_array[plot->x_axis].max <= plot_max)
+	    axis_array[plot->x_axis].max = plot_max + 1.5 * extra_width;
+	else if (axis_array[plot->x_axis].max <= plot_max + extra_width)
+	    axis_array[plot->x_axis].max += extra_width;
     }
 }
 
@@ -1927,7 +1974,6 @@ eval_plots()
     t_uses_axis uses_axis[AXIS_ARRAY_SIZE];
     int some_functions = 0;
     int plot_num, line_num;
-    TBOOLEAN in_parametric = FALSE;
     TBOOLEAN was_definition = FALSE;
     int pattern_num;
     char *xtitle = NULL;
@@ -1972,6 +2018,7 @@ eval_plots()
     line_num = 0;               /* default line type */
     pattern_num = default_fillstyle.fillpattern;        /* default fill pattern */
     strcpy(orig_dummy_var, c_dummy_var[0]);
+    in_parametric = FALSE;
     xtitle = NULL;
 
     /* Assume that the input data can be re-read later */
@@ -2027,7 +2074,7 @@ eval_plots()
 		    histogram_title.pos = histogram_opts.title.pos;
 		    histogram_title.text = try_to_get_string();
 		    histogram_title.font = gp_strdup(histogram_opts.title.font);
-		    parse_label_options(&histogram_title, TRUE);
+		    parse_label_options(&histogram_title, 2);
 		}
 
 		/* Allow explicit starting color or pattern for this histogram */
@@ -2070,7 +2117,7 @@ eval_plots()
 	    plot_num++;
 
 	    /* Check for a sampling range. */
-	    clear_sample_range(FIRST_X_AXIS);
+	    init_sample_range(axis_array + FIRST_X_AXIS);
 	    sample_range_token = parse_range(SAMPLE_AXIS);
 	    if (sample_range_token != 0)
 		axis_array[SAMPLE_AXIS].range_flags |= RANGE_SAMPLED;
@@ -2152,6 +2199,7 @@ eval_plots()
 
 	    /* pm 25.11.2001 allow any order of options */
 	    while (!END_OF_COMMAND) {
+		int save_token = c_token;
 
 #ifdef SMOOTH_BINS_OPTION
 		/* bin the data if requested */
@@ -2273,69 +2321,9 @@ eval_plots()
 		}
 
 		/* deal with title */
-		if (almost_equals(c_token, "t$itle") || almost_equals(c_token, "not$itle")) {
-		    if (set_title) {
-			duplication=TRUE;
-			break;
-		    }
-		    set_title = TRUE;
-
-		    if (almost_equals(c_token++, "not$itle")) {
-			this_plot->title_is_suppressed = TRUE;
-			if (xtitle != NULL)
-			    xtitle[0] = '\0';
-			if (equals(c_token,","))
-			    continue;
-		    }
-
-		    this_plot->title_no_enhanced = !key->enhanced;
-			/* title can be enhanced if not explicitly disabled */
-		    if (parametric) {
-			if (in_parametric)
-			    int_error(c_token, "\"title\" allowed only after parametric function fully specified");
-			else if (xtitle != NULL)
-			    xtitle[0] = '\0';       /* Remove default title . */
-		    }
-
-		    /* This ugliness is because columnheader can be either a keyword */
-		    /* or a function name.  Yes, the design could have been better. */
-		    if (almost_equals(c_token,"col$umnheader")
-		    && !(equals(c_token,"columnhead") && equals(c_token+1,"(")) ) {
-			df_set_key_title_columnhead(this_plot);
-		    } else if (equals(c_token,"at")) {
-			set_title = FALSE;
-		    } else {
-			char *temp;
-			evaluate_inside_using = TRUE;
-			temp = try_to_get_string();
-			evaluate_inside_using = FALSE; 
-			if (!this_plot->title_is_suppressed) {
-			    if (!(this_plot->title = temp))
-				int_error(c_token, "expecting \"title\" for plot");
-			}
-		    }
-		    if (equals(c_token,"at")) {
-			c_token++;
-			if (equals(c_token,"end"))
-			    this_plot->title_position = 1;
-			else if (almost_equals(c_token,"beg$inning"))
-			    this_plot->title_position = -1;
-			else
-			    int_error(c_token, "expecting \"at beginning\" or \"at end\"");
-			c_token++;
-		    }
+		parse_plot_title(this_plot, xtitle, NULL, &set_title);
+		if (save_token != c_token)
 		    continue;
-		}
-
-		if (almost_equals(c_token, "enh$anced")) {
-		    c_token++;
-		    this_plot->title_no_enhanced = FALSE;
-		    continue;
-		} else if (almost_equals(c_token, "noenh$anced")) {
-		    c_token++;
-		    this_plot->title_no_enhanced = TRUE;
-		    continue;
-		}
 
 		/* deal with style */
 		if (almost_equals(c_token, "w$ith")) {
@@ -2464,10 +2452,12 @@ eval_plots()
 		if (this_plot->plot_style != LABELPOINTS) {
 		    int stored_token = c_token;
 		    struct lp_style_type lp = DEFAULT_LP_STYLE_TYPE;
+		    int new_lt = 0;
 
 		    lp.l_type = line_num;
 		    lp.p_type = line_num;
 		    lp.d_type = line_num;
+		    this_plot->base_linetype = line_num;
 
 		    /* user may prefer explicit line styles */
 		    if (prefer_line_styles)
@@ -2478,8 +2468,8 @@ eval_plots()
 		    if (this_plot->plot_style == BOXPLOT)
 			lp.p_type = boxplot_opts.pointtype;
 
-		    lp_parse(&lp, LP_ADHOC,
-			     this_plot->plot_style & PLOT_STYLE_HAS_POINT);
+		    new_lt = lp_parse(&lp, LP_ADHOC,
+				     this_plot->plot_style & PLOT_STYLE_HAS_POINT);
 		    if (stored_token != c_token) {
 			if (set_lpstyle) {
 			    duplication=TRUE;
@@ -2487,6 +2477,8 @@ eval_plots()
 			} else {
 			    this_plot->lp_properties = lp;
 			    set_lpstyle = TRUE;
+			    if (new_lt)
+				this_plot->base_linetype = new_lt - 1;
 			    if (this_plot->lp_properties.p_type != PT_CHARACTER)
 				continue;
 			}
@@ -2506,7 +2498,7 @@ eval_plots()
 			this_plot->labels->pos = CENTRE;
 			this_plot->labels->layer = LAYER_PLOTLABELS;
 		    }
-		    parse_label_options(this_plot->labels, TRUE);
+		    parse_label_options(this_plot->labels, 2);
 		    if (stored_token != c_token) {
 			if (set_labelstyle) {
 			    duplication = TRUE;
@@ -2655,6 +2647,7 @@ eval_plots()
 		if (this_plot->labels == NULL) {
 		    this_plot->labels = new_text_label(-1);
 		    this_plot->labels->pos = CENTRE;
+		    parse_label_options(this_plot->labels, 2);
 		}
 	    }
 
@@ -2790,6 +2783,14 @@ eval_plots()
 		++line_num;
 	    }
 	    if (this_plot->plot_type == DATA) {
+
+		/* get_data() will update the ranges of autoscaled axes, but some */
+		/* plot modes, e.g. 'smooth cnorm' and 'boxplot' with nooutliers, */
+		/* do not want all the points included in autoscaling.  Save the  */
+		/* current autoscaled ranges here so we can restore them later.   */
+		save_autoscaled_ranges(&axis_array[this_plot->x_axis], 
+					&axis_array[this_plot->y_axis]);
+
 		/* actually get the data now */
 		if (get_data(this_plot) == 0) {
 		    if (!forever_iteration(plot_iterator))
@@ -2855,7 +2856,10 @@ eval_plots()
 		    break;
 		case SMOOTH_FREQUENCY:
 		case SMOOTH_CUMULATIVE:
+		    gen_interp_frequency(this_plot);
+		    break;
 		case SMOOTH_CUMULATIVE_NORMALISED:
+		    restore_autoscaled_ranges(NULL, &axis_array[this_plot->y_axis]);
 		    gen_interp_frequency(this_plot);
 		    break;
 		case SMOOTH_CSPLINES:
@@ -2910,12 +2914,12 @@ eval_plots()
 	if (empty_iteration(plot_iterator) && this_plot) {
 	    this_plot->plot_type = NODATA;
 	} else if (forever_iteration(plot_iterator) && (this_plot->plot_type == NODATA)) {
-	    highest_iteration = plot_iterator->iteration_current;
+	    highest_iteration = plot_iterator->iteration;
 	} else if (forever_iteration(plot_iterator) && (this_plot->plot_type == FUNC)) {
 	    int_error(NO_CARET,"unbounded iteration in function plot");
 	} else if (next_iteration(plot_iterator)) {
 	    c_token = start_token;
-	    highest_iteration = plot_iterator->iteration_current;
+	    highest_iteration = plot_iterator->iteration;
 	    continue;
 	}
 
@@ -2941,6 +2945,16 @@ eval_plots()
 
     /* parametric or polar fns can still affect x ranges */
     if (!parametric && !polar) {
+
+	/* Autoscaling on x used the primary axis, so we must transform */
+	/* the range that was found back onto the visible X axis.	*/
+	/* If we were _not_ autoscaling, well I guess it doesn't hurt.	*/
+	/* NB: clone_linked_axes() is overkill.				*/
+	if (nonlinear(&axis_array[FIRST_X_AXIS])) {
+	    clone_linked_axes(axis_array[FIRST_X_AXIS].linked_to_primary,
+				&axis_array[FIRST_X_AXIS]);
+	}
+
 	/* If we were expecting to autoscale on X but found no usable
 	 * points in the data files, then the axis limits are still sitting
 	 * at +/- VERYLARGE.  The default range for bare functions is [-10:10].
@@ -2957,7 +2971,7 @@ eval_plots()
 	axis_checked_extend_empty_range(FIRST_X_AXIS, "x range is invalid");
 
 	if (axis_array[SECOND_X_AXIS].linked_to_primary) {
-	    clone_linked_axes(FIRST_X_AXIS);
+	    clone_linked_axes(axis_array[SECOND_X_AXIS].linked_to_primary, &axis_array[SECOND_X_AXIS]);
 	    /* FIXME: This obsoletes OUTRANGE/INRANGE for secondary axis data */
 	} else if (uses_axis[SECOND_X_AXIS] & USES_AXIS_FOR_DATA) {
 	    /* check that x2min -> x2max is not too small */
@@ -3042,7 +3056,7 @@ eval_plots()
 
 		/* Check for a sampling range. */
 		/* Only relevant to function plots, and only needed in second pass. */
-		clear_sample_range(x_axis);
+		init_sample_range(axis_array + x_axis);
 		sample_range_token = parse_range(SAMPLE_AXIS);
 		dummy_func = &plot_func;
 
@@ -3068,21 +3082,29 @@ eval_plots()
 		    plot_func.at = at_ptr;
 
 		    if (!parametric && !polar) {
-			if (sample_range_token != 0) {
-			    t_min = axis_array[SAMPLE_AXIS].min;
-			    t_max = axis_array[SAMPLE_AXIS].max;
+			t_min = axis_array[SAMPLE_AXIS].min;
+			t_max = axis_array[SAMPLE_AXIS].max;
+			if (nonlinear(&axis_array[SAMPLE_AXIS])) {
+			    AXIS *primary = axis_array[SAMPLE_AXIS].linked_to_primary;
+			    t_min = eval_link_function(primary, t_min);
+			    t_max = eval_link_function(primary, t_max);
+			    FPRINTF((stderr,"sample range on primary axis: %g %g\n", t_min, t_max));
 			} else {
-			    t_min = X_AXIS.min;
-			    t_max = X_AXIS.max;
+			    /* FIXME: What if SAMPLE_AXIS is not x_axis? */
+			    axis_unlog_interval(&X_AXIS, &t_min, &t_max, 1);
 			}
-			/* FIXME: What if SAMPLE_AXIS is not x_axis? */
-			axis_unlog_interval(&X_AXIS, &t_min, &t_max, 1);
+
 			t_step = (t_max - t_min) / (samples_1 - 1);
 		    }
 		    for (i = 0; i < samples_1; i++) {
 			double x, temp;
 			struct value a;
 			double t = t_min + i * t_step;
+			if (nonlinear(&axis_array[SAMPLE_AXIS])) {
+			    AXIS *vis = axis_array[SAMPLE_AXIS].linked_to_primary->linked_to_secondary;
+			    t = eval_link_function(vis, t_min + i * t_step);
+			} else
+			    t = t_min + i * t_step;
 
 			/* Zero is often a special point in a function domain.	*/
 			/* Make sure we don't miss it due to round-off error.	*/
@@ -3140,12 +3162,14 @@ eval_plots()
 			    if (R_AXIS.log) {
 				temp = AXIS_DO_LOG(POLAR_AXIS,temp)
 				     - AXIS_DO_LOG(POLAR_AXIS,R_AXIS.min);
-			    } else
-			    if (!(R_AXIS.autoscale & AUTOSCALE_MIN))
+			    } else if (nonlinear(&R_AXIS)) {
+				AXIS *shadow = R_AXIS.linked_to_primary;
+				temp = eval_link_function(shadow, temp) - shadow->min;
+			    } else if (!(R_AXIS.autoscale & AUTOSCALE_MIN))
 				temp -= R_AXIS.min;
+
 			    y = temp * sin(phi * ang2rad);
 			    x = temp * cos(phi * ang2rad);
-
 
 			    if ((this_plot->plot_style == FILLEDCURVES) 
 			    &&  (this_plot->filledcurves_options.closeto == FILLEDCURVES_ATR)) {
@@ -3257,7 +3281,7 @@ eval_plots()
 
 	    /* Iterate-over-plot mechanism */
 	    if (next_iteration(plot_iterator)) {
-		if (plot_iterator->iteration_current <= highest_iteration) {
+		if (plot_iterator->iteration <= highest_iteration) {
 		    c_token = start_token;
 		    continue;
 		}
@@ -3291,7 +3315,8 @@ eval_plots()
     }   /* some_functions */
 
     /* if first_plot is NULL, we have no functions or data at all. This can
-     * happen, if you type "plot x=5", since x=5 is a variable assignment */
+     * happen if you type "plot x=5", since x=5 is a variable assignment.
+     */
 
     if (plot_num == 0 || first_plot == NULL) {
 	int_error(c_token, "no functions or data to plot");
@@ -3331,13 +3356,14 @@ eval_plots()
 	    axis_array[FIRST_X_AXIS].max = axis_array[SECOND_X_AXIS].max;
     }
 
-
-    if (uses_axis[FIRST_Y_AXIS]) {
+    if (uses_axis[FIRST_Y_AXIS] && nonlinear(&axis_array[FIRST_Y_AXIS])) {
+	clone_linked_axes(axis_array[FIRST_Y_AXIS].linked_to_primary, &axis_array[FIRST_Y_AXIS]);
+    } else if (uses_axis[FIRST_Y_AXIS]) {
 	axis_checked_extend_empty_range(FIRST_Y_AXIS, "all points y value undefined!");
 	axis_revert_and_unlog_range(FIRST_Y_AXIS);
     }
     if (uses_axis[SECOND_Y_AXIS] && axis_array[SECOND_Y_AXIS].linked_to_primary) {
-	clone_linked_axes(FIRST_Y_AXIS);
+	clone_linked_axes(axis_array[SECOND_Y_AXIS].linked_to_primary, &axis_array[SECOND_Y_AXIS]);
     } else if (uses_axis[SECOND_Y_AXIS]) {
 	axis_checked_extend_empty_range(SECOND_Y_AXIS, "all points y2 value undefined!");
 	axis_revert_and_unlog_range(SECOND_Y_AXIS);
@@ -3538,4 +3564,78 @@ parametric_fixup(struct curve_points *start_plot, int *plot_num)
 
     /* Ok, stick the free list at the end of the curve_points plot list. */
     *last_pointer = free_list;
+}
+
+/*
+ * Shared by plot and splot
+ */
+void
+parse_plot_title(struct curve_points *this_plot, char *xtitle, char *ytitle, TBOOLEAN *set_title)
+{
+    legend_key *key = &keyT;
+
+    if (almost_equals(c_token, "t$itle") || almost_equals(c_token, "not$itle")) {
+	if (*set_title)
+	    int_error(c_token, "duplicate title");
+	*set_title = TRUE;
+
+	/* title can be enhanced if not explicitly disabled */
+	this_plot->title_no_enhanced = !key->enhanced;
+
+	if (almost_equals(c_token++, "not$itle"))
+	    this_plot->title_is_suppressed = TRUE;
+
+	if (parametric || this_plot->title_is_suppressed) {
+	    if (in_parametric)
+		int_error(c_token, "title allowed only after parametric function fully specified");
+	    if (xtitle != NULL)
+		xtitle[0] = '\0';       /* Remove default title . */
+	    if (ytitle != NULL)
+		ytitle[0] = '\0';       /* Remove default title . */
+	    if (equals(c_token,","))
+		return;
+	}
+
+	/* This ugliness is because columnheader can be either a keyword */
+	/* or a function name.  Yes, the design could have been better. */
+	if (almost_equals(c_token,"col$umnheader")
+	&& !(equals(c_token,"columnhead") && equals(c_token+1,"(")) ) {
+	    df_set_key_title_columnhead(this_plot);
+	} else if (equals(c_token,"at")) {
+	    *set_title = FALSE;
+	} else {
+	    char *temp;
+	    evaluate_inside_using = TRUE;
+	    temp = try_to_get_string();
+	    evaluate_inside_using = FALSE;
+	    if (!this_plot->title_is_suppressed && !(this_plot->title = temp))
+		    int_error(c_token, "expecting \"title\" for plot");
+	}
+	if (equals(c_token,"at")) {
+	    int save_token = ++c_token;
+	    this_plot->title_position = gp_alloc(sizeof(t_position), NULL);
+	    if (equals(c_token,"end")) {
+		this_plot->title_position->scalex = character;
+		this_plot->title_position->x = 1;
+		c_token++;
+	    } else if (almost_equals(c_token,"beg$inning")) {
+		this_plot->title_position->scalex = character;
+		this_plot->title_position->x = -1;
+		c_token++;
+	    } else {
+		get_position_default(this_plot->title_position, screen, 2);
+	    }
+	    if (save_token == c_token)
+		int_error(c_token, "expecting \"at {beginning|end|<xpos>,<ypos>}\"");
+	}
+    }
+
+    if (almost_equals(c_token, "enh$anced")) {
+	c_token++;
+	this_plot->title_no_enhanced = FALSE;
+    } else if (almost_equals(c_token, "noenh$anced")) {
+	c_token++;
+	this_plot->title_no_enhanced = TRUE;
+    }
+
 }

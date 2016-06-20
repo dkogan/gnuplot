@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.167 2015/08/01 04:25:56 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.199 2016-06-09 20:06:53 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -56,6 +56,7 @@ static char *RCSid() { return RCSid("$Id: axis.c,v 1.167 2015/08/01 04:25:56 sfe
  * Note: This array is now initialized in reset_command().
  */
 AXIS axis_array[AXIS_ARRAY_SIZE];
+AXIS *shadow_axis_array;		/* Only if nonlinear axes are in use */
 
 /* Keep defaults varying by axis in their own array, to ease initialization
  * of the main array */
@@ -64,7 +65,7 @@ const AXIS_DEFAULTS axis_defaults[AXIS_ARRAY_SIZE] = {
     { -10, 10, "y" , TICS_ON_BORDER | TICS_MIRROR, },
     { -10, 10, "x" , TICS_ON_BORDER | TICS_MIRROR, },
     { -10, 10, "cb", TICS_ON_BORDER | TICS_MIRROR, },
-    { -10, 10, "z2", NO_TICS,                      },
+    { -10, 10, " z2", NO_TICS,                     },
     { -10, 10, "y2", NO_TICS,                      },
     { -10, 10, "x2", NO_TICS,                      },
     { - 0, 10, "r" , TICS_ON_AXIS,                 },
@@ -87,7 +88,7 @@ const struct gen_table axisname_tbl[] =
     { "y", FIRST_Y_AXIS},
     { "x", FIRST_X_AXIS},
     { "cb",COLOR_AXIS},
-    { "z2",SECOND_Z_AXIS},
+    { " z2",SECOND_Z_AXIS},
     { "y2",SECOND_Y_AXIS},
     { "x2",SECOND_X_AXIS},
     { "r", POLAR_AXIS},
@@ -128,11 +129,12 @@ const lp_style_type default_axis_zeroaxis = DEFAULT_AXIS_ZEROAXIS;
 
 /* grid drawing */
 /* int grid_selection = GRID_OFF; */
-#define DEFAULT_GRID_LP {0, LT_AXIS, 0, DASHTYPE_AXIS, 0, 0.5, 0.0, 0, {TC_LT, LT_AXIS, 0.0}, DEFAULT_DASHPATTERN}
+#define DEFAULT_GRID_LP {0, LT_AXIS, 0, DASHTYPE_AXIS, 0, 0.5, 0.0, DEFAULT_P_CHAR, {TC_LT, LT_AXIS, 0.0}, DEFAULT_DASHPATTERN}
 const struct lp_style_type default_grid_lp = DEFAULT_GRID_LP;
 struct lp_style_type grid_lp   = DEFAULT_GRID_LP;
 struct lp_style_type mgrid_lp  = DEFAULT_GRID_LP;
 int grid_layer = LAYER_BEHIND;
+TBOOLEAN grid_tics_in_front = FALSE;
 double polar_grid_angle = 0;	/* nonzero means a polar grid */
 TBOOLEAN raxis = TRUE;
 
@@ -148,6 +150,12 @@ TBOOLEAN inside_zoom;
 AXIS_INDEX x_axis = FIRST_X_AXIS;
 AXIS_INDEX y_axis = FIRST_Y_AXIS;
 AXIS_INDEX z_axis = FIRST_Z_AXIS;
+
+/* Only accessed by save_autoscaled_ranges() and restore_autoscaled_ranges() */
+static double save_autoscaled_xmin;
+static double save_autoscaled_xmax;
+static double save_autoscaled_ymin;
+static double save_autoscaled_ymax;
 
 /* --------- internal prototypes ------------------------- */
 static double make_auto_time_minitics __PROTO((t_timelevel, double));
@@ -165,7 +173,6 @@ static void get_position_type __PROTO((enum position_type * type, AXIS_INDEX *ax
 /* check range and take logs of min and max if logscale
  * this also restores min and max for ranges like [10:-10]
  */
-#define LOG_MSG(x) x " range must be greater than 0 for scale"
 
 /* {{{ axis_unlog_interval() */
 
@@ -238,7 +245,7 @@ axis_log_value_checked(AXIS_INDEX axis, double coord, const char *what)
 {
     if (axis_array[axis].log) {
 	if (coord <= 0.0) {
-	    graph_error("%s has %s coord of %g; must be above 0 for log scale!",
+	    int_error(NO_CARET, "%s has %s coord of %g; must be above 0 for log scale!",
 			what, axis_name(axis), coord);
 	} else
 	    return (AXIS_DO_LOG(axis,coord));
@@ -257,6 +264,15 @@ axis_name(AXIS_INDEX axis)
 	return name;
     }
     return (char *) axis_defaults[axis].name;
+}
+
+void
+init_sample_range(AXIS *axis)
+{
+    axis_array[SAMPLE_AXIS].range_flags = 0;
+    axis_array[SAMPLE_AXIS].min = axis->min;
+    axis_array[SAMPLE_AXIS].max = axis->max;
+    axis_array[SAMPLE_AXIS].linked_to_primary = axis->linked_to_primary;
 }
 
 /* 
@@ -550,9 +566,10 @@ copy_or_invent_formatstring(struct axis *this_axis)
 	    double axmin = axis_de_log_value(this_axis,this_axis->min);
 	    double axmax = axis_de_log_value(this_axis,this_axis->max);
 	    int precision = ceil(-log10(GPMIN(fabs(axmax-axmin),fabs(axmin))));
-
-	    if ((axmin*axmax > 0) && precision > 4)
-		sprintf(tempfmt,"%%.%df", (precision>14) ? 14 : precision);
+	    /* FIXME: Does horrible things for large value of precision */
+	    /* FIXME: Didn't I have a better patch for this? */
+	    if ((axmin*axmax > 0) && 4 < precision && precision < 10)
+		sprintf(tempfmt, "%%.%df", precision);
 	}
 
 	free(this_axis->ticfmt);
@@ -692,7 +709,7 @@ make_tics(struct axis *this_axis, int guide)
     /* FIXME HBB 20010831: disabling this might allow short log axis
      * to receive better ticking... */
     if (this_axis->log && tic < 1.0)
-	  tic = 1.0;
+	tic = 1.0;
 
     if (this_axis->tictype == DT_TIMEDATE)
 	return quantize_time_tics(this_axis, tic, xr, guide);
@@ -846,13 +863,14 @@ setup_tics(struct axis *this, int max)
     double tic = 0;
     struct ticdef *ticdef = &(this->ticdef);
 
-    /* HBB 20010703: New: allow _not_ to autoextend the axis endpoints
-     * to an integer multiple of the ticstep, for autoscaled axes with
-     * automatic tics */
+    /* Do we or do we not extend the axis range to the	*/
+    /* next integer multiple of the ticstep?		*/
     TBOOLEAN autoextend_min = (this->autoscale & AUTOSCALE_MIN)
 	&& ! (this->autoscale & AUTOSCALE_FIXMIN);
     TBOOLEAN autoextend_max = (this->autoscale & AUTOSCALE_MAX)
 	&& ! (this->autoscale & AUTOSCALE_FIXMAX);
+    if (this->linked_to_primary || this->linked_to_secondary)
+	autoextend_min = autoextend_max = FALSE;
 
     /*  Apply constraints on autoscaled axis if requested:
      *  The range is _expanded_ here only.  Limiting the range is done
@@ -903,14 +921,6 @@ setup_tics(struct axis *this, int max)
 	else                           this->timelevel = TIMELEVEL_SECONDS;
     }
 
-    /* Note: setup_tics is always called on the primary axis first, so we can
-     * clone that rather than trying to reproduce it for the secondary axis.
-     */
-    if (this->linked_to_primary) {
-	clone_linked_axes(this->linked_to_primary - axis_array);
-	autoextend_min = autoextend_max = FALSE;
-    }
-
     if (autoextend_min) {
 	this->min = round_outward(this, ! (this->min < this->max), this->min);
 	if (this->min_constraint & CONSTRAINT_LOWER && this->min < this->min_lb)
@@ -931,8 +941,7 @@ setup_tics(struct axis *this, int max)
 /* }}} */
 
 /* {{{  gen_tics */
-/* We use any of GRID_X/Y/X2/Y2/Z and  _MX/_MX2/etc - caller is expected
- * to clear the irrelevent fields from global grid bitmask.
+/*
  * Mar 2015: Modified to take an axis pointer rather than an index into axis_array[].
  */
 void
@@ -943,6 +952,12 @@ gen_tics(struct axis *this, tic_callback callback)
 
     struct lp_style_type lgrd = grid_lp;
     struct lp_style_type mgrd = mgrid_lp;
+
+    /* gprintf uses log10() of base */
+    double log10_base;
+    if (this->base == 0.0)
+	this->base = 10.0;
+    log10_base = log10(this->base);
 
     if (! this->gridmajor)
 	lgrd.l_type = LT_NODRAW;
@@ -959,11 +974,6 @@ gen_tics(struct axis *this, tic_callback callback)
 	double uncertain = (this->max - this->min) / 10;
 	double internal_min = this->min - SIGNIF * uncertain;
 	double internal_max = this->max + SIGNIF * uncertain;
-#if 0
-	double log10_base = this->log ? log10(this->base) : 1.0;
-#else	/* This allows gprintf formats %L %l to work even when log scaling is off */
-	double log10_base = this->base > 0.0 ? log10(this->base) : 1.0;
-#endif
 	double polar_shift = 0;
 
 	/* polar labels always +ve, and if rmin has been set, they are
@@ -982,11 +992,18 @@ gen_tics(struct axis *this, tic_callback callback)
 	    double internal;
 
 	    /* This condition is only possible if we are in polar mode */
-	    if (this->index == POLAR_AXIS)
-		internal = axis_log_value(this, mark->position)
-			 - axis_log_value(this, polar_shift);
-	    else
+	    if (this->index == POLAR_AXIS) {
+#ifdef NONLINEAR_AXES
+		if (this->linked_to_primary)
+		    internal = eval_link_function(this->linked_to_primary, mark->position)
+			     - eval_link_function(this->linked_to_primary, polar_shift);
+		else
+#endif
+		    internal = axis_log_value(this, mark->position)
+			     - axis_log_value(this, polar_shift);
+	    } else {
 		internal = axis_log_value(this, mark->position) - polar_shift;
+	    }
 
 	    if (!inrange(internal, internal_min, internal_max))
 		continue;
@@ -1059,12 +1076,6 @@ gen_tics(struct axis *this, tic_callback callback)
 	double internal_min, internal_max;	/* to allow for rounding errors */
 	double ministart = 0, ministep = 1, miniend = 1;	/* internal or user - depends on step */
 
-	/* gprintf uses log10() of base - log_base_array is log() */
-#if 0
-	double log10_base = this->log ? log10(this->base) : 1.0;
-#else	/* This allows gprintf formats %L %l to work even when log scaling is off */
-	double log10_base = this->base > 0.0 ? log10(this->base) : 1.0;
-#endif
 	if (lmax < lmin) {
 	    /* hmm - they have set reversed range for some reason */
 	    double temp = lmin;
@@ -1098,6 +1109,14 @@ gen_tics(struct axis *this, tic_callback callback)
 	    }
 	    break;
 	case TIC_COMPUTED:
+	    if (nonlinear(this) && this->ticdef.logscaling) {
+		lmin = this->linked_to_primary->min;
+		lmax = this->linked_to_primary->max;
+		this->ticstep = make_tics(this->linked_to_primary, 20);
+		/* It may be that we _always_ want ticstep = 1.0 */
+		if (this->ticstep < 1.0)
+		    this->ticstep = 1.0;
+	    }
 	    /* round to multiple of step */
 	    start = this->ticstep * floor(lmin / this->ticstep);
 	    step = this->ticstep;
@@ -1118,7 +1137,7 @@ gen_tics(struct axis *this, tic_callback callback)
 		step = 1;
 	    break;
 	default:
-	    graph_error("Internal error : unknown tic type");
+	    int_error(NO_CARET,"Internal error : unknown tic type");
 	    return;		/* avoid gcc -Wall warning about start */
 	}
 	/* }}} */
@@ -1134,24 +1153,28 @@ gen_tics(struct axis *this, tic_callback callback)
 	/* }}} */
 
 	if ((minitics != MINI_OFF) && (this->miniticscale != 0)) {
-	    FPRINTF((stderr,"axis.c: %d  start = %g end = %g step = %g\n", 
-			__LINE__, start, end, step));
+	    FPRINTF((stderr,"axis.c: %d  start = %g end = %g step = %g base = %g\n", 
+			__LINE__, start, end, step, this->base));
 	    /* {{{  figure out ministart, ministep, miniend */
 	    if (minitics == MINI_USER) {
 		/* they have said what they want */
-		if (this->mtic_freq <= 0)
+		if (this->mtic_freq <= 0) {
 		    minitics = MINI_OFF;
- 		else if (this->log) {
+ 		} else if (nonlinear(this)) {
+		    ministart = ministep = step / this->mtic_freq;
+		    miniend = step;
+ 		} else if (this->log || (this->linked_to_primary && def->logscaling)) {
+		    /* NB: Can't get here if "set log" is implemented as nonlinear */
  		    ministart = ministep = step / this->mtic_freq * this->base;
  		    miniend = step * this->base;
 		    /* Suppress minitics that would lie on top of major tic */
-		    while (ministart <= 1)
+		    while (ministart <= 1 && ministep > 0)
 			ministart += ministep;
  		} else {
 		    ministart = ministep = step / this->mtic_freq;
 		    miniend = step;
  		}
-	    } else if (this->log) {
+	    } else if (this->log || (this->linked_to_primary && def->logscaling)) {
 		if (step > 1.5) {	/* beware rounding errors */
 		    /* {{{  10,100,1000 case */
 		    /* no more than five minitics */
@@ -1244,15 +1267,24 @@ gen_tics(struct axis *this, tic_callback callback)
 	    if (this->index == POLAR_AXIS) {
 		/* Defer translation until after limit check */
 		internal = tic;
-	    } else if (!this->log) {
+#ifdef NONLINEAR_AXES
+	    } else if (this->linked_to_primary && (def->type == TIC_COMPUTED) && def->logscaling) {
+		internal = tic;
+		user = eval_link_function(this->linked_to_primary->linked_to_secondary, tic);
+	    } else if (nonlinear(this) && def->type == TIC_SERIES) {
+		user = tic;
+		internal = tic;	/* But it isn't really, so this is confusing! */
+#endif
+	    } else if (this->log) {
+		/* log scale => dont need to worry about zero ? */
+		internal = tic;
+		user = axis_undo_log(this, internal);
+	    } else {
+		/* Normal case (no log, no link) */
 		internal = (this->tictype == DT_TIMEDATE)
 		    ? time_tic_just(this->timelevel, tic)
 		    : tic;
 		user = CheckZero(internal, step);
-	    } else {
-		/* log scale => dont need to worry about zero ? */
-		internal = tic;
-		user = axis_undo_log(this, internal);
 	    }
 	    /* }}} */
 	    if (internal > internal_max)
@@ -1278,6 +1310,8 @@ gen_tics(struct axis *this, tic_callback callback)
 		    }
 		default:{	/* comp or series */
 			char label[MAX_ID_LEN]; /* Leave room for enhanced text markup */
+			double position = 0;
+
 			if (this->tictype == DT_TIMEDATE) {
 			    /* If they are doing polar time plot, good luck to them */
 			    gstrftime(label, MAX_ID_LEN-1, this->ticfmt, (double) user);
@@ -1300,18 +1334,26 @@ gen_tics(struct axis *this, tic_callback callback)
 			    gprintf(label, sizeof(label), this->ticfmt, log10_base, user);
 			}
 
+			/* This is where we finally decided to put the tic mark */
+#ifdef NONLINEAR_AXES
+			if (this->linked_to_primary && (def->type == TIC_COMPUTED || def->type == TIC_SERIES) && def->logscaling)
+			    position = user;
+			else
+#endif
+			    position = internal;
+
 			/* Range-limited tic placement */
 			if (def->rangelimited
-			&&  !inrange(internal,this->data_min,this->data_max))
+			&&  !inrange(position, this->data_min, this->data_max))
 			    continue;
 
-			(*callback) (this, internal, label, 0, lgrd, def->def.user);
+			(*callback) (this, position, label, 0, lgrd, def->def.user);
 
 	 		/* Polar axis tics are mirrored across the origin */
 			if (this->index == POLAR_AXIS && (this->ticmode & TICS_MIRROR)) {
 			    int save_gridline = lgrd.l_type;
 			    lgrd.l_type = LT_NODRAW;
-			    (*callback) (this, -internal, label, 0, lgrd, def->def.user);
+			    (*callback) (this, -position, label, 0, lgrd, def->def.user);
 			    lgrd.l_type = save_gridline;
 			}
 		    }
@@ -1322,14 +1364,37 @@ gen_tics(struct axis *this, tic_callback callback)
 	    if ((minitics != MINI_OFF) && (this->miniticscale != 0)) {
 		/* {{{  process minitics */
 		double mplace, mtic, temptic;
+		FPRINTF((stderr,"minitics start end step %g %g %g\n", ministart, miniend, ministep));
 		for (mplace = ministart; mplace < miniend; mplace += ministep) {
-		    if (this->tictype == DT_TIMEDATE)
+		    if (this->tictype == DT_TIMEDATE) {
 			mtic = time_tic_just(this->timelevel - 1, internal + mplace);
-		    else
+			temptic = mtic;
+#ifdef NONLINEAR_AXES
+		    } else if (nonlinear(this) && this->minitics == MINI_USER) {
+			temptic = internal + mplace;
+			if (this->ticdef.type == TIC_COMPUTED)
+			    mtic = eval_link_function(this, temptic);
+			else
+			    mtic =temptic;
+		    } else if (this->linked_to_primary && def->logscaling) {
+			mtic = user * mplace;
+			temptic = internal + eval_link_function(this->linked_to_primary, mplace);
+			FPRINTF((stderr,"minitic internal %g user %g mplace %g step %g temptic %g -> mtic %g\n",
+				internal, user, mplace, step, temptic, mtic));
+#endif
+		    } else {
 			mtic = internal
 			    + (this->log && step <= 1.5 ? axis_do_log(this,mplace) : mplace);
-		    temptic = mtic;
-		    if (polar && this->index == POLAR_AXIS) temptic += R_AXIS.min;
+			temptic = mtic;
+		    }
+		    if (polar && this->index == POLAR_AXIS)
+			temptic += R_AXIS.min;
+
+		    /* Range-limited tic placement */
+		    if (def->rangelimited
+		    &&  !inrange(temptic, this->data_min, this->data_max))
+			continue;
+
 		    if (inrange(temptic, internal_min, internal_max)
 			&& inrange(temptic, start - step * SIGNIF, end + step * SIGNIF))
 			(*callback) (this, mtic, NULL, 1, mgrd, NULL);
@@ -1519,13 +1584,21 @@ axis_output_tics(
 
 /* }}} */
 
-/* {{{ axis_set_graphical_range() */
-
+/* {{{ axis_set_scale_and_range() */
 void
-axis_set_graphical_range(AXIS_INDEX axis, unsigned int lower, unsigned int upper)
+axis_set_scale_and_range(struct axis *axis, unsigned int lower, unsigned int upper)
 {
-    axis_array[axis].term_lower = lower;
-    axis_array[axis].term_upper = upper;
+    axis->term_scale = (upper - lower) / (axis->max - axis->min);
+    axis->term_lower = lower;
+    axis->term_upper = upper;
+#ifdef NONLINEAR_AXES
+    if (axis->linked_to_primary && axis->linked_to_primary->index <= 0) {
+	axis = axis->linked_to_primary;
+	axis->term_scale = (upper - lower) / (axis->max - axis->min);
+	axis->term_lower = lower;
+	axis->term_upper = upper;
+    }
+#endif
 }
 /* }}} */
 
@@ -1845,6 +1918,36 @@ set_cbminmax()
 	CB_AXIS.max = CB_AXIS.min;
 	CB_AXIS.min = tmp;
     }
+#ifdef NONLINEAR_AXES
+    if (CB_AXIS.linked_to_primary)
+	clone_linked_axes(&CB_AXIS, CB_AXIS.linked_to_primary);
+#endif
+}
+
+void
+save_autoscaled_ranges(AXIS *x_axis, AXIS *y_axis)
+{
+    if (x_axis) {
+	save_autoscaled_xmin = x_axis->min;
+	save_autoscaled_xmax = x_axis->max;
+    }
+    if (y_axis) {
+	save_autoscaled_ymin = y_axis->min;
+	save_autoscaled_ymax = y_axis->max;
+    }
+}
+
+void
+restore_autoscaled_ranges(AXIS *x_axis, AXIS *y_axis)
+{
+    if (x_axis) {
+	x_axis->min = save_autoscaled_xmin;
+	x_axis->max = save_autoscaled_xmax;
+    }
+    if (y_axis) {
+	y_axis->min = save_autoscaled_ymin;
+	y_axis->max = save_autoscaled_ymax;
+    }
 }
 
 static void
@@ -1883,14 +1986,16 @@ get_position_type(enum position_type *type, AXIS_INDEX *axes)
 void
 get_position(struct position *pos)
 {
-    get_position_default(pos, first_axes);
+    get_position_default(pos, first_axes, 3);
 }
 
 /* get_position() - reads a position for label,arrow,key,...
  * with given default coordinate system
+ * ndim = 2 only reads x,y
+ * otherwise it reads x,y,z
  */
 void
-get_position_default(struct position *pos, enum position_type default_type)
+get_position_default(struct position *pos, enum position_type default_type, int ndim)
 {
     AXIS_INDEX axes;
     enum position_type type = default_type;
@@ -1911,12 +2016,8 @@ get_position_default(struct position *pos, enum position_type default_type)
 	pos->scaley = type;
     }
 
-    /* z is not really allowed for a screen co-ordinate, but keep it simple ! */
-    if (equals(c_token, ",")
-       /* Partial fix for ambiguous syntax when trailing comma ends a plot command */
-	&& !(isstringvalue(c_token+1)) && !(almost_equals(c_token+1,"newhist$ogram"))
-	&& !(almost_equals(c_token+1,"for"))
-       ) {
+    /* Resolves ambiguous syntax when trailing comma ends a plot command */
+    if (ndim != 2 && equals(c_token, ",")) {
 	++c_token;
 	get_position_type(&type, &axes);
 	/* HBB 2015-01-28: no secondary Z axis, so patch up if it was selected */
@@ -1936,7 +2037,7 @@ get_position_default(struct position *pos, enum position_type default_type)
  * Add a single tic mark, with label, to the list for this axis.
  * To avoid duplications and overprints, sort the list and allow
  * only one label per position.
- * EAM - called from set.c during `set xtics` (level = 0 or 1)
+ * EAM - called from set.c during `set xtics` (level >= 0)
  *       called from datafile.c during `plot using ::xtic()` (level = -1)
  */
 void
@@ -2129,6 +2230,13 @@ parse_range(AXIS_INDEX axis)
 	}
 	this_axis->autoscale =
 		load_range(this_axis, &this_axis->min, &this_axis->max, this_axis->autoscale);
+#ifdef NONLINEAR_AXES
+	if (this_axis->linked_to_primary) {
+	    AXIS *primary = this_axis->linked_to_primary;
+	    primary->min = eval_link_function(primary, this_axis->min);
+	    primary->max = eval_link_function(primary, this_axis->max);
+	}
+#endif
 
 	/* EXPERIMENTAL: optional sample interval */
 	if (axis == SAMPLE_AXIS) {
@@ -2158,48 +2266,139 @@ parse_skip_range()
 }
 
 /*
- * When a secondary axis is linked to the corresponding primary axis,
- * this routine copies the relevant range/scale data
+ * When a secondary axis (axis2) is linked to the corresponding primary
+ * axis (axis1), this routine copies the relevant range/scale data
  */
 void
-clone_linked_axes(AXIS_INDEX axis1)
+clone_linked_axes(AXIS *axis1, AXIS *axis2)
 {
     double testmin, testmax;
-    AXIS_INDEX axis2 = AXIS_MAP_FROM_FIRST_TO_SECOND(axis1);
+    TBOOLEAN suspect = FALSE;
 
-    if (   (! AXIS_IS_FIRST(axis1))
-	|| (! axis_array[axis2].linked_to_primary)
-       )
-	/* nothing to do here.  Done */
+    /* DEBUG: This sanity check is only here for debugging */
+    if (axis1 != axis2->linked_to_primary && axis1 != axis2->linked_to_secondary) {
+	fprintf(stderr, "clone_linked_axes called for axes that are not linked\n");
+	/* No linkage, so nothing to do here */
 	return;
+    }
 
-    memcpy(axis_array + axis2, axis_array + axis1, AXIS_CLONE_SIZE);
-    if (axis_array[axis2].link_udf == NULL || axis_array[axis2].link_udf->at == NULL)
+    memcpy(axis2, axis1, AXIS_CLONE_SIZE);
+    if (axis2->link_udf == NULL || axis2->link_udf->at == NULL)
 	return;
 
     /* Transform the min/max limits of linked secondary axis */
-	axis_array[axis2].set_min = eval_link_function(axis2, axis_array[axis1].set_min);
-	axis_array[axis2].set_max = eval_link_function(axis2, axis_array[axis1].set_max);
-	axis_array[axis2].min = eval_link_function(axis2, axis_array[axis1].min);
-	axis_array[axis2].max = eval_link_function(axis2, axis_array[axis1].max);
+    inverse_function_sanity_check:
+	axis2->set_min = eval_link_function(axis2, axis1->set_min);
+	axis2->set_max = eval_link_function(axis2, axis1->set_max);
+	axis2->min = eval_link_function(axis2, axis1->min);
+	axis2->max = eval_link_function(axis2, axis1->max);
 
-	if (isnan(axis_array[axis2].min) || isnan(axis_array[axis2].set_min)
-	||  isnan(axis_array[axis2].max) || isnan(axis_array[axis2].set_max))
-	    int_warn(NO_CARET, "axis mapping function must return a real value");
+    /* Confirm that the inverse mapping actually works, at least at the endpoints */
+	if (isnan(axis2->set_min) || isnan(axis2->set_max))
+	    suspect = TRUE;
+	testmin = eval_link_function(axis1, axis2->set_min);
+	testmax = eval_link_function(axis1, axis2->set_max);
+	if (fabs(testmin - axis1->set_min) != 0
+	&&  fabs((testmin - axis1->set_min) / testmin) > 1.e-6)
+	    suspect = TRUE;
+	if (fabs(testmax - axis1->set_max) != 0
+	&&  fabs((testmax - axis1->set_max) / testmax) > 1.e-6)
+	    suspect = TRUE;
 
-    /* Confirm that the inverse mapping actually works */
-    /* FIXME:  Should we test values in between the endpoints also? */
-	testmin = eval_link_function(axis1, axis_array[axis2].set_min);
-	testmax = eval_link_function(axis1, axis_array[axis2].set_max);
-	if (fabs((testmin - axis_array[axis1].set_min) / testmin) < 1.e-6
-	&&  fabs((testmax - axis_array[axis1].set_max) / testmax) < 1.e-6) {
-	    /* OK */
-	} else {
+	if (suspect) {
+	    /* Give it one chance to ignore a bad default range [-10:10] */
+	    if (((axis1->autoscale & AUTOSCALE_MIN) == AUTOSCALE_MIN)
+	    &&  axis1->set_min <= 0 && axis1->set_max > 0.1) {
+		axis1->set_min = 0.1;
+		suspect = FALSE;
+		goto inverse_function_sanity_check;
+	    }
 	    int_warn(NO_CARET, "could not confirm linked axis inverse mapping function");
-	    fprintf(stderr,"\tmin: %g inv(via(min)): %g", axis_array[axis1].set_min, testmin);
-	    fprintf(stderr,"  max: %g inv(via(max)): %g\n", axis_array[axis1].set_max, testmax);
+	    fprintf(stderr,"\tmin: %g inv(via(min)): %g", axis1->set_min, testmin);
+	    fprintf(stderr,"  max: %g inv(via(max)): %g\n", axis1->set_max, testmax);
 	}
 }
+
+/* Evaluate the function linking secondary axis to primary axis */
+double
+eval_link_function(struct axis *axis, double raw_coord)
+{
+    udft_entry *link_udf = axis->link_udf;
+    int dummy_var;
+    struct value a;
+
+    if (abs(axis->index) == FIRST_Y_AXIS || abs(axis->index) == SECOND_Y_AXIS)
+	dummy_var = 1;
+    else
+	dummy_var = 0;
+    link_udf->dummy_values[1-dummy_var].type = INVALID_NAME;
+
+    Gcomplex(&link_udf->dummy_values[dummy_var], raw_coord, 0.0);
+    evaluate_at(link_udf->at, &a);
+
+    if (undefined || a.type != CMPLX) {
+	FPRINTF((stderr, "eval_link_function(%g) returned %s\n",
+		raw_coord, undefined ? "undefined" : "unexpected type"));
+	a = udv_NaN->udv_value;
+    }
+    if (isnan(a.v.cmplx_val.real))
+	undefined = TRUE;
+
+    return a.v.cmplx_val.real;
+}
+
+#ifdef NONLINEAR_AXES
+/*
+ * Obtain and initialize a shadow axis.
+ * The details are hidden from the rest of the code (dynamic/static allocation, etc).
+ */
+AXIS *
+get_shadow_axis(AXIS *axis)
+{
+    AXIS *primary = NULL;
+    AXIS *secondary = axis;
+    int i;
+
+    /* This implementation uses a dynamically allocated array of shadow axis	*/
+    /* structures that is allocated on first use and reused after that. 	*/
+    if (!shadow_axis_array) {
+	shadow_axis_array = gp_alloc( NUMBER_OF_MAIN_VISIBLE_AXES * sizeof(AXIS), NULL);
+	for (i=0; i<NUMBER_OF_MAIN_VISIBLE_AXES; i++)
+	    memcpy(&shadow_axis_array[i], &default_axis_state, sizeof(AXIS));
+    }
+
+    if (axis->index != SAMPLE_AXIS && axis->index < NUMBER_OF_MAIN_VISIBLE_AXES)
+	primary = &shadow_axis_array[axis->index];
+    else
+	int_error(NO_CARET, "invalid shadow axis");
+
+    primary->index = -secondary->index;
+
+    return primary;
+}
+
+/*
+ * This is necessary if we are to reproduce the old logscaling.
+ * Extend the tic range on an independent log-scaled axis to the
+ * nearest power of 10.
+ */
+void
+extend_primary_ticrange(AXIS *axis)
+{
+    AXIS *primary = axis->linked_to_primary;
+
+    if (axis->ticdef.logscaling) {
+	/* NB: "zero" is the minimum non-zero value from "set zero" */
+	if ((primary->autoscale & AUTOSCALE_MIN)
+	||  fabs(primary->min - floor(primary->min)) < zero)
+	    primary->min = floor(primary->min);
+	if ((primary->autoscale & AUTOSCALE_MAX)
+	||  fabs(primary->max - ceil(primary->max)) < zero)
+	    primary->max = ceil(primary->max);
+    }
+}
+#endif
+
 
 /*
  * Check for linked-axis coordinate transformation given by command
@@ -2211,13 +2410,14 @@ clone_linked_axes(AXIS_INDEX axis1)
 int
 map_x(double value)
 {
-    if ((x_axis == SECOND_X_AXIS) 
-    &&  axis_array[SECOND_X_AXIS].linked_to_primary
-    &&  axis_array[SECOND_X_AXIS].link_udf->at != NULL) {
-	if (axis_array[FIRST_X_AXIS].link_udf->at == NULL)
-	    int_error(NO_CARET, "No inverse mapping function available for x2 data");
-	value = eval_link_function(FIRST_X_AXIS, value);
-	return AXIS_MAP(FIRST_X_AXIS, value);
+    if (axis_array[x_axis].linked_to_primary) {
+	AXIS *primary = axis_array[x_axis].linked_to_primary;
+	if (primary->link_udf->at) {
+	    value = eval_link_function(primary, value);
+	    if (undefined)
+		return intNaN;
+	    return axis_map(primary, value);
+	}
     }
     return AXIS_MAP(x_axis, value);
 }
@@ -2225,13 +2425,14 @@ map_x(double value)
 int
 map_y(double value)
 {
-    if ((y_axis == SECOND_Y_AXIS)
-    &&  axis_array[SECOND_Y_AXIS].linked_to_primary
-    &&  axis_array[SECOND_Y_AXIS].link_udf->at != NULL) {
-	if (axis_array[FIRST_Y_AXIS].link_udf->at == NULL)
-	    int_error(NO_CARET, "No inverse mapping function available for y2 data");
-	value = eval_link_function(FIRST_Y_AXIS, value);
-	return AXIS_MAP(FIRST_Y_AXIS, value);
+    if (axis_array[y_axis].linked_to_primary) {
+	AXIS *primary = axis_array[y_axis].linked_to_primary;
+	if (primary->link_udf->at) {
+	    value = eval_link_function(primary, value);
+	    if (undefined)
+		return intNaN;
+	    return axis_map(primary, value);
+	}
     }
     return AXIS_MAP(y_axis, value);
 }

@@ -1,5 +1,5 @@
 /*
- * $Id: parse.h,v 1.31 2015/08/19 18:06:08 sfeam Exp $
+ * $Id: parse.h,v 1.33 2016-06-18 06:00:16 sfeam Exp $
  */
 
 /* GNUPLOT - parse.h */
@@ -64,6 +64,9 @@ extern int at_highest_column_used;
 /* This is checked by df_readascii() */
 extern TBOOLEAN parse_1st_row_as_headers;
 
+/* This is used by df_open() and df_readascii() */
+extern udvt_entry *df_array;
+
 /* Protection mechanism for trying to parse a string followed by a + or - sign.
  * Also suppresses an undefined variable message if an unrecognized token
  * is encountered during try_to_get_string().
@@ -95,8 +98,8 @@ typedef struct iterator {
 	int iteration_start;
 	int iteration_end;
 	int iteration_increment;
-	int iteration_current;
-	int iteration;
+	int iteration_current;	/* start + increment * iteration */
+	int iteration;		/* runs from 0 to (end-start)/increment */
 	TBOOLEAN done;
 	TBOOLEAN really_done;
 	TBOOLEAN empty_iteration;

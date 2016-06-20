@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.199 2015/08/08 18:32:17 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.205 2016-05-21 05:35:38 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -54,8 +54,14 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.199 2015/08/08 18:32:17 sfe
 #if defined(HAVE_DIRENT_H)
 # include <sys/types.h>
 # include <dirent.h>
-#elif defined(_Windows)
-# include <windows.h>
+#elif defined(_WIN32)
+/* Windows version of opendir() and friends in stdfn.c */
+# ifdef __WATCOM
+#  include <direct.h>
+# endif
+#endif
+#ifdef _WIN32
+# include "win/winmain.h"
 #endif
 
 static char *recursivefullname __PROTO((const char *path, const char *filename, TBOOLEAN recursive));
@@ -594,20 +600,17 @@ loadpath_fopen(const char *filename, const char *mode)
 
 	if (fullname)
 	    free(fullname);
-
     }
 
-#ifdef _Windows
+#ifdef _WIN32
     if (fp != NULL)
-	setmode(fileno(fp), _O_BINARY);
+	_setmode(_fileno(fp), _O_BINARY);
 #endif
     return fp;
 }
 
 
 /* Harald Harders <h.harders@tu-bs.de> */
-/* Thanks to John Bollinger <jab@bollingerbands.com> who has tested the
-   windows part */
 static char *
 recursivefullname(const char *path, const char *filename, TBOOLEAN recursive)
 {
@@ -629,7 +632,7 @@ recursivefullname(const char *path, const char *filename, TBOOLEAN recursive)
     }
 
     if (recursive) {
-#ifdef HAVE_DIRENT_H
+#if defined HAVE_DIRENT_H || defined(_WIN32)
 	DIR *dir;
 	struct dirent *direntry;
 	struct stat buf;
@@ -637,7 +640,7 @@ recursivefullname(const char *path, const char *filename, TBOOLEAN recursive)
 	dir = opendir(path);
 	if (dir) {
 	    while ((direntry = readdir(dir)) != NULL) {
-		char *fulldir = gp_alloc(strlen(path) + 1 + strlen(direntry->d_name) + 1,
+		char *fulldir = (char *) gp_alloc(strlen(path) + 1 + strlen(direntry->d_name) + 1,
 					 "fontpath_fullname");
 		strcpy(fulldir, path);
 #  if defined(VMS)
@@ -661,34 +664,6 @@ recursivefullname(const char *path, const char *filename, TBOOLEAN recursive)
 	    }
 	    closedir(dir);
 	}
-#elif defined(_Windows)
-	HANDLE filehandle;
-	WIN32_FIND_DATA finddata;
-	char *pathwildcard = gp_alloc(strlen(path) + 2, "fontpath_fullname");
-
-	strcpy(pathwildcard, path);
-	PATH_CONCAT(pathwildcard, "*");
-
-	filehandle = FindFirstFile(pathwildcard, &finddata);
-	free(pathwildcard);
-	if (filehandle != INVALID_HANDLE_VALUE)
-	    do {
-		if ((finddata.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
-		    (strcmp(finddata.cFileName, ".") != 0) &&
-		    (strcmp(finddata.cFileName, "..") != 0)) {
-		    char *fulldir = gp_alloc(strlen(path) + 1 + strlen(finddata.cFileName) + 1,
-					     "fontpath_fullname");
-		    strcpy(fulldir, path);
-		    PATH_CONCAT(fulldir, finddata.cFileName);
-
-		    fullname = recursivefullname(fulldir, filename, TRUE);
-		    free(fulldir);
-		    if (fullname != NULL)
-			break;
-		}
-	    } while (FindNextFile(filehandle, &finddata) != 0);
-	FindClose(filehandle);
-
 #else
 	int_warn(NO_CARET, "Recursive directory search not supported\n\t('%s!')", path);
 #endif
@@ -728,7 +703,6 @@ fontpath_fullname(const char *filename)
 	    }
 	    free(path);
 	}
-
     } else
 	fullname = gp_strdup(filename);
 
@@ -980,9 +954,13 @@ parse_dashtype(struct t_dashtype *dt)
     /* FIXME: Is the index enough or should we copy its contents into this one? */
     /* FIXME: What happens if there is a recursive definition? */
     } else {
-	res = int_expression() - 1;
+	res = int_expression();
 	if (res < 0)
-	    int_error(c_token - 1, "tag must be > 0");
+	    int_error(c_token - 1, "dashtype must be non-negative");
+	if (res == 0)
+	    res = DASHTYPE_AXIS;
+	else
+	    res = res - 1;
     }
 
     return res;
@@ -1158,13 +1136,16 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
 		    /* An alternative mechanism would be to use
 		     * utf8toulong(&newlp.p_char, symbol);
 		     */
-		    strncpy((char *)(&newlp.p_char), symbol, 3);
+		    strncpy(newlp.p_char, symbol, sizeof(newlp.p_char)-1);
 		    /* Truncate ascii text to single character */
-		    if ((((char *)&newlp.p_char)[0] & 0x80) == 0)
-			((char *)&newlp.p_char)[1] = '\0';
-		    /* UTF-8 characters may use up to 3 bytes */
-		    ((char *)&newlp.p_char)[3] = '\0';
+		    if ((newlp.p_char[0] & 0x80) == 0)
+			newlp.p_char[1] = '\0';
+		    /* strncpy does not guarantee null-termination */
+		    newlp.p_char[sizeof(newlp.p_char)-1] = '\0';
 		    free(symbol);
+		} else if (almost_equals(c_token, "var$iable") && (destination_class == LP_ADHOC)) {
+		    newlp.p_type = PT_VARIABLE;
+		    c_token++;
 		} else {
 		    newlp.p_type = int_expression() - 1;
 		}
@@ -1218,6 +1199,8 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
 	    tmp = parse_dashtype(&newlp.custom_dash_pattern);
 	    /* Pull the dashtype from the list of already defined dashtypes, */
 	    /* but only if it we didn't get an explicit one back from parse_dashtype */ 
+	    if (tmp == DASHTYPE_AXIS)
+		lp->l_type = LT_AXIS;
 	    if (tmp >= 0)
 		tmp = load_dashtype(&newlp.custom_dash_pattern, tmp + 1);
 	    newlp.d_type = tmp;
@@ -1243,7 +1226,7 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
 	lp->l_width = newlp.l_width;
     if (set_pt) {
 	lp->p_type = newlp.p_type;
-	lp->p_char = newlp.p_char;
+	memcpy(lp->p_char, newlp.p_char, sizeof(newlp.p_char));
     }
     if (set_ps)
 	lp->p_size = newlp.p_size;
@@ -1684,4 +1667,58 @@ get_image_options(t_image *image)
 	image->fallback = TRUE;
     }
 
+}
+
+
+enum set_encoding_id
+encoding_from_locale(void)
+{
+    char *l = NULL;
+    enum set_encoding_id encoding = S_ENC_INVALID;
+
+#if defined(_WIN32)
+#ifdef HAVE_LOCALE_H
+    char * cp_str;
+
+    l = setlocale(LC_CTYPE, "");
+    /* preserve locale string, skip language information */
+    cp_str = strchr(l, '.');
+    if (cp_str) {
+	unsigned cp;
+
+	cp_str++; /* Step past the dot in, e.g., German_Germany.1252 */
+	cp = strtoul(cp_str, NULL, 10);
+
+	if (cp != 0) {
+	    enum set_encoding_id newenc = WinGetEncoding(cp);
+	    encoding = newenc;
+	}
+    }
+#endif
+    /* get encoding from currently active codepage */
+    if (encoding == S_ENC_INVALID) {
+#ifndef WGP_CONSOLE
+	encoding = WinGetEncoding(GetACP());
+#else
+	encoding = WinGetEncoding(GetConsoleCP());
+#endif
+    }
+#elif defined(HAVE_LOCALE_H)
+    l = setlocale(LC_CTYPE, "");
+    if (l && (strstr(l, "utf") || strstr(l, "UTF")))
+	encoding = S_ENC_UTF8;
+    if (l && (strstr(l, "sjis") || strstr(l, "SJIS") || strstr(l, "932")))
+	encoding = S_ENC_SJIS;
+    /* FIXME: "set encoding locale" supports only sjis and utf8 on non-Windows systems */
+#endif
+    return encoding;
+}
+
+
+void
+init_encoding(void)
+{
+    encoding = encoding_from_locale();
+    if (encoding == S_ENC_INVALID)
+	encoding = S_ENC_DEFAULT;
 }

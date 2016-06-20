@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: fit.c,v 1.158 2015/07/09 01:40:56 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: fit.c,v 1.165 2016-05-13 14:09:40 markisch Exp $"); }
 #endif
 
 /*  NOTICE: Change of Copyright Status
@@ -400,6 +400,12 @@ error_ex(int t_num, const char *str, ...)
     /* restore original SIGINT function */
     interrupt_setup();
 
+    /* FIXME: It would be nice to exit the "fit" command non-fatally, */
+    /* so that the script who called it can recover and continue.     */
+    /* int_error() makes that impossible.  But if we use int_warn()   */
+    /* instead the program tries to continue _inside_ the fit, which  */
+    /* generally then dies on some more serious error.                */
+
     /* exit via int_error() so that it can clean up state variables */
     int_error(t_num, buf);
 }
@@ -659,8 +665,7 @@ call_gnuplot(const double *par, double *data)
 	             fit_x[i * num_indep + j], 0.0);
 	evaluate_at(func.at, &v);
 
-	data[i] = real(&v);
-	if (undefined || isnan(data[i])) {
+	if (undefined || isnan(real(&v))) {
 	    /* Print useful info on undefined-function error. */
 	    Dblf("\nCurrent data point\n");
 	    Dblf("=========================\n");
@@ -679,6 +684,8 @@ call_gnuplot(const double *par, double *data)
 		Eex("Function evaluation yields NaN (\"not a number\")");
 	    }
 	}
+
+	data[i] = real(&v);
     }
 }
 
@@ -1827,13 +1834,16 @@ fit_command()
     int token1, token2, token3;
     char *tmp, *file_name;
     TBOOLEAN zero_initial_value;
+    AXIS *fit_xaxis, *fit_yaxis, *fit_zaxis;
 
-    c_token++;
-
-    /* FIXME EAM - I don't understand what these are needed for. */
     x_axis = FIRST_X_AXIS;
     y_axis = FIRST_Y_AXIS;
     z_axis = FIRST_Z_AXIS;
+    fit_xaxis = &axis_array[FIRST_X_AXIS];
+    fit_yaxis = &axis_array[FIRST_Y_AXIS];
+    fit_zaxis = &axis_array[FIRST_Z_AXIS];
+
+    c_token++;
 
     /* First look for a restricted fit range... */
     /* Start with the current range limits on variable 1 ("x"),
@@ -1841,37 +1851,36 @@ fit_command()
      * Historically variables 3-5 inherited the current range of t, u, and v
      * but no longer.  NB: THIS IS A CHANGE
      */
-    AXIS_INIT3D(x_axis, 0, 0);
-    AXIS_INIT3D(y_axis, 0, 0);
-    AXIS_INIT3D(z_axis, 0, 1);
+    axis_init(fit_xaxis, 0);
+    axis_init(fit_yaxis, 0);
+    axis_init(fit_zaxis, 1);
     for (i = 0; i < MAX_NUM_VAR+1; i++)
 	dummy_token[i] = -1;
-    range_min[0] = axis_array[x_axis].min;
-    range_max[0] = axis_array[x_axis].max;
-    range_autoscale[0] = axis_array[x_axis].autoscale;
-    range_min[1] = axis_array[y_axis].min;
-    range_max[1] = axis_array[y_axis].max;
-    range_autoscale[1] = axis_array[y_axis].autoscale;
+    range_min[0] = fit_xaxis->min;
+    range_max[0] = fit_xaxis->max;
+    range_autoscale[0] = fit_xaxis->autoscale;
+    range_min[1] = fit_yaxis->min;
+    range_max[1] = fit_yaxis->max;
+    range_autoscale[1] = fit_yaxis->autoscale;
     for (i = 2; i < MAX_NUM_VAR; i++) {
 	range_min[i] = VERYLARGE;
 	range_max[i] = -VERYLARGE;
 	range_autoscale[i] = AUTOSCALE_BOTH;
     }
-    range_min[iz] = axis_array[z_axis].min;
-    range_max[iz] = axis_array[z_axis].max;
-    range_autoscale[iz] = axis_array[z_axis].autoscale;
+    range_min[iz] = fit_zaxis->min;
+    range_max[iz] = fit_zaxis->max;
+    range_autoscale[iz] = fit_zaxis->autoscale;
 
     num_ranges = 0;
     while (equals(c_token, "[")) {
+	AXIS *scratch_axis = &axis_array[SAMPLE_AXIS];
 	if (i > MAX_NUM_VAR)
 	    Eexc(c_token, "too many range specifiers");
-	/* NB: This has nothing really to do with the Z axis, we're */
-	/* just using that slot of the axis array as scratch space. */
-	AXIS_INIT3D(SECOND_Z_AXIS, 0, 1);
-	dummy_token[num_ranges] = parse_range(SECOND_Z_AXIS);
-	range_min[num_ranges] = axis_array[SECOND_Z_AXIS].min;
-	range_max[num_ranges] = axis_array[SECOND_Z_AXIS].max;
-	range_autoscale[num_ranges] = axis_array[SECOND_Z_AXIS].autoscale;
+	axis_init(scratch_axis, 1);
+	dummy_token[num_ranges] = parse_range(scratch_axis->index);
+	range_min[num_ranges] = scratch_axis->min;
+	range_max[num_ranges] = scratch_axis->max;
+	range_autoscale[num_ranges] = scratch_axis->autoscale;
 	num_ranges++;
     }
 
@@ -1926,8 +1935,8 @@ fit_command()
 	Eexc(c_token, "Need more than 1 input data column");
 
     /* Allow time data only on first two dimensions (x and y) */
-    df_axis[0] = x_axis;
-    df_axis[1] = y_axis;
+    df_axis[0] = FIRST_X_AXIS;
+    df_axis[1] = FIRST_Y_AXIS;
 
     /* BM: New options to distinguish fits with and without errors */
     /* reset error columns */
@@ -2123,11 +2132,15 @@ fit_command()
 	free(line);
 	for (i = 0; (i < num_indep) && (i < columns - 1); i++)
 	    fprintf(log_f, "%s:", c_dummy_var[i]);
-	if (num_errors > 0)
+	fprintf(log_f, "z");
+	if (num_errors > 0) {
 	    for (i = 0; (i < num_indep) && (i < columns - 1); i++)
 		if (err_cols[i])
-		    fprintf(log_f, "s%s:", c_dummy_var[i]);
-	fprintf(log_f, (num_errors == 0) ? "z\n" : "z:s\n");
+		    fprintf(log_f, ":s%s", c_dummy_var[i]);
+	    fprintf(log_f, ":s\n");
+	} else {
+	    fprintf(log_f, "\n");
+	}
     }
 
     /* report all range specs, starting with Z */
@@ -2159,19 +2172,12 @@ fit_command()
 
     while ((i = df_readline(v, num_indep + num_errors + 1)) != DF_EOF) {
         if (num_data >= max_data) {
-	    /* increase max_data by factor of 1.5 */
-	    max_data = (max_data * 3) / 2;
-	    if (0
-		|| !redim_vec(&fit_x, max_data * num_indep)
-		|| !redim_vec(&fit_z, max_data)
-		|| !redim_vec(&err_data, max_data * GPMAX(num_errors, 1))
-		) {
+	    max_data *= 2;
+	    if (!redim_vec(&fit_x, max_data * num_indep) ||
+		!redim_vec(&fit_z, max_data) ||
+		!redim_vec(&err_data, max_data * GPMAX(num_errors, 1))) {
 		/* Some of the reallocations went bad: */
 		Eex2("Out of memory in fit: too many datapoints (%d)?", max_data);
-	    } else {
-		/* Just so we know that the routine is at work: */
-		fprintf(STANDARD, "Max. number of data points scaled up to: %d\n",
-			max_data);
 	    }
 	} /* if (need to extend storage space) */
 
@@ -2195,6 +2201,8 @@ fit_command()
 	case DF_SECOND_BLANK:
 	    continue;
 	case DF_COLUMN_HEADERS:
+	    continue;
+	case DF_FOUND_KEY_TITLE:
 	    continue;
 	case 0:
 	    Eex2("bad data on line %d of datafile", df_line_number);

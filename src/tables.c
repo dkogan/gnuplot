@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tables.c,v 1.139 2015/08/08 18:32:17 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tables.c,v 1.144 2016-04-23 22:59:31 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tables.c */
@@ -56,6 +56,7 @@ const struct gen_ftable command_ftbl[] =
 #ifdef USE_MOUSE
     { "bi$nd", bind_command },
 #endif
+    { "array", array_command },
     { "break", break_command },
     { "ca$ll", call_command },
     { "cd", changedir_command },
@@ -193,6 +194,7 @@ const struct gen_table set_tbl[] =
     { "historysize", S_HISTORYSIZE },	/* Deprecated */
     { "his$tory", S_HISTORY },
     { "is$osamples", S_ISOSAMPLES },
+    { "jitter", S_JITTER },
     { "k$ey", S_KEY },
     { "keyt$itle", S_KEY },
     { "la$bel", S_LABEL },
@@ -234,6 +236,7 @@ const struct gen_table set_tbl[] =
     { "nomrt$ics", S_NOMRTICS },
     { "mcbt$ics", S_MCBTICS },
     { "nomcbt$ics", S_NOMCBTICS },
+    { "nonlinear", S_NONLINEAR },
     { "of$fsets", S_OFFSETS },
     { "or$igin", S_ORIGIN },
     { "o$utput", SET_OUTPUT },
@@ -504,7 +507,9 @@ const struct gen_table set_pm3d_tbl[] =
     { "noe$xplicit",	S_PM3D_NOEXPLICIT },
     { "noi$mplicit",	S_PM3D_NOIMPLICIT },
     { "e$xplicit",	S_PM3D_EXPLICIT },
-    { "corners2c$olor",S_PM3D_WHICH_CORNER },
+    { "corners2c$olor",	S_PM3D_WHICH_CORNER },
+    { "light$ing",	S_PM3D_LIGHTING_MODEL },
+    { "nolight$ing",	S_PM3D_NOLIGHTING_MODEL },
     { NULL, S_PM3D_INVALID }
 };
 
@@ -712,7 +717,7 @@ const struct gen_table plotstyle_tbl[] =
 const struct gen_table filledcurves_opts_tbl[] =
 {
     { "c$losed", FILLEDCURVES_CLOSED },
-    { "x1", FILLEDCURVES_X1 },
+    { "x$1", FILLEDCURVES_X1 },
     { "y1", FILLEDCURVES_Y1 },
     { "x2", FILLEDCURVES_X2 },
     { "y2", FILLEDCURVES_Y2 },

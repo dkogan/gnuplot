@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot.c,v 1.166 2015/01/20 02:10:43 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot.c,v 1.169 2016-06-14 18:25:39 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - plot.c */
@@ -325,7 +325,10 @@ main(int argc, char **argv)
     unsigned int status[2] = { 1, 0 };
 #endif
 
-#if defined(HAVE_LIBEDITLINE)
+#if (defined(PIPE_IPC) || defined(_WIN32)) && (defined(HAVE_LIBREADLINE) || (defined(HAVE_LIBEDITLINE) && defined(X11)))
+    /* Editline needs this to be set before the very first call to readline(). */
+    /* Support for rl_getc_function is broken for utf-8 in editline. Since it is only
+       really required for X11, disable this section when building without X11. */
     rl_getc_function = getc_wrapper;
 #endif
 
@@ -512,11 +515,17 @@ main(int argc, char **argv)
 
 	memset(&sm_palette, 0, sizeof(sm_palette));
 	init_fit();		/* Initialization of fitting module */
+#ifdef READLINE
+	/* When using the built-in readline, we set the initial
+	   encoding according to the locale as this is required
+	   to properly handle keyboard input. */
+	init_encoding();
+#endif
 	init_session();
 
 	if (interactive && term != 0) {		/* not unknown */
 #ifdef GNUPLOT_HISTORY
-#if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
+#if (defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)) && !defined(_WIN32)
 	    expanded_history_filename = tilde_expand(GNUPLOT_HISTORY_FILE);
 #else
 	    expanded_history_filename = gp_strdup(GNUPLOT_HISTORY_FILE);

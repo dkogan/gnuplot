@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.228 2015/08/19 18:06:09 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.238 2016-05-27 04:20:23 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -43,6 +43,7 @@ static char *RCSid() { return RCSid("$Id: unset.c,v 1.228 2015/08/19 18:06:09 sf
 #include "fit.h"
 #include "gp_hist.h"
 #include "hidden3d.h"
+#include "jitter.h"
 #include "misc.h"
 #include "parse.h"
 #include "plot.h"
@@ -246,6 +247,9 @@ unset_command()
     case S_ISOSAMPLES:
 	unset_isosamples();
 	break;
+    case S_JITTER:
+	unset_jitter();
+	break;
     case S_KEY:
 	unset_key();
 	break;
@@ -256,6 +260,7 @@ unset_command()
 	unset_linetype();
 	break;
     case S_LINK:
+    case S_NONLINEAR:
 	c_token--;
 	link_command();
 	break;
@@ -716,6 +721,7 @@ reset_bars()
     struct lp_style_type def = DEFAULT_LP_STYLE_TYPE;
     bar_lp = def;
     bar_lp.l_type = LT_DEFAULT;
+    bar_lp.pm3d_color.type = TC_VARIABLE;
     bar_size = 1.0;
     bar_layer = LAYER_FRONT;
 }
@@ -1145,36 +1151,52 @@ reset_logscale(struct axis *this_axis)
 static void
 unset_logscale()
 {
+    TBOOLEAN set_for_axis[AXIS_ARRAY_SIZE] = AXIS_ARRAY_INITIALIZER(FALSE);
     int axis;
 
     if (END_OF_COMMAND) {
-	/* clean all the islog flags. This will hit some currently
-	 * unused ones, too, but that's actually a good thing, IMHO */
-	for (axis = 0; axis < AXIS_ARRAY_SIZE; axis++)
-	    reset_logscale(&axis_array[axis]);
-	for (axis = 0; axis < num_parallel_axes; axis++)
-	    reset_logscale(&parallel_axis[axis]);
+	for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++)
+	    set_for_axis[axis] = TRUE;
     } else {
+	/* do reverse search because of "x", "x1", "x2" sequence in axisname_tbl */
 	int i = 0;
-
-	/* do reverse search because of "x", "x1", "x2" sequence in
-	 * axisname_tbl */
 	while (i < token[c_token].length) {
 	    axis = lookup_table_nth_reverse(axisname_tbl, NUMBER_OF_MAIN_VISIBLE_AXES,
-					    gp_input_line + token[c_token].start_index + i);
+		       gp_input_line + token[c_token].start_index + i);
 	    if (axis < 0) {
 		token[c_token].start_index += i;
 		int_error(c_token, "invalid axis");
 	    }
-	    reset_logscale(&axis_array[axisname_tbl[axis].value]);
+	    set_for_axis[axisname_tbl[axis].value] = TRUE;
 	    i += strlen(axisname_tbl[axis].key);
 	}
-	++c_token;
+	c_token++;
+    }
+
+#if defined(NONLINEAR_AXES) && (NONLINEAR_AXES > 0)
+    for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++) {
+	if (set_for_axis[axis]) {
+	    static char command[64];
+	    if (!isalpha(axis_name(axis)[0]))
+		continue;
+	    sprintf(command, "unset nonlinear %s", axis_name(axis));
+	    do_string(command); 
+	    axis_array[axis].log = FALSE;
+	}
+    }
+
+#else
+    for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++) {
+	if (set_for_axis[axis]) {
+	    reset_logscale(&axis_array[axis]);
+	}
     }
 
     /* Because the log scaling is applied during data input, a quick refresh */
     /* using existing stored data will not work if the log setting changes.  */
     SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);
+#endif
+
 }
 
 /* process 'unset mapping3d' command */
@@ -1276,6 +1298,7 @@ unset_monochrome()
 	if (!END_OF_COMMAND)
 	    unset_linestyle(&first_mono_linestyle);
     }
+    term->flags &= ~TERM_MONOCHROME;
 }
 
 /* process 'unset offsets' command */
@@ -1762,6 +1785,8 @@ reset_command()
     unset_samples();
     unset_isosamples();
 
+    unset_jitter();
+
     /* delete arrows */
     while (first_arrow != NULL)
 	delete_arrow((struct arrow_def *) NULL, first_arrow);
@@ -1815,8 +1840,6 @@ reset_command()
 	this_axis->minitics = MINI_DEFAULT;
 	this_axis->ticmode = axis_defaults[axis].ticmode;
 
-	this_axis->linked_to_primary = NULL;
-
 	reset_logscale(this_axis);
     }
 
@@ -1828,6 +1851,15 @@ reset_command()
     free(parallel_axis);
     parallel_axis = NULL;
     num_parallel_axes = 0;
+
+#ifdef NONLINEAR_AXES
+    if (shadow_axis_array) {
+	for (i=0; i<NUMBER_OF_MAIN_VISIBLE_AXES; i++)
+	    free_axis_struct(&shadow_axis_array[i]);
+	free(shadow_axis_array);
+	shadow_axis_array = NULL;
+    }
+#endif
 
     raxis = TRUE;
     for (i=2; i<MAX_TICLEVEL; i++)
@@ -1859,6 +1891,7 @@ reset_command()
     mgrid_lp = default_grid_lp;
     polar_grid_angle = 0;
     grid_layer = LAYER_BEHIND;
+    grid_tics_in_front = FALSE;
 
     SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);
 
@@ -1909,6 +1942,7 @@ reset_command()
     df_separators = NULL;
     free(df_commentschars);
     df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
+    df_init();
 
     { /* Preserve some settings for `reset`, but not for `unset fit` */
 	verbosity_level save_verbosity = fit_verbosity;

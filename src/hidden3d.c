@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.108 2015/05/08 18:32:12 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: hidden3d.c,v 1.113 2016-04-16 04:01:06 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - hidden3d.c */
@@ -528,7 +528,7 @@ store_vertex (
 
 #ifdef HIDDEN3D_VAR_PTSIZE
     /* Store pointer back to original point */
-    /* Needed to support variable pointsize */
+    /* Needed to support variable pointsize or pointtype */
     thisvert->original = point;
 #endif
 	
@@ -1087,7 +1087,7 @@ build_networks(struct surface_points *plots, int pcount)
 		    nverts += icrvs->p_count;
 	    }
 	} else {
-	    graph_error("Plot type is neither function nor data");
+	    /* Cannot happen */
 	    return;
 	}
 
@@ -1204,7 +1204,7 @@ build_networks(struct surface_points *plots, int pcount)
 		this_plot->arrow_properties.head_length= 1;
 		this_plot->arrow_properties.head_angle = 0;
 	    }
-	    apply_3dhead_properties(&(this_plot->arrow_properties));
+	    apply_head_properties(&(this_plot->arrow_properties));
 	}
 
 	/* HBB 20000715: new initialization code block for non-grid
@@ -1657,7 +1657,7 @@ draw_vertex(p_vertex v)
     p_type = v->lp_style->p_type;
 
     TERMCOORD(v, x, y);
-    if ((p_type >= -1 || p_type == PT_CHARACTER) && !clip_point(x,y)) {
+    if ((p_type >= -1 || p_type == PT_CHARACTER || p_type == PT_VARIABLE) && !clip_point(x,y)) {
 	struct t_colorspec *tc = &(v->lp_style->pm3d_color);
 
 	if (v->label)  {
@@ -1687,9 +1687,13 @@ draw_vertex(p_vertex v)
 #endif
 
 	if (p_type == PT_CHARACTER)
-	    (term->put_text)(x, y, (char *)(&(v->lp_style->p_char)));
+	    (term->put_text)(x, y, v->lp_style->p_char);
+#ifdef HIDDEN3D_VAR_PTSIZE
+	else if (p_type == PT_VARIABLE)
+	    (term->point)(x, y, (int)(v->original->CRD_PTTYPE) - 1);
+#endif
 	else
-	    (term->point)(x,y, p_type);
+	    (term->point)(x, y, p_type);
 
 	/* vertex has been drawn --> flag it as done */
 	v->lp_style = NULL;
@@ -2278,7 +2282,7 @@ plot3d_hidden(struct surface_points *plots, int pcount)
     if (! edges.end) {
 	/* No drawable edges found. Free all storage and bail out. */
 	term_hidden_line_removal();
-	graph_error("*All* edges undefined or out of range, thus no plot.");
+	int_error(NO_CARET, "*All* edges undefined or out of range, thus no plot.");
     }
 
     if (! polygons.end) {

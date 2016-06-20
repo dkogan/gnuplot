@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.121 2015/05/08 18:32:12 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.126 2016-05-06 18:32:12 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - gadgets.c */
@@ -138,10 +138,10 @@ double pointintervalbox = 1.0;
 int draw_border = 31;	/* The current settings */
 int user_border = 31;	/* What the user last set explicitly */
 int border_layer = LAYER_FRONT;
-# define DEFAULT_BORDER_LP { 0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, 1.0, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN }
+# define DEFAULT_BORDER_LP { 0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, 1.0, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN }
 struct lp_style_type border_lp = DEFAULT_BORDER_LP;
 const struct lp_style_type default_border_lp = DEFAULT_BORDER_LP;
-const struct lp_style_type background_lp = {0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, 0, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN};
+const struct lp_style_type background_lp = {0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN};
 
 /* set clip */
 TBOOLEAN clip_lines1 = TRUE;
@@ -161,6 +161,7 @@ enum PLOT_STYLE data_style = POINTSTYLE;
 enum PLOT_STYLE func_style = LINES;
 
 TBOOLEAN parametric = FALSE;
+TBOOLEAN in_parametric = FALSE;
 
 /* If last plot was a 3d one. */
 TBOOLEAN is_3d_plot = FALSE;
@@ -338,9 +339,9 @@ clip_line(int *x1, int *y1, int *x2, int *y2)
      * This is now addressed by making dx and dy (double) rather than (int)
      * but it might be better to hard-code the sign tests.
      */
-    double dx, dy;
+    double dx, dy, x, y;
 
-    int x, y, x_intr[4], y_intr[4], count, pos1, pos2;
+    int x_intr[4], y_intr[4], count, pos1, pos2;
     int x_max, x_min, y_max, y_min;
     pos1 = clip_point(*x1, *y1);
     pos2 = clip_point(*x2, *y2);
@@ -622,17 +623,22 @@ apply_pm3dcolor(struct t_colorspec *tc)
 	    t->set_color(tc);
 	return;
     }
+    /* Leave unchanged. (used only by "set errorbars"??) */
+    if (tc->type == TC_VARIABLE)
+	return;
+
     if (!is_plot_with_palette()) {
 	t->set_color(&black);
 	return;
     }
+
     switch (tc->type) {
 	case TC_Z:
 		set_color(cb2gray(z2cb(tc->value)));
 		break;
 	case TC_CB:
 		if (CB_AXIS.log)
-		    cbval = (tc->value <= 0) ? CB_AXIS.min : (log(tc->value) / CB_AXIS.log_base);
+		    cbval = (tc->value <= 0) ? CB_AXIS.min : axis_do_log((&CB_AXIS),tc->value);
 		else
 		    cbval = tc->value;
 		set_color(cb2gray(cbval));

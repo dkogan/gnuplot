@@ -1,7 +1,7 @@
 /* config.h for mingw/Makefile
  *
  * Prepared according to config.h from ./configure and by means of
- * config_strip.sh as of gnuplot 5.1 in November 2014.
+ * config_strip.sh as of gnuplot 5.1 in February 2016.
  */
 
 /* Define to allow use of certain deprecated syntax. */
@@ -202,6 +202,7 @@
 
 /* Define if you are using the GNU readline library. */
 /* #undef HAVE_LIBREADLINE */
+/* Don't change it here -- this define is set in config/mingw/Makefile. */
 
 /* Define if you have zlib. */
 /* #undef HAVE_LIBZ */
@@ -408,6 +409,9 @@
 /* Define if time_t is declared in time.h. */
 #define HAVE_TIME_T_IN_TIME_H 1
 
+/* Define to 1 if you have the `uname' function. */
+/* #undef HAVE_UNAME */
+
 /* Define to 1 if you have the <unistd.h> header file. */
 #define HAVE_UNISTD_H 1
 
@@ -459,17 +463,14 @@
 /* Define to 1 if malloc(0)==0 */
 /* #undef MALLOC_ZERO_RETURNS_ZERO */
 
-/* Maximum number of parallel axes supported */
-#define MAX_PARALLEL_AXES 7
-
 /* Define if your libreadline has no rl_ding */
-#define MISSING_RL_DING 1
+/* #undef MISSING_RL_DING */
 
 /* Define if your libreadline has no rl_force_update_display */
-#define MISSING_RL_FORCED_UPDATE_DISPLAY 1
+/* #undef MISSING_RL_FORCED_UPDATE_DISPLAY */
 
 /* Define if your libreadline has no rl_complete_with_tilde_expansion */
-#define MISSING_RL_TILDE_EXPANSION 1
+/* #undef MISSING_RL_TILDE_EXPANSION */
 
 /* Define if this is an MSDOS system. */
 /* #undef MSDOS */
@@ -498,6 +499,9 @@
 /* Define to the version of this package. */
 #define PACKAGE_VERSION "5.1"
 
+/* The patch level, a.k.a. micro version number */
+/* #undef PATCHLEVEL */
+
 /* Define if you do have the popen and pclose functions. */
 /* #undef PIPES */
 /* Don't change it here -- this define is set in config/mingw/Makefile. */
@@ -512,10 +516,8 @@
 /* #undef QTTERM */
 
 /* Define if you want to use the included readline function. */
-#define READLINE 1
-
-/* Define as the return type of signal handlers (`int' or `void'). */
-#define RETSIGTYPE void
+/* #undef READLINE */
+/* Don't change it here -- this define is set in config/mingw/Makefile. */
 
 /* Define to the type of arg 1 for `select'. */
 #define SELECT_TYPE_ARG1 int
@@ -531,9 +533,6 @@
 
 /* Define to 1 if you have the ANSI C header files. */
 #define STDC_HEADERS 1
-
-/* Define if you want to use the sunview terminal (sun). */
-/* #undef SUN */
 
 /* Define if the 3dkit libray is present. */
 /* #undef THREEDKIT */
@@ -561,6 +560,9 @@
 
 /* Version number of package */
 #define VERSION "5.1"
+
+/* The main version number */
+/* #undef VERSION_MAJOR */
 
 /* Define if the vgagl libray is present. */
 /* #undef VGAGL */
@@ -638,3 +640,10 @@
 /* gnuplot.gih is not used by wgnuplot */
 #define NO_GIH 1
 #define HELPFILE "wgnuplot.chm"
+
+/* MinGW32 does not have swprintf_s and only has a non-standard swprintf,
+   like old versions of MSVC, which does not have a size parameter.  */
+#include <_mingw.h>
+#if defined(__MINGW32__) && !defined(__MINGW64_VERSION_MAJOR)
+# define swprintf_s(s, c, f, ...) swprintf(s, f, __VA_ARGS__)
+#endif

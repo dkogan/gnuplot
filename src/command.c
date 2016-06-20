@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.310 2015/08/08 18:32:17 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.337 2016-05-26 20:53:49 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -119,10 +119,6 @@ int thread_rl_RetCode = -1; /* return code from readline in a thread */
 
 #ifndef _Windows
 # include "help.h"
-#else
-# ifdef USE_OWN_WINSYSTEM_FUNCTION
-static int winsystem __PROTO((const char *));
-# endif
 #endif /* _Windows */
 
 #ifdef _Windows
@@ -145,6 +141,7 @@ int vms_ktid;			/* key table id, for translating keystrokes */
 
 /* static prototypes */
 static void command __PROTO((void));
+static TBOOLEAN is_array_assignment __PROTO((void));
 static int changedir __PROTO((char *path));
 static char* fgets_ipc __PROTO((char* dest, int len));
 static char* gp_get_string __PROTO((char *, size_t, const char *));
@@ -403,7 +400,7 @@ do_line()
 	    strcat(gp_input_line,";");
 	    retval = read_line("more> ", strlen(gp_input_line));
 	    if (retval)
-	 	int_error(NO_CARET, "Syntax error: missing block terminator }");
+		int_error(NO_CARET, "Syntax error: missing block terminator }");
 	    /* Expand any string variables in the current input line */
 	    string_expand_macros();
 
@@ -581,6 +578,7 @@ define()
 	udv = add_udv(start_token);
 	(void) const_express(&result);
 	/* Prevents memory leak if the variable name is re-used */
+	gpfree_array(&udv->udv_value);
 	gpfree_string(&udv->udv_value);
 	udv->udv_value = result;
     }
@@ -628,6 +626,8 @@ command()
 
     if (is_definition(c_token))
 	define();
+    else if (is_array_assignment())
+	;
     else
 	(*lookup_ftable(&command_ftbl[0],c_token))();
 
@@ -727,6 +727,133 @@ lower_command(void)
 {
     raise_lower_command(1);
 }
+
+
+/*
+ * Arrays are declared using the syntax
+ *    array A[size]
+ * where size is an integer and space is reserved for elements A[1] through A[size]
+ * The size itself is stored in A[0].v.int_val.
+ *
+ * Elements in an existing array can be accessed like any other gnuplot variable.
+ * Each element can be one of INTGR, CMPLX, STRING.
+ * When the array is declared all elements are set to NOTDEFINED.
+ */
+void
+array_command()
+{
+    int nsize = 0;
+    struct udvt_entry *array;
+    struct value *A;
+    int i;
+
+    /* Create or recycle a udv containing an array with the requested name */
+    if (!isletter(++c_token))
+	int_error(c_token, "illegal variable name");
+    array = add_udv(c_token);
+    gpfree_array(&array->udv_value);
+    gpfree_string(&array->udv_value);
+
+    if (!equals(++c_token,"["))
+	int_error(c_token, "expecting array[size]");
+    c_token++;
+    nsize = int_expression();
+    if (!equals(c_token++,"]") || nsize <= 0)
+	int_error(c_token-1, "expecting array[size>0]");
+
+    array->udv_value.v.value_array = gp_alloc((nsize+1) * sizeof(t_value), "array_command");
+    array->udv_value.type = ARRAY;
+
+    /* Element zero of the new array is not visible but contains the size */
+    A = array->udv_value.v.value_array;
+    A[0].v.int_val = nsize;
+    for (i = 0; i <= nsize; i++) {
+	A[i].type = NOTDEFINED;
+    }
+
+    /* Initializer syntax:   array A[10] = [x,y,z,,"foo",] */
+    if (equals(c_token, "=")) {
+	if (!equals(++c_token, "["))
+	    int_error(c_token, "expecting Array[size] = [x,y,...]");
+	c_token++;
+	for (i = 1; i <= nsize; i++) {
+	    if (equals(c_token, "]"))
+		break;
+	    if (equals(c_token, ",")) {
+		c_token++;
+		continue;
+	    }
+	    const_express(&A[i]);
+	    if (equals(c_token, "]"))
+		break;
+	    if (equals(c_token, ","))
+		c_token++;
+	    else
+		int_error(c_token, "expecting Array[size] = [x,y,...]");
+	}
+	c_token++;
+    }
+
+    return;
+}
+
+/*
+ * Check for command line beginning with
+ *    Array[<expr>] = <expr>
+ * This routine is modeled on command.c:define()
+ */
+TBOOLEAN
+is_array_assignment()
+{
+    udvt_entry *udv = add_udv(c_token);
+    struct value newvalue;
+    int index;
+    TBOOLEAN looks_OK = FALSE;
+    int brackets;
+
+    if (!isletter(c_token) || !equals(c_token+1, "["))
+	return FALSE;
+
+    /* There are other legal commands where the 2nd token is [
+     * e.g.  "plot [min:max] foo"
+     * so we check that the closing ] is immediately followed by =.
+     */
+    for (index=c_token+2, brackets=1; index < num_tokens; index++) {
+	if (equals(index,";"))
+	    return FALSE;
+	if (equals(index,"["))
+	    brackets++;
+	if (equals(index,"]"))
+	    brackets--;
+	if (brackets == 0) {
+	    if (!equals(index+1,"="))
+		return FALSE;
+	    looks_OK = TRUE;
+	    break;
+	}
+    }
+    if (!looks_OK)
+	return FALSE;
+
+    if (udv->udv_value.type != ARRAY)
+	int_error(c_token, "Not a known array");
+
+    /* Evaluate index */
+    c_token += 2;
+    index = int_expression();
+    if (index <= 0 || index > udv->udv_value.v.value_array[0].v.int_val)
+	int_error(c_token, "array index out of range");
+    if (!equals(c_token, "]") || !equals(c_token+1, "="))
+	int_error(c_token, "Expecting Arrayname[<expr>] = <expr>");
+
+    /* Evaluate right side of assignment */
+    c_token += 2;
+    (void) const_express(&newvalue);
+    udv->udv_value.v.value_array[index] = newvalue;
+
+    return TRUE;
+}
+
 
 
 #ifdef USE_MOUSE
@@ -927,7 +1054,7 @@ exit_command()
 void
 history_command()
 {
-#if defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
+#ifdef USE_READLINE
     c_token++;
 
     if (!END_OF_COMMAND && equals(c_token,"?")) {
@@ -957,14 +1084,9 @@ history_command()
 	if (line_to_do == NULL)
 	    int_error(c_token, "not in history");
 
-	/* Replace current entry "history !..." in history list	*/
-	/* with the command we found by searching.		*/
-#if defined(HAVE_LIBREADLINE)
-	free(replace_history_entry(history_length-1, line_to_do, NULL)->line);
-#elif defined(READLINE)
-	free(history->line);
-	history->line = (char *) line_to_do;
-#endif
+	/* Add the command to the history.
+	   Note that history commands themselves are no longer added to the history. */
+	add_history((char *) line_to_do);
 
 	printf("  Executing:\n\t%s\n", line_to_do);
 	do_string(line_to_do);
@@ -1000,7 +1122,7 @@ history_command()
 #else
     c_token++;
     int_warn(NO_CARET, "This copy of gnuplot was built without support for command history.");
-#endif /* defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE) */
+#endif /* defined(USE_READLINE) */
 }
 
 #define REPLACE_ELSE(tok)             \
@@ -1268,63 +1390,138 @@ while_command()
 
 /*
  * set link [x2|y2] {via <expression1> {inverse <expression2>}}
+ * set nonlinear <axis> via <expression1> inverse <expression2>
  * unset link [x2|y2]
+ * unset nonlinear <axis>
  */
 void
 link_command()
 {
-    AXIS_INDEX primary_axis = NO_AXIS, secondary_axis = NO_AXIS;
-    struct axis *linked = NULL;
+    AXIS *primary_axis = NULL;
+    AXIS *secondary_axis = NULL;
+    TBOOLEAN linked = FALSE;
+    int command_token = c_token;	/* points to "link" or "nonlinear" */
 
-    if (! equals(c_token - 1,"unset")) {
-        /* Flag the axes as being linked, and copy the range settings */
-        /* from the primary axis into the linked secondary axis       */
-        c_token++;
-        if (almost_equals(c_token,"x$2")) {
-	    primary_axis = FIRST_X_AXIS;
-	    secondary_axis = SECOND_X_AXIS;
-        } else if (almost_equals(c_token,"y$2")) {
-    	    primary_axis = FIRST_Y_AXIS;
-	    secondary_axis = SECOND_Y_AXIS;
-    	} else {
-	    int_error(c_token,"expecting x2 or y2");
-        }
-	linked = axis_array + primary_axis;
-    }
-
-
-    axis_array[secondary_axis].linked_to_primary = linked;
     c_token++;
 
-    /* Initialize the action tables for the mapping function[s] */
-    if (!axis_array[primary_axis].link_udf) {
-	axis_array[primary_axis].link_udf = gp_alloc(sizeof(udft_entry),"link_at");
-	memset(axis_array[primary_axis].link_udf, 0, sizeof(udft_entry));
+    /* Set variable name accepatable for the via/inverse functions */
+	strcpy(c_dummy_var[0], "x");
+	strcpy(c_dummy_var[1], "y");
+	if (equals(c_token, "z") || equals(c_token, "cb"))
+	    strcpy(c_dummy_var[0], "z");
+	if (equals(c_token, "r"))
+	    strcpy(c_dummy_var[0], "r");
+
+    /*
+     * "set nonlinear" currently supports axes x x2 y y2 z r cb
+     */
+    if (equals(command_token,"nonlinear")) {
+#ifdef NONLINEAR_AXES
+	AXIS_INDEX axis;
+	if ((axis = lookup_table(axisname_tbl, c_token)) >= 0)
+	    secondary_axis = &axis_array[axis];
+	else
+	    int_error(c_token,"not a valid nonlinear axis");
+	primary_axis = get_shadow_axis(secondary_axis);
+	/* Trap attempt to set an already-linked axis to nonlinear */
+	/* This catches the sequence "set link y; set nonlinear y2" */
+	if (secondary_axis->linked_to_primary && secondary_axis->linked_to_primary->index > 0)
+	    int_error(NO_CARET,"must unlink axis before setting it to nonlinear");
+	if (secondary_axis->linked_to_secondary && secondary_axis->linked_to_secondary->index > 0)
+	    int_error(NO_CARET,"must unlink axis before setting it to nonlinear");
+	/* Clear previous log status */
+	secondary_axis->log = FALSE;
+#else
+	int_error(command_token, "This copy of gnuplot does not support nonlinear axes");
+#endif
+
+    /*
+     * "set link" applies to either x|x2 or y|y2
+     * Flag the axes as being linked, and copy the range settings
+     * from the primary axis into the linked secondary axis
+     */
+    } else {
+	if (almost_equals(c_token,"x$2")) {
+	    primary_axis = &axis_array[FIRST_X_AXIS];
+	    secondary_axis = &axis_array[SECOND_X_AXIS];
+	} else if (almost_equals(c_token,"y$2")) {
+	    primary_axis = &axis_array[FIRST_Y_AXIS];
+	    secondary_axis = &axis_array[SECOND_Y_AXIS];
+	} else {
+	    int_error(c_token,"expecting x2 or y2");
+	}
+	/* This catches the sequence "set nonlinear x; set link x2" */
+	if (primary_axis->linked_to_primary)
+	    int_error(NO_CARET, "You must clear nonlinear x or y before linking it");
+	/* This catches the sequence "set nonlinear x2; set link x2" */
+	if (secondary_axis->linked_to_primary && secondary_axis->linked_to_primary->index <= 0)
+	    int_error(NO_CARET, "You must clear nonlinear x2 or y2 before linking it");
     }
-    if (!axis_array[secondary_axis].link_udf) {
-	axis_array[secondary_axis].link_udf = gp_alloc(sizeof(udft_entry),"link_at");
-	memset(axis_array[secondary_axis].link_udf, 0, sizeof(udft_entry));
+    c_token++;
+
+    /* "unset link {x|y}" command */
+    if (equals(command_token-1,"unset")) {
+	primary_axis->linked_to_secondary = NULL;
+	if (secondary_axis->linked_to_primary == NULL)
+	    /* It wasn't linked anyhow */
+	    return;
+	else
+	    secondary_axis->linked_to_primary = NULL;
+	/* FIXME: could return here except for the need to free link_udf->at */
+	linked = FALSE;
+    } else {
+	secondary_axis->linked_to_primary = primary_axis;
+	primary_axis->linked_to_secondary = secondary_axis;
+	linked = TRUE;
+    }
+
+    /* Initialize the action tables for the mapping function[s] */
+    if (!primary_axis->link_udf) {
+	primary_axis->link_udf = gp_alloc(sizeof(udft_entry),"link_at");
+	memset(primary_axis->link_udf, 0, sizeof(udft_entry));
+    }
+    if (!secondary_axis->link_udf) {
+	secondary_axis->link_udf = gp_alloc(sizeof(udft_entry),"link_at");
+	memset(secondary_axis->link_udf, 0, sizeof(udft_entry));
     }
 
     if (equals(c_token,"via")) {
-	parse_link_via(axis_array[secondary_axis].link_udf);
+	parse_link_via(secondary_axis->link_udf);
 	if (almost_equals(c_token,"inv$erse")) {
-	    parse_link_via(axis_array[primary_axis].link_udf);
+	    parse_link_via(primary_axis->link_udf);
 	} else {
 	    int_warn(c_token,"inverse mapping function required");
-	    linked = NULL;
+	    linked = FALSE;
 	}
     }
 
-    if (linked) {
-	/* Clone the range information */
-	clone_linked_axes(primary_axis);
-    } else {
-	free_at(axis_array[secondary_axis].link_udf->at);
-	axis_array[secondary_axis].link_udf->at = NULL;
-	free_at(axis_array[primary_axis].link_udf->at);
-	axis_array[primary_axis].link_udf->at = NULL;
+#ifdef NONLINEAR_AXES
+    else if (equals(command_token,"nonlinear") && linked) {
+	int_warn(c_token,"via mapping function required");
+	linked = FALSE;
     }
+
+    if (equals(command_token,"nonlinear") && linked) {
+	/* Save current user-visible axis range (note reversed order!) */
+	struct udft_entry *temp = primary_axis->link_udf;
+	primary_axis->link_udf = secondary_axis->link_udf;
+	secondary_axis->link_udf = temp;
+	clone_linked_axes(secondary_axis, primary_axis);
+    } else 
+#endif
+
+    /* Clone the range information */
+    if (linked) {
+	clone_linked_axes(primary_axis, secondary_axis);
+    } else {
+	free_at(secondary_axis->link_udf->at);
+	secondary_axis->link_udf->at = NULL;
+	free_at(primary_axis->link_udf->at);
+	primary_axis->link_udf->at = NULL;
+    }
+
+    if (secondary_axis->index == POLAR_AXIS)
+	rrange_to_xy();
 }
 
 /* process the 'load' command */
@@ -1436,31 +1633,7 @@ timed_pause(double sleep_time)
 /* process the 'pause' command */
 #define EAT_INPUT_WITH(slurp) do {int junk=0; do {junk=slurp;} while (junk != EOF && junk != '\n');} while (0)
 
-#ifdef WIN32
-unsigned int
-enctocodepage(enum set_encoding_id enc)
-{
-    switch (enc) {
-    case S_ENC_CP437:  return 437;
-    case S_ENC_CP850:  return 850;
-    case S_ENC_CP852:  return 852;
-    case S_ENC_SJIS:   return 932;
-    case S_ENC_CP950:  return 950;
-    case S_ENC_CP1250: return 1250;
-    case S_ENC_CP1251: return 1251;
-    case S_ENC_CP1252: return 1252;
-    case S_ENC_CP1254: return 1254;
-    case S_ENC_KOI8_R: return 20866;
-    case S_ENC_KOI8_U: return 21866;
-    case S_ENC_ISO8859_1:  return 28591;
-    case S_ENC_ISO8859_2:  return 28592;
-    case S_ENC_ISO8859_9:  return 28599;
-    case S_ENC_ISO8859_15: return 28605;
-    case S_ENC_UTF8: return 65001;
-    default: return 0;
-    }
-}
-
+#if defined(_WIN32)
 /* mode == 0: => enc -> current locale (for output)
  * mode == !0: => current locale -> enc (for input)
  */
@@ -1474,17 +1647,25 @@ translate_string_encoding(char *str, int mode, enum set_encoding_id enc)
 
     if (enc == S_ENC_DEFAULT) return gp_strdup(str);
 #ifdef WGP_CONSOLE
-    if (mode == 0) loccp = GetConsoleOutputCP(); /* output codepage */
-    else loccp = GetConsoleCP(); /* input code page */
+    if (mode == 0)
+	loccp = GetConsoleOutputCP(); /* output codepage */
+    else
+	loccp = GetConsoleCP(); /* input code page */
 #else
-	locale = setlocale(LC_CTYPE, "");
-    if (!(lenc = strchr(locale, '.')) || !sscanf(++lenc, "%i", &loccp)) 
-      return gp_strdup(str);
+    locale = setlocale(LC_CTYPE, "");
+    if (!(lenc = strchr(locale, '.')) || !sscanf(++lenc, "%i", &loccp))
+	return gp_strdup(str);
 #endif
-    enccp = enctocodepage(enc);
-    if (enccp == loccp) return gp_strdup(str);
-    if (mode == 0) { fromcp = enccp; tocp = loccp; }
-    else { fromcp = loccp; tocp = enccp; }
+    enccp = WinGetCodepage(enc);
+    if (enccp == loccp)
+	return gp_strdup(str);
+    if (mode == 0) {
+	fromcp = enccp; 
+	tocp = loccp;
+    } else {
+	fromcp = loccp;
+	tocp = enccp;
+    }
 
     length = MultiByteToWideChar(fromcp, 0, str, -1, NULL, 0);
     textw = (LPWSTR) malloc(sizeof(WCHAR) * length);
@@ -1569,13 +1750,17 @@ pause_command()
 	if (!tmp)
 	    int_error(c_token, "expecting string");
 	else {
-#ifdef WIN32
-	    char * nbuf = translate_string_encoding(tmp, 0, encoding);
-	    free(tmp);
+#ifdef _WIN32
 	    free(buf);
-	    buf = nbuf;
-	    if (sleep_time >= 0)
+	    buf = tmp;
+	    if (sleep_time >= 0) {
+#ifdef WGP_CONSOLE
+		char * nbuf = translate_string_encoding(buf, 0, encoding);
+		free(buf);
+		buf = nbuf;
+#endif
 		fputs(buf, stderr);
+	    }
 #elif defined(OS2)
 	    free(buf);
 	    buf = tmp;
@@ -1591,14 +1776,14 @@ pause_command()
     }
 
     if (sleep_time < 0) {
-#if defined(WIN32)
+#if defined(_WIN32)
 	ctrlc_flag = FALSE;
 # if defined(WGP_CONSOLE) && defined(USE_MOUSE)
 	if (!paused_for_mouse || !MousableWindowOpened()) {
 	    int junk = 0;
 	    if (buf) {
 		/* Use of fprintf() triggers a bug in MinGW + SJIS encoding */
-		fputs(buf,stderr); fputs("\n",stderr);
+		fputs(buf, stderr); fputs("\n",stderr);
 	    }
 	    /* cannot use EAT_INPUT_WITH here */
 	    do {
@@ -1783,7 +1968,13 @@ print_command()
     do {
 	++c_token;
 	if (equals(c_token, "$") && isletter(c_token+1)) {
-	    char **line = get_datablock(parse_datablock_name());
+	    char *datablock_name = parse_datablock_name();
+	    char **line = get_datablock(datablock_name);
+
+	    /* Printing a datablock into itself would cause infinite recursion */
+	    if (print_out_var && !strcmp(datablock_name, print_out_name))
+		continue;
+
 	    while (line && *line) {
 		if (print_out_var != NULL)
 		    append_to_datablock(&print_out_var->udv_value, strdup(*line));
@@ -1791,6 +1982,11 @@ print_command()
 		    fprintf(print_out, "%s\n", *line);
 		line++;
 	    }
+	    continue;
+	}
+	if (type_udv(c_token) == ARRAY && !equals(c_token+1,"[")) {
+	    udvt_entry *array = add_udv(c_token++);
+	    save_array_content(print_out, array->udv_value.v.value_array);
 	    continue;
 	}
 	const_express(&a);
@@ -1804,7 +2000,7 @@ print_command()
 			gpfree_string(&a);
 			fputs(nbuf, print_out);
 			free(nbuf);
-		} else
+	    } else
 #endif
 		fputs(a.v.string_val, print_out);
 	    gpfree_string(&a);
@@ -1821,7 +2017,12 @@ print_command()
 	    else
 		disp_value(print_out, &a, FALSE);
 	    need_space = TRUE;
+#ifdef ARRAY_COPY_ON_REFERENCE
+	    /* Prevents memory leakage for ARRAY variables */
+	    gpfree_string(&a);
+#endif
 	}
+
     } while (!END_OF_COMMAND && equals(c_token, ","));
 
     if (dataline != NULL) {
@@ -1891,6 +2092,18 @@ refresh_request()
 
     AXIS_UPDATE2D_REFRESH(FIRST_Z_AXIS);
     AXIS_UPDATE2D_REFRESH(COLOR_AXIS);
+
+    /* Nonlinear mapping of x or y via linkage to a hidden primary axis */
+    if (nonlinear(&axis_array[FIRST_X_AXIS])) {
+	AXIS *primary = axis_array[FIRST_X_AXIS].linked_to_primary;
+	primary->min = primary->set_min;
+	primary->max = primary->set_max;
+    }
+    if (nonlinear(&axis_array[FIRST_Y_AXIS])) {
+	AXIS *primary = axis_array[FIRST_Y_AXIS].linked_to_primary;
+	primary->min = primary->set_min;
+	primary->max = primary->set_max;
+    }
 
     if (refresh_ok == E_REFRESH_OK_2D) {
 	refresh_bounds(first_plot, refresh_nplots); 
@@ -2349,6 +2562,7 @@ invalid_command()
       }
     }
 #endif
+
     /* Skip the rest of the command; otherwise we're left pointing to */
     /* the middle of a command we already know is not valid.          */
     while (!END_OF_COMMAND)
@@ -2385,7 +2599,7 @@ changedir(char *path)
 
     return 0;			/* should report error with setdrive also */
 
-#elif defined(WIN32)
+#elif defined(_WIN32)
     return !(SetCurrentDirectory(path));
 #elif defined(__EMX__) && defined(OS2)
     return _chdir2(path);
@@ -2445,7 +2659,7 @@ replotrequest()
     c_token = 1;	/* Skip the "plot" token */
 
     if (almost_equals(0,"test")) {
-    	c_token = 0;
+	c_token = 0;
 	test_command();
     } else if (almost_equals(0,"s$plot"))
 	plot3drequest();
@@ -2893,12 +3107,6 @@ help_command()
 static void
 do_system(const char *cmd)
 {
-# if defined(_Windows) && defined(USE_OWN_WINSYSTEM_FUNCTION)
-    if (!cmd)
-	return;
-    restrict_popen();
-    winsystem(cmd);
-# else /* _Windows */
 /* (am, 19980929)
  * OS/2 related note: cmd.exe returns 255 if called w/o argument.
  * i.e. calling a shell by "!" will always end with an error message.
@@ -2908,12 +3116,56 @@ do_system(const char *cmd)
     if (!cmd)
 	return;
     restrict_popen();
+#if defined(_WIN32) && !defined(WGP_CONSOLE)
+    {
+	LPWSTR wcmd = UnicodeText(cmd, encoding);
+	_wsystem(wcmd);
+	free(wcmd);
+    }
+#else
     system(cmd);
-# endif /* !(_Windows) */
+#endif
+}
+
+/* is_history_command:
+   Test if line starts with an (abbreviated) history command.
+   Modified copy of almost_equals() (util.c).
+*/
+static TBOOLEAN
+is_history_command(const char *line)
+{
+    int i;
+    int start = 0;
+    int length = 0;
+    int after = 0;
+    const char str[] = "hi$story";
+
+    /* skip leading whitespace */
+    while (isblank((unsigned char) line[start]))
+	start++;
+
+    /* find end of "token" */
+    while ((line[start + length] != NUL) && !isblank((unsigned char) line[start + length]))
+	length++;
+
+    for (i = 0; i < length + after; i++) {
+	if (str[i] != line[start + i]) {
+	    if (str[i] != '$')
+		return FALSE;
+	    else {
+		after = 1;
+		start--;	/* back up token ptr */
+	    }
+	}
+    }
+
+    /* i now beyond end of token string */
+
+    return (after || str[i] == '$' || str[i] == NUL);
 }
 
 
-# if defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
+# ifdef USE_READLINE
 /* keep some compilers happy */
 static char *rlgets __PROTO((char *s, size_t n, const char *prompt));
 
@@ -2931,11 +3183,11 @@ rlgets(char *s, size_t n, const char *prompt)
 	    /* so that ^C or int_error during readline() does
 	     * not result in line being free-ed twice */
 	}
-	line = readline_ipc((interactive) ? prompt : "");
+	line = readline((interactive) ? prompt : "");
 	leftover = 0;
 	/* If it's not an EOF */
 	if (line && *line) {
-#  if defined(HAVE_LIBREADLINE)
+#  if defined(READLINE) || defined(HAVE_LIBREADLINE)
 	    int found;
 	    /* Initialize readline history functions */
 	    using_history();
@@ -2943,31 +3195,33 @@ rlgets(char *s, size_t n, const char *prompt)
 	    /* search in the history for entries containing line.
 	     * They may have other tokens before and after line, hence
 	     * the check on strcmp below. */
-	    if (!history_full) {
-		found = history_search(line, -1);
-		if (found != -1 && !strcmp(current_history()->line,line)) {
-		    /* this line is already in the history, remove the earlier entry */
-		    HIST_ENTRY *removed = remove_history(where_history());
-		    /* according to history docs we are supposed to free the stuff */
-		    if (removed) {
-			free(removed->line);
-			free(removed->data);
-			free(removed);
+	    if (!is_history_command(line)) {
+		if (!history_full) {
+		    found = history_search(line, -1);
+		    if (found != -1 && !strcmp(current_history()->line,line)) {
+			/* this line is already in the history, remove the earlier entry */
+			HIST_ENTRY *removed = remove_history(where_history());
+			/* according to history docs we are supposed to free the stuff */
+			if (removed) {
+			    free(removed->line);
+			    free(removed->data);
+			    free(removed);
+			}
 		    }
 		}
+		add_history(line);
 	    }
-	    add_history(line);
 #  elif defined(HAVE_LIBEDITLINE)
-	    /* deleting history entries does not work, so suppress adjacent duplicates only */
-	    int found = 0;
-	    using_history();
+	    if (!is_history_command(line)) {
+		/* deleting history entries does not work, so suppress adjacent duplicates only */
+		int found = 0;
+		using_history();
 
-	    if (!history_full)
-		found = history_search(line, -1);
-	    if (found <= 0)
-               add_history(line);
-#  else /* builtin readline */
-	    add_history(line);
+		if (!history_full)
+		    found = history_search(line, -1);
+		if (found <= 0)
+		    add_history(line);
+	    }
 #  endif
 	}
     }
@@ -2981,7 +3235,7 @@ rlgets(char *s, size_t n, const char *prompt)
     }
     return NULL;
 }
-# endif				/* READLINE || HAVE_LIBREADLINE || HAVE_LIBEDITLINE */
+# endif				/* USE_READLINE */
 
 
 # if defined(MSDOS) || defined(_Windows)
@@ -3014,7 +3268,6 @@ do_shell()
     if (user_shell) {
 	if (system(user_shell) == -1)
 	    os_error(NO_CARET, "system() failed");
-
     }
     (void) putc('\n', stderr);
 }
@@ -3044,7 +3297,7 @@ do_shell()
 
 /* read from stdin, everything except VMS */
 
-# if !defined(READLINE) && !defined(HAVE_LIBREADLINE) && !defined(HAVE_LIBEDITLINE)
+# ifndef USE_READLINE
 #  if defined(MSDOS) && !defined(_Windows) && !defined(__EMX__) && !defined(DJGPP)
 
 /* if interactive use console IO so CED will work */
@@ -3078,7 +3331,7 @@ cgets_emu(char *str, int len)
 #   define GET_STRING(s,l) fgets(s, l, stdin)
 
 #  endif			/* !plain DOS */
-# endif				/* !READLINE && !HAVE_LIBREADLINE && !HAVE_LIBEDITLINE */
+# endif				/* !USE_READLINE */
 
 /* this function is called for non-interactive operation. Its usage is
  * like fgets(), but additionally it checks for ipc events from the
@@ -3125,7 +3378,7 @@ fgets_ipc(
 static char*
 gp_get_string(char * buffer, size_t len, const char * prompt)
 {
-# if defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
+# ifdef USE_READLINE
     if (interactive)
 	return rlgets(buffer, len, prompt);
     else
@@ -3209,52 +3462,6 @@ read_line(const char *prompt, int start)
 
 #endif /* !VMS */
 
-#if defined(_Windows)
-# if defined(USE_OWN_WINSYSTEM_FUNCTION)
-/* there is a system like call on MS Windows but it is a bit difficult to
-   use, so we will invoke the command interpreter and use it to execute the
-   commands */
-static int
-winsystem(const char *s)
-{
-    LPSTR comspec;
-    LPSTR execstr;
-    LPCSTR p;
-
-    /* get COMSPEC environment variable */
-    char envbuf[81];
-    GetEnvironmentVariable("COMSPEC", envbuf, 80);
-    if (*envbuf == NUL)
-	comspec = "\\command.com";
-    else
-	comspec = envbuf;
-    /* if the command is blank we must use command.com */
-    p = s;
-    while ((*p == ' ') || (*p == '\n') || (*p == '\r'))
-	p++;
-    if (*p == NUL) {
-	WinExec(comspec, SW_SHOWNORMAL);
-    } else {
-	/* attempt to run the windows/dos program via windows */
-	if (WinExec(s, SW_SHOWNORMAL) <= 32) {
-	    /* attempt to run it as a dos program from command line */
-	    execstr = gp_alloc(strlen(s) + strlen(comspec) + 6,
-			       "winsystem cmdline");
-	    strcpy(execstr, comspec);
-	    strcat(execstr, " /c ");
-	    strcat(execstr, s);
-	    WinExec(execstr, SW_SHOWNORMAL);
-	    free(execstr);
-	}
-    }
-
-    /* regardless of the reality return OK - the consequences of */
-    /* failure include shutting down Windows */
-    return (0);			/* success */
-}
-# endif /* USE_OWN_WINSYSTEM_FUNCTION */
-
-#endif /* _Windows */
 
 /*
  * Walk through the input line looking for string variables preceded by @.

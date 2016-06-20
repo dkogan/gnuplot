@@ -554,7 +554,9 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 			// Draw an invisible grey rectangle in the key box.
 			// It will be set to visible if the plot is toggled off.
 			QtGnuplotKeybox *keybox = &m_key_boxes[m_currentPlotNumber-1];
-			QGraphicsRectItem *statusBox = addRect(*keybox, Qt::NoPen, Qt::Dense4Pattern);
+			m_currentBrush.setColor(Qt::lightGray);
+			m_currentBrush.setStyle(Qt::Dense4Pattern);
+			QGraphicsRectItem *statusBox = addRect(*keybox, Qt::NoPen, m_currentBrush);
 			statusBox->setZValue(m_currentZ-1);
 			keybox->showStatus(statusBox);
 		}
@@ -862,19 +864,21 @@ void QtGnuplotScene::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 		int(event->scenePos().x()), int(event->scenePos().y()), button, time, m_widget);
 	m_watches[button].start();
 
-	/* Check for click in one of the keysample boxes */
-	int n = m_key_boxes.count();
-	for (int i = 0; i < n; i++) {
-		if (m_key_boxes[i].contains(m_lastMousePos)) {
-			if (m_plot_group[i]->isVisible()) {
-				m_plot_group[i]->setVisible(false);
-				m_key_boxes[i].setHidden(true);
-			} else {
-				m_plot_group[i]->setVisible(true);
-				m_key_boxes[i].setHidden(false);
-			}
-			break;
-		}
+	/* Check for left click in one of the keysample boxes */
+	if (button == 1) {
+	    int n = m_key_boxes.count();
+	    for (int i = 0; i < n; i++) {
+		    if (m_key_boxes[i].contains(m_lastMousePos)) {
+			    if (m_plot_group[i]->isVisible()) {
+				    m_plot_group[i]->setVisible(false);
+				    m_key_boxes[i].setHidden(true);
+			    } else {
+				    m_plot_group[i]->setVisible(true);
+				    m_key_boxes[i].setHidden(false);
+			    }
+			    break;
+		    }
+	    }
 	}
 
 	QGraphicsScene::mouseReleaseEvent(event);
@@ -919,12 +923,19 @@ void QtGnuplotScene::keyPressEvent(QKeyEvent* event)
 			case Qt::Key_F4       : key = GP_KP_F4       ; break;
 			case Qt::Key_Insert   : key = GP_KP_Insert   ; break;
 			case Qt::Key_End      : key = GP_KP_End      ; break;
+			case Qt::Key_Home     : key = GP_KP_Home     ; break;
+#ifdef __APPLE__
+			case Qt::Key_Down     : key = GP_Down        ; break;
+			case Qt::Key_Left     : key = GP_Left        ; break;
+			case Qt::Key_Right    : key = GP_Right       ; break;
+			case Qt::Key_Up       : key = GP_Up          ; break;
+#else
 			case Qt::Key_Down     : key = GP_KP_Down     ; break;
-			case Qt::Key_PageDown : key = GP_KP_Page_Down; break;
 			case Qt::Key_Left     : key = GP_KP_Left     ; break;
 			case Qt::Key_Right    : key = GP_KP_Right    ; break;
-			case Qt::Key_Home     : key = GP_KP_Home     ; break;
 			case Qt::Key_Up       : key = GP_KP_Up       ; break;
+#endif
+			case Qt::Key_PageDown : key = GP_KP_Page_Down; break;
 			case Qt::Key_PageUp   : key = GP_KP_Page_Up  ; break;
 			case Qt::Key_Delete   : key = GP_KP_Delete   ; break;
 			case Qt::Key_Equal    : key = GP_KP_Equal    ; break;

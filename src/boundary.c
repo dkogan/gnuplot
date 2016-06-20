@@ -1,5 +1,5 @@
 /*
- * $Id: boundary.c,v 1.25 2015/08/03 04:16:38 sfeam Exp $
+ * $Id: boundary.c,v 1.32 2016-05-09 03:32:27 sfeam Exp $
  */
 
 /* GNUPLOT - boundary.c */
@@ -68,7 +68,7 @@ static int title_y;
 /*
  * These quantities are needed in do_plot() e.g. for histogtram title layout
  */
-int key_entry_height;		/* bigger of t->v_char, pointsize*t->v_tick */
+int key_entry_height;		/* bigger of t->v_char, t->v_tic */
 int key_point_offset;		/* offset from x for point sample */
 int key_col_wth, yl_ref;
 int ylabel_x, y2label_x, xlabel_y, x2label_y;
@@ -413,10 +413,13 @@ boundary(struct curve_points *plots, int count)
 	do_key_layout(key);
     }
 
-    /*{{{  set up y and y2 tics */
+    /* Adjust range of dependent axes y and y2 */
+    if (nonlinear(&axis_array[FIRST_Y_AXIS]))
+	extend_primary_ticrange(&axis_array[FIRST_Y_AXIS]);
+    if (nonlinear(&axis_array[SECOND_Y_AXIS]))
+	extend_primary_ticrange(&axis_array[SECOND_Y_AXIS]);
     setup_tics(&axis_array[FIRST_Y_AXIS], 20);
     setup_tics(&axis_array[SECOND_Y_AXIS], 20);
-    /*}}} */
 
     /* Adjust color axis limits if necessary. */
     if (is_plot_with_palette()) {
@@ -554,8 +557,7 @@ boundary(struct curve_points *plots, int count)
 	int maxrightlabel = plot_bounds.xright;
 
 	/* We don't really know the plot layout yet, but try for an estimate */
-	AXIS_SETSCALE(FIRST_X_AXIS, plot_bounds.xleft, plot_bounds.xright);
-	axis_set_graphical_range(FIRST_X_AXIS, plot_bounds.xleft, plot_bounds.xright);
+	axis_set_scale_and_range(&axis_array[FIRST_X_AXIS], plot_bounds.xleft, plot_bounds.xright);
 
 	while (tic) {
 	    if (tic->label) {
@@ -827,16 +829,10 @@ boundary(struct curve_points *plots, int count)
     (void) (*t->text_angle) (0);
 
     /* needed for map_position() below */
-    AXIS_SETSCALE(FIRST_Y_AXIS, plot_bounds.ybot, plot_bounds.ytop);
-    AXIS_SETSCALE(SECOND_Y_AXIS, plot_bounds.ybot, plot_bounds.ytop);
-    AXIS_SETSCALE(FIRST_X_AXIS, plot_bounds.xleft, plot_bounds.xright);
-    AXIS_SETSCALE(SECOND_X_AXIS, plot_bounds.xleft, plot_bounds.xright);
-    /* HBB 20020122: moved here from do_plot, because map_position
-     * needs these, too */
-    axis_set_graphical_range(FIRST_X_AXIS, plot_bounds.xleft, plot_bounds.xright);
-    axis_set_graphical_range(FIRST_Y_AXIS, plot_bounds.ybot, plot_bounds.ytop);
-    axis_set_graphical_range(SECOND_X_AXIS, plot_bounds.xleft, plot_bounds.xright);
-    axis_set_graphical_range(SECOND_Y_AXIS, plot_bounds.ybot, plot_bounds.ytop);
+    axis_set_scale_and_range(&axis_array[FIRST_X_AXIS], plot_bounds.xleft, plot_bounds.xright);
+    axis_set_scale_and_range(&axis_array[SECOND_X_AXIS], plot_bounds.xleft, plot_bounds.xright);
+    axis_set_scale_and_range(&axis_array[FIRST_Y_AXIS], plot_bounds.ybot, plot_bounds.ytop);
+    axis_set_scale_and_range(&axis_array[SECOND_Y_AXIS], plot_bounds.ybot, plot_bounds.ytop);
 
     /* Calculate limiting bounds of the key */
     do_key_bounds(key);
@@ -981,13 +977,12 @@ do_key_layout(legend_key *key)
     key_xleft = 0;
 
     if (key->swidth >= 0) {
-	int p_width = pointsize * t->h_tic;
-	key_sample_width = key->swidth * t->h_char + p_width;
+	key_sample_width = key->swidth * t->h_char + t->h_tic;
     } else {
 	key_sample_width = 0;
     }
 
-    key_entry_height = pointsize * t->v_tic * 1.25 * key->vert_factor;
+    key_entry_height = t->v_tic * 1.25 * key->vert_factor;
     if (key_entry_height < t->v_char)
 	key_entry_height = t->v_char * key->vert_factor;
     /* HBB 20020122: safeguard to prevent division by zero later */
@@ -1135,7 +1130,7 @@ find_maxl_keys(struct curve_points *plots, int count, int *kcnt)
     mlen = cnt = 0;
     this_plot = plots;
     for (curve = 0; curve < count; this_plot = this_plot->next, curve++) {
-	if (this_plot->title && !this_plot->title_is_suppressed) {
+	if (this_plot->title && !this_plot->title_is_suppressed && !this_plot->title_position) {
 	    ignore_enhanced(this_plot->title_no_enhanced);
 	    len = estimate_strlen(this_plot->title);
 	    if (len != 0) {
@@ -1190,6 +1185,13 @@ do_key_sample(
 	clip_area = NULL;
     else
 	clip_area = &canvas;
+
+    /* If the plot this title belongs to specified a non-standard place */
+    /* for the key sample to appear, use that to override xl, yl.       */
+    if (this_plot->title_position && this_plot->title_position->scalex != character) {
+	map_position(this_plot->title_position, &xl, &yl, "key sample");
+	xl -=  (key->just == GPKEY_LEFT) ? key_text_left : key_text_right;
+    }
 
     (*t->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
 
@@ -1284,7 +1286,6 @@ do_key_sample(
 
     } else if (this_plot->plot_style == VECTOR && t->arrow) {
 	apply_head_properties(&(this_plot->arrow_properties));
-	curr_arrow_headlength = -1;
 	draw_clip_arrow(xl + key_sample_left, yl, xl + key_sample_right, yl,
 		    this_plot->arrow_properties.head);
 
@@ -1293,11 +1294,11 @@ do_key_sample(
 
     } else if ((this_plot->plot_style & PLOT_STYLE_HAS_ERRORBAR) &&  this_plot->plot_type == DATA) {
 	/* errors for data plots only */
-	if (bar_lp.l_type != LT_DEFAULT)
+	if ((bar_lp.flags & LP_ERRORBAR_SET) != 0)
 	    term_apply_lp_properties(&bar_lp);
 	draw_clip_line(xl + key_sample_left, yl, xl + key_sample_right, yl);
 	/* Even if error bars are dotted, the end lines are always solid */
-	if (bar_lp.l_type != LT_DEFAULT)
+	if ((bar_lp.flags & LP_ERRORBAR_SET) != 0)
 	    term->dashtype(DASHTYPE_SOLID,NULL);
 
     } else if ((this_plot->plot_style & PLOT_STYLE_HAS_LINE)) {
@@ -1334,6 +1335,13 @@ do_key_sample_point(
 {
     struct termentry *t = term;
 
+    /* If the plot this title belongs to specified a non-standard place */
+    /* for the key sample to appear, use that to override xl, yl.       */
+    if (this_plot->title_position && this_plot->title_position->scalex != character) {
+	map_position(this_plot->title_position, &xl, &yl, "key sample");
+	xl -=  (key->just == GPKEY_LEFT) ? key_text_left : key_text_right;
+    }
+
     (t->layer)(TERM_LAYER_BEGIN_KEYSAMPLE);
 
     if (this_plot->plot_style == LINESPOINTS
@@ -1359,7 +1367,7 @@ do_key_sample_point(
 	    if (this_plot->lp_properties.p_type == PT_CHARACTER) {
 		apply_pm3dcolor(&(this_plot->labels->textcolor));
 		(*t->put_text) (xl + key_point_offset, yl, 
-				(char *)(&this_plot->lp_properties.p_char));
+				this_plot->lp_properties.p_char);
 		apply_pm3dcolor(&(this_plot->lp_properties.pm3d_color));
 	    } else {
 		(*t->point) (xl + key_point_offset, yl, 

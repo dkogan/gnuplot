@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.183 2015/07/13 04:08:24 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.189 2016-05-08 18:43:11 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -373,16 +373,47 @@ MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double 
 	*y2 = AXIS_DE_LOG_VALUE(SECOND_Y_AXIS, *y2);
     }
 
-    /* If x2 is linked to x via a mapping function, apply it now */
-    /* Similarly for y/y2 */
+    /* If x2 or y2 is linked to a primary axis via mapping function, apply it now */
     if (!is_3d_plot) {
-	if (axis_array[SECOND_X_AXIS].linked_to_primary
-	&&  axis_array[SECOND_X_AXIS].link_udf->at)
-	    *x2 = eval_link_function(SECOND_X_AXIS, *x);
-	if (axis_array[SECOND_Y_AXIS].linked_to_primary
-	&&  axis_array[SECOND_Y_AXIS].link_udf->at)
-	    *y2 = eval_link_function(SECOND_Y_AXIS, *y);
+	AXIS *secondary = &axis_array[SECOND_X_AXIS];
+	if (secondary->linked_to_primary && secondary->link_udf->at)
+	    *x2 = eval_link_function(secondary, *x);
+	secondary = &axis_array[SECOND_Y_AXIS];
+	if (secondary->linked_to_primary && secondary->link_udf->at)
+	    *y2 = eval_link_function(secondary, *y);
     }
+
+#ifdef NONLINEAR_AXES
+    /* If x or y is linked to a (hidden) primary axis, it's a bit more complicated */
+    if (!is_3d_plot) {
+	AXIS *secondary;
+	secondary = &axis_array[FIRST_X_AXIS];
+	if (secondary->linked_to_primary
+	&&  secondary->linked_to_primary->index == -FIRST_X_AXIS) {
+	    *x = axis_mapback(secondary->linked_to_primary, xx);
+	    *x = eval_link_function(secondary, *x);
+	}
+	secondary = &axis_array[FIRST_Y_AXIS];
+	if (secondary->linked_to_primary
+	&&  secondary->linked_to_primary->index == -FIRST_Y_AXIS) {
+	    *y = axis_mapback(secondary->linked_to_primary, yy);
+	    *y = eval_link_function(secondary, *y);
+	}
+	secondary = &axis_array[SECOND_X_AXIS];
+	if (secondary->linked_to_primary
+	&&  secondary->linked_to_primary->index == -SECOND_X_AXIS) {
+	    *x2 = axis_mapback(secondary->linked_to_primary, xx);
+	    *x2 = eval_link_function(secondary, *x2);
+	}
+	secondary = &axis_array[SECOND_Y_AXIS];
+	if (secondary->linked_to_primary
+	&&  secondary->linked_to_primary->index == -SECOND_Y_AXIS) {
+	    *y2 = axis_mapback(secondary->linked_to_primary, yy);
+	    *y2 = eval_link_function(secondary, *y2);
+	}
+    }
+#endif
+
 }
 
 static char *
@@ -685,6 +716,14 @@ apply_zoom(struct t_zoom *z)
 	}
 	memcpy(axis_array, axis_array_copy, sizeof(axis_array));
 	s[0] = '\0';	/* FIXME:  Is this better than calling replotrequest()? */
+
+	/* The shadowed primary axis, if any, is not restored by the memcpy.	*/
+	/* We choose to recalculate the limits, but alternatively we could find	*/
+	/* some place to save/restore the unzoomed limits.			*/
+	if (nonlinear(&axis_array[FIRST_X_AXIS]))
+	    clone_linked_axes(&axis_array[FIRST_X_AXIS], axis_array[FIRST_X_AXIS].linked_to_primary);
+	if (nonlinear(&axis_array[FIRST_Y_AXIS]))
+	    clone_linked_axes(&axis_array[FIRST_Y_AXIS], axis_array[FIRST_Y_AXIS].linked_to_primary);
 
 	/* Falling through to do_string_replot() does not work! */
 	if (volatile_data) {
@@ -2301,9 +2340,11 @@ do_event(struct gp_event_t *ge)
 static void
 do_save_3dplot(struct surface_points *plots, int pcount, int quick)
 {
+#if (0)
 #define M_TEST_AXIS(A) \
      (A.log && ((!(A.set_autoscale & AUTOSCALE_MIN) && A.set_min <= 0) || \
 		(!(A.set_autoscale & AUTOSCALE_MAX) && A.set_max <= 0)))
+#endif
 
     if (!plots || (E_REFRESH_NOT_OK == refresh_ok)) {
 	/* !plots might happen after the `reset' command for example
@@ -2313,12 +2354,14 @@ do_save_3dplot(struct surface_points *plots, int pcount, int quick)
 	 */
 	replotrequest();
     } else {
+#if (0)	/* Dead code.  This error is now trapped elsewhere */
 	if (M_TEST_AXIS(X_AXIS) || M_TEST_AXIS(Y_AXIS) || M_TEST_AXIS(Z_AXIS)
 	    || M_TEST_AXIS(CB_AXIS)
 	    ) {
-		graph_error("axis ranges must be above 0 for log scale!");
+		int_error(NO_CARET, "axis ranges must be above 0 for log scale!");
 		return;
 	}
+#endif
 	do_3dplot(plots, pcount, quick);
     }
 

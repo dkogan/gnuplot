@@ -1,15 +1,31 @@
 Changes not in 5.0
 ==================
+* NEW command "set nonlinear <axis> via f(axis) inverse g(axis)"
+* NEW implementation of "set log" (treat as special case of "set nonlinear")
+* NEW array data type
+* NEW styles points and linespoints accept `pointtype variable`
+* NEW `set pm3d lighting` pm3d lighting model with specular highlighting
+* NEW `set jitter` allows creation of bee swarm plots
 * NEW commands `break` and `continue`
 * NEW data filter "bins" sorts input into equal width bins on x
 * NEW hidden3d now observes 'image' and 'rgbimage' as occluding objects
 * NEW new command `toggle {<plotno> | "plottitle" | all}`
 * NEW Optional sampling interval in range specifier for pseudofile '+'
 * NEW point style associated with "plot with labels" is shown in the key
+* NEW wgnuplot handles Unicode (BMP) input and converts it according to
+      current `set encoding`, including UTF-8.
+* NEW 'set term svg standalone' embeds images rather than including by reference
+* NEW 'set table OUTFILE {append}'
+* CHANGE Revise placement of axis labels in 3D plots
 * CHANGE Track font/enhanced for key title separately from the key entries
 * CHANGE order of margins in `set margins <left>, <right>, <bottom>, <top>`
 * CHANGE Store and reuse x,y dimensions from the time image data is read in
+* CHANGE Some STATS_* variables are of type integer rather than real (complex) 
+* CHANGE ^R starts a backward search when using the built-in readline
+* CHANGE Only update axis->data_min/max if the point being stored is INRANGE
 * FIX cairo.trm - reset terminal font after printing an enhanced text string
+* FIX autoscaling of data with "smooth cnorm"
+* FIX Built-in readline handles S-JIS encoding
 
 Changes in 5.0.rc3
 ==================

@@ -1,5 +1,5 @@
 /*
- * $Id: wgnuplib.h,v 1.68 2014/12/14 19:39:38 markisch Exp $
+ * $Id: wgnuplib.h,v 1.77 2016-05-23 14:22:21 markisch Exp $
  */
 
 /* GNUPLOT - win/wgnuplib.h */
@@ -52,10 +52,6 @@ extern "C" {
 #include "screenbuf.h"
 #include "term_api.h"
 
-/* Functions flagged WDPROC are to be export by the DLL, so they can be called
- * directly from win.trm or the gnuplot core */
-#define WDPROC WINAPI
-
 /* ================================== */
 /* symbols for the two icons          */
 #define TEXTICON 123
@@ -66,21 +62,9 @@ extern "C" {
 /* #define DEFAULT_CHARSET ANSI_CHARSET */
 # define MoveTo(hdc,x,y) MoveToEx(hdc,x,y,(LPPOINT)NULL);
 
-#if defined(__MINGW32__) && (__GNUC__ < 3) && !defined(CYGWIN)
-/* windowsx.h in MinGW32 2.x doesn't define some of the more traditional
- * things gnuplot expects in every Windows C compiler, it seems: */
-#define _fstrstr(s1,s2) (strstr(s1,s2))
-#define _fstrchr(s,c) (strchr(s,c))
-#define _fstrrchr(s,c) (strrchr(s,c))
-#define _fstrlen(s) (strlen(s))
-#define _fstrcpy(d,s) (strcpy(d,s))
-#define _fstrncpy(d,s,n) (strncpy(d,s,n))
-#define _fstrcat(s1,s2) (strcat(s1,s2))
-#endif /* __MINGW32__ */
-
 /* ================================== */
 /* wprinter.c - windows printer routines */
-void WDPROC DumpPrinter(HWND hwnd, LPSTR szAppName, LPSTR szFileName);
+void DumpPrinter(HWND hwnd, LPSTR szAppName, LPSTR szFileName);
 
 
 typedef struct tagPRINT {
@@ -99,10 +83,10 @@ typedef GP_PRINT *  GP_LPPRINT;
 /* wpause.c - pause window structure */
 typedef struct tagPW
 {
-	HINSTANCE	hInstance;		/* required */
+	HINSTANCE	hInstance;	/* required */
 	HINSTANCE	hPrevInstance;	/* required */
-	LPSTR	Title;			/* required */
-	LPSTR	Message;		/* required */
+	LPWSTR	Title;			/* required */
+	LPWSTR	Message;		/* required */
 	POINT	Origin;			/* optional */
 	HWND	hWndParent;		/* optional */
 	HWND	hWndPause;
@@ -118,21 +102,21 @@ typedef struct tagPW
 typedef PW *  LPPW;
 
 TBOOLEAN MousableWindowOpened(void);
-int WDPROC PauseBox(LPPW lppw);
+int PauseBox(LPPW lppw);
 
 /* ================================== */
 /* wmenu.c - menu structure */
 #define BUTTONMAX 10
 typedef struct tagMW
 {
-	LPSTR	szMenuName;		/* required */
+	LPTSTR	szMenuName;		/* required */
 	HMENU	hMenu;
 	BYTE	**macro;
 	BYTE	*macrobuf;
 	int		nCountMenu;
 	DLGPROC	lpProcInput;
-	char	*szPrompt;
-	char	*szAnswer;
+	LPWSTR	szPrompt;
+	LPWSTR	szAnswer;
 	int		nChar;
 	int		nButton;
 	HWND	hToolbar;
@@ -151,14 +135,14 @@ typedef struct tagTW
 	GP_LPPRINT	lpr;			/* must be first */
 	HINSTANCE hInstance;		/* required */
 	HINSTANCE hPrevInstance;	/* required */
-	LPSTR	Title;			/* required */
+	LPWSTR	Title;			/* required */
 	LPMW	lpmw;			/* optional */
 	POINT	ScreenSize;		/* optional */  /* size of the visible screen in characters */
 	unsigned int KeyBufSize;	/* optional */
 	LPSTR	IniFile;		/* optional */
 	LPSTR	IniSection;		/* optional */
-	LPSTR	DragPre;		/* optional */
-	LPSTR	DragPost;		/* optional */
+	LPWSTR	DragPre;		/* optional */
+	LPWSTR	DragPost;		/* optional */
 	int	nCmdShow;		/* optional */
 	FARPROC shutdown;		/* optional */
 	HICON	hIcon;			/* optional */
@@ -195,6 +179,8 @@ typedef struct tagTW
 	POINT	MarkBegin;
 	POINT	MarkEnd;
 	BOOL	Marking;
+	int	bSuspend;
+	int	MaxCursorPos;
 } TW;
 typedef TW *  LPTW;
 
@@ -202,33 +188,34 @@ typedef TW *  LPTW;
 #ifndef WGP_CONSOLE
 /* ================================== */
 /* wtext.c - Text Window */
-void WDPROC TextMessage(void);
-int WDPROC TextInit(LPTW lptw);
-void WDPROC TextClose(LPTW lptw);
-int WDPROC  TextKBHit(LPTW);
-int WDPROC TextGetCh(LPTW);
-int WDPROC TextGetChE(LPTW);
-LPSTR WDPROC TextGetS(LPTW lptw, LPSTR str, unsigned int size);
-int WDPROC TextPutCh(LPTW, BYTE);
-int WDPROC TextPutS(LPTW lptw, LPSTR str);
+void TextMessage(void);
+int TextInit(LPTW lptw);
+void TextClose(LPTW lptw);
+int TextKBHit(LPTW);
+int TextGetCh(LPTW);
+int TextGetChE(LPTW);
+LPSTR TextGetS(LPTW lptw, LPSTR str, unsigned int size);
+int TextPutCh(LPTW, BYTE);
+int TextPutChW(LPTW lptw, WCHAR ch);
+int TextPutS(LPTW lptw, LPSTR str);
 void TextStartEditing(LPTW lptw);
 void TextStopEditing(LPTW lptw);
 #if 0
 /* The new screen buffer currently does not support these */
-void WDPROC TextGotoXY(LPTW lptw, int x, int y);
-int  WDPROC TextWhereX(LPTW lptw);
-int  WDPROC TextWhereY(LPTW lptw);
-void WDPROC TextCursorHeight(LPTW lptw, int height);
-void WDPROC TextClearEOL(LPTW lptw);
-void WDPROC TextClearEOS(LPTW lptw);
-void WDPROC TextInsertLine(LPTW lptw);
-void WDPROC TextDeleteLine(LPTW lptw);
-void WDPROC TextScrollReverse(LPTW lptw);
+void TextGotoXY(LPTW lptw, int x, int y);
+int  TextWhereX(LPTW lptw);
+int  TextWhereY(LPTW lptw);
+void TextCursorHeight(LPTW lptw, int height);
+void TextClearEOL(LPTW lptw);
+void TextClearEOS(LPTW lptw);
+void TextInsertLine(LPTW lptw);
+void TextDeleteLine(LPTW lptw);
+void TextScrollReverse(LPTW lptw);
 #endif
-void WDPROC TextAttr(LPTW lptw, BYTE attr);
+void TextAttr(LPTW lptw, BYTE attr);
 #endif /* WGP_CONSOLE */
 
-void WDPROC AboutBox(HWND hwnd, LPSTR str);
+void AboutBox(HWND hwnd, LPSTR str);
 
 /* ================================== */
 /* wgraph.c - graphics window */
@@ -416,34 +403,34 @@ extern termentry * WIN_term;
 extern char WIN_inifontname[MAXFONTNAME];
 extern int WIN_inifontsize;
 
-void WDPROC GraphInitStruct(LPGW lpgw);
-void WDPROC GraphInit(LPGW lpgw);
-void WDPROC GraphUpdateWindowPosSize(LPGW lpgw);
-void WDPROC GraphClose(LPGW lpgw);
-void WDPROC GraphStart(LPGW lpgw, double pointsize);
-void WDPROC GraphEnd(LPGW lpgw);
-void WDPROC GraphChangeTitle(LPGW lpgw);
-void WDPROC GraphResume(LPGW lpgw);
-void WDPROC GraphOp(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str);
-void WDPROC GraphOpSize(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str, DWORD size);
-void WDPROC GraphPrint(LPGW lpgw);
-void WDPROC GraphRedraw(LPGW lpgw);
-void WDPROC GraphModifyPlots(LPGW lpgw, unsigned int operations, int plotno);
-void WDPROC win_close_terminal_window(LPGW lpgw);
+void GraphInitStruct(LPGW lpgw);
+void GraphInit(LPGW lpgw);
+void GraphUpdateWindowPosSize(LPGW lpgw);
+void GraphClose(LPGW lpgw);
+void GraphStart(LPGW lpgw, double pointsize);
+void GraphEnd(LPGW lpgw);
+void GraphChangeTitle(LPGW lpgw);
+void GraphResume(LPGW lpgw);
+void GraphOp(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str);
+void GraphOpSize(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str, DWORD size);
+void GraphPrint(LPGW lpgw);
+void GraphRedraw(LPGW lpgw);
+void GraphModifyPlots(LPGW lpgw, unsigned int operations, int plotno);
+void win_close_terminal_window(LPGW lpgw);
 TBOOLEAN GraphHasWindow(LPGW lpgw);
 char * GraphDefaultFont(void);
 
 #ifdef USE_MOUSE
-void WDPROC Graph_set_cursor(LPGW lpgw, int c, int x, int y);
-void WDPROC Graph_set_ruler(LPGW lpgw, int x, int y);
-void WDPROC Graph_put_tmptext(LPGW lpgw, int i, LPCSTR str);
-void WDPROC Graph_set_clipboard(LPGW lpgw, LPCSTR s);
+void Graph_set_cursor(LPGW lpgw, int c, int x, int y);
+void Graph_set_ruler(LPGW lpgw, int x, int y);
+void Graph_put_tmptext(LPGW lpgw, int i, LPCSTR str);
+void Graph_set_clipboard(LPGW lpgw, LPCSTR s);
 #endif
 
 /* BM: callback functions for enhanced text */
-void WDPROC GraphEnhancedOpen(char *fontname, double fontsize, double base,
+void GraphEnhancedOpen(char *fontname, double fontsize, double base,
     BOOL widthflag, BOOL showflag, int overprint);
-void WDPROC GraphEnhancedFlush(void);
+void GraphEnhancedFlush(void);
 
 void WIN_update_options __PROTO((void));
 
@@ -451,7 +438,7 @@ void WIN_update_options __PROTO((void));
 /* ================================== */
 
 #ifdef __cplusplus
-};
+}
 #endif
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * $Id: graph3d.h,v 1.48 2015/05/08 00:29:07 sfeam Exp $
+ * $Id: graph3d.h,v 1.51 2016-05-09 03:32:27 sfeam Exp $
  */
 
 /* GNUPLOT - graph3d.h */
@@ -44,11 +44,6 @@
 
 #include "gadgets.h"
 #include "term_api.h"
-
-/* Function macros to map from user 3D space into normalized -1..1 */
-#define map_x3d(x) ((x-X_AXIS.min)*xscale3d + xcenter3d -1.0)
-#define map_y3d(y) ((y-Y_AXIS.min)*yscale3d + ycenter3d -1.0)
-#define map_z3d(z) ((z-floor_z)*zscale3d + zcenter3d -1.0)
 
 /* Type definitions */
 
@@ -97,7 +92,7 @@ typedef struct surface_points {
     enum PLOT_TYPE plot_type;	/* DATA2D? DATA3D? FUNC2D FUNC3D? NODATA? */
     enum PLOT_STYLE plot_style;	/* style set by "with" or by default */
     char *title;		/* plot title, a.k.a. key entry */
-    int title_position;		/* -1 for beginning; +1 for end */
+    t_position *title_position;	/* title at {beginning|end|<xpos>,<ypos>} */
     TBOOLEAN title_no_enhanced;	/* don't typeset title in enhanced mode */
     TBOOLEAN title_is_filename;	/* not used in 3D */
     TBOOLEAN title_is_suppressed;/* TRUE if 'notitle' was specified */
@@ -131,7 +126,7 @@ typedef struct surface_points {
 /* Variables of graph3d.c needed by other modules: */
 
 extern int xmiddle, ymiddle, xscaler, yscaler;
-extern double floor_z;
+extern double floor_z, floor_z1;
 extern double ceiling_z, base_z; /* made exportable for PM3D */
 extern transform_matrix trans_mat;
 extern double xscale3d, yscale3d, zscale3d;

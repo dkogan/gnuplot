@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: parse.c,v 1.97 2015/08/19 18:06:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: parse.c,v 1.104 2016-04-25 18:36:21 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - parse.c */
@@ -62,6 +62,9 @@ int at_highest_column_used = -1;
 /* This is checked by df_readascii() */
 TBOOLEAN parse_1st_row_as_headers = FALSE;
 
+/* This is used by df_open() and df_readascii() */
+udvt_entry *df_array = NULL;
+
 /* Iteration structures used for bookkeeping */
 /* Iteration can be nested so long as different iterators are used */
 t_iterator * plot_iterator = NULL;
@@ -98,6 +101,7 @@ static void parse_multiplicative_expression __PROTO((void));
 static void parse_unary_expression __PROTO((void));
 static void parse_sum_expression __PROTO((void));
 static int  parse_assignment_expression __PROTO((void));
+static int  parse_array_assignment_expression __PROTO((void));
 static int is_builtin_function __PROTO((int t_num));
 
 static void set_up_columnheader_parsing __PROTO((struct at_entry *previous ));
@@ -168,6 +172,13 @@ const_express(struct value *valptr)
     if (undefined) {
 	int_error(tkn, "undefined value");
     }
+
+    if (valptr->type == ARRAY) {
+	/* Make sure no one tries to free it later */
+	valptr->type = NOTDEFINED;
+	int_error(NO_CARET, "const_express: unsupported array operation");
+    }
+
     return (valptr);
 }
 
@@ -186,9 +197,11 @@ string_or_express(struct at_type **atptr)
     int i;
     TBOOLEAN has_dummies;
 
+    static char *array_placeholder = "@@";
     static char* str = NULL;
     free(str);
     str = NULL;
+    df_array = NULL;
 
     if (atptr)
 	*atptr = NULL;
@@ -202,6 +215,14 @@ string_or_express(struct at_type **atptr)
 
     if (isstring(c_token) && (str = try_to_get_string()))
 	return str;
+
+    /* If this is a bare array name for an existing array, store a pointer */
+    /* for df_open() to use.  "@@" is a magic pseudo-filename passed to    */
+    /* df_open() that tells it to use the stored pointer.                  */
+    if (type_udv(c_token) == ARRAY && !equals(c_token+1, "[")) {
+	df_array = add_udv(c_token++);
+	return array_placeholder;
+    }
 
     /* parse expression */
     temp_at();
@@ -417,24 +438,94 @@ accept_multiplicative_expression()
 static int
 parse_assignment_expression()
 {
-    /* Check for assignment operator */
+    /* Check for assignment operator Var = <expr> */
     if (isletter(c_token) && equals(c_token + 1, "=")) {
+
 	/* push the variable name */
 	union argument *foo = add_action(PUSHC);
 	char *varname = NULL;
 	m_capture(&varname,c_token,c_token);
 	foo->v_arg.type = STRING;
 	foo->v_arg.v.string_val = varname;
+
+	/* push a dummy variable that would be the index if this were an array */
+	/* FIXME: It would be nice to hide this from "show at" */
+	foo = add_action(PUSHC);
+	foo->v_arg.type = NOTDEFINED;
+
+	/* push the expression whose value it will get */
 	c_token += 2;
-	/* and the expression whose value it will get */
 	parse_expression();
-	/* and the actual assignment operation */
+
+	/* push the actual assignment operation */
 	(void) add_action(ASSIGN);
 	return 1;
     }
+
+    /* Check for assignment to an array element Array[<expr>] = <expr> */
+    if (parse_array_assignment_expression())
+	return 1;
+
     return 0;
 }
 
+/*
+ * If an array assignment is the first thing on a command line it is handled by
+ * the separate routine array_assignment().
+ * Here we catch assignments that are embedded in an expression.
+ * Examples:
+ *	print A[2] = foo
+ *	A[1] = A[2] = A[3] = 0
+ */
+static int
+parse_array_assignment_expression()
+{
+    /* Check for assignment to an array element Array[<expr>] = <expr> */
+    if (isletter(c_token) && equals(c_token+1, "[")) {
+	char *varname = NULL;
+	union argument *foo;
+	int save_action, save_token;
+
+	/* Quick check for the most common false positives */
+	/* i.e. other constructs that begin with "name["   */
+	if (equals(c_token+3, ":"))
+	    return 0;
+	if (equals(c_token+3, "]") && !equals(c_token+4, "="))
+	    return 0;
+
+	/* Save state of the action table and the command line */
+	save_action = at->a_count;
+	save_token = c_token;
+
+	/* push the array name */
+	m_capture(&varname,c_token,c_token);
+	foo = add_action(PUSHC);
+	foo->v_arg.type = STRING;
+	foo->v_arg.v.string_val = varname;
+
+	/* push the index */
+	c_token += 2;
+	parse_expression();
+
+	/* If this wasn't really an array element assignment, back out */
+	if (!equals(c_token, "]") || !equals(c_token+1, "=")) {
+	    c_token = save_token;
+	    at->a_count = save_action;
+	    free(varname);
+	    return 0;
+	}
+
+	/* Now we evaluate the expression whose value it will get */
+	c_token += 2;
+	parse_expression();
+
+	/* push the actual assignment operation */
+	(void) add_action(ASSIGN);
+	return 1;
+    }
+
+    return 0;
+}
 
 /* add action table entries for primary expressions, i.e. either a
  * parenthesized expression, a variable name, a numeric constant, a
@@ -605,50 +696,71 @@ parse_primary_expression()
 	/* this dynamically allocated string will be freed by free_at() */
 	m_quote_capture(&(foo->v_arg.v.string_val), c_token, c_token);
 	c_token++;
-    } else
+    } else {
 	int_error(c_token, "invalid expression ");
-
-    /* add action code for ! (factorial) operator */
-    while (equals(c_token, "!")) {
-	c_token++;
-	(void) add_action(FACTORIAL);
-    }
-    /* add action code for ** operator */
-    if (equals(c_token, "**")) {
-	c_token++;
-	parse_unary_expression();
-	(void) add_action(POWER);
     }
 
-    /* Parse and add actions for range specifier applying to previous entity.
-     * Currently only used to generate substrings, but could also be used to
-     * extract vector slices.
-     */
-    if (equals(c_token, "[") && !isanumber(c_token-1)) {
-	/* handle '*' or empty start of range */
-	if (equals(++c_token,"*") || equals(c_token,":")) {
-	    union argument *empty = add_action(PUSHC);
-	    empty->v_arg.type = INTGR;
-	    empty->v_arg.v.int_val = 1;
-	    if (equals(c_token,"*"))
+    /* The remaining operators are postfixes and can be stacked, e.g. */
+    /* Array[i]**2, so we may have to loop to catch all of them.      */
+    while (TRUE) {
+
+	/* add action code for ! (factorial) operator */
+	if (equals(c_token, "!")) {
+	    c_token++;
+	    (void) add_action(FACTORIAL);
+	}
+
+	/* add action code for ** operator */
+	else if (equals(c_token, "**")) {
+	    c_token++;
+	    parse_unary_expression();
+	    (void) add_action(POWER);
+	}
+
+	/* Parse and add actions for range specifier applying to previous entity.
+	 * Currently the [beg:end] form is used to generate substrings, but could
+	 * also be used to extract vector slices.  The [i] form is used to index
+	 * arrays, but could also be a shorthand for extracting a single-character
+	 * substring.
+	 */
+	else if (equals(c_token, "[") && !isanumber(c_token-1)) {
+	    /* handle '*' or empty start of range */
+	    if (equals(++c_token,"*") || equals(c_token,":")) {
+		union argument *empty = add_action(PUSHC);
+		empty->v_arg.type = INTGR;
+		empty->v_arg.v.int_val = 1;
+		if (equals(c_token,"*"))
+		    c_token++;
+	    } else
+		parse_expression();
+
+	    /* handle array indexing (single value in square brackets) */
+	    if (equals(c_token, "]")) {
 		c_token++;
-	} else
-	    parse_expression();
-	if (!equals(c_token, ":"))
-	    int_error(c_token, "':' expected");
-	/* handle '*' or empty end of range */
-	if (equals(++c_token,"*") || equals(c_token,"]")) {
-	    union argument *empty = add_action(PUSHC);
-	    empty->v_arg.type = INTGR;
-	    empty->v_arg.v.int_val = 65535; /* should be INT_MAX */
-	    if (equals(c_token,"*"))
-		c_token++;
-	} else
-	    parse_expression();
-	if (!equals(c_token, "]"))
-	    int_error(c_token, "']' expected");
-	c_token++;
-	(void) add_action(RANGE);
+		(void) add_action(INDEX);
+		continue;
+	    }
+
+	    if (!equals(c_token, ":"))
+		int_error(c_token, "':' expected");
+	    /* handle '*' or empty end of range */
+	    if (equals(++c_token,"*") || equals(c_token,"]")) {
+		union argument *empty = add_action(PUSHC);
+		empty->v_arg.type = INTGR;
+		empty->v_arg.v.int_val = 65535; /* should be INT_MAX */
+		if (equals(c_token,"*"))
+		    c_token++;
+	    } else
+		parse_expression();
+	    if (!equals(c_token, "]"))
+		int_error(c_token, "']' expected");
+	    c_token++;
+	    (void) add_action(RANGE);
+
+	/* Whatever this is, it isn't another postfix operator */
+	} else {
+	    break;
+	}
     }
 }
 
@@ -955,8 +1067,6 @@ parse_link_via( struct udft_entry *udf )
 	int_error(c_token,"Missing expression");
 
     /* Save action table for the linkage mapping */
-    strcpy(c_dummy_var[0], "x");
-    strcpy(c_dummy_var[1], "y");
     dummy_func = udf;
     free_at(udf->at);
     udf->at = perm_at();
@@ -1158,6 +1268,7 @@ check_for_iteration()
 	    }
 	    if (!equals(c_token++, "]"))
 	    	int_error(c_token-1, errormsg);
+	    gpfree_array(&(iteration_udv->udv_value));
 	    gpfree_string(&(iteration_udv->udv_value));
 	    Ginteger(&(iteration_udv->udv_value), iteration_start);
 	}
@@ -1169,6 +1280,7 @@ check_for_iteration()
 	    	int_error(c_token-1, errormsg);
 	    iteration_start = 1;
 	    iteration_end = gp_words(iteration_string);
+	    gpfree_array(&(iteration_udv->udv_value));
 	    gpfree_string(&(iteration_udv->udv_value));
 	    Gstring(&(iteration_udv->udv_value), gp_word(iteration_string, 1));
 	}

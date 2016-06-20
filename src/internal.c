@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: internal.c,v 1.83 2015/05/08 18:17:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: internal.c,v 1.92 2016-05-13 07:05:02 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - internal.c */
@@ -47,7 +47,7 @@ static char *RCSid() { return RCSid("$Id: internal.c,v 1.83 2015/05/08 18:17:08 
 
 #include <math.h>
 
-#ifndef _WIN64
+#if !defined(__MINGW64_VERSION_MAJOR)
 /*
  * FIXME: This is almost certainly out of date on linux, since the matherr
  * mechanism has been replaced by math_error() and supposedly is only 
@@ -72,8 +72,8 @@ GP_MATHERR( STRUCT_EXCEPTION_P_X )
 
 static enum DATA_TYPES sprintf_specifier __PROTO((const char *format));
 
-#define BAD_DEFAULT int_error(NO_CARET, "internal error : type neither INT nor CMPLX");
 #define BADINT_DEFAULT int_error(NO_CARET, "error: bit shift applied to non-INT");
+#define BAD_TYPE(type) int_error(NO_CARET, (type==NOTDEFINED) ? "uninitialized user variable" : "internal error : type neither INT nor CMPLX");
 
 static int recursion_depth = 0;
 void
@@ -116,7 +116,12 @@ f_pop(union argument *x)
 {
     struct value dummy;
     pop(&dummy);
-    gpfree_string(&dummy);
+    if (dummy.type == STRING)
+	gpfree_string(&dummy);
+#ifdef ARRAY_COPY_ON_REFERENCE
+    if (dummy.type == ARRAY)
+	gpfree_string(&dummy);
+#endif
 }
 
 void
@@ -155,6 +160,9 @@ f_call(union argument *x)
 
     save_dummy = udf->dummy_values[0];
     (void) pop(&(udf->dummy_values[0]));
+
+    if (udf->dummy_values[0].type == ARRAY)
+	int_error(NO_CARET, "f_call: unsupported array operation");
 
     if (udf->dummy_num != 1)
 	int_error(NO_CARET, "function %s requires %d variables", udf->udf_name, udf->dummy_num);
@@ -207,8 +215,11 @@ f_calln(union argument *x)
     }
 
     /* pop parameters we can use */
-    for (i = num_pop - 1; i >= 0; i--)
+    for (i = num_pop - 1; i >= 0; i--) {
 	(void) pop(&(udf->dummy_values[i]));
+	if (udf->dummy_values[i].type == ARRAY)
+	    int_error(NO_CARET, "f_calln: unsupported array operation");
+    }
 
     if (recursion_depth++ > STACK_DEPTH)
 	int_error(NO_CARET, "recursion depth limit exceeded");
@@ -376,7 +387,7 @@ f_uminus(union argument *arg)
 	    -a.v.cmplx_val.imag;
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
 	break;
     }
     push(&a);
@@ -407,7 +418,7 @@ f_eq(union argument *arg)
 		      b.v.cmplx_val.imag == 0.0);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -423,11 +434,11 @@ f_eq(union argument *arg)
 		      b.v.cmplx_val.imag);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(Ginteger(&a, result));
 }
@@ -455,7 +466,7 @@ f_ne(union argument *arg)
 		      b.v.cmplx_val.imag != 0.0);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -472,11 +483,11 @@ f_ne(union argument *arg)
 		      b.v.cmplx_val.imag);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(Ginteger(&a, result));
 }
@@ -503,7 +514,7 @@ f_gt(union argument *arg)
 		      b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -517,11 +528,11 @@ f_gt(union argument *arg)
 		      b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(Ginteger(&a, result));
 }
@@ -548,7 +559,7 @@ f_lt(union argument *arg)
 		      b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -562,11 +573,11 @@ f_lt(union argument *arg)
 		      b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(Ginteger(&a, result));
 }
@@ -593,7 +604,7 @@ f_ge(union argument *arg)
 		      b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -607,11 +618,11 @@ f_ge(union argument *arg)
 		      b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(Ginteger(&a, result));
 }
@@ -638,7 +649,7 @@ f_le(union argument *arg)
 		      b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -652,11 +663,11 @@ f_le(union argument *arg)
 		      b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(Ginteger(&a, result));
 }
@@ -735,7 +746,7 @@ f_plus(union argument *arg)
 			    b.v.cmplx_val.imag);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -752,11 +763,11 @@ f_plus(union argument *arg)
 			    b.v.cmplx_val.imag);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(&result);
 }
@@ -783,7 +794,7 @@ f_minus(union argument *arg)
 			    -b.v.cmplx_val.imag);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -800,11 +811,11 @@ f_minus(union argument *arg)
 			    b.v.cmplx_val.imag);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(&result);
 }
@@ -837,7 +848,7 @@ f_mult(union argument *arg)
 			    b.v.cmplx_val.imag);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -859,11 +870,11 @@ f_mult(union argument *arg)
 			    b.v.cmplx_val.real);
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(&result);
 }
@@ -907,7 +918,7 @@ f_div(union argument *arg)
 	    }
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -944,11 +955,11 @@ f_div(union argument *arg)
 	    }
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(&result);
 }
@@ -1031,7 +1042,7 @@ f_power(union argument *arg)
 	    }
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     case CMPLX:
@@ -1083,11 +1094,11 @@ f_power(union argument *arg)
 	    }
 	    break;
 	default:
-	    BAD_DEFAULT
+	    BAD_TYPE(b.type)
 	}
 	break;
     default:
-	BAD_DEFAULT
+	BAD_TYPE(a.type)
     }
     push(&result);
 }
@@ -1276,13 +1287,44 @@ f_range(union argument *arg)
     gpfree_string(&full);
 }
 
+
+/*
+ * f_index() extracts the value of a single element from an array.
+ */
+void
+f_index(union argument *arg)
+{
+    struct value array, index;
+    int i = -1;
+
+    (void) arg;			/* avoid -Wunused warning */
+    (void) pop(&index);
+    (void) pop(&array);
+
+    if (array.type != ARRAY)
+	int_error(NO_CARET, "internal error: attempt to index non-array variable");
+
+    if (index.type == INTGR)
+	i = index.v.int_val;
+    else if (index.type == CMPLX)
+	i = floor(index.v.cmplx_val.real);
+
+    if (i <= 0 || i > array.v.value_array[0].v.int_val) 
+	int_error(NO_CARET, "array index out of range");
+
+    push( &array.v.value_array[i] );
+}
+
+/* Magic number! */
+#define RETURN_WORD_COUNT (-17*23*61)
+
 void
 f_words(union argument *arg)
 {
     struct value a;
 
-    /* "words(s)" is implemented as "word(s,-1)" */
-    push(Ginteger(&a, -1));
+    /* "words(s)" is implemented as "word(s,RETURN_WORD_COUNT)" */
+    push(Ginteger(&a, RETURN_WORD_COUNT));
     f_word(arg);
 }
 
@@ -1331,13 +1373,15 @@ f_word(union argument *arg)
 	}
     }
 
-    if (ntarget < 0)
-	/* words(s) = word(s,-1) = # of words in string */
+    /* words(s) = word(s,magic_number) = # of words in string */
+    if (ntarget == RETURN_WORD_COUNT)
 	Ginteger(&result, nwords);
 
     push(&result);
     gpfree_string(&a);
 }
+#undef RETURN_WORD_COUNT
+
 
 /* EAM July 2004  (revised to dynamic buffer July 2005)
  * There are probably an infinite number of things that can
@@ -1524,14 +1568,6 @@ f_gprintf(union argument *arg)
     (void) arg;
     pop(&val);
     pop(&fmt);
-
-#ifdef DEBUG
-    fprintf(stderr,"----------\nGot gprintf parameters\nfmt: ");
-	disp_value(stderr, &fmt, TRUE);
-    fprintf(stderr,"\nval: ");
-	disp_value(stderr, &val, TRUE);
-    fprintf(stderr,"\n----------\n");
-#endif
 
     /* Make sure parameters are of the correct type */
     if (fmt.type != STRING)
@@ -1732,7 +1768,6 @@ void
 f_system(union argument *arg)
 {
     struct value val, result;
-    struct udvt_entry *errno_var;
     char *output;
     int output_len, ierr;
 
@@ -1747,8 +1782,7 @@ f_system(union argument *arg)
     FPRINTF((stderr," f_system input = \"%s\"\n", val.v.string_val));
 
     ierr = do_system_func(val.v.string_val, &output);
-    if ((errno_var = add_udv_by_name("ERRNO")))
-	Ginteger(&errno_var->udv_value, ierr);
+    fill_gpval_integer("GPVAL_ERRNO", ierr); 
     output_len = strlen(output);
 
     /* chomp result */
@@ -1768,23 +1802,41 @@ f_system(union argument *arg)
 void
 f_assign(union argument *arg)
 {
-    struct value a, b;
+    struct udvt_entry *udv;
+    struct value a, b, index;
     (void) arg;
     (void) pop(&b);	/* new value */
+    (void) pop(&index);	/* index (only used if this is an array assignment) */
     (void) pop(&a);	/* name of variable */
     
-    if (a.type == STRING) {
-	struct udvt_entry *udv;
-	if (!strncmp(a.v.string_val,"GPVAL_",6) || !strncmp(a.v.string_val,"MOUSE_",6))
-	    int_error(NO_CARET,"Attempt to assign to a read-only variable");
-	udv = add_udv_by_name(a.v.string_val);
-	gpfree_string(&a);
+    if (a.type != STRING)
+	int_error(NO_CARET, "attempt to assign to something other than a named variable");
+    if (!strncmp(a.v.string_val,"GPVAL_",6) || !strncmp(a.v.string_val,"MOUSE_",6))
+	int_error(NO_CARET, "attempt to assign to a read-only variable");
+    if (b.type == ARRAY)
+	int_error(NO_CARET, "unsupported array operation");
+
+    udv = add_udv_by_name(a.v.string_val);
+    gpfree_string(&a);
+
+    if (udv->udv_value.type == ARRAY) {
+	int i;
+	if (index.type == INTGR)
+	    i = index.v.int_val;
+	else if (index.type == CMPLX)
+	    i = floor(index.v.cmplx_val.real);
+	else
+	    int_error(NO_CARET, "non-numeric array index");
+	if (i <= 0 || i > udv->udv_value.v.value_array[0].v.int_val)
+	    int_error(NO_CARET, "array index out of range");
+	gpfree_string(&udv->udv_value.v.value_array[i]);
+	udv->udv_value.v.value_array[i] = b;
+    } else {
 	gpfree_string(&(udv->udv_value));
 	udv->udv_value = b;
-	push(&b);
-    } else {
-	int_error(NO_CARET, "attempt to assign to something other than a named variable");
     }
+
+    push(&b);
 }
 
 /*

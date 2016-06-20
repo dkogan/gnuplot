@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: help.c,v 1.30 2015/01/21 03:38:24 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: help.c,v 1.32 2016-02-04 05:21:09 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - help.c */
@@ -457,7 +457,7 @@ Ambiguous(KEY *key, size_t len)
 	     * But is it different enough from the previous one
 	     * to bother printing it as a separate choice?
 	     */
-	    sublen = strcspn(prev + len, " ");
+	    sublen = strcspn(key->key + len, " ");
 	    if (strncmp(key->key, prev, len + sublen) != 0) {
 		/* yup, this is different up to the next space */
 		if (!status) {
@@ -697,9 +697,15 @@ OutLine(const char *line)
     /* leave room for prompt line */
     if (pagelines >= screensize - 2) {
 	fputs("Press return for more: ", stderr);
+#if defined(_WIN32)
+	do
+	    c = getchar();
+	while (c != EOF && c != '\n' && c != '\r');
+#else
 	do
 	    c = getchar();
 	while (c != EOF && c != '\n');
+#endif
 	pagelines = 0;
     }
     fputs(line, stderr);
@@ -727,9 +733,15 @@ OutLine_InternalPager(const char *line)
     /* leave room for prompt line */
     if (pagelines >= screensize - 2) {
 	fputs("Press return for more: ", stderr);
+#if defined(_WIN32)
+	do
+	    c = getchar();
+	while (c != EOF && c != '\n' && c != '\r');
+#else
 	do
 	    c = getchar();
 	while (c != EOF && c != '\n');
+#endif
 	pagelines = 0;
     }
     fputs(line, stderr);

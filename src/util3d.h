@@ -1,5 +1,5 @@
 /*
- * $Id: util3d.h,v 1.20 2013/02/28 06:43:00 sfeam Exp $
+ * $Id: util3d.h,v 1.22 2016-04-16 04:01:06 sfeam Exp $
  */
 
 /* GNUPLOT - util3d.h */
@@ -74,8 +74,8 @@ typedef vertex GPHUGE * p_vertex;
 
 /* Prototypes of functions exported by "util3d.c" */
 
-void edge3d_intersect __PROTO((struct coordinate GPHUGE *, int, int, double *, double *, double *));
-TBOOLEAN two_edge3d_intersect __PROTO((struct coordinate GPHUGE *, int, int, double *, double *, double *));
+void edge3d_intersect __PROTO((coordinate *, coordinate *, double *, double *, double *));
+TBOOLEAN two_edge3d_intersect __PROTO((coordinate *, coordinate *, double *, double *, double *));
 void mat_scale __PROTO((double sx, double sy, double sz, double mat[4][4]));
 void mat_rot_x __PROTO((double teta, double mat[4][4]));
 void mat_rot_z __PROTO((double teta, double mat[4][4]));
@@ -86,7 +86,6 @@ void map3d_xy_double __PROTO((double x, double y, double z, double *xt, double *
 void draw3d_line __PROTO((p_vertex, p_vertex, struct lp_style_type *));
 void draw3d_line_unconditional __PROTO((p_vertex, p_vertex, struct lp_style_type *, t_colorspec));
 void draw3d_point __PROTO((p_vertex v, struct lp_style_type *lp));
-void apply_3dhead_properties __PROTO((struct arrow_style_type *arrow_properties));
 
 
 /* HBB NEW 20031218: 3D polyline support */

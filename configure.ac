@@ -1,7 +1,7 @@
 dnl Process this file with autoconf to produce a configure script.
 dnl configure.in for gnuplot on Unix.
 dnl
-dnl $Id: configure.ac,v 1.13 2015/07/15 05:11:44 sfeam Exp $
+dnl $Id: configure.ac,v 1.21 2016-05-23 19:02:18 markisch Exp $
 dnl
 dnl this is actually major.minor ...
 dnl note that for a non-beta release, we need to disable DEVELOPMENT_RELEASE
@@ -17,6 +17,8 @@ AM_MAINTAINER_MODE
 
 VERSION_MAJOR="`cat $srcdir/VERSION`"
 PATCHLEVEL="`cat $srcdir/PATCHLEVEL`"
+AC_DEFINE_UNQUOTED(VERSION_MAJOR,["$VERSION_MAJOR"],[The main version number])
+AC_DEFINE_UNQUOTED(PATCHLEVEL,["$PATCHLEVEL"],[The patch level, a.k.a. micro version number])
 
 dnl configure.in body
 
@@ -184,15 +186,13 @@ AC_ARG_WITH(x-app-defaultdir,dnl
 dnl Operating systems.
 dnl FIXME AC_DEFINE(ISC22)
 dnl FIXME AC_DEFINE(KSR)
-dnl Check for MSDOS and djgpp, NeXT, Apple MacOsX (NeXT like), BeOS
+dnl Check for MSDOS and djgpp, Apple MacOsX, BeOS
 GP_MSDOS
-GP_NEXT
 GP_APPLE
 GP_BEOS
 GP_ALPHA
 AM_CONDITIONAL(BUILD_SRC_BEOS_SUBDIR, test x$build_beos_subdir = xyes)
 
-dnl Apparently, -lNeXT_s is needed on NeXT
 dnl _instead_ of -lm ...
 AC_CHECK_FUNC(sin,,[AC_CHECK_LIB(m,sin)])
 
@@ -245,8 +245,7 @@ if test "$enable_plugins" != no; then
 fi
 AM_CONDITIONAL(BUILD_PLUGIN, test "$have_external_functions" = yes)
 
-dnl check if unistd actually declares anything. On NeXT 3.2 unistd is
-dnl conditionalized for _POSIX_SOURCE
+dnl check if unistd actually declares anything.
 AC_MSG_CHECKING(for unistd.h)
 AC_EGREP_HEADER(execv, unistd.h,
   [AC_DEFINE(HAVE_UNISTD_H) AC_MSG_RESULT(yes)],
@@ -410,7 +409,7 @@ AC_ARG_WITH(readline,dnl
 [  --with-readline=builtin  use the built-in readline
   --with-readline=gnu      use the GNU readline library (default if present)
   --with-readline=bsd      use the NetBSD editline library (NB: does not handle UTF-8!)
-  --with-readline=DIR      specify the location of GNU readline
+  --with-readline=DIR      specify the location of readline/editline
   --without-readline       do not use any readline function], ,
   test -z "$with_readline" && with_readline=gnu)
 
@@ -424,15 +423,39 @@ if test "$with_readline" != no; then
   _libs="$LIBS"
   if test "$with_readline" != builtin; then
 
+    dnl check for terminal library
+    dnl this is a very cool solution from octave's configure.in
+    gp_tcap=""
+    for termlib in ncurses curses termcap terminfo termlib; do
+      AC_CHECK_LIB(${termlib}, tputs, [gp_tcap="$gp_tcap -l$termlib"])
+      case "$gp_tcap" in
+        *-l${termlib}*)
+          break
+        ;;
+      esac
+    done
+
+    dnl explicit path to readline/editline
+    if test "$with_readline" != gnu -a "$with_readline" != bsd; then
+      if test -d $with_readline/include; then
+        CPPFLAGS="$CPPFLAGS -I$with_readline/include"
+      fi
+      if test -d $with_readline/lib; then
+        LDFLAGS="$LDFLAGS -L$with_readline/lib"
+      fi
+      dnl Could be either libedit or readline!
+      AC_CHECK_HEADERS(editline/readline.h,[with_readline=bsd],,)
+      if test "$with_readline" = bsd; then
+        AC_MSG_WARN([Path contains libedit, not readline!])
+      fi  
+    fi
+
     if test "$with_readline" = bsd; then
 
       AC_CHECK_LIB(edit, readline,
         [TERMLIBS="-ledit $TERMLIBS"],
 	 [AC_MSG_WARN([Could not find BSD editline library ])
 	  with_readline=builtin],)
-
-      AC_CHECK_LIB(curses, tputs,
-        [TERMLIBS="-lcurses $TERMLIBS"],,)
 
       if test "$ac_cv_lib_edit_readline" = yes; then
         AC_DEFINE(HAVE_LIBEDITLINE,1,
@@ -448,41 +471,15 @@ if test "$with_readline" != no; then
 
     else # !bsd
 
-    dnl check for terminal library
-    dnl this is a very cool solution from octave's configure.in
-    gp_tcap=""
-    for termlib in ncurses curses termcap terminfo termlib; do
-      AC_CHECK_LIB(${termlib}, tputs, [gp_tcap="$gp_tcap -l$termlib"])
-      case "$gp_tcap" in
-        *-l${termlib}*)
-          break
-        ;;
-      esac
-    done
-
-    if test "$with_readline" = gnu; then
-      AC_CHECK_LIB(readline, remove_history,
-        [TERMLIBS="-lreadline $gp_tcap $TERMLIBS"],, [${gp_tcap}])
-    else
-      if test -d $with_readline/include; then
-        CPPFLAGS="$CPPFLAGS -I$with_readline/include"
-      fi
-      if test -d $with_readline/lib; then
-        LDFLAGS="$LDFLAGS -L$with_readline/lib"
-      fi
-
-      AC_CHECK_LIB(readline, remove_history,
-        [TERMLIBS="-lreadline $gp_tcap $TERMLIBS"],,[${gp_tcap}])
-
-    fi
-
+    AC_CHECK_LIB(readline, remove_history,
+      [TERMLIBS="-lreadline $gp_tcap $TERMLIBS"],,[${gp_tcap}])
     if test "$ac_cv_lib_readline_remove_history" = no; then
       dnl OSX keeps history functions in a separate library
       AC_CHECK_LIB(history, remove_history,
-        TERMLIBS="-lreadline -lhistory $gp_tcap $TERMLIBS",
-	[ AC_MSG_WARN([GNU readline not found - falling back to builtin readline])
+        [TERMLIBS="-lreadline -lhistory $gp_tcap $TERMLIBS"],
+        [ AC_MSG_WARN([GNU readline not found - falling back to builtin readline])
           with_readline=builtin ]
-	,[${gp_tcap}])
+        ,[${gp_tcap}])
     fi
 
     dnl Work around some functions missing from the OSX readline library.
@@ -786,18 +783,6 @@ if test "$with_caca" != no; then
 fi
 dnl end caca
 
-dnl Sun sunview
-AC_EGREP_CPP(yes,
-[#ifdef sun
-yes
-#endif
-],[AC_CHECK_LIB(suntool, window_create,
-     [AC_CHECK_HEADER(suntool/sunview.h,
-        [AC_DEFINE(SUN,1,
-                   [ Define if you want to use the sunview terminal (sun). ])
-         TERMLIBS="-lsuntool -lsunwindow -lpixrect $TERMLIBS"])],,
-    [-lsunwindow -lpixrect])])
-
 dnl Process rest of with and enable options
 
 dnl Use .gnuplot file in current directory
@@ -807,6 +792,14 @@ AC_ARG_WITH(cwdrc,dnl
 if test "$with_cwdrc" = yes; then
      AC_DEFINE(USE_CWDRC,1,
                [ Define if you want to read .gnuplot from current directory (SECURITY RISK!).])
+fi
+
+dnl Disable experimental support for nonlinear axes
+AC_ARG_WITH(nonlinear-axes,dnl
+[  --without-nonlinear-axes     disable EXPERIMENTAL support for nonlinear axes])
+if test "$with_nonlinear_axes" = no; then
+    AC_DEFINE(DISABLE_NONLINEAR_AXES, 1,
+               [ Define if you want to disable EXPERIMENTAL support for nonlinear axes ])
 fi
 
 dnl Sort help/subtopic tables by row or column
@@ -1044,20 +1037,11 @@ if test "${enable_wxwidgets}" = yes ; then
   fi
 
   dnl Check for Cairo
-  PKG_CHECK_MODULES_NOFAIL(CAIROPANGO, [cairo >= 0.9.0 pango >= 1.10 pangocairo >= 1.10])
+  PKG_CHECK_MODULES_NOFAIL(CAIROPANGO, [cairo >= 0.9.0 pango >= 1.22 pangocairo >= 1.10])
   if test $pkg_failed != no; then
     AC_MSG_WARN([The wxWidgets terminal will not be compiled.])
     enable_wxwidgets_ok=no
   fi
-
-  dnl Check for buggy Pango 1.10.2
-  PKG_CHECK_MODULES(PANGO_1_10_2, [pango = 1.10.2],
-    [AC_MSG_WARN(dnl
-[Pango 1.10.2 has been found. This version has a bug which gives unexpected
-results in the wxWidgets terminal. If you want to use this terminal, please
-install a different version of Pango.])
-    enable_wxwidgets_ok=no],
-    [HAVE_PANGO_1_10_2=0])
 fi
 
 if test "${enable_wxwidgets_ok}" = yes ; then
@@ -1067,10 +1051,17 @@ if test "${enable_wxwidgets_ok}" = yes ; then
   dnl Check for fork(), used for the 'persist' effect
   AC_FUNC_FORK
 
-  dnl Check for gtk (raise/lower tweaks)
-  PKG_CHECK_MODULES(GTK, [gtk+-2.0], have_gtk=yes, have_gtk=no)
+  dnl Check if wxWidgets uses gtk on this platform
+  WX_TOOLKIT="`$WX_CONFIG --query-toolkit`"
+  if test "${WX_TOOLKIT}" = gtk2 ; then
+    PKG_CHECK_MODULES(GTK, [gtk+-2.0], have_gtk=yes, have_gtk=no)
+    want_gtk=yes
+  elif test "${WX_TOOLKIT}" = gtk3 ; then
+    PKG_CHECK_MODULES(GTK, [gtk+-3.0], have_gtk=yes, have_gtk=no)
+    want_gtk=yes
+  fi
   if  test "${have_gtk}" = yes ; then
-    AC_DEFINE(HAVE_GTK, 1, [Define to use gtk/gdk tweaks])
+    AC_DEFINE(HAVE_GTK, 1, [define if your wxWidgets uses the gtk toolkit])
     WX_CXXFLAGS="$WX_CXXFLAGS $GTK_CFLAGS"
     WX_LIBS="$WX_LIBS $GTK_LIBS"
   fi
@@ -1120,7 +1111,7 @@ AC_ARG_WITH(cairo,dnl
 if test "${with_cairo}" = yes ; then
   dnl cairo terminals
   PKG_CHECK_MODULES_NOFAIL(CAIROPDF,dnl
-       [cairo >= 1.2 cairo-pdf >= 1.2 pango >= 1.10 pangocairo >= 1.10 glib-2.0])
+       [cairo >= 1.2 cairo-pdf >= 1.2 pango >= 1.22 pangocairo >= 1.10 glib-2.0])
   if test $pkg_failed != no; then
     AC_MSG_WARN([The cairo terminals will not be compiled.])
     with_cairo=no
@@ -1288,6 +1279,7 @@ dnl Substitute variables
 AC_SUBST(PACKAGE)
 AC_SUBST(VERSION_MAJOR)
 AC_SUBST(VERSION)
+AC_SUBST(PATCHLEVEL)
 AC_SUBST(GIHDIR)
 AC_SUBST(TEXDIR)
 AC_SUBST(LINUXSUID)
@@ -1451,7 +1443,7 @@ fi
 if test "$with_cairo" = yes; then
   AC_MSG_RESULT([  cairo-based pdf and png terminals: yes ])
 else
-  AC_MSG_RESULT([  cairo-based terminals: no (requires cairo>1.2, pango>1.10)])
+  AC_MSG_RESULT([  cairo-based terminals: no (requires cairo>1.2, pango>1.22)])
 fi
 
 if test "$with_lua" = yes; then
@@ -1467,7 +1459,7 @@ if test "$enable_wxwidgets_ok" = yes; then
     AC_MSG_RESULT([  wxt terminal: yes ])
   fi
 else
-  AC_MSG_RESULT([  wxt terminal: no (requires C++, wxWidgets>2.6, cairo>0.9, pango>1.10)])
+  AC_MSG_RESULT([  wxt terminal: no (requires C++, wxWidgets>2.6, cairo>0.9, pango>1.22)])
 fi
 
 if test "$enable_qt_ok" = yes; then
@@ -1485,7 +1477,7 @@ AC_MSG_RESULT([])
 AC_MSG_RESULT([  Additional platform-specific or older terminals omitted by default:])
 AC_MSG_RESULT([   gpic, mif (FrameMaker 3), hp2623a, hp2648, imagen, kyocera ])
 AC_MSG_RESULT([   pm (makefile.os2), be (BeOS), svga (MSDOS/djgpp)])
-AC_MSG_RESULT([   sun, windows (several options)])
+AC_MSG_RESULT([   windows (several options)])
 
 AC_MSG_RESULT([])
 AC_MSG_RESULT([gnuplot will be compiled with the following configurable features:])

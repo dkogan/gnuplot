@@ -2,14 +2,14 @@
 <html>
 <head>
 <meta charset="UTF-8"> 
-<title>Gnuplot 5.1 demo scripts run through the HTML canvas terminal</title>
+<title>Gnuplot 5.1 demos (HTML canvas terminal)</title>
 <link type="text/css" href="gnuplot_demo.css" rel="stylesheet">
 <link type="text/css" href="gnuplot_mouse.css" rel="stylesheet">
 </head>
 
 <body oncontextmenu="return false;">
 
-<h2 align=center>Gnuplot 5.1 demo scripts run through the HTML canvas terminal<br>
+<h2 align=center>Gnuplot 5.1 demos (HTML canvas terminal)<br>
     See also the demo output for the
     <a href="http://gnuplot.sourceforge.net/demo_5.1/">PNG</a> and
     <a href="http://gnuplot.sourceforge.net/demo_svg_5.1/">SVG</a> terminals.
@@ -17,11 +17,6 @@
 <canvas id="warning" width=1 height=1>
     <div class='box'><h2>Your browser may not support the HTML 5 canvas element</h2></div>
 </canvas>
-
-<p>
-To view these plots you need a browser that supports the HTML5 'canvas' element.
-</p>
-
 
 <table width="100%">
 <tbody><tr valign="top">
@@ -46,6 +41,7 @@ To view these plots you need a browser that supports the HTML5 'canvas' element.
     <li><a href="circles.html">circles</a></li>
     <li><a href="boxplot.html">boxplots</a></li>
     <li><a href="rugplot.html">rug plot</a></li>
+    <li><a href="jitter.html">jitter (bee&nbsp;swarm)</a></li>
     </ul>
 
     <h4>Math functions</h4>
@@ -74,6 +70,7 @@ To view these plots you need a browser that supports the HTML5 'canvas' element.
     <li><a href="pm3d.html">pm3d coloring</a></li>
     <li><a href="hidden2.html">pm3d hidden surfaces</a></li>
     <li><a href="world2.html">3D mapping</a></li>
+    <li><a href="pm3d_lighting.html">lighting model</a></li>
     </ul>
 
     <h4>Coordinate and<br> axis transforms</h4>
@@ -111,8 +108,10 @@ To view these plots you need a browser that supports the HTML5 'canvas' element.
     <li><a href="scatter.html">non-gridded data</a></li>
     <li><a href="running_avg.html">running averages</a></li>
     <li><a href="smooth.html">binning/histograms</a></li>
+    <li><a href="array.html">arrays</a></li>
     <li><a href="gantt.html">Gantt chart</a></li>
     <li><a href="heatmaps.html">2D and 3D heat maps</a></li>
+    <li><a href="violinplot.html">Violin plot</a></li>
     </ul>
 
     <h4>Text options</h4>
@@ -131,7 +130,7 @@ To view these plots you need a browser that supports the HTML5 'canvas' element.
     <li><a href="margins.html">aligned plots</a></li>
     <li><a href="ellipse.html">axis location</a></li>
     <li><a href="rectangle.html">rectangles</a></li>
-    <li><a href="nokey.html">end-labeled plots</a></li>
+    <li><a href="custom_key.html">customized key</a></li>
     </ul>
 
     <h4>Styles</h4>
@@ -205,7 +204,7 @@ To view these plots you need a browser that supports the HTML5 'canvas' element.
 <tbody><tr valign="top">
 
     <td>
-    <i>This page created by Ethan Merritt<br>July 2015</i>
+    <i>This page created by Ethan Merritt<br>November 2015</i>
     </td>
 
     <td>

@@ -1,5 +1,5 @@
 /*
- * $Id: wcommon.h,v 1.19 2014/03/23 14:09:02 markisch Exp $
+ * $Id: wcommon.h,v 1.25 2016-05-21 05:29:31 markisch Exp $
  */
 
 /* GNUPLOT - wcommon.h */
@@ -44,6 +44,8 @@
 #ifndef GNUPLOT_WCOMMON_H
 #define GNUPLOT_WCOMMON_H
 
+#include "winmain.h"
+
 #ifndef CLEARTYPE_QUALITY
 #define CLEARTYPE_QUALITY       5
 #endif
@@ -68,9 +70,9 @@ extern UINT cp_output;
 
 /* wgnuplib.c */
 extern HINSTANCE hdllInstance;
-extern LPSTR szParentClass;
-extern LPSTR szTextClass;
-extern LPSTR szPauseClass;
+extern LPWSTR szParentClass;
+extern LPWSTR szTextClass;
+extern LPWSTR szPauseClass;
 extern LPSTR szGraphClass;
 extern LPSTR szAboutClass;
 
@@ -84,6 +86,9 @@ void WriteTextIni(LPTW lptw);
 void ReadTextIni(LPTW lptw);
 void DragFunc(LPTW lptw, HDROP hdrop);
 void TextShow(LPTW lptw);
+void TextUpdateStatus(LPTW lptw);
+void TextSuspend(LPTW lptw);
+void TextResume(LPTW lptw);
 
 /* wmenu.c - Menu */
 void SendMacro(LPTW lptw, UINT m);
@@ -107,10 +112,9 @@ void draw_get_enhanced_text_extend(PRECT extend);
 void draw_image(LPGW lpgw, HDC hdc, char *image, POINT corners[4], unsigned int width, unsigned int height, int color_mode);
 void SetFont(LPGW lpgw, HDC hdc);
 void GraphChangeFont(LPGW lpgw, LPCSTR font, int fontsize, HDC hdc, RECT rect);
-LPWSTR UnicodeText(const char *str, enum set_encoding_id encoding);
 
 #ifdef __cplusplus
-};
+}
 #endif
 
 #endif /* GNUPLOT_WCOMMON_H */

@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.147 2015/07/13 17:54:44 sfeam Exp $
+ * $Id: wxt_gui.cpp,v 1.155 2016-02-14 08:51:56 markisch Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -163,6 +163,12 @@ wxtAnchorPoint wxt_display_anchor = {0,0,0};
 #define wxt_update_key_box(x,y)
 #define wxt_update_anchors(x,y,size)
 #endif
+
+#if defined(WXT_MONOTHREADED) && !defined(_Windows)
+static int yield = 0;	/* used in wxt_waitforinput() */
+#endif
+
+char *wxt_enhanced_fontname = NULL;
 
 #ifdef __WXMAC__
 #include <ApplicationServices/ApplicationServices.h>
@@ -917,6 +923,8 @@ void wxtPanel::DrawToDC(wxDC &dc, wxRegion &region)
 		++upd;
 	}
 #elif defined(__WXMSW__)
+	// Need to flush to make sure the bitmap is fully drawn.
+	cairo_surface_flush(cairo_get_target(plot.cr));
 	BitBlt((HDC) dc.GetHDC(), 0, 0, plot.device_xmax, plot.device_ymax, hdc, 0, 0, SRCCOPY);
 #else
 	dc.DrawBitmap(*cairo_bitmap, 0, 0, false);
@@ -1462,7 +1470,7 @@ static void wxt_check_for_anchors(unsigned int x, unsigned int y)
  * to prevent focus stealing) and is inconsistent with global bindings mechanism ) */
 void wxtPanel::RaiseConsoleWindow()
 {
-#ifdef USE_GTK
+#if defined(USE_GTK) && (GTK_MAJOR_VERSION == 2)
 	char *window_env;
 	unsigned long windowid = 0;
 	/* retrieve XID of gnuplot window */
@@ -1767,6 +1775,13 @@ void wxt_init()
 	if ( wxt_status == STATUS_UNINITIALIZED ) {
 		FPRINTF((stderr,"First Init\n"));
 
+#if !defined(DEVELOPMENT_VERSION) && wxCHECK_VERSION(2, 9, 0)
+		// disable all assert()s
+		// affects in particular the strcmp(setlocale(LC_ALL, NULL), "C") == 0
+		// assertion in wxLocale::GetInfo
+		wxSetAssertHandler(NULL);
+#endif
+
 #ifdef __WXMSW__
 		/* the following is done in wxEntry() with wxMSW only */
 		WXDLLIMPEXP_BASE void wxSetInstance(HINSTANCE hInst);
@@ -2023,8 +2038,8 @@ void wxt_graphics()
 	wxt_sigint_check();
 	wxt_sigint_restore();
 
-	FPRINTF((stderr,"Graphics time %d xmax %d ymax %d v_char %d h_char %d\n",
-		sw.Time(), term->xmax, term->ymax, term->v_char, term->h_char));
+	FPRINTF((stderr,"Graphics xmax %d ymax %d v_char %d h_char %d\n",
+		term->xmax, term->ymax, term->v_char, term->h_char));
 }
 
 void wxt_text()
@@ -2049,8 +2064,6 @@ void wxt_text()
 
 	wxt_sigint_init();
 
-	FPRINTF((stderr,"Text0 %d\n", sw.Time())); /*performance watch*/
-
 	/* translates the command list to a bitmap */
 	wxt_MutexGuiEnter();
 	wxt_current_panel->wxt_cairo_refresh();
@@ -2063,8 +2076,6 @@ void wxt_text()
 	wxt_raise_window(wxt_current_window, false);
 	wxt_MutexGuiLeave();
 
-	FPRINTF((stderr,"Text2 %d\n", sw.Time())); /*performance watch*/
-
 #ifdef USE_MOUSE
 	/* Inform gnuplot that we have finished plotting */
 	wxt_exec_event(GE_plotdone, 0, 0, 0, 0, wxt_window_number );
@@ -2072,14 +2083,16 @@ void wxt_text()
 
 	wxt_sigint_check();
 	wxt_sigint_restore();
-
-	FPRINTF((stderr,"Text finished %d\n", sw.Time())); /*performance watch*/
 }
 
 void wxt_reset()
 {
 	/* sent when gnuplot exits and when the terminal or the output change.*/
 	FPRINTF((stderr,"wxt_reset\n"));
+
+#if defined(WXT_MONOTHREADED) && !defined(_Windows)
+	yield = 0;
+#endif
 
 	if (wxt_status == STATUS_UNINITIALIZED)
 		return;
@@ -2199,7 +2212,7 @@ void wxt_put_text(unsigned int x, unsigned int y, const char * string)
 		* we get stuck in an infinite loop) and try again. */
 
 		while (*(string = enhanced_recursion((char*)string, TRUE,
-				wxt_set_fontname,
+				wxt_enhanced_fontname,
 				wxt_current_plot->fontsize * wxt_set_fontscale,
 				0.0, TRUE, TRUE, 0))) {
 			wxt_enhanced_flush();
@@ -2280,7 +2293,7 @@ int wxt_set_font (const char *font)
 	if (wxt_status != STATUS_OK)
 		return 1;
 
-	char *fontname = strdup("");
+	char *fontname = NULL;
 	gp_command temp_command;
 	int fontsize = 0;
 
@@ -2288,12 +2301,13 @@ int wxt_set_font (const char *font)
 
 	if (font && (*font)) {
 		int sep = strcspn(font,",");
-		if (font[sep] == ',')
+		fontname = strdup(font);
+		if (font[sep] == ',') {
 			sscanf(&(font[sep+1]), "%d", &fontsize);
-		if (sep > 0) {
-			fontname = strdup(font);
 			fontname[sep] = '\0';
 		}
+	} else {
+		fontname = strdup("");
 	}
 
 	wxt_sigint_init();
@@ -2333,6 +2347,14 @@ int wxt_set_font (const char *font)
 	temp_command.integer_value = fontsize * wxt_set_fontscale;
 
 	wxt_command_push(temp_command);
+
+	/* Enhanced text processing needs to know the new font also */
+	if (*fontname) {
+		free(wxt_enhanced_fontname);
+		wxt_enhanced_fontname = strdup(fontname);
+	}
+	free(fontname);
+
 	/* the returned int is not used anywhere */
 	return 1;
 }
@@ -3165,8 +3187,13 @@ void wxt_raise_window(wxt_window_t* window, bool force)
 		 * Refresh() also must be called, otherwise
 		 * the raise won't happen immediately */
 		window->frame->panel->Refresh(false);
-		gdk_window_raise(window->frame->GetHandle()->window);
+		gdk_window_raise(gtk_widget_get_window(window->frame->GetHandle()));
 #else
+#ifdef __WXMSW__
+		// Only restore the window if it is iconized.  In particular
+		// leave it alone if it is maximized.
+		if (window->frame->IsIconized())
+#endif
 		window->frame->Restore();
 		window->frame->Raise();
 #endif /*USE_GTK */
@@ -3178,7 +3205,7 @@ void wxt_lower_window(wxt_window_t* window)
 {
 #ifdef USE_GTK
 	window->frame->panel->Refresh(false);
-	gdk_window_lower(window->frame->GetHandle()->window);
+	gdk_window_lower(gtk_widget_get_window(window->frame->GetHandle()));
 #else
 	window->frame->Lower();
 #endif /* USE_GTK */
@@ -3493,7 +3520,6 @@ int wxtPanel::wxt_cairo_create_platform_context()
 	if ( !GDK_IS_DRAWABLE(dc.GetWindow()) )
 		return 1;
 
-
 	gdkpixmap = gdk_pixmap_new(dc.GetWindow(), plot.device_xmax, plot.device_ymax, -1);
 
 	if ( !GDK_IS_DRAWABLE(gdkpixmap) )
@@ -3715,8 +3741,12 @@ bool wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id)
 	event.par2 = par2;
 	event.winid = id;
 
-#if defined(WXT_MONOTHREADED) || defined(_Windows)
+#if defined(_Windows)
 	wxt_process_one_event(&event);
+	return true;
+#elif defined(WXT_MONOTHREADED)
+	if (wxt_process_one_event(&event))
+	    ungetc('\n',stdin);
 	return true;
 #else
 	if (!wxt_handling_persist)
@@ -3738,7 +3768,7 @@ bool wxt_exec_event(int type, int mx, int my, int par1, int par2, wxWindowID id)
 	}
 
 	return true;
-#endif /* ! _Windows */
+#endif /* Windows or single-threaded or default */
 }
 
 #ifdef WXT_MULTITHREADED
@@ -3850,7 +3880,6 @@ int wxt_waitforinput(int options)
 #else /* !_Windows */
 	/* Generic hybrid GUI & console message loop */
 	/* (used mainly on MacOSX - still single threaded) */
-	static int yield = 0;
 	if (yield)
 		return '\0';
 
@@ -3880,6 +3909,7 @@ int wxt_waitforinput(int options)
 	  FD_ZERO(&read_fd);
 	  FD_SET(0, &read_fd);
 	  if (select(1, &read_fd, NULL, NULL, &tv) != -1 && FD_ISSET(0, &read_fd))
+	    if (!paused_for_mouse)
 		break;
 	}
 	return getchar();

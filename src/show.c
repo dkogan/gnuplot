@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.350 2015/08/03 04:16:38 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.362 2016-05-25 15:02:28 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -52,6 +52,7 @@ static char *RCSid() { return RCSid("$Id: show.c,v 1.350 2015/08/03 04:16:38 sfe
 #include "gp_time.h"
 #include "graphics.h"
 #include "hidden3d.h"
+#include "jitter.h"
 #include "misc.h"
 #include "gp_hist.h"
 #include "plot2d.h"
@@ -148,6 +149,7 @@ static void show_mtics __PROTO((AXIS_INDEX));
 static void show_timestamp __PROTO((void));
 static void show_range __PROTO((AXIS_INDEX axis));
 static void show_link __PROTO((void));
+static void show_nonlinear __PROTO((void));
 static void show_xyzlabel __PROTO((const char *name, const char *suffix, text_label * label));
 static void show_title __PROTO((void));
 static void show_axislabel __PROTO((AXIS_INDEX));
@@ -171,7 +173,7 @@ static void show_arrow __PROTO((int tag));
 
 static void show_ticdef __PROTO((AXIS_INDEX));
 static void show_ticdefp __PROTO((struct axis *));
-       void show_position __PROTO((struct position * pos));
+       void show_position __PROTO((struct position * pos, int ndim));
 static void show_functions __PROTO((void));
 
 static int var_show_all = 0;
@@ -309,6 +311,7 @@ show_command()
 	show_linetype(first_perm_linestyle, tag);
 	break;
     case S_MONOCHROME:
+	fprintf(stderr,"monochrome mode is %s\n", monochrome ? "active" : "not active");
 	if (equals(c_token,"lt") || almost_equals(c_token,"linet$ype")) {
 	    c_token++;
 	    CHECK_TAG_GT_ZERO;
@@ -321,6 +324,9 @@ show_command()
 	break;
     case S_LINK:
 	show_link();
+	break;
+    case S_NONLINEAR:
+	show_nonlinear();
 	break;
     case S_KEY:
 	show_key();
@@ -403,6 +409,9 @@ show_command()
 	break;
     case S_ISOSAMPLES:
 	show_isosamples();
+	break;
+    case S_JITTER:
+	show_jitter();
 	break;
     case S_VIEW:
 	show_view();
@@ -553,7 +562,7 @@ show_command()
 #endif
     case S_PLOT:
 	show_plot();
-#if defined(READLINE) || defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
+#if defined(USE_READLINE)
 	if (!END_OF_COMMAND) {
 	    if (almost_equals(c_token, "a$dd2history")) {
 		c_token++;
@@ -792,6 +801,7 @@ show_all()
     show_range(SECOND_X_AXIS);
     show_range(SECOND_Y_AXIS);
     show_range(FIRST_Z_AXIS);
+    show_jitter();
     show_title();
     show_axislabel(FIRST_X_AXIS );
     show_axislabel(FIRST_Y_AXIS );
@@ -1248,11 +1258,11 @@ show_clip()
 
     fprintf(stderr, "\tpoint clip is %s\n", (clip_points) ? "ON" : "OFF");
 
-    fprintf(stderr, "\t%sdrawing and clipping lines with one end out of range (clip one)\n",
-	clip_lines1 ? "" : "not ");
+    fprintf(stderr, "\t%s lines with one end out of range (clip one)\n",
+	clip_lines1 ? "clipping" : "not drawing");
 
-    fprintf(stderr, "\t%sdrawing and clipping lines with both ends out of range (clip two)\n",
-	clip_lines2 ? "" : "not ");
+    fprintf(stderr, "\t%s lines with both ends out of range (clip two)\n",
+	clip_lines2 ? "clipping" : "not drawing");
 }
 
 
@@ -1562,7 +1572,7 @@ show_style_circle()
 {
     SHOW_ALL_NL;
     fprintf(stderr, "\tCircle style has default radius ");
-    show_position(&default_circle.o.circle.extent);
+    show_position(&default_circle.o.circle.extent, 1);
     fprintf(stderr, " [%s]", default_circle.o.circle.wedge ? "wedge" : "nowedge");
     fputs("\n", stderr);
 }
@@ -1572,7 +1582,7 @@ show_style_ellipse()
 {
     SHOW_ALL_NL;
     fprintf(stderr, "\tEllipse style has default size ");
-    show_position(&default_ellipse.o.ellipse.extent);
+    show_position(&default_ellipse.o.ellipse.extent, 2);
     fprintf(stderr, ", default angle is %.1f degrees", default_ellipse.o.ellipse.orientation);
 
     switch (default_ellipse.o.ellipse.type) {
@@ -1713,7 +1723,7 @@ show_label(int tag)
 	    fprintf(stderr, "\tlabel %d \"%s\" at ",
 		    this_label->tag,
 		    (this_label->text==NULL) ? "" : conv_text(this_label->text));
-	    show_position(&this_label->place);
+	    show_position(&this_label->place, 3);
 	    if (this_label->hypertext)
 		fprintf(stderr, " hypertext");
 	    switch (this_label->pos) {
@@ -1747,7 +1757,7 @@ show_label(int tag)
 		fprintf(stderr, " point with color of");
 		save_linetype(stderr, &(this_label->lp_properties), TRUE);
 		fprintf(stderr, " offset ");
-		show_position(&this_label->offset);
+		show_position(&this_label->offset, 3);
 	    }
 
 #ifdef EAM_BOXED_TEXT
@@ -1785,16 +1795,16 @@ show_arrow(int tag)
 		    this_arrow->arrow_properties.layer ? "front" : "back");
 	    save_linetype(stderr, &(this_arrow->arrow_properties.lp_properties), FALSE);
 	    fprintf(stderr, "\n\t  from ");
-	    show_position(&this_arrow->start);
+	    show_position(&this_arrow->start, 3);
 	    if (this_arrow->type == arrow_end_absolute) {
 		fputs(" to ", stderr);
-		show_position(&this_arrow->end);
+		show_position(&this_arrow->end, 3);
 	    } else if (this_arrow->type == arrow_end_relative) {
 		fputs(" rto ", stderr);
-		show_position(&this_arrow->end);
+		show_position(&this_arrow->end, 3);
 	    } else { /* arrow_end_oriented */
 		fputs(" length ", stderr);
-		show_position(&this_arrow->end);
+		show_position(&this_arrow->end, 1);
 		fprintf(stderr," angle %g deg",this_arrow->angle);
 	    }
 	    if (this_arrow->arrow_properties.head_length > 0) {
@@ -1894,7 +1904,7 @@ show_key()
     }
     case GPKEY_USER_PLACEMENT:
 	fputs("\tkey is at ", stderr);
-	show_position(&key->user_pos);
+	show_position(&key->user_pos, 2);
 	putc('\n', stderr);
 	break;
     }
@@ -1953,10 +1963,10 @@ show_key()
 
 
 void
-show_position(struct position *pos)
+show_position(struct position *pos, int ndim)
 {
     fprintf(stderr,"(");
-    save_position(stderr, pos, FALSE);
+    save_position(stderr, pos, ndim, FALSE);
     fprintf(stderr,")");
 }
 
@@ -2423,9 +2433,9 @@ show_colorbox()
 	    break;
 	case SMCOLOR_BOX_USER:
 	    fputs("at USER origin: ", stderr);
-	    show_position(&color_box.origin);
+	    show_position(&color_box.origin, 2);
 	    fputs("\n\t          size: ", stderr);
-	    show_position(&color_box.size);
+	    show_position(&color_box.size, 2);
 	    fputs("\n", stderr);
 	    break;
 	default: /* should *never* happen */
@@ -2479,7 +2489,10 @@ show_pm3d()
 	save_linetype(stderr, &(pm3d.border), FALSE);
 	fprintf(stderr,"\n");
     }
-
+    if (pm3d_shade.strength > 0) {
+	fprintf(stderr,"\tlighting primary component %g specular component %g\n",
+		pm3d_shade.strength, pm3d_shade.spec);
+    }
     fprintf(stderr,"\tsteps for bilinear interpolation: %d,%d\n",
 	 pm3d.interp_i, pm3d.interp_j);
     fprintf(stderr,"\tquadrangle color according to ");
@@ -2817,8 +2830,7 @@ show_tics(
     else
 	fprintf(stderr, "\txyplane ticslevel is %g\n", xyplane.z);
 
-    if (grid_layer >= 0)
-        fprintf(stderr, "tics are in %s of plot\n", (grid_layer==0) ? "back" : "front");
+    fprintf(stderr, "\ttics are in %s of plot\n", (grid_tics_in_front) ? "front" : "back");
 
     if (showx)
 	show_ticdef(FIRST_X_AXIS);
@@ -2902,7 +2914,7 @@ show_xyzlabel(const char *name, const char *suffix, text_label *label)
     if (label) {
 	fprintf(stderr, "\t%s%s is \"%s\", offset at ", name, suffix,
 	    label->text ? conv_text(label->text) : "");
-	show_position(&label->offset);
+	show_position(&label->offset, 3);
     } else
 	return;
 
@@ -2968,13 +2980,20 @@ static void
 show_link()
 {
     if (END_OF_COMMAND || almost_equals(c_token,"x$2"))
-	if (axis_array[SECOND_X_AXIS].linked_to_primary)
-	    save_prange(stderr, axis_array + SECOND_X_AXIS);
+	    save_link(stderr, axis_array + SECOND_X_AXIS);
     if (END_OF_COMMAND || almost_equals(c_token,"y$2"))
-	if (axis_array[SECOND_Y_AXIS].linked_to_primary)
-	    save_prange(stderr, axis_array + SECOND_Y_AXIS);
+	    save_link(stderr, axis_array + SECOND_Y_AXIS);
     if (!END_OF_COMMAND)
 	c_token++;
+}
+
+/* process 'show link' command */
+static void
+show_nonlinear()
+{
+    int axis;
+    for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++)
+	save_nonlinear(stderr, &axis_array[axis]);
 }
 
 /* process 'show locale' command */
@@ -3193,6 +3212,7 @@ show_linetype(struct linestyle_def *listhead, int tag)
 {
     struct linestyle_def *this_linestyle;
     TBOOLEAN showed = FALSE;
+    int recycle_count = 0;
 
     for (this_linestyle = listhead; this_linestyle != NULL;
 	 this_linestyle = this_linestyle->next) {
@@ -3206,9 +3226,14 @@ show_linetype(struct linestyle_def *listhead, int tag)
     if (tag > 0 && !showed)
 	int_error(c_token, "linetype not found");
 
-    if (tag == 0 && linetype_recycle_count != 0 && listhead == first_perm_linestyle)
+    if (listhead == first_perm_linestyle)
+	recycle_count = linetype_recycle_count;
+    else if (listhead == first_mono_linestyle)
+	recycle_count = mono_recycle_count;
+
+    if (tag == 0 && recycle_count > 0)
 	fprintf(stderr, "\tLinetypes repeat every %d unless explicitly defined\n",
-		linetype_recycle_count);
+		recycle_count);
 }
 
 
@@ -3331,7 +3356,7 @@ show_ticdefp(struct axis *this_axis)
     } else
 	fputs(" and are not rotated,\n\t", stderr);
     fputs("    offset ",stderr);
-    show_position(&this_axis->ticdef.offset);
+    show_position(&this_axis->ticdef.offset, 3);
     fputs("\n\t",stderr);
 
     switch (this_axis->ticdef.type) {

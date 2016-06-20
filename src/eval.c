@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.128 2015/08/21 20:45:03 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.135 2016-03-17 05:53:47 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -120,6 +120,7 @@ const struct ft_entry GPFAR ft[] =
     {"eqs",  f_eqs},			/* for string variables only */
     {"nes",  f_nes},			/* for string variables only */
     {"[]",  f_range},			/* for string variables only */
+    {"[]",  f_index},			/* for array variables only */
     {"assign", f_assign},		/* assignment operator '=' */
     {"jump",  f_jump},
     {"jumpz",  f_jumpz},
@@ -266,6 +267,8 @@ real(struct value *val)
 	return (val->v.cmplx_val.real);
     case STRING:              /* is this ever used? */
 	return (atof(val->v.string_val));
+    case NOTDEFINED:
+	return not_a_number();
     default:
 	int_error(NO_CARET, "unknown type in real()");
     }
@@ -417,7 +420,30 @@ gpfree_string(struct value *a)
 	free(a->v.string_val);
 	a->type = NOTDEFINED;
     }
+
+    else if (a->type == ARRAY) {
+	/* gpfree_array() is now a separate routine. This is to help find */
+	/* any remaining callers who expect gpfree_string to handle it.   */
+	FPRINTF((stderr,"eval.c:%d hit array in gpfree_string()", __LINE__));
+	a->type = NOTDEFINED;
+    }
+
     return a;
+}
+
+void
+gpfree_array(struct value *a)
+{
+    int i;
+    int size;
+
+    if (a->type == ARRAY) {
+	size = a->v.value_array[0].v.int_val;
+	for (i=1; i<=size; i++)
+	    gpfree_string(&(a->v.value_array[i]));
+	free(a->v.value_array);
+	a->type = NOTDEFINED;
+    }
 }
 
 /* some machines have trouble with exp(-x) for large x
@@ -516,9 +542,37 @@ push(struct value *x)
     if (s_p == STACK_DEPTH - 1)
 	int_error(NO_CARET, "stack overflow");
     stack[++s_p] = *x;
+
     /* WARNING - This is a memory leak if the string is not later freed */
     if (x->type == STRING && x->v.string_val)
 	stack[s_p].v.string_val = gp_strdup(x->v.string_val);
+
+#ifdef ARRAY_COPY_ON_REFERENCE
+    /* NOTE: Without this code, any operation during expression evaluation that */
+    /* alters the content of an existing array would potentially corrupt the	*/
+    /* original copy.  E.g. "Array A[3];  B=A" would result in a new variable B	*/
+    /* that points to the same content as the original array A.  This problem	*/
+    /* can be avoided by making a copy of the original array when pushing it on	*/
+    /* the evaluation stack.  Any change or persistance of the copy does not	*/
+    /* corrupt the original.  However there are two penalties from this.   	*/
+    /* (1) Every reference, including retrieval of a single array element, 	*/
+    /* triggers a sequence of copy/evaluate/free so it is very wasteful.  	*/
+    /* (2) The lifetime of the copy is problematic.  Enabling this code in its	*/
+    /* current state will almost certainly reveal memory leaks or double-free	*/
+    /* failures.  Some compromise (detect and allow a simple copy but nothing	*/
+    /* else?) might be possible so this code is left as a starting point.  	*/
+    if (x->type == ARRAY) {
+	int i;
+	int array_size = x->v.value_array[0].v.int_val + 1;
+	stack[s_p].v.value_array = gp_alloc(array_size * sizeof(struct value), "push copy of array");
+	memcpy(stack[s_p].v.value_array, x->v.value_array, array_size*sizeof(struct value));
+	for (i=1; i<array_size; i++) 
+	    if (stack[s_p].v.value_array[i].type == STRING) {
+		stack[s_p].v.value_array[i].v.string_val
+		= strdup(stack[s_p].v.value_array[i].v.string_val);
+	    }
+    }
+#endif
 }
 
 
@@ -654,6 +708,11 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
 	(void) pop(val_ptr);
 	check_stack();
     }
+
+    if (!undefined && val_ptr->type == ARRAY) {
+	int_warn(NO_CARET, "evaluate_at: unsupported array operation");
+	val_ptr->type = NOTDEFINED;
+    }
 }
 
 void
@@ -737,6 +796,7 @@ del_udv_by_name(char *key, TBOOLEAN wildcard)
 
  	/* exact match */
 	else if (!wildcard && !strcmp(key, udv_ptr->udv_name)) {
+	    gpfree_array(&(udv_ptr->udv_value));
 	    gpfree_string(&(udv_ptr->udv_value));
 	    gpfree_datablock(&(udv_ptr->udv_value));
 	    udv_ptr->udv_value.type = NOTDEFINED;
@@ -745,6 +805,7 @@ del_udv_by_name(char *key, TBOOLEAN wildcard)
 
 	/* wildcard match: prefix matches */
 	else if ( wildcard && !strncmp(key, udv_ptr->udv_name, strlen(key)) ) {
+	    gpfree_array(&(udv_ptr->udv_value));
 	    gpfree_string(&(udv_ptr->udv_value));
 	    gpfree_datablock(&(udv_ptr->udv_value));
 	    udv_ptr->udv_value.type = NOTDEFINED;
@@ -1066,26 +1127,3 @@ gp_word(char *string, int i)
     return a.v.string_val;
 }
 
-
-/* Evaluate the function linking secondary axis to primary axis */
-double
-eval_link_function(AXIS_INDEX axis, double raw_coord)
-{
-    udft_entry *link_udf = axis_array[axis].link_udf;
-    int dummy_var;
-    struct value a;
-
-    if (axis == FIRST_Y_AXIS || axis == SECOND_Y_AXIS)
-	dummy_var = 1;
-    else
-	dummy_var = 0;
-    link_udf->dummy_values[1-dummy_var].type = INVALID_NAME;
-
-    Gcomplex(&link_udf->dummy_values[dummy_var], raw_coord, 0.0);
-    evaluate_at(link_udf->at, &a);
-
-    if (a.type != CMPLX)
-	a = udv_NaN->udv_value;
-
-    return a.v.cmplx_val.real;
-}

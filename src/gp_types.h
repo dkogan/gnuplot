@@ -1,5 +1,5 @@
 /*
- * $Id: gp_types.h,v 1.67 2015/08/21 20:45:03 sfeam Exp $
+ * $Id: gp_types.h,v 1.71 2016-05-08 04:17:25 sfeam Exp $
  */
 
 /* GNUPLOT - gp_types.h */
@@ -50,6 +50,7 @@ enum DATA_TYPES {
 	CMPLX,
 	STRING,
 	DATABLOCK,
+	ARRAY,
 	NOTDEFINED,	/* exists, but value is currently undefined */
 	INVALID_VALUE,	/* used only for error return by external functions */
 	INVALID_NAME	/* used only to trap errors in linked axis function definition */
@@ -118,7 +119,7 @@ typedef enum PLOT_STYLE {
 } PLOT_STYLE;
 
 typedef enum PLOT_SMOOTH {
-    SMOOTH_NONE,
+    SMOOTH_NONE = 0,
     SMOOTH_ACSPLINES,
     SMOOTH_BEZIER,
     SMOOTH_CSPLINES,
@@ -148,6 +149,7 @@ typedef struct value {
 	struct cmplx cmplx_val;
 	char *string_val;
 	char **data_array;
+	struct value *value_array;
     } v;
 } t_value;
 
@@ -162,16 +164,18 @@ typedef enum coord_type {
 } coord_type;
 
 
-/* These fields of 'struct coordinate' used for storing the color of 3D data points */
-#define CRD_COLOR yhigh
+/* These fields of 'struct coordinate' hold extra properties of 3D data points */
+/* Used by splot styles RGBIMAGE and RGBA_IMAGE */
 #define CRD_R yhigh
 #define CRD_G xlow
 #define CRD_B xhigh
 #define CRD_A ylow
-/* The field of 'struct coordinate' used for storing the point size in plot
- * style POINTSTYLE with variable point size
- */
+/* Used by all splot style with variable line/point color */
+#define CRD_COLOR yhigh
+/* Used by splot styles POINTSTYLE and LINESPOINTS with variable point size */
 #define CRD_PTSIZE xlow
+/* Used by splot styles POINTSTYLE and LINESPOINTS with variable point type */
+#define CRD_PTTYPE xhigh
 
 
 typedef struct coordinate {
@@ -187,5 +191,13 @@ typedef enum lp_class {
 	LP_ADHOC  = 2,	/* lp_style_type used for single purpose */
 	LP_NOFILL = 3	/* special treatment of fillcolor */
 } lp_class;
+
+/*
+ * Introduction of nonlinear axes makes it possible for an axis-mapping function
+ * to return "undefined" or NaN. These cannot be encoded as an integer coordinate.
+ * So we introduce an integer equivalent to NaN and provide a macro to test for
+ * whether a coordinate mapping returned it.
+ */
+#define intNaN (~((unsigned int)(~0)>>1))
 
 #endif /* GNUPLOT_GPTYPES_H */

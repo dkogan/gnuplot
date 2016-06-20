@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.243 2015/08/21 20:45:03 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot3d.c,v 1.254 2016-06-18 06:00:16 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot3d.c */
@@ -188,8 +188,9 @@ sp_free(struct surface_points *sp)
 {
     while (sp) {
 	struct surface_points *next = sp->next_sp;
-	if (sp->title)
-	    free(sp->title);
+	free(sp->title);
+	free(sp->title_position);
+	sp->title_position = NULL;
 
 	while (sp->contours) {
 	    struct gnuplot_contours *next_cntrs = sp->contours->next;
@@ -227,7 +228,7 @@ plot3drequest()
  */
 {
     int dummy_token0 = -1, dummy_token1 = -1;
-    AXIS_INDEX u_axis, v_axis;
+    AXIS_INDEX axis, u_axis, v_axis;
 
     is_3d_plot = TRUE;
 
@@ -243,6 +244,22 @@ plot3drequest()
     AXIS_INIT3D(U_AXIS, 1, 0);
     AXIS_INIT3D(V_AXIS, 1, 0);
     AXIS_INIT3D(COLOR_AXIS, 0, 1);
+
+#ifdef NONLINEAR_AXES
+    /* Nonlinear mapping of x or y via linkage to a hidden primary axis. */
+    /* The user set autoscale for the visible axis; apply it also to the hidden axis. */
+    for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++) {
+	AXIS *secondary = &axis_array[axis];
+	if (axis == SAMPLE_AXIS)
+	    continue;
+	if (secondary->linked_to_primary
+ 	&&  secondary->linked_to_primary->index == -secondary->index) {
+	    AXIS *primary = secondary->linked_to_primary;
+	    primary->set_autoscale = secondary->set_autoscale;
+	    axis_init(primary, 1);
+	}
+    }
+#endif
 
     if (!term)			/* unknown */
 	int_error(c_token, "use 'set term' to set terminal type first");
@@ -267,8 +284,8 @@ plot3drequest()
 	c_token++;
 
     /* Clear out any tick labels read from data files in previous plot */
-    for (u_axis=0; u_axis<AXIS_ARRAY_SIZE; u_axis++) {
-	struct ticdef *ticdef = &axis_array[u_axis].ticdef;
+    for (axis=0; axis<AXIS_ARRAY_SIZE; axis++) {
+	struct ticdef *ticdef = &axis_array[axis].ticdef;
 	if (ticdef->def.user)
 	    ticdef->def.user = prune_dataticks(ticdef->def.user);
 	if (!ticdef->def.user && ticdef->type == TIC_USER)
@@ -779,7 +796,7 @@ get_3ddata(struct surface_points *this_plot)
 	/*{{{  read surface from text file */
 	struct iso_curve *local_this_iso = iso_alloc(samples_1);
 	struct coordinate GPHUGE *cp;
-	struct coordinate GPHUGE *cptail = NULL; /* Only for VECTOR plots */
+	struct coordinate GPHUGE *cphead = NULL; /* Only for VECTOR plots */
 	double x, y, z;
 	double xtail, ytail, ztail;
 	double color = VERYLARGE;
@@ -884,7 +901,7 @@ get_3ddata(struct surface_points *this_plot)
 		    cp->type = UNDEFINED;
 		    continue;
 		}
-		cptail = local_this_iso->next->points + xdatum;
+		cphead = local_this_iso->next->points + xdatum;
 	    }
 
 	    if (j == DF_UNDEFINED || j == DF_MISSING) {
@@ -991,57 +1008,53 @@ get_3ddata(struct surface_points *this_plot)
 
 	    /* After the first three columns it gets messy because */
 	    /* different plot styles assume different contents in the columns */
-	    if (j >= 4) {
-		if (( this_plot->plot_style == POINTSTYLE
-		   || this_plot->plot_style == LINESPOINTS)
-		&&  this_plot->lp_properties.p_size == PTSZ_VARIABLE) {
-		    cp->CRD_PTSIZE = v[3];
+
+	    if (( this_plot->plot_style == POINTSTYLE || this_plot->plot_style == LINESPOINTS)) {
+		int varcol = 3;
+		if (this_plot->lp_properties.p_size == PTSZ_VARIABLE)
+		    cp->CRD_PTSIZE = v[varcol++];
+		if (this_plot->lp_properties.p_type == PT_VARIABLE)
+		    cp->CRD_PTTYPE = v[varcol++];
+		if (j < varcol)
+		    int_error(NO_CARET, "Not enough input columns");
+		else if (j == varcol) {
+		    color = z;
+		    color_from_column(FALSE);
+		} else {
+		    color = v[varcol];
+		    color_from_column(TRUE);
+		}
+
+	    } else if (this_plot->plot_style == LABELPOINTS) {
+		if (j == 4) {
+		    /* 4th column holds label text rather than color */
+		    color = z;
+		    color_from_column(FALSE);
+		} else {
+		    color = v[4];
+		    color_from_column(TRUE);
+		}
+
+	    } else if (this_plot->plot_style == VECTOR) {
+		/* We already enforced that j >= 6 */
+		xtail = x + v[3];
+		ytail = y + v[4];
+		ztail = z + v[5];
+		if (j >= 7) {
+		    color = v[6];
+		    color_from_column(TRUE);
+		} else {
 		    color = z;
 		    color_from_column(FALSE);
 		}
 
-		else if (this_plot->plot_style == LABELPOINTS) {
-		/* 4th column holds label text rather than color */
-		/* text = df_tokens[3]; */
-		    color = z;
-		    color_from_column(FALSE);
-		}
+	    } else {	/* all other plot styles */
 
-		else {
+		if (j >= 4) {
 		    color = v[3];
 		    color_from_column(TRUE);
 		}
-	    }
 
-	    if (j >= 5) {
-		if ((this_plot->plot_style == POINTSTYLE
-		   || this_plot->plot_style == LINESPOINTS)
-		&&  this_plot->lp_properties.p_size == PTSZ_VARIABLE) {
-		    color = v[4];
-		    color_from_column(TRUE);
-		}
-
-		if (this_plot->plot_style == LABELPOINTS) {
-		    /* take color from an explicitly given 5th column */
-		    color = v[4];
-		    color_from_column(TRUE);
-		}
-
-	    }
-
-	    if (j >= 6) {
-		if (this_plot->plot_style == VECTOR) {
-		    xtail = x + v[3];
-		    ytail = y + v[4];
-		    ztail = z + v[5];
-		    if (j >= 7) {
-			color = v[6];
-			color_from_column(TRUE);
-		    } else {
-			color = z;
-			color_from_column(FALSE);
-		    }
-		}
 	    }
 #undef color_from_column
 
@@ -1054,9 +1067,9 @@ get_3ddata(struct surface_points *this_plot)
 	    STORE_WITH_LOG_AND_UPDATE_RANGE(cp->x, x, cp->type, x_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 	    STORE_WITH_LOG_AND_UPDATE_RANGE(cp->y, y, cp->type, y_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 	    if (this_plot->plot_style == VECTOR) {
-		cptail->type = INRANGE;
-		STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->x, xtail, cp->type, x_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
-		STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->y, ytail, cp->type, y_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+		cphead->type = INRANGE;
+		STORE_WITH_LOG_AND_UPDATE_RANGE(cphead->x, xtail, cphead->type, x_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+		STORE_WITH_LOG_AND_UPDATE_RANGE(cphead->y, ytail, cphead->type, y_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 	    }
 
 	    if (dgrid3d) {
@@ -1066,7 +1079,7 @@ get_3ddata(struct surface_points *this_plot)
 		 * created created grid more easily. */
 		cp->z = z;
 		if (this_plot->plot_style == VECTOR)
-		    cptail->z = ztail;
+		    cphead->z = ztail;
 	    } else {
 
 		/* EAM Sep 2008 - Otherwise z=Nan or z=Inf or DF_MISSING fails	*/
@@ -1081,13 +1094,15 @@ get_3ddata(struct surface_points *this_plot)
 				cp->z=0;goto come_here_if_undefined);
 
 		if (this_plot->plot_style == VECTOR)
-		    STORE_WITH_LOG_AND_UPDATE_RANGE(cptail->z, ztail, cp->type, z_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+		    STORE_WITH_LOG_AND_UPDATE_RANGE(cphead->z, ztail, cphead->type, z_axis, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 
 		if (this_plot->lp_properties.l_type == LT_COLORFROMCOLUMN)
 		    cp->CRD_COLOR = color;
 
 		if (pm3d_color_from_column) {
 		    COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, color, cp->type, COLOR_AXIS, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+		    if (this_plot->plot_style == VECTOR)
+			cphead->CRD_COLOR = color;
 		} else {
 		    COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, z, cp->type, COLOR_AXIS, this_plot->noautoscale, NOOP, goto come_here_if_undefined);
 		}
@@ -1147,10 +1162,8 @@ get_3ddata(struct surface_points *this_plot)
 
     /* This check used to be done in graph3d */
     if (X_AXIS.min == VERYLARGE || X_AXIS.max == -VERYLARGE ||
-	Y_AXIS.min == VERYLARGE || Y_AXIS.max == -VERYLARGE ||
-	Z_AXIS.min == VERYLARGE || Z_AXIS.max == -VERYLARGE) {
+	Y_AXIS.min == VERYLARGE || Y_AXIS.max == -VERYLARGE) {
 	    /* FIXME: Should we set plot type to NODATA? */
-	    /* But in the case of 'set view map' we may not care about Z */
 	    int_warn(NO_CARET,
 		"No usable data in this plot to auto-scale axis range");
 	    }
@@ -1216,19 +1229,26 @@ calculate_set_of_isolines(
 
     for (j = 0; j < num_iso_to_use; j++) {
 	double iso = iso_min + j * iso_step;
-	/* HBB 20000501: with the new code, it should
-	 * be safe to rely on the actual 'v' axis not
-	 * to be improperly logscaled... */
-	(void) Gcomplex(&plot_func.dummy_values[cross ? 0 : 1],
-			AXIS_DE_LOG_VALUE(iso_axis, iso), 0.0);
+	double isotemp;
+
+	if (nonlinear(&axis_array[iso_axis]))
+	    isotemp = iso = eval_link_function(&axis_array[iso_axis], iso);
+	else
+	    isotemp = AXIS_DE_LOG_VALUE(iso_axis, iso);
+
+	(void) Gcomplex(&plot_func.dummy_values[cross ? 0 : 1], isotemp, 0.0);
 
 	for (i = 0; i < num_sam_to_use; i++) {
 	    double sam = sam_min + i * sam_step;
 	    struct value a;
 	    double temp;
 
-	    (void) Gcomplex(&plot_func.dummy_values[cross ? 1 : 0],
-			    AXIS_DE_LOG_VALUE(sam_axis, sam), 0.0);
+	    if (nonlinear(&axis_array[sam_axis]))
+		temp = sam = eval_link_function(&axis_array[sam_axis], sam);
+	    else
+		temp = AXIS_DE_LOG_VALUE(sam_axis, sam);
+
+	    (void) Gcomplex(&plot_func.dummy_values[cross ? 1 : 0], temp, 0.0);
 
 	    if (cross) {
 		points[i].x = iso;
@@ -1499,50 +1519,12 @@ eval_3dplots()
 
 	    /* pm 25.11.2001 allow any order of options */
 	    while (!END_OF_COMMAND || !checked_once) {
+		int save_token = c_token;
 
 		/* deal with title */
-		if (almost_equals(c_token, "t$itle") || almost_equals(c_token, "not$itle")) {
-		    if (set_title) {
-			duplication=TRUE;
-			break;
-		    }
-		    set_title = TRUE;
-		    if (almost_equals(c_token++, "not$itle")) {
-			this_plot->title_is_suppressed = TRUE;
-			if (equals(c_token,","))
-			    continue;
-		    }
-
-		    if (parametric || this_plot->title_is_suppressed) {
-			if (xtitle != NULL)
-			    xtitle[0] = NUL;	/* Remove default title . */
-			if (ytitle != NULL)
-			    ytitle[0] = NUL;	/* Remove default title . */
-		    }
-
-		    /* title can be enhanced if not explicitly disabled */
-		    this_plot->title_no_enhanced = !key->enhanced;
-
-		    if (almost_equals(c_token,"col$umnheader")) {
-			df_set_key_title_columnhead((struct curve_points *)this_plot);
-		    } else {
-			char *temp;
-			temp = try_to_get_string();
-			if (!this_plot->title_is_suppressed && !(this_plot->title = temp))
-			    int_error(c_token, "expecting \"title\" for plot");
-		    }
+		parse_plot_title((struct curve_points *)this_plot, xtitle, ytitle, &set_title);
+		if (save_token != c_token)
 		    continue;
-		}
-
-		if (almost_equals(c_token, "enh$anced")) {
-		    c_token++;
-		    this_plot->title_no_enhanced = FALSE;
-		    continue;
-		} else if (almost_equals(c_token, "noenh$anced")) {
-		    c_token++;
-		    this_plot->title_no_enhanced = TRUE;
-		    continue;
-		}
 
 		/* deal with style */
 		if (almost_equals(c_token, "w$ith")) {
@@ -1692,7 +1674,7 @@ eval_3dplots()
 			this_plot->labels->pos = CENTRE;
 			this_plot->labels->layer = LAYER_PLOTLABELS;
 		    }
-		    parse_label_options(this_plot->labels, TRUE);
+		    parse_label_options(this_plot->labels, 3);
 		    if (draw_contour)
 			load_contour_label_options(this_plot->labels);
 		    checked_once = TRUE;
@@ -1730,7 +1712,6 @@ eval_3dplots()
 			xtitle[0] = '\0';
 		    if (ytitle != NULL)
 			ytitle[0] = '\0';
-		    /*   this_plot->title = NULL;   */
 		}
 	    }
 
@@ -1919,7 +1900,7 @@ eval_3dplots()
 	    if (empty_iteration(plot_iterator))
 		this_plot->plot_type = NODATA;
 	    if (forever_iteration(plot_iterator) && (this_plot->plot_type == NODATA)) {
-		highest_iteration = plot_iterator->iteration_current;
+		highest_iteration = plot_iterator->iteration;
 		eof_during_iteration = TRUE;
 	    }
 	    if (forever_iteration(plot_iterator) && (this_plot->plot_type == FUNC3D)) {
@@ -1941,7 +1922,7 @@ eval_3dplots()
 	    /* Nothing to do */ ;
 	} else if (next_iteration(plot_iterator)) {
 	    c_token = start_token;
-	    highest_iteration = plot_iterator->iteration_current;
+	    highest_iteration = plot_iterator->iteration;
 	    continue;
 	}
 
@@ -1984,19 +1965,24 @@ eval_3dplots()
 	v_axis = parametric ? V_AXIS : FIRST_Y_AXIS;
 
 	if (!parametric) {
-	    /*{{{  check ranges */
-	    /* give error if xrange badly set from missing datafile error
-	     * parametric fn can still set ranges
-	     * if there are no fns, we'll report it later as 'nothing to plot'
-	     */
+	    /* Autoscaling tracked the visible axis coordinates.	*/
+	    /* For nonlinear axes we must transform the limits back to the primary axis */
+	    if (nonlinear(&axis_array[FIRST_X_AXIS]))
+		clone_linked_axes(axis_array[FIRST_X_AXIS].linked_to_primary,
+			&axis_array[FIRST_X_AXIS]);
+	    if (nonlinear(&axis_array[FIRST_Y_AXIS]))
+		clone_linked_axes(axis_array[FIRST_Y_AXIS].linked_to_primary,
+			&axis_array[FIRST_Y_AXIS]);
 
-	    /* check that xmin -> xmax is not too small */
+	    /* Check that xmin -> xmax is not too small.
+	     * Give error if xrange badly set from missing datafile error.
+	     * Parametric fn can still set ranges.
+	     * If there are no fns, we'll report it later as 'nothing to plot'.
+	     */
 	    axis_checked_extend_empty_range(FIRST_X_AXIS, "x range is invalid");
 	    axis_checked_extend_empty_range(FIRST_Y_AXIS, "y range is invalid");
-	    /*}}} */
 	}
 	if (parametric && !some_data_files) {
-	    /*{{{  set ranges */
 	    /* parametric fn can still change x/y range */
 	    if (axis_array[FIRST_X_AXIS].autoscale & AUTOSCALE_MIN)
 		axis_array[FIRST_X_AXIS].min = VERYLARGE;
@@ -2006,16 +1992,24 @@ eval_3dplots()
 		axis_array[FIRST_Y_AXIS].min = VERYLARGE;
 	    if (axis_array[FIRST_Y_AXIS].autoscale & AUTOSCALE_MAX)
 		axis_array[FIRST_Y_AXIS].max = -VERYLARGE;
-	    /*}}} */
 	}
 
 	/*{{{  figure ranges, taking logs etc into account */
-	u_min = axis_log_value_checked(u_axis, axis_array[u_axis].min, "x range");
-	u_max = axis_log_value_checked(u_axis, axis_array[u_axis].max, "x range");
-	v_min = axis_log_value_checked(v_axis, axis_array[v_axis].min, "y range");
-	v_max = axis_log_value_checked(v_axis, axis_array[v_axis].max, "y range");
+	if (nonlinear(&axis_array[u_axis])) {
+	    u_min = axis_array[u_axis].linked_to_primary->min;
+	    u_max = axis_array[u_axis].linked_to_primary->max;
+	} else {
+	    u_min = axis_log_value_checked(u_axis, axis_array[u_axis].min, "x range");
+	    u_max = axis_log_value_checked(u_axis, axis_array[u_axis].max, "x range");
+	}
+	if (nonlinear(&axis_array[v_axis])) {
+	    v_min = axis_array[v_axis].linked_to_primary->min;
+	    v_max = axis_array[v_axis].linked_to_primary->max;
+	} else {
+	    v_min = axis_log_value_checked(v_axis, axis_array[v_axis].min, "y range");
+	    v_max = axis_log_value_checked(v_axis, axis_array[v_axis].max, "y range");
+	}
 	/*}}} */
-
 
 	if (samples_1 < 2 || samples_2 < 2 || iso_samples_1 < 2 ||
 	    iso_samples_2 < 2) {
@@ -2122,7 +2116,7 @@ eval_3dplots()
 
 	    /* Iterate-over-plot mechanism */
 	    if (crnt_param == 0 && next_iteration(plot_iterator)) {
-		if (plot_iterator->iteration_current <= highest_iteration) {
+		if (plot_iterator->iteration <= highest_iteration) {
 		    c_token = start_token;
 		    continue;
 		}
@@ -2148,23 +2142,34 @@ eval_3dplots()
     }				/* some functions */
 
     /* if first_3dplot is NULL, we have no functions or data at all.
-       * This can happen, if you type "splot x=5", since x=5 is a
-       * variable assignment
+     * This can happen if you type "splot x=5", since x=5 is a variable assignment.
      */
     if (plot_num == 0 || first_3dplot == NULL) {
 	int_error(c_token, "no functions or data to plot");
     }
 
-    axis_checked_extend_empty_range(FIRST_X_AXIS, "All points x value undefined");
-    axis_revert_and_unlog_range(FIRST_X_AXIS);
-    axis_checked_extend_empty_range(FIRST_Y_AXIS, "All points y value undefined");
-    axis_revert_and_unlog_range(FIRST_Y_AXIS);
-    if (splot_map)
-	axis_checked_extend_empty_range(FIRST_Z_AXIS, NULL); /* Suppress warning message */
-    else
-	axis_checked_extend_empty_range(FIRST_Z_AXIS, "All points z value undefined");
-
-    axis_revert_and_unlog_range(FIRST_Z_AXIS);
+    /* Only relevant for NONLINEAR_AXES (include logscale) */
+    /* Transfer observed data or function ranges back to primary axes */
+    if (nonlinear(&axis_array[FIRST_X_AXIS])) {
+	clone_linked_axes(axis_array[FIRST_X_AXIS].linked_to_primary, &axis_array[FIRST_X_AXIS]);
+    } else {
+	axis_checked_extend_empty_range(FIRST_X_AXIS, "All points x value undefined");
+	axis_revert_and_unlog_range(FIRST_X_AXIS);
+    }
+    if (nonlinear(&axis_array[FIRST_Y_AXIS])) {
+	clone_linked_axes(axis_array[FIRST_Y_AXIS].linked_to_primary, &axis_array[FIRST_Y_AXIS]);
+    } else {
+	axis_checked_extend_empty_range(FIRST_Y_AXIS, "All points y value undefined");
+	axis_revert_and_unlog_range(FIRST_Y_AXIS);
+    }
+    if (nonlinear(&axis_array[FIRST_Z_AXIS])) {
+	AXIS *primary = axis_array[FIRST_Z_AXIS].linked_to_primary;
+	extend_primary_ticrange(&axis_array[FIRST_Z_AXIS]);
+	clone_linked_axes(primary, &axis_array[FIRST_Z_AXIS]);
+    } else {
+	axis_checked_extend_empty_range(FIRST_Z_AXIS, splot_map ? NULL : "All points y value undefined");
+	axis_revert_and_unlog_range(FIRST_Z_AXIS);
+    }
 
     setup_tics(&axis_array[FIRST_X_AXIS], 20);
     setup_tics(&axis_array[FIRST_Y_AXIS], 20);
@@ -2179,11 +2184,7 @@ eval_3dplots()
 	set_cbminmax();
 	axis_checked_extend_empty_range(COLOR_AXIS, "All points of colorbox value undefined");
 	setup_tics(&axis_array[COLOR_AXIS], 20);
-	/* axis_revert_and_unlog_range(COLOR_AXIS); */
-	/* fprintf(stderr,"plot3d.c: CB_AXIS.min=%g\tCB_AXIS.max=%g\n",CB_AXIS.min,CB_AXIS.max); */
     }
-
-    AXIS_WRITEBACK(FIRST_X_AXIS);
 
     if (plot_num == 0 || first_3dplot == NULL) {
 	int_error(c_token, "no functions or data to plot");

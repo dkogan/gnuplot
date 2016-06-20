@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.326 2015/07/03 01:07:33 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.343 2016-06-17 20:22:27 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graph3d.c */
@@ -68,8 +68,6 @@ static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.326 2015/07/03 01:07:33 
 
 #include "plot.h"
 
-static int p_height;
-static int p_width;		/* pointsize * t->h_tic */
 static int key_entry_height;	/* bigger of t->v_char, pointsize*t->v_tick */
 static int key_title_height;
 static int key_title_extra;	/* allow room for subscript/superscript */
@@ -178,6 +176,7 @@ static int map3d_getposition __PROTO((struct position* pos, const char* what, do
  */
 
 int xmiddle, ymiddle, xscaler, yscaler;
+double xyscaler;
 static int ptitl_cnt;
 static int max_ptitl_len;
 static int titlelin;
@@ -187,8 +186,9 @@ static double ktitle_lines = 0;
 
 /* Boundary and scale factors, in user coordinates */
 
-/* There are several z's to take into account - I hope I get these
- * right !
+/* These positions assume a single linear scale encompassing the
+ * zrange plus extra space below for the baseplane.  This was messy but
+ * correct before the introduction of nonlinear axes. Now - not so much.
  *
  * ceiling_z is the highest z in use
  * floor_z   is the lowest z in use
@@ -200,9 +200,14 @@ static double ktitle_lines = 0;
  * There should be no part of graph drawn outside
  * min3d_z:max3d_z  - apart from arrows, perhaps
  */
-
 double floor_z;
 double ceiling_z, base_z;	/* made exportable for PM3D */
+
+/* To handle a non-linear z axis we need to calculate these values on
+ * the other end of the linked linear:nonlinear axis pair.
+ */
+double floor_z1;	/* Used also by map_z3d() */
+static double ceiling_z1, base_z1;
 
 transform_matrix trans_mat;
 
@@ -243,7 +248,8 @@ find_maxl_keys3d(struct surface_points *plots, int count, int *kcnt)
 	/* we draw a main entry if there is one, and we are
 	 * drawing either surface, or unlabeled contours
 	 */
-	if (this_plot->title && *this_plot->title && !this_plot->title_is_suppressed) {
+	if (this_plot->title && *this_plot->title
+	&& !this_plot->title_is_suppressed && !this_plot->title_position) {
 	    ++cnt;
 	    len = estimate_strlen(this_plot->title);
 	    if (len > mlen)
@@ -297,13 +303,11 @@ boundary3d(struct surface_points *plots, int count)
 
     titlelin = 0;
 
-    p_height = pointsize * t->v_tic;
-    p_width = pointsize * t->h_tic;
     if (key->swidth >= 0)
-	key_sample_width = key->swidth * t->h_char + pointsize * t->h_tic;
+	key_sample_width = key->swidth * t->h_char + t->h_tic;
     else
 	key_sample_width = 0;
-    key_entry_height = pointsize * t->v_tic * 1.25 * key->vert_factor;
+    key_entry_height = t->v_tic * 1.25 * key->vert_factor;
     if (key_entry_height < t->v_char) {
 	/* is this reasonable ? */
 	key_entry_height = t->v_char * key->vert_factor;
@@ -489,6 +493,9 @@ boundary3d(struct surface_points *plots, int count)
 	}
     }
 
+    /* For anything that really wants to be the same on x and y */
+    xyscaler = sqrt(xscaler*yscaler);
+
     /* Set default clipping */
     if (splot_map)
 	clip_area = &plot_bounds;
@@ -510,7 +517,7 @@ get_arrow3d(
 	map3d_position_r(&(arrow->end), ex, ey, "arrow");
 	*ex += *sx;
 	*ey += *sy;
-    } if (arrow->type == arrow_end_oriented) {
+    } else if (arrow->type == arrow_end_oriented) {
 	double aspect = (double)term->v_tic / (double)term->h_tic;
 	double radius;
 	int junkw, junkh;
@@ -583,7 +590,7 @@ place_arrows3d(int layer)
 	    continue;
 	if (get_arrow3d(this_arrow, &sx, &sy, &ex, &ey)) {
 	    term_apply_lp_properties(&(this_arrow->arrow_properties.lp_properties));
-	    apply_3dhead_properties(&(this_arrow->arrow_properties));
+	    apply_head_properties(&(this_arrow->arrow_properties));
 	    draw_clip_arrow(sx, sy, ex, ey, this_arrow->arrow_properties.head);
 	} else {
 	    FPRINTF((stderr,"place_arrows3d: skipping out-of-bounds arrow\n"));
@@ -614,12 +621,13 @@ do_3dplot(
     int surface;
     struct surface_points *this_plot = NULL;
     int xl, yl;
-    int xl_save, yl_save;
+    int xl_save, yl_save, xl_prev, yl_prev;
     transform_matrix mat;
     int key_count;
     TBOOLEAN key_pass = FALSE;
     legend_key *key = &keyT;
     TBOOLEAN pm3d_order_depth = 0;
+    AXIS *primary_z;
 
     /* Initiate transformation matrix using the global view variables. */
     if (splot_map)
@@ -636,43 +644,55 @@ do_3dplot(
      */
 
     if (polar)
-	graph_error("Cannot splot in polar coordinate system.");
+	int_error(NO_CARET,"Cannot splot in polar coordinate system.");
 
-    /* done in plot3d.c
-     *    if (z_min3d == VERYLARGE || z_max3d == -VERYLARGE ||
-     *      x_min3d == VERYLARGE || x_max3d == -VERYLARGE ||
-     *      y_min3d == VERYLARGE || y_max3d == -VERYLARGE)
-     *      graph_error("all points undefined!");
-     */
+    /* In the case of a nonlinear z axis this points to the linear version */
+    /* that shadows it.  Otherwise it just points to FIRST_Z_AXIS.         */
+    primary_z = (nonlinear(&Z_AXIS)) ? Z_AXIS.linked_to_primary : &Z_AXIS; 
 
     /* absolute or relative placement of xyplane along z */
-    if (xyplane.absolute)
-	base_z = AXIS_LOG_VALUE(0, xyplane.z);
-    else
-	base_z = Z_AXIS.min - (Z_AXIS.max - Z_AXIS.min) * xyplane.z;
-
-    /* If we are to draw the bottom grid make sure zmin is updated properly. */
-    if (X_AXIS.ticmode || Y_AXIS.ticmode || some_grid_selected()) {
-	if (Z_AXIS.min > Z_AXIS.max) {
-	    floor_z = GPMAX(Z_AXIS.min, base_z);
-	    ceiling_z = GPMIN(Z_AXIS.max, base_z);
-	} else {
-	    floor_z = GPMIN(Z_AXIS.min, base_z);
-	    ceiling_z = GPMAX(Z_AXIS.max, base_z);
-	}
+    if (nonlinear(&Z_AXIS)) {
+	if (xyplane.absolute)
+	    base_z1 = eval_link_function(primary_z, xyplane.z);
+	else
+	    base_z1 = primary_z->min - (primary_z->max - primary_z->min) * xyplane.z;
+	base_z = eval_link_function(&Z_AXIS, base_z1);
     } else {
-	floor_z = Z_AXIS.min;
-	ceiling_z = Z_AXIS.max;
+	if (xyplane.absolute)
+	    base_z1 = AXIS_LOG_VALUE(0, xyplane.z);
+	else
+	    base_z1 = primary_z->min - (primary_z->max - primary_z->min) * xyplane.z;
+	base_z = base_z1;
     }
 
-    /*  see comment accompanying similar tests of x_min/x_max and y_min/y_max
-     *  in graphics.c:do_plot(), for history/rationale of these tests */
+    /* If we are to draw some portion of the xyplane make sure zmin is updated properly. */
+    if (X_AXIS.ticmode || Y_AXIS.ticmode || draw_border & 0x00F) {
+	if (primary_z->min > primary_z->max) {
+	    floor_z1 = GPMAX(primary_z->min, base_z1);
+	    ceiling_z1 = GPMIN(primary_z->max, base_z1);
+	} else {
+	    floor_z1 = GPMIN(primary_z->min, base_z1);
+	    ceiling_z1 = GPMAX(primary_z->max, base_z1);
+	}
+    } else {
+	floor_z1 = primary_z->min;
+	ceiling_z1 = primary_z->max;
+    }
+
+    if (nonlinear(&Z_AXIS)) {
+	floor_z = eval_link_function(&Z_AXIS, floor_z1);
+	ceiling_z = eval_link_function(&Z_AXIS, ceiling_z1);
+    } else {
+	floor_z = floor_z1;
+	ceiling_z = ceiling_z1;
+    }
+
     if (X_AXIS.min == X_AXIS.max)
-	graph_error("x_min3d should not equal x_max3d!");
+	int_error(NO_CARET,"x_min3d should not equal x_max3d!");
     if (Y_AXIS.min == Y_AXIS.max)
-	graph_error("y_min3d should not equal y_max3d!");
+	int_error(NO_CARET,"y_min3d should not equal y_max3d!");
     if (Z_AXIS.min == Z_AXIS.max)
-	graph_error("z_min3d should not equal z_max3d!");
+	int_error(NO_CARET,"z_min3d should not equal z_max3d!");
 
     term_start_plot();
     (term->layer)(TERM_LAYER_3DPLOT);
@@ -685,14 +705,20 @@ do_3dplot(
     /* now compute boundary for plot */
     boundary3d(plots, pcount);
 
-    axis_set_graphical_range(FIRST_X_AXIS, plot_bounds.xleft, plot_bounds.xright);
-    axis_set_graphical_range(FIRST_Y_AXIS, plot_bounds.ybot, plot_bounds.ytop);
-    axis_set_graphical_range(FIRST_Z_AXIS, floor_z, ceiling_z);
+    axis_set_scale_and_range(&axis_array[FIRST_X_AXIS], plot_bounds.xleft, plot_bounds.xright);
+    axis_set_scale_and_range(&axis_array[FIRST_Y_AXIS], plot_bounds.ybot, plot_bounds.ytop);
+    axis_set_scale_and_range(&axis_array[FIRST_Z_AXIS], floor_z, ceiling_z);
 
     /* SCALE FACTORS */
     zscale3d = 2.0 / (ceiling_z - floor_z) * surface_zscale;
     yscale3d = 2.0 / (Y_AXIS.max - Y_AXIS.min);
     xscale3d = 2.0 / (X_AXIS.max - X_AXIS.min);
+    if (nonlinear(&X_AXIS))
+	xscale3d = 2.0 / (X_AXIS.linked_to_primary->max - X_AXIS.linked_to_primary->min);
+    if (nonlinear(&Y_AXIS))
+	yscale3d = 2.0 / (Y_AXIS.linked_to_primary->max - Y_AXIS.linked_to_primary->min);
+    if (nonlinear(&Z_AXIS))
+	zscale3d = 2.0 / (ceiling_z1 - floor_z1) * surface_zscale;
 
     /* Allow 'set view equal xy' to adjust rendered length of the X and/or Y axes. */
     /* FIXME EAM - This only works correctly if the coordinate system of the       */
@@ -711,6 +737,10 @@ do_3dplot(
 	    zscale3d = xscale3d;
     }
 
+    /* FIXME: I do not understand why this is correct */
+    if (nonlinear(&Z_AXIS))
+	zcenter3d = 0.0;
+    else
     /* Without this the rotation center would be located at */
     /* the bottom of the plot. This places it in the middle.*/
     zcenter3d =  -(ceiling_z - floor_z) / 2.0 * zscale3d + 1;
@@ -722,10 +752,8 @@ do_3dplot(
 	int xl, xr, yb, yt;
 	map3d_xy(X->min, Y->min, 0.0, &xl, &yb);
 	map3d_xy(X->max, Y->max, 0.0, &xr, &yt);
-	AXIS_SETSCALE(FIRST_X_AXIS, xl, xr);
-	AXIS_SETSCALE(FIRST_Y_AXIS, yb, yt);
-	axis_set_graphical_range(FIRST_X_AXIS, xl, xr);
-	axis_set_graphical_range(FIRST_Y_AXIS, yb, yt);
+	axis_set_scale_and_range(&axis_array[FIRST_X_AXIS], xl, xr);
+	axis_set_scale_and_range(&axis_array[FIRST_Y_AXIS], yb, yt);
     }
 
     /* Initialize palette */
@@ -993,6 +1021,14 @@ do_3dplot(
 				 && !this_plot->title_is_suppressed);
 	    draw_this_surface = (draw_surface && !this_plot->opt_out_of_surface);
 
+	    /* User-specified key locations can use the 2D code */
+	    if (this_plot->title_position && this_plot->title_position->scalex != character) {
+		xl_prev = xl;
+		yl_prev = yl;
+		map3d_position(this_plot->title_position, &xl, &yl, "key sample");
+		xl -=  (key->just == GPKEY_LEFT) ? key_text_left : key_text_right;
+	    }
+
 	    if (lkey) {
 		if (key->textcolor.type != TC_DEFAULT)
 		    /* Draw key text in same color as key title */
@@ -1184,9 +1220,15 @@ do_3dplot(
 
 	    }			/* switch(plot-style) key sample */
 
-	    /* move down one line in the key */
+	    /* move down one line in the key... */
 	    if (lkey)
 		NEXT_KEY_LINE();
+
+	    /* but not if the plot title was drawn somewhere else */
+	    if (this_plot->title_position && this_plot->title_position->scalex != character) {
+		xl = xl_prev;
+		yl = yl_prev;
+	    }
 
 	    /* Draw contours for previous surface */
 	    if (draw_contour && this_plot->contours != NULL) {
@@ -1491,7 +1533,6 @@ plot3d_lines(struct surface_points *plot)
     double clip_x, clip_y, clip_z;
     struct iso_curve *icrvs = plot->iso_crvs;
     struct coordinate GPHUGE *points;
-    double lx[2], ly[2], lz[2];	/* two edge points */
     TBOOLEAN rgb_from_column;
 
     /* These are handled elsewhere.  */
@@ -1534,7 +1575,7 @@ plot3d_lines(struct surface_points *plot)
 				 * Calculate intersection point and draw
 				 * vector from there
 				 */
-				edge3d_intersect(points, i-1, i, &clip_x, &clip_y, &clip_z);
+				edge3d_intersect(&points[i-1], &points[i], &clip_x, &clip_y, &clip_z);
 
 				map3d_xy(clip_x, clip_y, clip_z, &xx0, &yy0);
 
@@ -1556,7 +1597,7 @@ plot3d_lines(struct surface_points *plot)
 			     * Calculate intersection point and draw
 			     * vector to it
 			     */
-			    edge3d_intersect(points, i-1, i, &clip_x, &clip_y, &clip_z);
+			    edge3d_intersect(&points[i-1], &points[i], &clip_x, &clip_y, &clip_z);
 
 			    map3d_xy(clip_x, clip_y, clip_z, &xx0, &yy0);
 
@@ -1565,15 +1606,13 @@ plot3d_lines(struct surface_points *plot)
 		    } else if (prev == OUTRANGE) {
 			/* from outrange to outrange */
 			if (clip_lines2) {
+			    double lx[2], ly[2], lz[2];	/* two edge points */
 			    /*
-			     * Calculate the two 3D intersection points
-			     * if present
+			     * Calculate the two 3D intersection points if present
 			     */
-			    if (two_edge3d_intersect(points, i-1, i, lx, ly, lz)) {
-
+			    if (two_edge3d_intersect(&points[i-1], &points[i], lx, ly, lz)) {
 				map3d_xy(lx[0], ly[0], lz[0], &x, &y);
 				map3d_xy(lx[1], ly[1], lz[1], &xx0, &yy0);
-
 				clip_move(x, y);
 				clip_vector(xx0, yy0);
 			    }
@@ -1585,7 +1624,7 @@ plot3d_lines(struct surface_points *plot)
 		    break;
 		}
 	    default:
-		    graph_error("Unknown point type in plot3d_lines");
+		    int_warn(NO_CARET,"Unknown point type in plot3d_lines");
 	    }
 
 	    prev = points[i].type;
@@ -1613,7 +1652,6 @@ plot3d_lines_pm3d(struct surface_points *plot)
     double clip_x, clip_y, clip_z;
     struct coordinate GPHUGE *points;
     enum coord_type prev = UNDEFINED;
-    double lx[2], ly[2], lz[2];	/* two edge points */
     double z;
 
     /* just a shortcut */
@@ -1687,7 +1725,7 @@ plot3d_lines_pm3d(struct surface_points *plot)
 				     * Calculate intersection point and draw
 				     * vector from there
 				     */
-				    edge3d_intersect(points, i-step, i, &clip_x, &clip_y, &clip_z);
+				    edge3d_intersect(&points[i-step], &points[i], &clip_x, &clip_y, &clip_z);
 
 				    map3d_xy(clip_x, clip_y, clip_z, &xx0, &yy0);
 
@@ -1714,7 +1752,7 @@ plot3d_lines_pm3d(struct surface_points *plot)
 				 * vector to it
 				 */
 
-				edge3d_intersect(points, i-step, i, &clip_x, &clip_y, &clip_z);
+				edge3d_intersect(&points[i-step], &points[i], &clip_x, &clip_y, &clip_z);
 
 				map3d_xy(clip_x, clip_y, clip_z, &xx0, &yy0);
 
@@ -1729,13 +1767,11 @@ plot3d_lines_pm3d(struct surface_points *plot)
 			    /* from outrange to outrange */
 			    if (clip_lines2) {
 				/*
-				 * Calculate the two 3D intersection points
-				 * if present
+				 * Calculate the two 3D intersection points if present
 				 */
-				if (two_edge3d_intersect(points, i-step, i, lx, ly, lz)) {
-
+				double lx[2], ly[2], lz[2];
+				if (two_edge3d_intersect(&points[i-step], &points[i], lx, ly, lz)) {
 				    map3d_xy(lx[0], ly[0], lz[0], &x, &y);
-
 				    map3d_xy(lx[1], ly[1], lz[1], &xx0, &yy0);
 
 				    clip_move(x, y);
@@ -1752,7 +1788,7 @@ plot3d_lines_pm3d(struct surface_points *plot)
 		    case UNDEFINED:
 			break;
 		    default:
-			graph_error("Unknown point type in plot3d_lines");
+			int_warn(NO_CARET,"Unknown point type in plot3d_lines");
 		}
 
 		prev = points[i].type;
@@ -1812,15 +1848,20 @@ plot3d_points(struct surface_points *plot)
 		    if (plot->plot_style == DOTS)
 			(*t->point) (x, y, -1);
 
+		    /* Print special character rather than drawn symbol */
+		    if (plot->lp_properties.p_type == PT_CHARACTER) {
+			apply_pm3dcolor(&(plot->labels->textcolor));
+			(*t->put_text)(x, y, plot->lp_properties.p_char);
+		    }
+
+		    /* variable point type */
+		    if (plot->lp_properties.p_type == PT_VARIABLE) {
+			(*t->point) (x, y, (int)(point->CRD_PTTYPE) - 1);
+		    }
+
 		    /* The normal case */
 		    else if (plot->lp_properties.p_type >= 0)
 			(*t->point) (x, y, plot->lp_properties.p_type);
-
-		    /* Print special character rather than drawn symbol */
-		    else if (plot->lp_properties.p_type == PT_CHARACTER) {
-			apply_pm3dcolor(&(plot->labels->textcolor));
-			(*t->put_text)(x, y, (char *)(&(plot->lp_properties.p_char)));
-		    }
 
 		}
 	    }
@@ -2207,7 +2248,9 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 #define VERTICAL(mask,x,y,i,j,bottom,top)			\
 		if (draw_border&mask) {				\
 		    draw3d_line(bottom,top, &border_lp);	\
-		} else if (height[i][j] != depth[i][j]) {	\
+		} else if (height[i][j] != depth[i][j] &&	\
+			   (X_AXIS.ticmode || Y_AXIS.ticmode ||	\
+			    draw_border & 0x00F)) {		\
 		    vertex a, b;				\
 		    map3d_xyz(x,y,depth[i][j],&a);		\
 		    map3d_xyz(x,y,height[i][j],&b);		\
@@ -2257,18 +2300,28 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
     if (whichgrid == BORDERONLY)
 	return;
 
-    /* Draw ticlabels and axis labels. x axis, first:*/
+    /* Draw ticlabels and axis labels */
+
+    /* x axis */
     if (X_AXIS.ticmode || X_AXIS.label.text) {
 	vertex v0, v1;
 	double other_end = Y_AXIS.min + Y_AXIS.max - xaxis_y;
-	double mid_x     = (X_AXIS.max + X_AXIS.min) / 2;
+	double mid_x;
+
+	if (nonlinear(&X_AXIS)) {
+	    AXIS *primary = X_AXIS.linked_to_primary;
+	    mid_x = (primary->max + primary->min) / 2.;
+	    mid_x = eval_link_function(&X_AXIS, mid_x);
+	} else {
+	    mid_x = (X_AXIS.max + X_AXIS.min) / 2.;
+	}
 
 	map3d_xyz(mid_x, xaxis_y, base_z, &v0);
 	map3d_xyz(mid_x, other_end, base_z, &v1);
 
-	tic_unitx = (v1.x - v0.x) / (double)yscaler;
-	tic_unity = (v1.y - v0.y) / (double)yscaler;
-	tic_unitz = (v1.z - v0.z) / (double)yscaler;
+	tic_unitx = (v1.x - v0.x) / xyscaler;
+	tic_unity = (v1.y - v0.y) / xyscaler;
+	tic_unitz = (v1.z - v0.z) / xyscaler;
 
 	/* Don't output tics and grids if this is the front part of a
 	 * two-part grid drawing process: */
@@ -2279,58 +2332,57 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	    gen_tics(&axis_array[FIRST_X_AXIS], xtick_callback);
 
 	if (X_AXIS.label.text) {
-	    int angle = 0;
 
-	    /* label at xaxis_y + 1/4 of (xaxis_y-other_y) */
-	    /* FIXME: still needed??? what for? */
 	    if ((surface_rot_x <= 90 && BACKGRID != whichgrid) ||
 		(surface_rot_x > 90 && FRONTGRID != whichgrid) ||
 		splot_map) {
 
 	    unsigned int x1, y1;
 	    int tmpx, tmpy;
+	    int angle = 0;
 
 	    if (splot_map) { /* case 'set view map' */
 		/* copied from xtick_callback(): baseline of tics labels */
 		vertex v1, v2;
 		map3d_xyz(mid_x, xaxis_y, base_z, &v1);
 		v2.x = v1.x;
-		v2.y = v1.y - tic_unity * t->v_char * 1;
-		if (!X_AXIS.tic_in) {
-		    /* FIXME
-		     * This code and its source in xtick_callback() is wrong --- tics
-		     * can be "in" but ticscale <0 ! To be corrected in both places!
-		     */
+		v2.y = v1.y - tic_unity * t->v_char;
+		if (!X_AXIS.tic_in)
 		    v2.y -= tic_unity * t->v_tic * X_AXIS.ticscale;
-		}
 		TERMCOORD(&v2, x1, y1);
-		/* DEFAULT_Y_DISTANCE is with respect to baseline of tics labels */
-#define DEFAULT_Y_DISTANCE 0.5
-		y1 -= (unsigned int) ((1 + DEFAULT_Y_DISTANCE) * t->v_char);
-#undef DEFAULT_Y_DISTANCE
+		/* Default displacement with respect to baseline of tics labels */
+		y1 -= (unsigned int) ((1.5) * t->v_char);
 		angle = X_AXIS.label.rotate;
 	    } else { /* usual 3d set view ... */
-		double step = (xaxis_y - other_end) / 4;
 		/* The only angle that makes sense is running parallel to the axis */
 		if (X_AXIS.label.tag == ROTATE_IN_3D_LABEL_TAG) {
 		    double ang, angx0, angx1, angy0, angy1;
 		    map3d_xy_double(X_AXIS.min, xaxis_y, base_z, &angx0, &angy0);
 		    map3d_xy_double(X_AXIS.max, xaxis_y, base_z, &angx1, &angy1);
 		    ang = atan2(angy1-angy0, angx1-angx0) / DEG2RAD;
+		    if (ang < -90) ang += 180;
+		    if (ang > 90) ang -= 180;
 		    angle = (ang > 0) ? floor(ang + 0.5) : floor(ang - 0.5);
-		    if (angle < -90) angle += 180;
-		    if (angle > 90) angle -= 180;
-		    step /= 2;
 		}
 
 		if (X_AXIS.ticmode & TICS_ON_AXIS) {
-		    map3d_xyz(mid_x, (X_AXIS.tic_in ? step : -step)/2., base_z, &v1);
+		    map3d_xyz(mid_x, 0.0, base_z, &v1);
 		} else {
-		    map3d_xyz(mid_x, xaxis_y + step, base_z, &v1);
+		    map3d_xyz(mid_x, xaxis_y, base_z, &v1);
 		}
+
+		/* DEBUG Replace old offset "step" with fraction of unit vector */
+		if (X_AXIS.ticmode & TICS_ON_AXIS) {
+		    v1.x += 2. * t->h_tic * ((X_AXIS.tic_in) ? 1.0 : -1.0) * tic_unitx;
+		    v1.y += 2. * t->h_tic * ((X_AXIS.tic_in) ? 1.0 : -1.0) * tic_unity;
+		} else {
+		    v1.x -= 10. * t->h_tic * tic_unitx;
+		    v1.y -= 10. * t->h_tic * tic_unity;
+		}
+
 		if (!X_AXIS.tic_in) {
-		    v1.x -= tic_unitx * X_AXIS.ticscale * t->v_tic;
-		    v1.y -= tic_unity * X_AXIS.ticscale * t->v_tic;
+		    v1.x -= tic_unitx * X_AXIS.ticscale * t->h_tic;
+		    v1.y -= tic_unity * X_AXIS.ticscale * t->h_tic;
 		}
 		TERMCOORD(&v1, x1, y1);
 	    }
@@ -2338,16 +2390,13 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	    map3d_position_r(&(X_AXIS.label.offset), &tmpx, &tmpy, "graphbox");
 	    x1 += tmpx; /* user-defined label offset */
 	    y1 += tmpy;
+
 	    ignore_enhanced(X_AXIS.label.noenhanced);
 	    apply_pm3dcolor(&(X_AXIS.label.textcolor));
-	    if (angle != 0 && (term->text_angle)(angle)) {
-		write_multiline(x1, y1, X_AXIS.label.text, CENTRE, JUST_TOP,
+	    term->text_angle(angle);
+	    write_multiline(x1, y1, X_AXIS.label.text, CENTRE, JUST_TOP,
 			    angle, X_AXIS.label.font);
-		(term->text_angle)(0);
-	    } else {
-		write_multiline(x1, y1, X_AXIS.label.text, CENTRE, JUST_TOP,
-			    0, X_AXIS.label.font);
-	    }
+	    term->text_angle(0);
 	    reset_textcolor(&(X_AXIS.label.textcolor));
 	    ignore_enhanced(FALSE);
 	    }
@@ -2357,18 +2406,26 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	    gen_tics(&axis_array[SECOND_X_AXIS], xtick_callback);
     }
 
-    /* y axis: */
+    /* y axis */
     if (Y_AXIS.ticmode || Y_AXIS.label.text) {
 	vertex v0, v1;
 	double other_end = X_AXIS.min + X_AXIS.max - yaxis_x;
-	double mid_y = (Y_AXIS.max + Y_AXIS.min) / 2;
+	double mid_y;
+
+	if (nonlinear(&Y_AXIS)) {
+	    AXIS *primary = Y_AXIS.linked_to_primary;
+	    mid_y = (primary->max + primary->min) / 2.;
+	    mid_y = eval_link_function(&Y_AXIS, mid_y);
+	} else {
+	    mid_y = (Y_AXIS.max + Y_AXIS.min) / 2.;
+	}
 
 	map3d_xyz(yaxis_x, mid_y, base_z, &v0);
 	map3d_xyz(other_end, mid_y, base_z, &v1);
 
-	tic_unitx = (v1.x - v0.x) / (double)xscaler;
-	tic_unity = (v1.y - v0.y) / (double)xscaler;
-	tic_unitz = (v1.z - v0.z) / (double)xscaler;
+	tic_unitx = (v1.x - v0.x) / xyscaler;
+	tic_unity = (v1.y - v0.y) / xyscaler;
+	tic_unitz = (v1.z - v0.z) / xyscaler;
 
 	/* Don't output tics and grids if this is the front part of a
 	 * two-part grid drawing process: */
@@ -2408,52 +2465,41 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 			widest_tic_strlen = 0; /* reset the global variable */
 			gen_tics(&axis_array[FIRST_Y_AXIS], widest_tic_callback);
 		    }
-		    /* DEFAULT_Y_DISTANCE is with respect to baseline of tics labels */
-#define DEFAULT_X_DISTANCE 0.
-		    x1 -= (unsigned int) ((DEFAULT_X_DISTANCE + 0.5 + widest_tic_strlen) * t->h_char);
-#undef DEFAULT_X_DISTANCE
-#if 0
-		    /* another method ... but not compatible */
-		    unsigned int map_y1, map_x2, map_y2;
-		    int tics_len = 0;
-		    if (Y_AXIS.ticmode) {
-			tics_len = (int)(X_AXIS.ticscale * (X_AXIS.tic_in ? 1 : -1) * (term->v_tic));
-			if (tics_len > 0) tics_len = 0; /* take care only about left tics */
-		    }
-		    map3d_xy(X_AXIS.min, Y_AXIS.min, base_z, &x1, &map_y1);
-		    map3d_xy(X_AXIS.max, Y_AXIS.max, base_z, &map_x2, &map_y2);
-		    y1 = (unsigned int)((map_y1 + map_y2) * 0.5);
-		    /* Distance between the title base line and graph top line or the upper part of
-		       tics is as given by character height: */
-#define DEFAULT_X_DISTANCE 0
-		    x1 += (unsigned int) (tics_len + (-0.5 + Y_AXIS.label.xoffset) * t->h_char);
-		    y1 += (unsigned int) ((DEFAULT_X_DISTANCE + Y_AXIS.label.yoffset) * t->v_char);
-#undef DEFAULT_X_DISTANCE
-#endif
+		    /* Default displacement with respect to baseline of tics labels */
+		    x1 -= (unsigned int) ((0.5 + widest_tic_strlen) * t->h_char);
 		    h_just = CENTRE; /* vertical justification for rotated text */
 		    v_just = JUST_BOT; /* horizontal -- does not work for rotated text? */
 		    angle = Y_AXIS.label.rotate;
 		} else { /* usual 3d set view ... */
-		    double step = (other_end - yaxis_x) / 4;
 		    /* The only angle that makes sense is running parallel to the axis */
 		    if (Y_AXIS.label.tag == ROTATE_IN_3D_LABEL_TAG) {
 			double ang, angx0, angx1, angy0, angy1;
 			map3d_xy_double(yaxis_x, Y_AXIS.min, base_z, &angx0, &angy0);
 			map3d_xy_double(yaxis_x, Y_AXIS.max, base_z, &angx1, &angy1);
 			ang = atan2(angy1-angy0, angx1-angx0) / DEG2RAD;
+			if (ang < -90) ang += 180;
+			if (ang > 90) ang -= 180;
 			angle = (ang > 0) ? floor(ang + 0.5) : floor(ang - 0.5);
-			if (angle < -90) angle += 180;
-			if (angle > 90) angle -= 180;
-			step /= 2;
 		    }
+
 		    if (Y_AXIS.ticmode & TICS_ON_AXIS) {
-			map3d_xyz((X_AXIS.tic_in ? -step : step)/2., mid_y, base_z, &v1);
+			map3d_xyz(0.0, mid_y, base_z, &v1);
 		    } else {
-			map3d_xyz(yaxis_x - step, mid_y, base_z, &v1);
+			map3d_xyz(yaxis_x, mid_y, base_z, &v1);
 		    }
-		    if (!X_AXIS.tic_in) {
-			v1.x -= tic_unitx * X_AXIS.ticscale * t->h_tic;
-			v1.y -= tic_unity * X_AXIS.ticscale * t->h_tic;
+
+		    /* DEBUG Replace old offset "step" with fraction of unit vector */
+		    if (Y_AXIS.ticmode & TICS_ON_AXIS) {
+			v1.x += 2. * t->h_tic * ((Y_AXIS.tic_in) ? 1.0 : -1.0) * tic_unitx;
+			v1.y += 2. * t->h_tic * ((Y_AXIS.tic_in) ? 1.0 : -1.0) * tic_unity;
+		    } else {
+			v1.x -= 10. * t->h_tic * tic_unitx;
+			v1.y -= 10. * t->h_tic * tic_unity;
+		    }
+		
+		    if (!Y_AXIS.tic_in) {
+			v1.x -= tic_unitx * Y_AXIS.ticscale * t->v_tic;
+			v1.y -= tic_unity * Y_AXIS.ticscale * t->v_tic;
 		    }
 		    TERMCOORD(&v1, x1, y1);
 		    h_just = CENTRE;
@@ -2464,18 +2510,13 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 		x1 += tmpx; /* user-defined label offset */
 		y1 += tmpy;
 
-		/* write_multiline mods it */
 		ignore_enhanced(Y_AXIS.label.noenhanced);
 		apply_pm3dcolor(&(Y_AXIS.label.textcolor));
 
-		if (angle != 0 && (term->text_angle)(angle)) {
-		    write_multiline(x1, y1, Y_AXIS.label.text, h_just, v_just,
-				    angle, Y_AXIS.label.font);
-		    (term->text_angle)(0);
-		} else {
-		    write_multiline(x1, y1, Y_AXIS.label.text, h_just, v_just,
-				    0, Y_AXIS.label.font);
-		}
+		term->text_angle(angle);
+		write_multiline(x1, y1, Y_AXIS.label.text, h_just, v_just,
+				angle, Y_AXIS.label.font);
+		term->text_angle(0);
 
 		reset_textcolor(&(Y_AXIS.label.textcolor));
 		ignore_enhanced(FALSE);
@@ -2492,6 +2533,7 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	 * two-part grid drawing process: */
 	&& (FRONTGRID != whichgrid)
 	&& (splot_map == FALSE)
+	&& (surface_rot_x != 0)
 	&& (draw_surface
 	    || (draw_contour & CONTOUR_SRF)
 	    || strchr(pm3d.where,'s') != NULL
@@ -2545,7 +2587,13 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	vertex v1;
 	int h_just = CENTRE;
 	int v_just = JUST_TOP;
-	double mid_z = (Z_AXIS.max + Z_AXIS.min) / 2.;
+	double mid_z;
+
+	if (nonlinear(&Z_AXIS)) {
+	    mid_z = (Z_AXIS.linked_to_primary->max + Z_AXIS.linked_to_primary->min) / 2.;
+	    mid_z = eval_link_function(&Z_AXIS, mid_z);
+	} else
+	    mid_z = (Z_AXIS.max + Z_AXIS.min) / 2.;
 
 	if (Z_AXIS.ticmode & TICS_ON_AXIS) {
 	    map3d_xyz(0, 0, mid_z, &v1);
@@ -2553,12 +2601,6 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 	    x -= 5 * t->h_char;
 	    h_just = RIGHT;
 	} else {
-	    /* December 2011 - This caused the separation between the axis and the
-	     * label to vary as the view angle changes (Bug #2879916).   Why???
-	     * double other_end = X_AXIS.min + X_AXIS.max - zaxis_x;
-	     * map3d_xyz(zaxis_x - (other_end - zaxis_x) / 4., zaxis_y, mid_z, &v1);
-	     * It seems better to use a constant default separation.
-	     */
 	    map3d_xyz(zaxis_x, zaxis_y, mid_z, &v1);
 	    TERMCOORD(&v1, x, y);
 	    x -= 7 * t->h_char;
@@ -2571,16 +2613,14 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
 
 	ignore_enhanced(Z_AXIS.label.noenhanced);
 	apply_pm3dcolor(&(Z_AXIS.label.textcolor));
+
 	if (Z_AXIS.label.tag == ROTATE_IN_3D_LABEL_TAG)
 	    Z_AXIS.label.rotate = TEXT_VERTICAL;
-	if (Z_AXIS.label.rotate != 0 &&  (term->text_angle)(Z_AXIS.label.rotate)) {
-	    write_multiline(x, y, Z_AXIS.label.text,
-			    h_just, v_just, Z_AXIS.label.rotate, Z_AXIS.label.font);
-	    (term->text_angle)(0);
-	} else {
-	    write_multiline(x, y, Z_AXIS.label.text,
-			    h_just, v_just, 0, Z_AXIS.label.font);
-	}
+	term->text_angle(Z_AXIS.label.rotate);
+	write_multiline(x, y, Z_AXIS.label.text,
+			h_just, v_just, Z_AXIS.label.rotate, Z_AXIS.label.font);
+	term->text_angle(0);
+
 	reset_textcolor(&(Z_AXIS.label.textcolor));
 	ignore_enhanced(FALSE);
     }
@@ -2622,7 +2662,7 @@ xtick_callback(
     if (this_axis->index == SECOND_X_AXIS
     &&  this_axis->linked_to_primary
     &&  this_axis->link_udf->at != NULL) {
-	place = eval_link_function(FIRST_X_AXIS, place);
+	place = eval_link_function(&axis_array[FIRST_X_AXIS], place);
     }
 
     /* Draw bottom tic mark */
@@ -2645,8 +2685,6 @@ xtick_callback(
 	v4.real_z = v3.real_z;
 	draw3d_line(&v3, &v4, &border_lp);
     }
-
-    // term_apply_lp_properties(&border_lp);
 
     /* Draw tic label */
     if (text) {
@@ -2746,7 +2784,7 @@ ytick_callback(
     if (this_axis->index == SECOND_Y_AXIS
     &&  this_axis->linked_to_primary
     &&  this_axis->link_udf->at != NULL) {
-	place = eval_link_function(FIRST_Y_AXIS, place);
+	place = eval_link_function(&axis_array[FIRST_Y_AXIS], place);
     }
 
     /* Draw left tic mark */
@@ -2984,7 +3022,7 @@ map3d_getposition(
     }
 
     if (plot_coords && (screen_coords || char_coords))
-	graph_error("Cannot mix screen or character coords with plot coords");
+	int_error(NO_CARET,"Cannot mix screen or character coords with plot coords");
 
     return (screen_coords || char_coords);
 }
@@ -3283,13 +3321,13 @@ plot3d_vectors(struct surface_points *plot)
     int i;
     double x1, y1, x2, y2;
     arrow_style_type ap;
-    struct coordinate GPHUGE *heads = plot->iso_crvs->points;
-    struct coordinate GPHUGE *tails = plot->iso_crvs->next->points;
+    struct coordinate GPHUGE *tails = plot->iso_crvs->points;
+    struct coordinate GPHUGE *heads = plot->iso_crvs->next->points;
 
     /* Only necessary once, unless variable arrow style */
     ap = plot->arrow_properties;
     term_apply_lp_properties(&ap.lp_properties);
-    apply_3dhead_properties(&ap);
+    apply_head_properties(&ap);
 
     for (i = 0; i < plot->iso_crvs->p_count; i++) {
 
@@ -3306,9 +3344,33 @@ plot3d_vectors(struct surface_points *plot)
 	    check3d_for_variable_color(plot, &heads[i]);
 	}
 
+	/* The normal case: both ends in range */
 	if (heads[i].type == INRANGE && tails[i].type == INRANGE) {
-	    map3d_xy_double(heads[i].x, heads[i].y, heads[i].z, &x1, &y1);
-	    map3d_xy_double(tails[i].x, tails[i].y, tails[i].z, &x2, &y2);
+	    map3d_xy_double(tails[i].x, tails[i].y, tails[i].z, &x1, &y1);
+	    map3d_xy_double(heads[i].x, heads[i].y, heads[i].z, &x2, &y2);
+	    draw_clip_arrow((int)x1, (int)y1, (int)x2, (int)y2, ap.head);
+
+	/* "set clip two" - both ends out of range */
+	} else if (heads[i].type != INRANGE && tails[i].type != INRANGE) {
+	    double lx[2], ly[2], lz[2];
+	    if (!clip_lines2)
+		continue;
+	    two_edge3d_intersect(&tails[i], &heads[i], lx, ly, lz);
+	    map3d_xy_double(lx[0], ly[0], lz[0], &x1, &y1);
+	    map3d_xy_double(lx[1], ly[1], lz[1], &x2, &y2);
+	    draw_clip_arrow((int)x1, (int)y1, (int)x2, (int)y2, ap.head);
+
+	/* "set clip one" - one end out of range */
+	} else if (clip_lines1) {
+	    double clip_x, clip_y, clip_z;
+	    edge3d_intersect(&heads[i], &tails[i], &clip_x, &clip_y, &clip_z);
+	    if (tails[i].type == INRANGE) {
+		map3d_xy_double(tails[i].x, tails[i].y, tails[i].z, &x1, &y1);
+		map3d_xy_double(clip_x, clip_y, clip_z, &x2, &y2);
+	    } else {
+		map3d_xy_double(clip_x, clip_y, clip_z, &x1, &y1);
+		map3d_xy_double(heads[i].x, heads[i].y, heads[i].z, &x2, &y2);
+	    }
 	    draw_clip_arrow((int)x1, (int)y1, (int)x2, (int)y2, ap.head);
 	}
     }

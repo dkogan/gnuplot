@@ -1,5 +1,5 @@
 /*
- * $Id: graphics.h,v 1.66 2015/08/03 04:16:38 sfeam Exp $
+ * $Id: graphics.h,v 1.68 2016-01-28 23:54:13 sfeam Exp $
  */
 
 /* GNUPLOT - graphics.h */
@@ -51,7 +51,7 @@ typedef struct curve_points {
     enum PLOT_TYPE plot_type;	/* DATA2D? DATA3D? FUNC2D FUNC3D? NODATA? */
     enum PLOT_STYLE plot_style;	/* style set by "with" or by default */
     char *title;		/* plot title, a.k.a. key entry */
-    int title_position;		/* -1 for beginning; +1 for end */
+    t_position *title_position;	/* title at {beginning|end|<xpos>,<ypos>} */
     TBOOLEAN title_no_enhanced;	/* don't typeset title in enhanced mode */
     TBOOLEAN title_is_filename;	/* TRUE if title was auto-generated from filename */
     TBOOLEAN title_is_suppressed;/* TRUE if 'notitle' was specified */
@@ -65,6 +65,8 @@ typedef struct curve_points {
 
     /* 2D and 3D plot structure fields overlay only to this point */
     filledcurves_opts filledcurves_options;
+    int base_linetype;		/* before any calls to load_linetype(), lc variable */
+				/* analogous to hidden3d_top_linetype in graph3d.h  */
     int ellipseaxes_units;              /* Only used if plot_style == ELLIPSES */    
     struct histogram_style *histogram;	/* Only used if plot_style == HISTOGRAM */
     int histogram_sequence;	/* Ordering of this dataset within the histogram */

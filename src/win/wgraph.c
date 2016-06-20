@@ -1,5 +1,5 @@
 /*
- * $Id: wgraph.c,v 1.198 2014/12/24 17:39:07 markisch Exp $
+ * $Id: wgraph.c,v 1.204 2016-05-07 11:48:56 markisch Exp $
  */
 
 /* GNUPLOT - win/wgraph.c */
@@ -49,6 +49,7 @@
 #include <commctrl.h>
 #include <stdio.h>
 #include <string.h>
+#include <direct.h>           /* for _chdir */
 #include "winmain.h"
 #include "wresourc.h"
 #include "wcommon.h"
@@ -223,7 +224,7 @@ static void	MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc);
 static void	DestroyFonts(LPGW lpgw);
 static void	SelFont(LPGW lpgw);
 static void	dot(HDC hdc, int xdash, int ydash);
-static unsigned int WDPROC GraphGetTextLength(LPGW lpgw, HDC hdc, LPCSTR text);
+static unsigned int GraphGetTextLength(LPGW lpgw, HDC hdc, LPCSTR text);
 static void	draw_text_justify(HDC hdc, int justify);
 static void	draw_put_text(LPGW lpgw, HDC hdc, int x, int y, char * str);
 static void	drawgraph(LPGW lpgw, HDC hdc, LPRECT rect);
@@ -315,7 +316,7 @@ AddBlock(LPGW lpgw)
 }
 
 
-void WDPROC
+void
 GraphOp(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str)
 {
 	if (str)
@@ -325,7 +326,7 @@ GraphOp(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str)
 }
 
 
-void WDPROC
+void
 GraphOpSize(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str, DWORD size)
 {
 	struct GWOPBLK *this;
@@ -361,7 +362,7 @@ GraphOpSize(LPGW lpgw, UINT op, UINT x, UINT y, LPCSTR str, DWORD size)
 
 /* Initialize the LPGW struct:
  * set default values and read options from ini file */
-void WDPROC
+void
 GraphInitStruct(LPGW lpgw)
 {
 	if (!lpgw->initialized) {
@@ -414,7 +415,7 @@ GraphInitStruct(LPGW lpgw)
 
 /* Prepare Graph window for being displayed by windows, update
  * the window's menus and show it */
-void WDPROC
+void
 GraphInit(LPGW lpgw)
 {
 	HMENU sysmenu;
@@ -620,7 +621,7 @@ GraphInit(LPGW lpgw)
 }
 
 
-void WDPROC
+void
 GraphUpdateWindowPosSize(LPGW lpgw)
 {
 	/* resize to match requested canvas size */
@@ -633,7 +634,7 @@ GraphUpdateWindowPosSize(LPGW lpgw)
 
 
 /* close a graph window */
-void WDPROC
+void
 GraphClose(LPGW lpgw)
 {
 #ifdef USE_MOUSE
@@ -652,7 +653,7 @@ GraphClose(LPGW lpgw)
 }
 
 
-void WDPROC
+void
 GraphStart(LPGW lpgw, double pointsize)
 {
 	lpgw->locked = TRUE;
@@ -679,7 +680,7 @@ GraphStart(LPGW lpgw, double pointsize)
 }
 
 
-void WDPROC
+void
 GraphEnd(LPGW lpgw)
 {
 	RECT rect;
@@ -696,7 +697,7 @@ GraphEnd(LPGW lpgw)
 
 
 /* shige */
-void WDPROC
+void
 GraphChangeTitle(LPGW lpgw)
 {
 	if (GraphHasWindow(lpgw))
@@ -704,14 +705,14 @@ GraphChangeTitle(LPGW lpgw)
 }
 
 
-void WDPROC
+void
 GraphResume(LPGW lpgw)
 {
 	lpgw->locked = TRUE;
 }
 
 
-void WDPROC
+void
 GraphPrint(LPGW lpgw)
 {
 	if (GraphHasWindow(lpgw))
@@ -719,7 +720,7 @@ GraphPrint(LPGW lpgw)
 }
 
 
-void WDPROC
+void
 GraphRedraw(LPGW lpgw)
 {
 	lpgw->buffervalid = FALSE;
@@ -898,6 +899,39 @@ GetPlotRectInMM(LPGW lpgw, LPRECT rect, HDC hdc)
 }
 
 
+static TBOOLEAN
+TryCreateFont(LPGW lpgw, char * fontface, HDC hdc)
+{
+	if (fontface != NULL)
+		strncpy(lpgw->lf.lfFaceName, fontface, LF_FACESIZE);
+
+	lpgw->hfonth = CreateFontIndirect((LOGFONT *)&(lpgw->lf));
+
+	if (lpgw->hfonth != 0) {
+		/* Test if we actually got the requested font. Note that this also seems to work
+			with GDI's magic font substitutions (e.g. Helvetica->Arial, Times->Times New Roman) */
+		HFONT hfontold = (HFONT) SelectObject(hdc, lpgw->hfonth);
+		if (hfontold != NULL) {
+			char fontname[MAXFONTNAME];
+			GetTextFace(hdc, sizeof(fontname), fontname);
+			SelectObject(hdc, hfontold);
+			if (strcmp(fontname, lpgw->lf.lfFaceName) == 0) {
+				return TRUE;
+			} else {
+				FPRINTF((stderr, "Warning: GDI would have substituted \"%s\" for \"%s\"\n", fontname, lpgw->lf.lfFaceName));
+				DeleteObject(lpgw->hfonth);
+				lpgw->hfonth = 0;
+				return FALSE;
+			}
+		}
+		return TRUE;
+	} else {
+		return FALSE;
+	}
+	return FALSE;
+}
+
+
 static void
 MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc)
 {
@@ -908,8 +942,8 @@ MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc)
 	int cx, cy;
 
 	lpgw->rotate = FALSE;
-	_fmemset(&(lpgw->lf), 0, sizeof(LOGFONT));
-	_fstrncpy(lpgw->lf.lfFaceName,lpgw->fontname,LF_FACESIZE);
+	memset(&(lpgw->lf), 0, sizeof(LOGFONT));
+	strncpy(lpgw->lf.lfFaceName, lpgw->fontname, LF_FACESIZE);
 	lpgw->lf.lfHeight = -MulDiv(lpgw->fontsize * lpgw->fontscale, GetDeviceCaps(hdc, LOGPIXELSY), 72) * lpgw->sampling;
 	lpgw->lf.lfCharSet = DEFAULT_CHARSET;
 	if (((p = strstr(lpgw->fontname," Italic")) != NULL) ||
@@ -928,8 +962,29 @@ MakeFonts(LPGW lpgw, LPRECT lprect, HDC hdc)
 	lpgw->lf.lfQuality =
 		IsWindowsXPorLater() && lpgw->antialiasing ? CLEARTYPE_QUALITY : PROOF_QUALITY;
 
-	if (lpgw->hfonth == 0) {
-		lpgw->hfonth = CreateFontIndirect((LOGFONT *)&(lpgw->lf));
+	if (!TryCreateFont(lpgw, NULL, hdc)) {
+		if (strcmp(lpgw->fontname, lpgw->deffontname) != 0) {
+			fprintf(stderr, "Warning:  font \"%s\" not available, trying \"%s\" instead.\n", lpgw->fontname, lpgw->deffontname);
+			if (!TryCreateFont(lpgw, lpgw->deffontname, hdc)) {
+				if (strcmp(lpgw->deffontname, GraphDefaultFont()) != 0) {
+					fprintf(stderr, "Warning:  font \"%s\" not available, trying \"%s\" instead.\n", lpgw->deffontname, GraphDefaultFont());
+					if (!TryCreateFont(lpgw, GraphDefaultFont(), hdc)) {
+						fprintf(stderr, "Error:  could not substitute another font. Giving up.\n");
+					}
+				} else {
+					fprintf(stderr, "Error:  could not substitute another font. Giving up.\n");
+				}
+			}
+		} else {
+			if (strcmp(lpgw->fontname, GraphDefaultFont()) != 0) {
+				fprintf(stderr, "Warning:  font \"%s\" not available, trying \"%s\" instead.\n", lpgw->fontname, GraphDefaultFont());
+				if (!TryCreateFont(lpgw, GraphDefaultFont(), hdc)) {
+					fprintf(stderr, "Error:  could not substitute another font. Giving up.\n");
+				}
+			} else {
+				fprintf(stderr, "Error:  font \"%s\" not available, but don't know which font to substitute.\n", lpgw->fontname);
+			}
+		}
 	}
 
 	/* we do need a 90 degree font */
@@ -1045,49 +1100,6 @@ SelFont(LPGW lpgw)
 }
 
 
-LPWSTR
-UnicodeText(const char *str, enum set_encoding_id encoding)
-{
-    UINT codepage;
-    LPWSTR textw = NULL;
-
-    /* For a list of code page identifiers see
-       http://msdn.microsoft.com/en-us/library/dd317756%28v=vs.85%29.aspx
-    */
-    switch (encoding) {
-        case S_ENC_DEFAULT:    codepage = CP_ACP; break;
-        case S_ENC_ISO8859_1:  codepage = 28591; break;
-        case S_ENC_ISO8859_2:  codepage = 28592; break;
-        case S_ENC_ISO8859_9:  codepage = 28599; break;
-        case S_ENC_ISO8859_15: codepage = 28605; break;
-        case S_ENC_CP437:      codepage =   437; break;
-        case S_ENC_CP850:      codepage =   850; break;
-        case S_ENC_CP852:      codepage =   852; break;
-        case S_ENC_CP950:      codepage =   950; break;
-        case S_ENC_CP1250:     codepage =  1250; break;
-        case S_ENC_CP1251:     codepage =  1251; break;
-        case S_ENC_CP1252:     codepage =  1252; break;
-        case S_ENC_CP1254:     codepage =  1254; break;
-        case S_ENC_KOI8_R:     codepage = 20866; break;
-        case S_ENC_KOI8_U:     codepage = 21866; break;
-        case S_ENC_SJIS:       codepage =   932; break;
-        case S_ENC_UTF8:       codepage = CP_UTF8; break;
-        default:               codepage = 0xffffffff;
-    }
-    if (codepage != 0xffffffff) {
-        int length;
-
-        /* get length of converted string */
-        length = MultiByteToWideChar(codepage, 0, str, -1, NULL, 0);
-        textw = (LPWSTR) malloc(sizeof(WCHAR) * length);
-
-        /* convert string to UTF-16 */
-        length = MultiByteToWideChar(codepage, 0, str, -1, textw, length);
-    }
-    return textw;
-}
-
-
 #ifdef USE_MOUSE
 /* ================================== */
 
@@ -1133,7 +1145,7 @@ luma_from_color(unsigned red, unsigned green, unsigned blue)
 }
 
 
-static unsigned int WDPROC
+static unsigned int
 GraphGetTextLength(LPGW lpgw, HDC hdc, LPCSTR text)
 {
     SIZE size;
@@ -1150,7 +1162,7 @@ GraphGetTextLength(LPGW lpgw, HDC hdc, LPCSTR text)
 }
 
 
-void WDPROC
+void
 GraphEnhancedOpen(char *fontname, double fontsize, double base,
     BOOL widthflag, BOOL showflag, int overprint)
 {
@@ -1202,7 +1214,7 @@ GraphEnhancedOpen(char *fontname, double fontsize, double base,
 }
 
 
-void WDPROC
+void
 GraphEnhancedFlush(void)
 {
 	int width, height;
@@ -2249,6 +2261,8 @@ drawgraph(LPGW lpgw, HDC hdc, LPRECT rect)
 				boxedtext.margin.x = MulDiv(curptr->y, (rr - rl) * lpgw->hchar, 100 * lpgw->xmax);
 				boxedtext.margin.y = MulDiv(curptr->y, (rb - rt) * lpgw->vchar, 400 * lpgw->ymax);
 				break;
+			default:
+				break;
 			}
 			break;
 #endif
@@ -3290,7 +3304,7 @@ GraphDefaultFont(void)
 		return WINJPFONT;
 	else
 		return WINFONT;
-};
+}
 
 
 static void
@@ -4452,7 +4466,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			}
 			return FALSE;
 		case WM_CREATE:
-			lpgw = ((CREATESTRUCT *)lParam)->lpCreateParams;
+			lpgw = (LPGW) ((CREATESTRUCT *)lParam)->lpCreateParams;
 			SetWindowLongPtr(hwnd, 0, (LONG_PTR)lpgw);
 			lpgw->hWndGraph = hwnd;
 			hdc = GetDC(hwnd);
@@ -4463,7 +4477,7 @@ WndGraphProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 			GetPlotRect(lpgw, &rect);
 			MakeFonts(lpgw, (LPRECT)&rect, hdc);
 			ReleaseDC(hwnd, hdc);
-			if ( lpgw->lptw && (lpgw->lptw->DragPre!=(LPSTR)NULL) && (lpgw->lptw->DragPost!=(LPSTR)NULL) )
+			if (lpgw->lptw && (lpgw->lptw->DragPre != NULL) && (lpgw->lptw->DragPost != NULL))
 			    DragAcceptFiles(hwnd, TRUE);
 			return(0);
 
@@ -4688,7 +4702,7 @@ GraphChangeFont(LPGW lpgw, LPCSTR font, int fontsize, HDC hdc, RECT rect)
 
 
 /* close the terminal window */
-void WDPROC
+void
 win_close_terminal_window(LPGW lpgw)
 {
 	if (GraphHasWindow(lpgw))
@@ -4709,7 +4723,7 @@ win_close_terminal_window(LPGW lpgw)
  * 'this' pointer, sort of: it stores all the status information of the graph
  * window that we need, in a single large structure. */
 
-void WDPROC
+void
 Graph_set_cursor(LPGW lpgw, int c, int x, int y)
 {
 	switch (c) {
@@ -4773,7 +4787,7 @@ Graph_set_cursor(LPGW lpgw, int c, int x, int y)
 }
 
 /* set_ruler(int x, int y) term API: x<0 switches ruler off. */
-void WDPROC
+void
 Graph_set_ruler (LPGW lpgw, int x, int y )
 {
 	DrawRuler(lpgw); /* remove previous drawing, if any */
@@ -4792,7 +4806,7 @@ Graph_set_ruler (LPGW lpgw, int x, int y )
  * 	i: 0..at statusline
  *	1, 2: at corners of zoom box with \r separating text
  */
-void WDPROC
+void
 Graph_put_tmptext (LPGW lpgw, int where, LPCSTR text )
 {
     /* Position of the annotation string (mouse movement) or zoom box
@@ -4824,7 +4838,7 @@ Graph_put_tmptext (LPGW lpgw, int where, LPCSTR text )
 }
 
 
-void WDPROC
+void
 Graph_set_clipboard (LPGW lpgw, LPCSTR s)
 {
 	size_t length;
@@ -4968,7 +4982,7 @@ UpdateToolbar(LPGW lpgw)
 /*
  * Toggle active plots
  */
-void WDPROC
+void
 GraphModifyPlots(LPGW lpgw, unsigned int ops, int plotno)
 {
 	int i;

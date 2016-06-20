@@ -190,6 +190,9 @@ static int  qt_setWidth  = qt_optionWidth;
 static int  qt_setHeight = qt_optionHeight;
 static bool qt_is_3Dplot = false;
 
+static double qt_max_pos_base = 0.0;
+static double qt_max_neg_base = 0.0;
+
 /* ------------------------------------------------------
  * Helpers
  * ------------------------------------------------------*/
@@ -255,7 +258,7 @@ void qt_flushOutBuffer()
 	if (!qt || !qt->socket.isValid())
 		return;
 
-	// Write the block size at the beginning of the bock
+	// Write the block size at the beginning of the block
 	QDataStream sizeStream(&qt->socket);
 	sizeStream << (quint32)(qt->outBuffer.size());
 	// Write the block to the QLocalSocket
@@ -615,6 +618,12 @@ void qt_enhanced_open(char* fontname, double fontsize, double base, TBOOLEAN wid
 	qt->enhancedShowFlag  = showflag;
 	qt->enhancedOverprint = overprint;
 
+	// Baseline correction.  Surely Qt itself provides this somehow?
+	if (qt_max_pos_base < base)
+	    qt_max_pos_base = base;
+	if (qt_max_neg_base > base)
+	    qt_max_neg_base = base;
+
 	// strip Bold or Italic property out of font name
 	QString tempname = fontname;
 	if (tempname.contains(":italic", Qt::CaseInsensitive))
@@ -663,6 +672,9 @@ void qt_put_text(unsigned int x, unsigned int y, const char* string)
 	enhanced_fontscale = 1.0;
 	strncpy(enhanced_escape_format, "%c", sizeof(enhanced_escape_format));
 
+	// Baseline correction
+	qt_max_pos_base = qt_max_neg_base = 0.0;
+
 	// Set the recursion going. We say to keep going until a closing brace, but
 	// we don't really expect to find one.  If the return value is not the nul-
 	// terminator of the string, that can only mean that we did find an unmatched
@@ -677,6 +689,10 @@ void qt_put_text(unsigned int x, unsigned int y, const char* string)
 			break; // end of string
 		// else carry on and process the rest of the string
 	}
+
+	// Baseline correction
+	y += qt_max_pos_base * 5;
+	y += qt_max_neg_base * 5;
 
 	qt->out << GEEnhancedFinish << qt_termCoord(x, y);
 }
@@ -942,8 +958,12 @@ int qt_waitforinput(int options)
 	int stdin_fd  = fileno(stdin);
 	int socket_fd = qt ? qt->socket.socketDescriptor() : -1;
 
-	if (!qt || (socket_fd < 0) || (qt->socket.state() != QLocalSocket::ConnectedState))
-		return (options == TERM_ONLY_CHECK_MOUSING) ? '\0' : getchar();
+	if (!qt || (socket_fd < 0) || (qt->socket.state() != QLocalSocket::ConnectedState)) {
+		if (options == TERM_ONLY_CHECK_MOUSING)
+			return '\0';
+		else
+			return getchar();
+	}
 
 	// Gnuplot event loop
 	do
@@ -966,8 +986,12 @@ int qt_waitforinput(int options)
 		}
 
 		// Wait for input
-		if (select(socket_fd+1, &read_fds, NULL, NULL, timeout) < 0)
-		{
+		int n_changed_fds = select(socket_fd+1, &read_fds,
+						NULL,	// not watching for write-only
+						NULL,	// not watching for exceptions
+						timeout );
+
+		if (n_changed_fds < 0) {
 			// Display the error message except when Ctrl + C is pressed
 			if (errno != 4)
 				fprintf(stderr, "Qt terminal communication error: select() error %i %s\n", errno, strerror(errno));
@@ -1020,7 +1044,12 @@ int qt_waitforinput(int options)
 			return '\0';
 		}
 	} while (paused_for_mouse || !FD_ISSET(stdin_fd, &read_fds));
-		return getchar();
+
+	if (options == TERM_ONLY_CHECK_MOUSING)
+		return '\0';
+
+	return getchar();
+
 #else // Windows console and wgnuplot
 #ifdef WGP_CONSOLE
 	int fd = fileno(stdin);
@@ -1263,6 +1292,7 @@ void qt_options()
 	bool set_widget = false;
 	bool set_dash = false;
 	bool set_dashlength = false;
+	int previous_WindowId = qt_optionWindowId;
 
 #ifndef WIN32
 	if (term_interlock != NULL && term_interlock != (void *)qt_init) {
@@ -1392,6 +1422,14 @@ void qt_options()
 			int_error(c_token-1, "Duplicated or contradicting arguments in qt term options.");
 	}
 
+	// We want this to happen immediately, hence the flush command.
+	// We don't want it to change the _current_ window, just close an old one.
+	if (set_close && qt) {
+		qt->out << GECloseWindow << qt_optionWindowId;
+		qt_flushOutBuffer();
+		qt_optionWindowId = previous_WindowId;
+	}
+
 	// Save options back into options string in normalized format
 	QString termOptions = QString::number(qt_optionWindowId);
 
@@ -1401,8 +1439,6 @@ void qt_options()
 	if (set_title)
 	{
 		termOptions += " title \"" + qt_option->Title + '"';
-		if (qt)
-			qt->out << GETitle << qt_option->Title;
 	}
 
 	if (set_size)
@@ -1428,8 +1464,6 @@ void qt_options()
 	if (set_persist)  termOptions += qt_optionPersist ? " persist" : " nopersist";
 	if (set_raise)    termOptions += qt_optionRaise ? " raise" : " noraise";
 	if (set_ctrl)     termOptions += qt_optionCtrl ? " ctrl" : " noctrl";
-
-	if (set_close && qt) qt->out << GECloseWindow << qt_optionWindowId;
 
 	/// @bug change Utf8 to local encoding
 	strncpy(term_options, termOptions.toUtf8().data(), MAX_LINE_LEN);

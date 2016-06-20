@@ -37,7 +37,7 @@
 
 
 
-  $Date: 2014/11/09 00:47:20 $
+  $Date: 2015/12/31 21:03:49 $
   $Author: sfeam $
   $Rev: 100 $
 
@@ -81,7 +81,7 @@ pgf.DEFAULT_FONT_V_CHAR = 308
 pgf.STYLE_FILE_BASENAME = "gnuplot-lua-tikz"  -- \usepackage{gnuplot-lua-tikz}
 
 pgf.REVISION = string.sub("$Rev: 100 $",7,-3)
-pgf.REVISION_DATE = string.gsub("$Date: 2014/11/09 00:47:20 $",
+pgf.REVISION_DATE = string.gsub("$Date: 2015/12/31 21:03:49 $",
                                 "$Date: ([0-9]+).([0-9]+).([0-9]+) .*","%1/%2/%3")
 
 pgf.styles = {}
@@ -1333,7 +1333,8 @@ gfx.format.latex = {
   docheader        = "\\documentclass["..pgf.DEFAULT_FONT_SIZE.."pt]{article}\n"
                       .."\\usepackage[T1]{fontenc}\n"
                       .."\\usepackage{textcomp}\n\n"
-                      .."\\usepackage[utf8x]{inputenc}\n\n"
+                      .."\\usepackage[utf8x]{inputenc}\n"
+                      .."\\SetUnicodeOption{mathletters}\n\n"
                       .."\\usepackage{"..pgf.STYLE_FILE_BASENAME.."}\n"
                       .."\\pagestyle{empty}\n"
                       .."\\usepackage[active,tightpage]{preview}\n"
@@ -1753,8 +1754,9 @@ term.options = function(opt_str, initial, t_count)
       if s_end then
         o_next = string.sub(opt_str, s_start+1, s_end-1)
         if next_char == '"' then
-          -- Wow! this is to resolve all string escapes, kind of "unescape string"
-          o_next = assert(loadstring("return(\""..o_next.."\")"))()
+          -- this is to resolve all string escapes, kind of "unescape string"
+          -- lua 5.2 deprecated loadstring in favor of load
+          o_next = assert(load("return(\""..o_next.."\")"))()
         end
         o_type = "string"
       else
@@ -2340,8 +2342,8 @@ term.set_font = function(font)
   local fontsize = nil
   gfx.text_font, fontsize = gfx.parse_font_string(font)
   if fontsize then
-    term.h_char = pgf.DEFAULT_FONT_H_CHAR * (fontsize/10) * (pgf.DEFAULT_RESOLUTION/1000)
-    term.v_char = pgf.DEFAULT_FONT_V_CHAR * (fontsize/10) * (pgf.DEFAULT_RESOLUTION/1000)
+    term.h_char = math.floor(pgf.DEFAULT_FONT_H_CHAR * (fontsize/10) * (pgf.DEFAULT_RESOLUTION/1000) + 0.5)
+    term.v_char = math.floor(pgf.DEFAULT_FONT_V_CHAR * (fontsize/10) * (pgf.DEFAULT_RESOLUTION/1000) + 0.5)
   end
   return 1
 end

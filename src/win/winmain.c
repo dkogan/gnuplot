@@ -1,5 +1,5 @@
 /*
- * $Id: winmain.c,v 1.79 2014/12/14 19:39:38 markisch Exp $
+ * $Id: winmain.c,v 1.86 2016-05-08 12:54:36 markisch Exp $
  */
 
 /* GNUPLOT - win/winmain.c */
@@ -64,9 +64,6 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <fcntl.h>
-#ifdef __WATCOMC__
-# define mktemp _mktemp
-#endif
 #include <io.h>
 #include <sys/stat.h>
 #include "alloc.h"
@@ -143,19 +140,23 @@ CheckMemory(LPSTR str)
 int
 Pause(LPSTR str)
 {
-	pausewin.Message = str;
-	return (PauseBox(&pausewin) == IDOK);
+    int rc;
+
+    pausewin.Message = UnicodeText(str, encoding);
+    rc = PauseBox(&pausewin) == IDOK;
+    free(pausewin.Message);
+    return rc;
 }
 
 
 void
 kill_pending_Pause_dialog()
 {
-	if (!pausewin.bPause) /* no Pause dialog displayed */
-	    return;
-	/* Pause dialog displayed, thus kill it */
-	DestroyWindow(pausewin.hWndPause);
-	pausewin.bPause = FALSE;
+    if (!pausewin.bPause) /* no Pause dialog displayed */
+	return;
+    /* Pause dialog displayed, thus kill it */
+    DestroyWindow(pausewin.hWndPause);
+    pausewin.bPause = FALSE;
 }
 
 
@@ -170,9 +171,7 @@ WinExit(void)
 
     term_reset();
 
-#ifndef __MINGW32__ /* HBB 980809: FIXME: doesn't exist for MinGW32. So...? */
-    fcloseall();
-#endif
+    _fcloseall();
 
 	/* Close all graph windows */
 	for (lpgw = listgraphs; lpgw != NULL; lpgw = lpgw->next) {
@@ -459,7 +458,7 @@ main(int argc, char **argv)
         textwin.hInstance = hInstance;
         textwin.hPrevInstance = hPrevInstance;
         textwin.nCmdShow = nCmdShow;
-        textwin.Title = "gnuplot";
+        textwin.Title = L"gnuplot";
 #endif
 
 		/* create structure of first graph window */
@@ -490,8 +489,8 @@ main(int argc, char **argv)
 
 #ifndef WGP_CONSOLE
         textwin.IniSection = "WGNUPLOT";
-        textwin.DragPre = "load '";
-        textwin.DragPost = "'\n";
+    textwin.DragPre = L"load '";
+    textwin.DragPost = L"'\n";
         textwin.lpmw = &menuwin;
         textwin.ScreenSize.x = 80;
         textwin.ScreenSize.y = 80;
@@ -514,9 +513,9 @@ main(int argc, char **argv)
         menuwin.szMenuName = szMenuName;
 #endif
 
-        pausewin.hInstance = hInstance;
-        pausewin.hPrevInstance = hPrevInstance;
-        pausewin.Title = "gnuplot pause";
+    pausewin.hInstance = hInstance;
+    pausewin.hPrevInstance = hPrevInstance;
+    pausewin.Title = L"gnuplot pause";
 
         graphwin->hInstance = hInstance;
         graphwin->hPrevInstance = hPrevInstance;
@@ -834,94 +833,101 @@ static char * pipe_command = NULL;
 FILE *
 fake_popen(const char * command, const char * type)
 {
-	FILE * f = NULL;
-	char tmppath[MAX_PATH];
-	char tmpfile[MAX_PATH];
-	DWORD ret;
+    FILE * f = NULL;
+    char tmppath[MAX_PATH];
+    char tmpfile[MAX_PATH];
+    DWORD ret;
 
-	if (type == NULL) return NULL;
+    if (type == NULL) return NULL;
 
-	pipe_type = NUL;
-	if (pipe_filename != NULL)
-		free(pipe_filename);
+    pipe_type = NUL;
+    if (pipe_filename != NULL)
+	free(pipe_filename);
 
-	/* Random temp file name in %TEMP% */
-	ret = GetTempPath(sizeof(tmppath), tmppath);
-	if ((ret == 0) || (ret > sizeof(tmppath)))
-		return NULL;
-	ret = GetTempFileName(tmppath, "gpp", 0, tmpfile);
-	if (ret == 0)
-		return NULL;
-	pipe_filename = strdup(tmpfile);
+    /* Random temp file name in %TEMP% */
+    ret = GetTempPathA(sizeof(tmppath), tmppath);
+    if ((ret == 0) || (ret > sizeof(tmppath)))
+	return NULL;
+    ret = GetTempFileNameA(tmppath, "gpp", 0, tmpfile);
+    if (ret == 0)
+	return NULL;
+    pipe_filename = gp_strdup(tmpfile);
 
-	if (*type == 'r') {
-		char * cmd;
-		int rc;
-		pipe_type = *type;
-		/* Execute command with redirection of stdout to temporary file. */
-		cmd = (char *) malloc(strlen(command) + strlen(pipe_filename) + 5);
-		sprintf(cmd, "%s > %s", command, pipe_filename);
-		rc = system(cmd);
-		free(cmd);
-		/* Now open temporary file. */
-		/* system() returns 1 if the command could not be executed. */
-		if (rc != 1)
-			f = fopen(pipe_filename, "r");
-		else {
-			remove(pipe_filename);
-			free(pipe_filename);
-			pipe_filename = NULL;
-			errno = EINVAL;
-		}
-	} else if (*type == 'w') {
-		pipe_type = *type;
-		/* Write output to temporary file and handle the rest in fake_pclose. */
-		if (type[1] == 'b')
-			int_error(NO_CARET, "Could not execute pipe '%s'. Writing to binary pipes is not supported.", command);
-		else
-			f = fopen(pipe_filename, "w");
-		pipe_command = strdup(command);
+    if (*type == 'r') {
+	char * cmd;
+	int rc;
+	LPWSTR wcmd;
+	pipe_type = *type;
+	/* Execute command with redirection of stdout to temporary file. */
+	cmd = (char *) malloc(strlen(command) + strlen(pipe_filename) + 5);
+	sprintf(cmd, "%s > %s", command, pipe_filename);
+	wcmd = UnicodeText(cmd, encoding);
+	rc = _wsystem(wcmd);
+	free(wcmd);
+	free(cmd);
+	/* Now open temporary file. */
+	/* system() returns 1 if the command could not be executed. */
+	if (rc != 1) {
+	    f = fopen(pipe_filename, "r");
+	} else {
+	    remove(pipe_filename);
+	    free(pipe_filename);
+	    pipe_filename = NULL;
+	    errno = EINVAL;
 	}
+    } else if (*type == 'w') {
+	pipe_type = *type;
+	/* Write output to temporary file and handle the rest in fake_pclose. */
+	if (type[1] == 'b')
+	    int_error(NO_CARET, "Could not execute pipe '%s'. Writing to binary pipes is not supported.", command);
+	else
+	    f = fopen(pipe_filename, "w");
+	pipe_command = gp_strdup(command);
+    }
 
-	return f;
+    return f;
 }
 
 
 int fake_pclose(FILE *stream)
 {
-	int rc = 0;
-	if (!stream) return ECHILD;
+    int rc = 0;
+    if (!stream)
+	return ECHILD;
 
-	/* Close temporary file */
-	fclose(stream);
+    /* Close temporary file */
+    fclose(stream);
 
-	/* Finally, execute command with redirected stdin. */
-	if (pipe_type == 'w') {
-		char * cmd;
-		cmd = (char *) gp_alloc(strlen(pipe_command) + strlen(pipe_filename) + 10, "fake_pclose");
-		/* FIXME: this won't work for binary data. We need a proper `cat` replacement. */
-		sprintf(cmd, "type %s | %s", pipe_filename, pipe_command);
-		rc = system(cmd);
-		free(cmd);
-	}
+    /* Finally, execute command with redirected stdin. */
+    if (pipe_type == 'w') {
+	char * cmd;
+	LPWSTR wcmd;
+	cmd = (char *) gp_alloc(strlen(pipe_command) + strlen(pipe_filename) + 10, "fake_pclose");
+	/* FIXME: this won't work for binary data. We need a proper `cat` replacement. */
+	sprintf(cmd, "type %s | %s", pipe_filename, pipe_command);
+	wcmd = UnicodeText(cmd, encoding);
+	rc = _wsystem(wcmd);
+	free(cmd);
+	free(wcmd);
+    }
 
-	/* Delete temp file again. */
-	if (pipe_filename) {
-		remove(pipe_filename);
-		errno = 0;
-		free(pipe_filename);
-		pipe_filename = NULL;
-	}
+    /* Delete temp file again. */
+    if (pipe_filename) {
+	remove(pipe_filename);
+	errno = 0;
+	free(pipe_filename);
+	pipe_filename = NULL;
+    }
 
-	if (pipe_command) {
-		/* system() returns 255 if the command could not be executed.
-		   The real popen would have returned an error already. */
-		if (rc == 255)
-			int_error(NO_CARET, "Could not execute pipe '%s'.", pipe_command);
-		free(pipe_command);
-	}
+    if (pipe_command) {
+	/* system() returns 255 if the command could not be executed.
+	    The real popen would have returned an error already. */
+	if (rc == 255)
+	    int_error(NO_CARET, "Could not execute pipe '%s'.", pipe_command);
+	free(pipe_command);
+    }
 
-	return rc;
+    return rc;
 }
 #endif
 
@@ -1180,5 +1186,133 @@ WinRaiseConsole(void)
 	if (console != NULL) {
 		ShowWindow(console, SW_SHOWNORMAL);
 		BringWindowToTop(console);
-	}
+    }
 }
+
+
+/* WinGetCodepage:
+    Map gnuplot's internal character encoding to Windows codepage codes.
+*/
+UINT
+WinGetCodepage(enum set_encoding_id encoding)
+{
+    UINT codepage;
+
+    /* For a list of code page identifiers see
+	http://msdn.microsoft.com/en-us/library/dd317756%28v=vs.85%29.aspx
+    */
+    switch (encoding) {
+	case S_ENC_DEFAULT:    codepage = CP_ACP; break;
+	case S_ENC_ISO8859_1:  codepage = 28591; break;
+	case S_ENC_ISO8859_2:  codepage = 28592; break;
+	case S_ENC_ISO8859_9:  codepage = 28599; break;
+	case S_ENC_ISO8859_15: codepage = 28605; break;
+	case S_ENC_CP437:      codepage =   437; break;
+	case S_ENC_CP850:      codepage =   850; break;
+	case S_ENC_CP852:      codepage =   852; break;
+	case S_ENC_CP950:      codepage =   950; break;
+	case S_ENC_CP1250:     codepage =  1250; break;
+	case S_ENC_CP1251:     codepage =  1251; break;
+	case S_ENC_CP1252:     codepage =  1252; break;
+	case S_ENC_CP1254:     codepage =  1254; break;
+	case S_ENC_KOI8_R:     codepage = 20866; break;
+	case S_ENC_KOI8_U:     codepage = 21866; break;
+	case S_ENC_SJIS:       codepage =   932; break;
+	case S_ENC_UTF8:       codepage = CP_UTF8; break;
+	default: {
+	    /* unknown encoding, fall back to default "ANSI" codepage */
+	    codepage = CP_ACP;
+	    FPRINTF((stderr, "unknown encoding: %i\n", encoding));
+	}
+    }
+    return codepage;
+}
+
+
+enum set_encoding_id
+WinGetEncoding(UINT cp)
+{
+    enum set_encoding_id encoding;
+
+    /* The code below is the inverse to the code found in UnicodeText().
+	For a list of code page identifiers see
+	http://msdn.microsoft.com/en-us/library/dd317756%28v=vs.85%29.aspx
+    */
+    switch (cp) {
+    case 437:   encoding = S_ENC_CP437; break;
+    case 850:   encoding = S_ENC_CP850; break;
+    case 852:   encoding = S_ENC_CP852; break;
+    case 932:   encoding = S_ENC_SJIS; break;
+    case 950:   encoding = S_ENC_CP950; break;
+    case 1250:  encoding = S_ENC_CP1250; break;
+    case 1251:  encoding = S_ENC_CP1251; break;
+    case 1252:  encoding = S_ENC_CP1252; break;
+    case 1254:  encoding = S_ENC_CP1254; break;
+    case 20866: encoding = S_ENC_KOI8_R; break;
+    case 21866: encoding = S_ENC_KOI8_U; break;
+    case 28591: encoding = S_ENC_ISO8859_1; break;
+    case 28592: encoding = S_ENC_ISO8859_2; break;
+    case 28599: encoding = S_ENC_ISO8859_9; break;
+    case 28605: encoding = S_ENC_ISO8859_15; break;
+    case 65001: encoding = S_ENC_UTF8; break;
+    default:
+	encoding = S_ENC_DEFAULT;
+    }
+    return encoding;
+}
+
+
+LPWSTR
+UnicodeText(LPCSTR str, enum set_encoding_id encoding)
+{
+    LPWSTR strw = NULL;
+    UINT codepage = WinGetCodepage(encoding);
+    int length;
+
+    /* sanity check */
+    if (str == NULL)
+	return NULL;
+
+    /* get length of converted string */
+    length = MultiByteToWideChar(codepage, 0, str, -1, NULL, 0);
+    strw = (LPWSTR) malloc(sizeof(WCHAR) * length);
+
+    /* convert string to UTF-16 */
+    length = MultiByteToWideChar(codepage, 0, str, -1, strw, length);
+
+    return strw;
+}
+
+
+LPSTR
+AnsiText(LPCWSTR strw,  enum set_encoding_id encoding)
+{
+    LPSTR str = NULL;
+    UINT codepage = WinGetCodepage(encoding);
+    int length;
+
+    /* get length of converted string */
+    length = WideCharToMultiByte(codepage, 0, strw, -1, NULL, 0, NULL, 0);
+    str = (LPSTR) malloc(sizeof(char) * length);
+
+    /* convert string to "Ansi" */
+    length = WideCharToMultiByte(codepage, 0, strw, -1, str, length, NULL, 0);
+
+    return str;
+}
+
+
+#if !defined(WGP_CONSOLE)
+FILE * 
+win_fopen(const char *filename, const char *mode)
+{
+    FILE * file;
+    LPWSTR wfilename = UnicodeText(filename, encoding);
+    LPWSTR wmode = UnicodeText(mode, encoding);
+    file = _wfopen(wfilename, wmode);
+    free(wfilename);
+    free(wmode);
+    return file;
+    return fopen(filename, mode);
+}
+#endif

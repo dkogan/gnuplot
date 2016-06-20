@@ -1,5 +1,5 @@
 /*
- * $Id: term_api.h,v 1.142 2015/06/02 23:32:28 sfeam Exp $
+ * $Id: term_api.h,v 1.148 2016-04-01 16:19:41 sfeam Exp $
  */
 
 /* GNUPLOT - term_api.h */
@@ -69,6 +69,8 @@
 
 /* magic point type that indicates a character rather than a predefined symbol */
 #define PT_CHARACTER  (-9)
+/* magic point type that indicates true point type comes from a data column */
+#define PT_VARIABLE   (-8)
 
 /* Constant value passed to (term->text_angle)(ang) to generate vertical
  * text corresponding to old keyword "rotate", which produced the equivalent
@@ -121,18 +123,20 @@ typedef struct lp_style_type {	/* contains all Line and Point properties */
     int     p_interval;		/* Every Nth point in style LINESPOINTS */
     double  l_width;
     double  p_size;
-    unsigned long p_char;	/* char used if p_type = PT_CHARACTER */
+    char    p_char[8];		/* string holding UTF-8 char used if p_type = PT_CHARACTER */
     struct t_colorspec pm3d_color;
     t_dashtype custom_dash_pattern;	/* per-line, user defined dashtype */
     /* ... more to come ? */
 } lp_style_type;
 
-#define DEFAULT_LP_STYLE_TYPE {0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, PTSZ_DEFAULT, 0, DEFAULT_COLORSPEC, DEFAULT_DASHPATTERN}
+#define DEFAULT_P_CHAR {0,0,0,0,0,0,0,0}
+#define DEFAULT_LP_STYLE_TYPE {0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, PTSZ_DEFAULT, DEFAULT_P_CHAR, DEFAULT_COLORSPEC, DEFAULT_DASHPATTERN}
 
 /* Bit definitions for lp_style_type.flags */
 #define LP_SHOW_POINTS     (0x1) /* if not set, ignore the point properties of this line style */
 #define LP_NOT_INITIALIZED (0x2) /* internal flag used in set.c:parse_label_options */
 #define LP_EXPLICIT_COLOR  (0x4) /* set by lp_parse if the user provided a color spec */
+#define LP_ERRORBAR_SET    (0x8) /* set by "set errorbars <lineprops> */
 
 #define DEFAULT_COLOR_SEQUENCE { 0x9400d3, 0x009e73, 0x56b4e9, 0xe69f00, \
                                  0xf0e442, 0x0072b2, 0xe51e10, 0x000000 }
@@ -140,12 +144,12 @@ typedef struct lp_style_type {	/* contains all Line and Point properties */
                               0xf0e442, 0x0072b2, 0xd55e00, 0xcc79a7 }
 
 #define DEFAULT_MONO_LINETYPES { \
-	{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
-	{0, LT_BLACK, 0, 1 /* dt 2 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
-	{0, LT_BLACK, 0, 2 /* dt 3 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
-	{0, LT_BLACK, 0, 3 /* dt 4 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
-	{0, LT_BLACK, 0, 0 /* dt 1 */, 0, 2.0 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
-	{0, LT_BLACK, 0, DASHTYPE_CUSTOM, 0, 1.2 /*linewidth*/, PTSZ_DEFAULT, 0, BLACK_COLORSPEC, {{16.,8.,2.,5.,2.,5.,2.,8.},{0,0,0,0,0,0,0,0}}} \
+	{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, 1 /* dt 2 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, 2 /* dt 3 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, 3 /* dt 4 */, 0, 1.0 /*linewidth*/, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, 0 /* dt 1 */, 0, 2.0 /*linewidth*/, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, DASHTYPE_CUSTOM, 0, 1.2 /*linewidth*/, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, {{16.,8.,2.,5.,2.,5.,2.,8.},{0,0,0,0,0,0,0,0}}} \
 }
 
 typedef enum e_arrow_head {
@@ -185,6 +189,8 @@ typedef enum termlayer {
 	TERM_LAYER_RESET,
 	TERM_LAYER_BACKTEXT,
 	TERM_LAYER_FRONTTEXT,
+	TERM_LAYER_BEGIN_BORDER,
+	TERM_LAYER_END_BORDER,
 	TERM_LAYER_BEGIN_GRID,
 	TERM_LAYER_END_GRID,
 	TERM_LAYER_END_TEXT,
@@ -260,6 +266,7 @@ typedef enum t_imagecolor { IC_PALETTE, IC_RGB, IC_RGBA }
 #define TERM_IS_LATEX        (1<<13)	/* text uses TeX markup            */
 #define TERM_EXTENDED_COLOR  (1<<14)	/* uses EXTENDED_COLOR_SPECS       */
 #define TERM_NULL_SET_COLOR  (1<<15)	/* no support for RGB color        */
+#define TERM_POLYGON_PIXELS  (1<<16)	/* filledpolygon rather than fillbox */
 
 /* The terminal interface structure --- heart of the terminal layer.
  *
@@ -470,6 +477,7 @@ void term_end_multiplot __PROTO((void));
 void term_reset __PROTO((void));
 void term_apply_lp_properties __PROTO((struct lp_style_type *lp));
 void term_check_multiplot_okay __PROTO((TBOOLEAN));
+void init_monochrome __PROTO((void));
 struct termentry *change_term __PROTO((const char *name, int length));
 
 void write_multiline __PROTO((unsigned int, unsigned int, char *, JUSTIFY, VERT_JUSTIFY, int, const char *));

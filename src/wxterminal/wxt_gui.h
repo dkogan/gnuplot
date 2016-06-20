@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.h,v 1.53 2015/05/13 19:15:58 sfeam Exp $
+ * $Id: wxt_gui.h,v 1.55 2016-02-14 09:54:27 markisch Exp $
  */
 
 /* GNUPLOT - wxt_gui.h */
@@ -101,6 +101,9 @@
 
 /* wxMemoryInputStream, for the embedded PNG icons */
 #include <wx/mstream.h>
+
+/* Debugging support, required to turn off asserts */
+#include <wx/debug.h>
 
 /* c++ vectors and lists, used to store gnuplot commands */
 #include <vector>
@@ -237,15 +240,15 @@ public:
 static wxtThread * thread;
 #endif /* WXT_MULTITHREADED */
 
-DECLARE_EVENT_TYPE(wxExitLoopEvent, -1)
-DEFINE_EVENT_TYPE(wxExitLoopEvent)
+DECLARE_LOCAL_EVENT_TYPE(wxExitLoopEvent, -1)
+DEFINE_LOCAL_EVENT_TYPE(wxExitLoopEvent)
 
-DECLARE_EVENT_TYPE(wxCreateWindowEvent, -1)
-DEFINE_EVENT_TYPE(wxCreateWindowEvent)
+DECLARE_LOCAL_EVENT_TYPE(wxCreateWindowEvent, -1)
+DEFINE_LOCAL_EVENT_TYPE(wxCreateWindowEvent)
 
 #ifdef USE_MOUSE
-DECLARE_EVENT_TYPE(wxStatusTextEvent, -1)
-DEFINE_EVENT_TYPE(wxStatusTextEvent)
+DECLARE_LOCAL_EVENT_TYPE(wxStatusTextEvent, -1)
+DEFINE_LOCAL_EVENT_TYPE(wxStatusTextEvent)
 #endif /* USE_MOUSE */
 
 /* Define a new application type, each gui should derive a class from wxApp */
