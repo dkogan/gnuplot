@@ -1,3 +1,9 @@
+gnuplot5 (5.1~dima2-1~1.gbp76e037d) unstable; urgency=medium
+
+  * big upstream update
+
+ -- Dima Kogan <dima@secretsauce.net>  Mon, 20 Jun 2016 14:11:35 -0700
+
 gnuplot5 (5.1~dima1-2~1.gbp3dffd6) UNRELEASED; urgency=medium
 
   ** SNAPSHOT build @3dffd67c62098715fedcf40991c6069cdd19130b **
@@ -81,7 +87,7 @@ gnuplot5 (5.1~dima1-2~1.gbp3dffd6) UNRELEASED; urgency=medium
 
   [ Dima Kogan ]
 
- -- sfeam <sfeam>  Sun, 23 Aug 2015 06:22:45 -0700
+ -- Dima Kogan <dima@secretsauce.net>  Mon, 20 Jun 2016 14:10:54 -0700
 
 gnuplot5 (5.1~dima1-1) unstable; urgency=medium
 
