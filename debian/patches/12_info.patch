@@ -8,16 +8,16 @@ Index: gnuplot/docs/Makefile.am
 ===================================================================
 --- gnuplot.orig/docs/Makefile.am
 +++ gnuplot/docs/Makefile.am
-@@ -90,7 +90,7 @@ gpcard.log pdffigures.tex pdffigures.aux
+@@ -90,7 +90,7 @@ pdffigures.tex pdffigures.aux wxhelp/doc
  
  CLEANFILES = allterm.h gnuplot.dvi figures.tex nofigures.tex		\
- gnuplot.tex gnuplot.idx gnuplot.ilg gnuplot.ps gpcard.dvi gpcard.ps	\
+ gnuplot.tex gnuplot.idx gnuplot.ilg gnuplot.ps 	\
 -gnuplot.gih gnuplot.hlp gnuplot.info* gnuplot.ipf gnuplot.ms		\
 +gnuplot.gih gnuplot.hlp gnuplot5.info* gnuplot.ipf gnuplot.ms		\
  gnuplot.rnh gnuplot.rtf gnuplot.nroff gnuplot.txt gnuplot-groff.dvi	\
  gnuplot-groff.ps gnuplot.tmp VERSION gnuplot.4tc gnuplot.4ct		\
  gnuplot.idv gnuplot.xref gnuplot.lg gnuplot.pdf wxhelp_figures		\
-@@ -311,7 +311,7 @@ wxhelp_figures: $(GNUPLOT_EXE) $(srcdir)
+@@ -295,7 +295,7 @@ wxhelp_figures: $(GNUPLOT_EXE) $(srcdir)
  	$(AM_V_GEN)touch $@
  
  ### GNU info format
@@ -26,7 +26,7 @@ Index: gnuplot/docs/Makefile.am
  
  # Thanks to Bruce Ravel for doc2texi.el!
  gnuplot.texi gnuplot-eldoc.el: $(srcdir)/doc2texi.el $(srcdir)/gnuplot.doc
-@@ -335,15 +335,15 @@ ${ELCS}: gnuplot-eldoc.el
+@@ -319,15 +319,15 @@ ${ELCS}: gnuplot-eldoc.el
  # automatically, using a line like info_TEXINFOS = gnuplot.texi.  But
  # that only appears to work with a non-generated texi file for input.
  
@@ -77,7 +77,7 @@ Index: gnuplot/docs/doc2texi.el
  @end direntry
  
  @ifnottex
-@@ -460,7 +460,7 @@ particular conversion chore."
+@@ -457,7 +457,7 @@ particular conversion chore."
      ("sun" "sun")
      ("vms" "vws"))
  
