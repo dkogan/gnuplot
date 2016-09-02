@@ -43,8 +43,6 @@ override_dh_auto_build:
 	dh_auto_build -a -- -C $(BUILDDIR_NOX)/src
 	dh_auto_build -a -- -C $(BUILDDIR_X11) pkglibexecdir='$$(libexecdir)'
 	dh_auto_build -a -- -C $(BUILDDIR_QT) pkglibexecdir='$$(libexecdir)'
-	cd $(BUILDDIR_X11)/docs; $(MAKE) pdf; $(MAKE) ps; $(MAKE) html; $(MAKE) info; ls
-	cd $(BUILDDIR_X11)/tutorial; $(MAKE) pdf; $(MAKE) ps; ls
 
 override_dh_auto_install:
 	$(MAKE) -C $(BUILDDIR_NOX) install DESTDIR=$(CURDIR)/debian/tmp/NOX/ \
@@ -62,12 +60,6 @@ override_dh_auto_install:
 	mv $(CURDIR)/debian/tmp/QT/usr/bin/gnuplot $(CURDIR)/debian/tmp/QT/usr/bin/gnuplot5-qt
 	mv $(CURDIR)/debian/tmp/QT/usr/share/man/man1/gnuplot.1 $(CURDIR)/debian/tmp/QT/usr/share/man/man1/gnuplot5-qt.1
 	mv $(CURDIR)/debian/tmp/QT/usr/share/gnuplot5/gnuplot.gih $(CURDIR)/debian/tmp/QT/usr/share/gnuplot5/gnuplot5-qt.gih
-
-override_dh_installinfo:
-	dh_installinfo -pgnuplot5-doc $(BUILDDIR_X11)/docs/gnuplot5.info
-
-override_installchangelogs:
-	dh_installchangelogs -pgnuplot5-doc ChangeLog
 
 override_dh_installman-arch:
 	dh_installman -a
