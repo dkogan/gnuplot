@@ -1,3 +1,9 @@
+gnuplot5 (5.1~dima3-1~1.gbp76e037d1) unstable; urgency=medium
+
+  * upstream merge
+
+ -- Dima Kogan <dima@secretsauce.net>  Fri, 02 Sep 2016 13:59:52 -0700
+
 gnuplot5 (5.1~dima2-1~1.gbp76e037d) unstable; urgency=medium
 
   * big upstream update
