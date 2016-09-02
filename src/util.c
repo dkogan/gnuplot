@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util.c,v 1.140 2016-05-05 18:59:34 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: util.c,v 1.143 2016-08-19 16:13:59 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util.c */
@@ -65,6 +65,10 @@ char *decimalsign = NULL;
 /* degree sign.  Defaults to UTF-8 but will be changed to match encoding */
 char degree_sign[8] = "°";
 
+/* minus sign (encoding-specific string) */
+const char *minus_sign = NULL;
+TBOOLEAN use_minus_sign = FALSE;
+
 /* Holds the name of the current LC_NUMERIC as set by "set decimal locale" */
 char *numeric_locale = NULL;
 
@@ -72,6 +76,12 @@ char *numeric_locale = NULL;
 char *current_locale = NULL;
 
 const char *current_prompt = NULL; /* to be set by read_line() */
+
+/* TRUE if command just typed; becomes FALSE whenever we
+ * send some other output to screen.  If FALSE, the command line
+ * will be echoed to the screen before the ^ error message.
+ */
+TBOOLEAN screen_ok;
 
 /* internal prototypes */
 
@@ -922,6 +932,47 @@ gprintf(
 	    }
 	}
 
+    /* EXPERIMENTAL
+     * Some people prefer a "real" minus sign to the hyphen that standard
+     * formatted input and output both use.  Unlike decimal signs, there is
+     * no internationalization mechanism to specify this preference.
+     * This code replaces all hyphens with the character string specified by
+     * 'set minus_sign "..."'   typically unicode character U+2212 "−".
+     * Use at your own risk.  Should be OK for graphical output, but text output
+     * will not be readable by standard formatted input routines.
+     */
+	if (use_minus_sign		/* set minussign */
+	    && minus_sign		/* current encoding provides one */
+	    && !table_mode		/* not used inside "set table" */
+	    && !(term->flags & TERM_IS_LATEX)	/* but LaTeX doesn't want it */
+	   ) {
+
+	    char *dotpos1 = dest;
+	    char *dotpos2;
+	    size_t newlength = strlen(minus_sign);
+
+	    /* dot is the default hyphen we will be replacing */
+	    int dot = '-';
+
+	    /* replace every dot by the contents of minus_sign */
+	    while ((dotpos2 = strchr(dotpos1,dot)) != NULL) {
+		if (newlength == 1) {	/* The normal case */
+		    *dotpos2 = *minus_sign;
+		    dotpos1++;
+		} else {		/* Some multi-byte minus marker */
+		    size_t taillength = strlen(dotpos2);
+		    dotpos1 = dotpos2 + newlength;
+		    if (dotpos1 + taillength > limit)
+			int_error(NO_CARET,
+				  "format too long due to minus_sign string");
+		    /* move tail end of string out of the way */
+		    memmove(dotpos1, dotpos2 + 1, taillength);
+		    /* insert minus_sign */
+		    memcpy(dotpos2, minus_sign, newlength);
+		}
+	    }
+	}
+
 	/* this was at the end of every single case, before: */
 	dest += strlen(dest);
 	++format;
@@ -951,13 +1002,6 @@ done:
 /* some macros for the error and warning functions below
  * may turn this into a utility function later
  */
-#define PRINT_MESSAGE_TO_STDERR				\
-do {							\
-    fprintf(stderr, "\n%s%s\n",				\
-	    current_prompt ? current_prompt : "",	\
-	    gp_input_line);				\
-} while (0)
-
 #define PRINT_SPACES_UNDER_PROMPT		\
 do {						\
     const char *p;				\
@@ -968,28 +1012,62 @@ do {						\
 	(void) fputc(' ', stderr);		\
 } while (0)
 
-#define PRINT_SPACES_UPTO_TOKEN						\
-do {									\
-    int i;								\
-									\
-    for (i = 0; i < token[t_num].start_index; i++)			\
-	(void) fputc((gp_input_line[i] == '\t') ? '\t' : ' ', stderr);	\
-} while(0)
-
-#define PRINT_CARET fputs("^\n",stderr);
-
-#define PRINT_FILE_AND_LINE						\
-if (!interactive) {							\
-    if (lf_head && lf_head->name)                                       \
-	fprintf(stderr, "\"%s\", line %d: ", lf_head->name, inline_num);\
-    else fprintf(stderr, "line %d: ", inline_num);			\
-}
-
-/* TRUE if command just typed; becomes FALSE whenever we
- * send some other output to screen.  If FALSE, the command line
- * will be echoed to the screen before the ^ error message.
+/*
+ * Echo back the command or data line that triggered an error,
+ * possibly with a caret indicating the token the was not accepted.
  */
-TBOOLEAN screen_ok;
+static void
+print_line_with_error(int t_num)
+{
+    int i;
+
+    if (t_num == DATAFILE) {
+	/* Print problem line from data file to the terminal */
+	df_showdata();
+
+    } else {
+
+	/* If the current line was built by concatenation of lines inside */
+	/* a {bracketed clause}, try to reconstruct the true line number  */
+	char *minimal_input_line = gp_input_line;
+	char *trunc;
+	while ((trunc = strrchr(gp_input_line, '\n')) != NULL) {
+	    int current = (t_num == NO_CARET) ? c_token : t_num;
+	    if (trunc < &gp_input_line[token[current].start_index]) {
+		minimal_input_line = trunc+1;
+		t_num = NO_CARET;
+		break;
+	    }
+	    *trunc = '\0';
+	    inline_num--;
+	}
+
+	if (t_num != NO_CARET) {
+	    /* Refresh current command line */
+	    if (!screen_ok)
+		fprintf(stderr, "\n%s%s\n",
+		    current_prompt ? current_prompt : "",
+		    minimal_input_line);
+
+	    PRINT_SPACES_UNDER_PROMPT;
+
+	    /* Print spaces up to token */
+	    for (i = 0; i < token[t_num].start_index; i++)
+		fputc((minimal_input_line[i] == '\t') ? '\t' : ' ', stderr);
+
+	    /* Print token */
+	    fputs("^\n",stderr);
+	}
+    }
+
+    PRINT_SPACES_UNDER_PROMPT;
+
+    if (!interactive) {
+	if (lf_head && lf_head->name)
+	    fprintf(stderr, "\"%s\", ", lf_head->name);
+	fprintf(stderr, "line %d: ", inline_num);
+    }
+}
 
 /*
  * os_error() is just like int_error() except that it calls perror().
@@ -1010,17 +1088,8 @@ os_error(int t_num, const char *str, va_dcl)
 #endif /* VMS */
 
     /* reprint line if screen has been written to */
+    print_line_with_error(t_num);
 
-    if (t_num == DATAFILE) {
-	df_showdata();
-    } else if (t_num != NO_CARET) {	/* put caret under error */
-	if (!screen_ok)
-	    PRINT_MESSAGE_TO_STDERR;
-
-	PRINT_SPACES_UNDER_PROMPT;
-	PRINT_SPACES_UPTO_TOKEN;
-	PRINT_CARET;
-    }
     PRINT_SPACES_UNDER_PROMPT;
 
 #ifdef VA_START
@@ -1035,9 +1104,6 @@ os_error(int t_num, const char *str, va_dcl)
     fprintf(stderr, str, a1, a2, a3, a4, a5, a6, a7, a8);
 #endif
     putc('\n', stderr);
-
-    PRINT_SPACES_UNDER_PROMPT;
-    PRINT_FILE_AND_LINE;
 
 #ifdef VMS
     status[1] = vaxc$errno;
@@ -1067,19 +1133,7 @@ int_error(int t_num, const char str[], va_dcl)
     char error_message[128] = {'\0'};
 
     /* reprint line if screen has been written to */
-
-    if (t_num == DATAFILE) {
-	df_showdata();
-    } else if (t_num != NO_CARET) { /* put caret under error */
-	if (!screen_ok)
-	    PRINT_MESSAGE_TO_STDERR;
-
-	PRINT_SPACES_UNDER_PROMPT;
-	PRINT_SPACES_UPTO_TOKEN;
-	PRINT_CARET;
-    }
-    PRINT_SPACES_UNDER_PROMPT;
-    PRINT_FILE_AND_LINE;
+    print_line_with_error(t_num);
 
 #ifdef VA_START
     VA_START(args, str);
@@ -1133,19 +1187,7 @@ int_warn(int t_num, const char str[], va_dcl)
 #endif
 
     /* reprint line if screen has been written to */
-
-    if (t_num == DATAFILE) {
-	df_showdata();
-    } else if (t_num != NO_CARET) { /* put caret under error */
-	if (!screen_ok)
-	    PRINT_MESSAGE_TO_STDERR;
-
-	PRINT_SPACES_UNDER_PROMPT;
-	PRINT_SPACES_UPTO_TOKEN;
-	PRINT_CARET;
-    }
-    PRINT_SPACES_UNDER_PROMPT;
-    PRINT_FILE_AND_LINE;
+    print_line_with_error(t_num);
 
     fputs("warning: ", stderr);
 #ifdef VA_START
@@ -1165,11 +1207,12 @@ int_warn(int t_num, const char str[], va_dcl)
 /*}}} */
 
 
-/* Squash spaces in the given string (DFK) */
-/* That is, reduce all multiple white-space chars to single spaces */
-/* Done in place. Currently used only by help_command() */
+/*
+ * Reduce all multiple white-space chars to single spaces (if remain == 1)
+ * or remove altogether (if remain == 0).  Modifies the original string.
+ */
 void
-squash_spaces(char *s)
+squash_spaces(char *s, int remain)
 {
     char *r = s;	/* reading point */
     char *w = s;	/* writing point */
@@ -1178,7 +1221,7 @@ squash_spaces(char *s)
     for (w = r = s; *r != NUL; r++) {
 	if (isspace((unsigned char) *r)) {
 	    /* white space; only copy if we haven't just copied a space */
-	    if (!space) {
+	    if (!space && remain > 0) {
 		space = TRUE;
 		*w++ = ' ';
 	    }			/* else ignore multiple spaces */

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.362 2016-05-25 15:02:28 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.367 2016-08-27 20:51:06 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -160,6 +160,7 @@ static void show_loadpath __PROTO((void));
 static void show_fontpath __PROTO((void));
 static void show_zero __PROTO((void));
 static void show_datafile __PROTO((void));
+static void show_minus_sign __PROTO((void));
 #ifdef USE_MOUSE
 static void show_mouse __PROTO((void));
 #endif
@@ -333,6 +334,9 @@ show_command()
 	break;
     case S_LOGSCALE:
 	show_logscale();
+	break;
+    case S_MINUS_SIGN:
+	show_minus_sign();
 	break;
     case S_OFFSETS:
 	show_offsets();
@@ -756,6 +760,7 @@ show_all()
     show_logscale();
     show_offsets();
     show_margin();
+    show_minus_sign();
     show_output();
     show_print();
     show_parametric();
@@ -990,11 +995,18 @@ show_version(FILE *fp)
 #endif
 	    "";
 
+	    const char *unicodebuild =
+#if defined(_WIN32) && defined(UNICODE)
+		"+UNICODE  ";
+#else
+		"";
+#endif
+
 	    sprintf(compile_options, "\
-%s%s\n%s%s\n\
+%s%s\n%s%s%s\n\
 %s%s%s\n\
 %s%s%s%s\n%s\n",
-		    rdline, gnu_rdline, compatibility, binary_files,
+		    rdline, gnu_rdline, compatibility, unicodebuild, binary_files,
 		    libcerf, libgd, linuxvga,
 		    nocwdrc, x11, use_mouse, hiddenline,
 		    plotoptions);
@@ -1084,19 +1096,19 @@ show_version(FILE *fp)
 	}
 
 	{
+#ifndef _WIN32
 	    char *helpfile = NULL;
 
-#ifndef WIN32
 	    if ((helpfile = getenv("GNUHELP")) == NULL)
 		helpfile = HELPFILE;
+	    fprintf(stderr, "HELPFILE           = \"%s\"\n", helpfile);
 #else
-	    helpfile = winhelpname;
+	    fprintf(stderr, "HELPFILE           = \"" TCHARFMT "\"\n", winhelpname);
 #endif
-	fprintf(stderr, "HELPFILE           = \"%s\"\n", helpfile);
 	}
 
-#if defined(WIN32) && !defined(WGP_CONSOLE)
-	fprintf(stderr, "MENUNAME           = \"%s\"\n", szMenuName);
+#if defined(_WIN32) && !defined(WGP_CONSOLE)
+	fprintf(stderr, "MENUNAME           = \"" TCHARFMT "\"\n", szMenuName);
 #endif
 
 #ifdef HAVE_LIBCACA
@@ -2441,8 +2453,11 @@ show_colorbox()
 	default: /* should *never* happen */
 	    int_error(NO_CARET, "Argh!");
     }
-    fprintf(stderr,"\tcolor gradient is %s in the color box\n",
-	color_box.rotation == 'v' ? "VERTICAL" : "HORIZONTAL");
+    if (color_box.rotation == 'v')
+	fprintf(stderr,"\tcolor gradient is vertical %s\n",
+	color_box.invert ? " (inverted)" : "");
+    else
+	fprintf(stderr,"\tcolor gradient is horizontal\n");
 }
 
 
@@ -2554,6 +2569,18 @@ show_decimalsign()
         fprintf(stderr, "\tdecimalsign for output has default value (normally '.')\n");
 
     fprintf(stderr, "\tdegree sign for output is %s \n", degree_sign);
+}
+
+/* process 'show minus_sign' command */
+static void
+show_minus_sign()
+{
+    SHOW_ALL_NL;
+
+    if (use_minus_sign && minus_sign)
+        fprintf(stderr, "\tminus sign for output is %s \n", minus_sign);
+    else
+        fprintf(stderr, "\tno special minus sign\n");
 }
 
 
@@ -2754,11 +2781,8 @@ show_histogram()
 static void
 show_textbox()
 {
-	fprintf(stderr, "\ttextboxes are %s ",
-		textbox_opts.opaque ? "opaque" : "transparent");
-	fprintf(stderr, "with margins %4.1f, %4.1f  and %s border\n",
-		textbox_opts.xmargin, textbox_opts.ymargin,
-		textbox_opts.noborder ? "no" : "");
+    fprintf(stderr, "\ttextbox style");
+    save_style_textbox(stderr);
 }
 #endif
 

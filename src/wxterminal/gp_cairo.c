@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.94 2016-03-05 03:10:27 sfeam Exp $
+ * $Id: gp_cairo.c,v 1.96 2016-07-23 03:34:41 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -1721,8 +1721,8 @@ void gp_cairo_boxed_text(plot_struct *plot, int x, int y, int option)
 		gp_cairo_end_polygon(plot);
 
 		cairo_save(plot->cr);
-		dx = 0.5 * bounding_xmargin * (float)(plot->fontsize * plot->oversampling_scale);
-		dy = 0.5 * bounding_ymargin * (float)(plot->fontsize * plot->oversampling_scale);
+		dx = 0.25 * bounding_xmargin * (float)(plot->fontsize * plot->oversampling_scale);
+		dy = 0.25 * bounding_ymargin * (float)(plot->fontsize * plot->oversampling_scale);
 		if (option == TEXTBOX_GREY)
 		    dy = 0;
 		gp_cairo_move(plot,   bounding_box[0]-dx, bounding_box[1]-dy); 
@@ -1732,16 +1732,16 @@ void gp_cairo_boxed_text(plot_struct *plot, int x, int y, int option)
 		gp_cairo_vector(plot, bounding_box[0]+dx, bounding_box[1]-dy); 
 		cairo_close_path(plot->cr);
 		if (option == TEXTBOX_BACKGROUNDFILL) {
-		    rgb_color *background = &gp_cairo_colorlist[0];
-		    cairo_set_source_rgb(plot->cr, background->r, background->g, background->b);
+		    cairo_set_source_rgba(plot->cr, plot->color.r, plot->color.g,
+					  plot->color.b, 1. - plot->color.alpha);
 		    cairo_fill(plot->cr);
 		} else if (option == TEXTBOX_GREY) {
 		    cairo_set_source_rgba(plot->cr, 0.75, 0.75, 0.75, 0.50);
 		    cairo_fill(plot->cr);
-		} else {
-		    cairo_set_line_width(plot->cr, 1.0*plot->oversampling_scale);
-		    cairo_set_source_rgb(plot->cr,
-			plot->color.r, plot->color.g, plot->color.b);
+		} else {  /* option == TEXTBOX_OUTLINE */
+		    cairo_set_line_width(plot->cr, 0.5*plot->oversampling_scale);
+		    cairo_set_source_rgba(plot->cr, plot->color.r, plot->color.g,
+					  plot->color.b, 1. - plot->color.alpha);
 		    cairo_stroke(plot->cr);
 		}
 		cairo_restore(plot->cr);

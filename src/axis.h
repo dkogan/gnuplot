@@ -1,5 +1,5 @@
 /*
- * $Id: axis.h,v 1.152 2016-06-09 20:06:53 sfeam Exp $
+ * $Id: axis.h,v 1.154 2016-08-03 04:22:18 sfeam Exp $
  *
  */
 
@@ -42,7 +42,7 @@
 #else
 
 # define NONLINEAR_AXES 1
-# define nonlinear(axis) ((axis)->linked_to_primary != NULL)
+# define nonlinear(axis) ((axis)->linked_to_primary != NULL && (axis)->link_udf->at != NULL)
 # define invalid_coordinate(x,y) ((unsigned)(x)==intNaN || (unsigned)(y)==intNaN)
 #endif
 
@@ -147,7 +147,7 @@ typedef struct ticdef {
     struct position offset;
     TBOOLEAN rangelimited;		/* Limit tics to data range */
     TBOOLEAN enhanced;			/* Use enhanced text mode or labels */
-    TBOOLEAN logscaling;		/* place tics suitably for logscaled axis */
+    TBOOLEAN logscaling;		/* place tics using old logscale algorithm */
 } t_ticdef;
 
 /* we want two auto modes for minitics - default where minitics are

@@ -96,6 +96,7 @@ typedef struct text_label {
  * indicated by tag = -2 */
 #define NONROTATABLE_LABEL_TAG -2
 #define ROTATE_IN_3D_LABEL_TAG -3
+#define VARIABLE_ROTATE_LABEL_TAG -4
 #define EMPTY_LABELSTRUCT \
     {NULL, NONROTATABLE_LABEL_TAG, \
      {character, character, character, 0.0, 0.0, 0.0}, CENTRE, 0, 0, \
@@ -108,7 +109,8 @@ typedef struct text_label {
 typedef enum arrow_type {
     arrow_end_absolute,
     arrow_end_relative,
-    arrow_end_oriented
+    arrow_end_oriented,
+    arrow_end_undefined
     } arrow_type;
 
 typedef struct arrow_def {
@@ -300,8 +302,10 @@ typedef struct textbox_style {
     TBOOLEAN noborder;	/* True if you want fill only, no lines */
     double xmargin;	/* fraction of default margin to use */
     double ymargin;	/* fraction of default margin to use */
+    t_colorspec border_color;	/* TC_LT + LT_NODRAW is "noborder" */
+    t_colorspec fillcolor;	/* only used if opaque is TRUE */
 } textbox_style;
-#define DEFAULT_TEXTBOX_STYLE { FALSE, FALSE, 1.0, 1.0 }
+#define DEFAULT_TEXTBOX_STYLE { FALSE, FALSE, 1.0, 1.0, BLACK_COLORSPEC, BACKGROUND_COLORSPEC }
 #endif
 
 /***********************************************************/
@@ -394,6 +398,7 @@ typedef struct {
   int xoffset;	/* To adjust left or right, e.g. for y2tics */
   struct position origin;
   struct position size;
+  TBOOLEAN invert;	/* gradient low->high runs top->bot rather than bot->top */
   BoundingBox bounds;
 } color_box_struct;
 

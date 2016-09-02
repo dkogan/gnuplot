@@ -295,6 +295,7 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		int size        ; in >> size;
 		m_font.setFamily(fontName);
 		m_font.setPointSize(size);
+		m_font.setStyleStrategy(QFont::ForceOutline);	// pcf fonts die if rotated
 	}
 	else if (type == GEPoint)
 	{
@@ -573,13 +574,16 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		QPointF point; in >> point;
 		int option; in >> option;
 		QGraphicsRectItem *rectItem;
+		QRectF outline;
 
 		/* Must match the definition in ../term_api.h */
 		enum t_textbox_options {
-		       TEXTBOX_INIT = 0,
-		       TEXTBOX_OUTLINE,
-		       TEXTBOX_BACKGROUNDFILL,
-		       TEXTBOX_MARGINS
+			TEXTBOX_INIT = 0,
+			TEXTBOX_OUTLINE,
+			TEXTBOX_BACKGROUNDFILL,
+			TEXTBOX_MARGINS,
+			TEXTBOX_FINISH,
+			TEXTBOX_GREY
 		};
 
 		switch (option) {
@@ -590,22 +594,30 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 			break;
 		case TEXTBOX_OUTLINE:
 			/* Stroke bounding box */
-			rectItem = addRect(m_currentTextBox, m_currentPen, Qt::NoBrush);
+			outline = m_currentTextBox.adjusted(
+				 -m_textMargin.x(), -m_textMargin.y(),
+				  m_textMargin.x(), m_textMargin.y());
+			rectItem = addRect(outline, m_currentPen, Qt::NoBrush);
 			rectItem->setZValue(m_currentZ++);
 			m_currentGroup.append(rectItem);
 			m_inTextBox = false;
 			break;
 		case TEXTBOX_BACKGROUNDFILL:
 			/* Fill bounding box */
-			m_currentBrush.setColor(m_widget->backgroundColor());
+			m_currentBrush.setColor(m_currentPen.color());
 			m_currentBrush.setStyle(Qt::SolidPattern);
-			rectItem = addRect(m_currentTextBox, Qt::NoPen, m_currentBrush);
+			outline = m_currentTextBox.adjusted(
+				 -m_textMargin.x(), -m_textMargin.y(),
+				  m_textMargin.x(), m_textMargin.y());
+			rectItem = addRect(outline, Qt::NoPen, m_currentBrush);
 			rectItem->setZValue(m_currentZ++);
 			m_currentGroup.append(rectItem);
 			m_inTextBox = false;
 			break;
 		case TEXTBOX_MARGINS:
 			/* Set margins of bounding box */
+			m_textMargin = point;
+			m_textMargin *= QFontMetrics(m_font).averageCharWidth();
 			break;
 		}
 	}

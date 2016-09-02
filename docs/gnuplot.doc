@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.995 2016-06-18 00:27:56 sfeam Exp $
+C RCS $Id: gnuplot.doc,v 1.1016 2016-08-28 18:42:27 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -208,6 +208,8 @@ C
 
  * Support for nonlinear axes (see `set nonlinear`).
 
+ * Customized plot legends (see `plot title`, `set key`, `multiple keys`)
+
 3 Version 5.0
 
  * The dot-dash pattern of a line can now be specified independent of other
@@ -263,6 +265,12 @@ C
  * Shell invocation of gnuplot can pass parameters to a gnuplot script.
  gnuplot -c scriptfile.gp ARG1 ARG2 ARG3 ...
 
+ * New command `set minussign` causes routine gprintf() to use a typographic
+ character "minus sign" rather than a hyphen for negative numbers.  This affects
+ only axis tic labels and strings explicitly created with gprintf(). This 
+ command first appeared in version 5.0 patchlevel 5 and is considered EXPERIMENTAL
+ (implementation details may change).
+
 3 New commands
 #start
 # import f(x) from "plugin.so"             # load function from shared library
@@ -282,6 +290,7 @@ C
 # set style textbox                        # text elements can be enclosed in a box
 # set view map {scale}                     # allows resizing a 3D projection plot
 # set multiplot {next|previous}            # navigate within the auto-layout grid
+# set minussign                            # use typographic "minus sign", not hyphen
 #end
 
 2 Differences from version 4
@@ -356,6 +365,19 @@ C
        plot 'file' using 1:(f(column(2)))
        call 'script' 1.23 "ABC"
           (in script:  print ARG1, ARG2, "number of args = ", ARGC
+2 Demos and Online Examples
+?demos
+?online examples
+?examples
+ The `gnuplot` distribution contains a collection of examples in the `demo`
+ directory. You can browse on-line versions of these examples produced by the
+ png, svg, and canvas terminals at
+^ <a href="http://gnuplot.info/demos/">
+   http://gnuplot.info/demos
+^ </a>
+ The commands that produced each demo plot are shown next to the plot, and
+ the corresponding gnuplot script can be downloaded to serve as a model for
+ generating similar plots.
 
 2 Batch/Interactive Operation
 ?batch/interactive
@@ -2534,6 +2556,7 @@ Ffigure_newsyntax
 ?lc rgbcolor variable
 ?tc rgbcolor variable
 ?variable rgbcolor
+?variable textcolor
  You can assign a separate color for each data point, line segment, or label in
  your plot.  `lc rgbcolor variable` tells the program to read RGB color
  information for each line in the data file. This requires a corresponding
@@ -2785,11 +2808,23 @@ Ffigure_newsyntax
 2 Plotting
 ?plotting
  There are four `gnuplot` commands which actually create a plot: `plot`,
- `splot`, `replot`, and `refresh`.  `plot` generates 2D plots, `splot` generates
- 3D plots (actually 2D projections, of course), and `replot` appends its
- arguments to the previous `plot` or `splot` and executes the modified
- command.  `refresh` reexecutes the previous `plot` or `splot` command using
- previously stored data rather than rereading data from a file.
+ `splot`, `replot`, and `refresh`.  Other commands control the layout, style,
+ and content of the plot that will eventually be created.
+ `plot` generates 2D plots. `splot` generates 3D plots (actually 2D projections,
+ of course). `replot` reexecutes the previous `plot` or `splot` command.
+ `refresh` is similar to `replot` but it reuses any previously stored data
+ rather than rereading data from a file or input stream.
+
+=multiplot
+=inset
+=subfigures
+ Each time you issue one of these four commands it will redraw the screen or
+ generate a new page of output containing all of the currently defined axes,
+ labels, titles, and all of the various functions or data sources listed in the
+ original plot command. If instead you need to place several complete plots next
+ to each other on the same page, e.g. to make a panel of sub-figures or to inset
+ a small plot inside a larger plot, use the command `set multiplot` to suppress
+ generation of a new page for each plot command.
 
  Much of the general information about plotting can be found in the discussion
  of `plot`; information specific to 3D can be found in the `splot` section.
@@ -3556,6 +3591,19 @@ Ffigure_filledcurves
  If the values of <a>, <x>, <y> are out of the drawing boundary, then they
  are moved to the graph boundary. Then the actually filled area in the case
  of option xy=<x>,<y> will depend on xrange and yrange.
+3 fill properties
+?filledcurves border
+=border
+ Plotting `with filledcurves` can be further customized by giving a fillstyle
+ (solid/transparent/pattern) or a fillcolor.  If no fillstyle (`fs`)
+ is given in the plot command then the current default fill style is used.
+ See `set style fill`.  If no fillcolor (`fc`) is given in the plot command,
+ the usual linetype color sequence is followed.
+
+ The {{no}border} property of the fillstyle is honored by filledcurves mode
+ `closed`, the default.  It is ignored by all other filledcurves modes.
+ Example:
+      plot 'data' with filledcurves fc "cyan" fs solid 0.5 border lc "blue"
 2 financebars
 ?plotting styles financebars
 ?style financebars
@@ -3921,7 +3969,8 @@ Ffigure_labels1
  The `labels` style reads coordinates and text from a data file and places
  the text string at the corresponding 2D or 3D position.  3 or 4 input columns
  of basic data are required.  Additional input columns may be used to provide
- information such as variable font size or text color (see `rgbcolor variable`).
+ properties that vary point by point such as text rotation angle (keywords
+ `rotate variable`) or color (see `textcolor variable`).
 
       3 columns:  x  y  string    # 2D version
       4 columns:  x  y  z  string # 3D version
@@ -3958,7 +4007,11 @@ Ffigure_labels2
    symbol(z) = "∙□+⊙♠♣♡♢"[int(z):int(z)]
    splot 'file' using 1:2:(symbol($3)) with labels
 
- See also `datastrings`, `set style data`.
+ This example shows use of labels with variable rotation angle in column 4 and
+ textcolor ("tc") in column 5.  Note that variable color is always taken from
+ the last column in the `using` specifier.
+
+   plot $Data using 1:2:3:4:5 with labels tc variable rotate variable
 2 lines
 ?plotting styles lines
 ?style lines
@@ -4440,8 +4493,8 @@ Ffigure_jitter
 ?commands clear
 ?clear
  The `clear` command erases the current screen or output device as specified
- by `set output`.  This usually generates a formfeed on hardcopy devices.  Use
- `set terminal` to set the device type.
+ by `set terminal` and `set output`.  This usually generates a formfeed on
+ hardcopy devices.
 
  For some terminals `clear` erases only the portion of the plotting surface
  defined by `set size`, so for these it can be used in conjunction with `set
@@ -4456,8 +4509,7 @@ Ffigure_jitter
        plot cos(x)
        unset multiplot
 
- Please see `set multiplot`, `set size`, and `set origin` for details of these
- commands.
+ Please see `set multiplot`, `set size`, and `set origin` for details.
 2 Continue
 ?commands continue
 ?continue
@@ -5995,37 +6047,39 @@ Ffigure_jitter
 ?data-file smooth
 ?datafile smooth
 ?smooth
+?splines
  `gnuplot` includes a few general-purpose routines for interpolation and
  approximation of data; these are grouped under the `smooth` option.  More
  sophisticated data processing may be performed by preprocessing the data
  externally or by using `fit` with an appropriate model.
 
  Syntax:
-       smooth {unique | frequency | cumulative | cnormal | kdensity {bandwidth}
+       smooth {unique | frequency | fnormal | cumulative | cnormal | bins
+                      | kdensity {bandwidth}
                       | csplines | acsplines | mcsplines | bezier | sbezier
                       | unwrap}
 
- `unique`, `frequency`, `cumulative` and `cnormal` plot the data after
- making them monotonic.  `unwrap` manipulates the data to avoid jumps
- of more than pi by adding or subtracting multiples of 2*pi.  Each of
- the other routines uses the data to determine the coefficients of a
- continuous curve between the endpoints of the data.  This curve is
- then plotted in the same manner as a function, that is, by finding
- its value at uniform intervals along the abscissa (see `set samples`)
- and connecting these points with straight line segments (if a line
- style is chosen).
+ The `unique`, `frequency`, `fnormal`, `cumulative` and `cnormal` sort the data
+ on x and then plot some aspect of the distribution of x values.
 
- If `autoscale` is in effect, the ranges will be computed such that the
- plotted curve lies within the borders of the graph.
+ The spline and Bezier options determine coefficients describing a continuous
+ curve between the endpoints of the data. This curve is then plotted in the same
+ manner as a function, that is, by finding its value at uniform intervals along
+ the abscissa (see `set samples`) and connecting these points with straight line
+ segments (if a line style is chosen).
 
- If `autoscale` is not in effect, and the smooth option is either `acspline`
- or `cspline`, the sampling of the generated curve is done across the
- intersection of the x range covered by the input data and the fixed abscissa
- range as defined by `set xrange`.
+ `unwrap` manipulates the data to avoid jumps of more than pi by adding or
+ subtracting multiples of 2*pi. 
 
- If too few points are available to allow the selected option to be applied,
- an error message is produced.  The minimum number is one for `unique` and
- `frequency`, four for `acsplines`, and three for the others.
+ If `autoscale` is in effect, axis ranges will be computed for the final curve
+ rather than for the original data.
+
+ If `autoscale` is not in effect, and a spline curve is being generated,
+ sampling of the spline fit is done across the intersection of the x range
+ covered by the input data and the fixed abscissa range defined by `set xrange`.
+
+ If too few points are available to apply the requested smoothing operation
+ an error message is produced.
 
  The `smooth` options have no effect on function plots.
 5 acsplines
@@ -6121,7 +6175,7 @@ Ffigure_jitter
 ?mcsplines
  The `mcsplines` option connects consecutive points by cubic splines constrained
  such that the smoothed function preserves the monotonicity and convexity of the
- original data points.
+ original data points.  This reduces the effect of outliers.
  FN Fritsch & RE Carlson (1980) "Monotone Piecewise Cubic Interpolation",
  SIAM Journal on Numerical Analysis 17: 238–246.
 5 sbezier
@@ -6181,6 +6235,26 @@ Ffigure_jitter
       bin(val) = binwidth * floor(val/binwidth)
       plot "datafile" using (bin(column(1))):(1.0) smooth frequency
       plot "datafile" using (bin(column(1))) smooth frequency  # same result
+ See also
+^ <a href="http://www.gnuplot.info/demo/smooth.html">
+ smooth.dem
+^ </a>
+5 fnormal
+?commands plot datafile smooth fnormal
+?plot datafile smooth fnormal
+?plot smooth fnormal
+?data-file smooth fnormal
+?datafile smooth fnormal
+?plot fnormal
+?smooth fnormal
+?fnormal
+ The `fnormal` option work just like the `frequency` option, but produces a
+ normalized histogram. It makes the data monotonic in x and normalises the
+ y-values so they all sum to 1. Points with the same x-value are replaced by a
+ single point containing the sumed y-values. To plot a histogram of the number
+ of data values in equal size bins, set the y-value to 1.0 so that the sum is a
+ count of occurances in that bin. This is done implicitly if only a single
+ column is provided.
  See also
 ^ <a href="http://www.gnuplot.info/demo/smooth.html">
  smooth.dem
@@ -6253,6 +6327,7 @@ Ffigure_jitter
 ?plot special-filenames
 ?datafile special-filenames
 ?special-filenames
+?++
  There are a few filenames that have a special meaning:  '', '-', '+' and '++'.
 
  The empty filename '' tells gnuplot to re-use the previous input file in the
@@ -6468,7 +6543,6 @@ Ffigure_jitter
  Note that the use of "\t", "\n", or "\f" requires use of double-quotes
  rather than single-quotes.
 5 using_examples
-?examples
 ?commands plot datafile using examples
 ?plot datafile using examples
 ?datafile using examples
@@ -8113,7 +8187,7 @@ Ffigure_jitter
 
        set colorbox
        set colorbox {
-                  { vertical | horizontal }
+                  { vertical | horizontal } {{no}invert}
                   { default | user }
                   { origin x, y }
                   { size x, y }
@@ -8429,7 +8503,7 @@ Ffigure_missing
        set decimalsign ','
 
  Please note: If you set an explicit string, this affects only numbers that
- are printed using gnuplot's gprintf() formatting routine, include axis tics.
+ are printed using gnuplot's gprintf() formatting routine, including axis tics.
  It does not affect the format expected for input data, and it does not affect
  numbers printed with the sprintf() formatting routine. To change the behavior
  of both input and output formatting, instead use the form
@@ -9557,7 +9631,7 @@ Ffigure_missing
              {{no}enhanced}
              {{no}opaque}
              {{no}reverse} {{no}invert}
-             {samplen <sample_length>} {spacing <vertical_spacing>}
+             {samplen <sample_length>} {spacing <line_spacing>}
              {width <width_increment>} {height <height_increment>}
              {{no}autotitle {columnheader}}
              {title {"<text>"} {{no}enhanced} {center | left | right}}
@@ -9632,7 +9706,7 @@ Ffigure_missing
  `left`
 
  The defaults for `set key` are `on`, `right`, `top`, `vertical`, `Right`,
- `noreverse`, `noinvert`, `samplen 4`, `spacing 1.25`, `title ""`, and
+ `noreverse`, `noinvert`, `samplen 4`, `spacing 1`, `notitle`, and
  `nobox`.  The default <linetype> is the same as that used for the plot
  borders.  Entering `set key default` returns the key to its default
  configuration.
@@ -9649,10 +9723,10 @@ Ffigure_missing
  z are all used as a 3D location mapped using the same mapping as the graph
  itself to form the required 2D screen position of the imaginary line.
 
- When using the TeX or other terminals where formatting information is embedded
- in the string, `gnuplot` can only estimate the correctly exact width of the
- string for key positioning.  If the key is to be positioned at the left, it may
- be convenient to use the combination  `set key left Left reverse`.
+ When using the TeX/LaTeX group of terminals or terminals in which formatting
+ information is embedded in the string, `gnuplot` can only estimate the width
+ of the string for key positioning.  If the key is to be positioned at the
+ left, it may be convenient to use the combination `set key left Left reverse`.
 
  If `splot` is being used to draw contours, by default the contour labels will
  be listed in the key.  You can adjust this display using `set cntrlabel format`.
@@ -9679,6 +9753,10 @@ Ffigure_missing
 ?commands set key placement
 ?set key placement
 ?key placement
+ This section describes placement of the primary, auto-generated key.
+ To construct a secondary key or place plot titles elsewhere, see
+ `multiple keys`.
+
  To understand positioning, the best concept is to think of a region, i.e.,
  inside/outside, or one of the margins.  Along with the region, keywords
  `left/center/right` (l/c/r) and `top/center/bottom` (t/c/b) control where
@@ -9757,16 +9835,33 @@ Ffigure_missing
  the key since these are drawn at the midpoint of the sample line, even if
  the sample line itself is not drawn.
 
- The vertical spacing between lines is controlled by `spacing`.  The spacing
- is set equal to the product of the pointsize, the vertical tic size, and
- <vertical_spacing>.  The program will guarantee that the vertical spacing is
- no smaller than the character height.
+ Key entry lines are single-spaced based on the current font size.
+ This can be adjusted by `set key spacing <line-spacing>`.
 
  The <width_increment> is a number of character widths to be added to or
  subtracted from the length of the string.  This is useful only when you are
  putting a box around the key and you are using control characters in the text.
  `gnuplot` simply counts the number of characters in the string when computing
  the box width; this allows you to correct it.
+4 multiple keys
+?multiple keys
+?set key multiple keys
+?key multiple keys
+=legend
+Ffigure_multiple_keys
+ It is possible to construct a legend/key manually rather than having the plot
+ titles all appear in the auto-generated key. This allows, for example, creating
+ a single legend for the component panels in a multiplot.
+ Here is an example:
+        set multiplot layout 3,2 columnsfirst
+        set style data boxes
+        plot $D using 0:6  lt 1 title at 0.75, 0.20
+        plot $D using 0:12 lt 2 title at 0.75, 0.17
+        plot $D using 0:13 lt 3 title at 0.75, 0.14
+        plot $D using 0:14 lt 4 title at 0.75, 0.11
+        set label 1 at screen 0.75, screen 0.22 "Custom combined key area"
+        plot $D using 0:($6+$12+$13+$14) with linespoints title "total"
+        unset multiplot
 3 label
 ?commands set label
 ?commands unset label
@@ -9866,7 +9961,10 @@ Ffigure_missing
  See `set xdata` and `set timefmt`.
 
  The options available for `set label` are also available for the `labels` plot
- style. See `labels`.
+ style. See `labels`.  In this case the properties `textcolor`, `rotate`, and
+ `pointsize` may be followed by keyword `variable` rather than by a fixed value.
+ In this case the corresponding property of individual labels is determined by
+ additional columns in the `using` specifier. 
 
 4 examples
 ?label examples
@@ -10203,6 +10301,50 @@ Ffigure_missing
  labels will be included in either the margin calculation or the calculation
  of the positions of other text to be written in the margin.  This can lead
  to tic labels overwriting other text if the axis is very close to the border.
+3 minussign
+?commands set minussign
+?commands show minussign
+?commands unset minussign
+?set minussign
+?show minussign
+?unset minussign
+?minussign
+ Gnuplot uses the C language library routine sprintf() for most formatted input.
+ However it also has its own formatting routine `gprintf()` that is used to
+ generate axis tic labels. The C library routine always use a hyphen character
+ (ascii \055) to indicate a negative number, as in -7.  Many people prefer a
+ different typographic minus sign character (unicode U+2212) for this purpose,
+ as in −7.  The command
+
+      set minussign
+
+ causes gprintf() to use this minus sign character rather than a hyphen in
+ numeric output. In a utf-8 locale this is the multibyte sequence corresponding
+ to unicode U+2212.  In a Window codepage 1252 locale this is the 8-bit 
+ character ALT+150 ("en dash").  The `set minussign` command will affect axis
+ tic labels and any labels that are created by explicitly invoking gprintf.
+ It has no effect on other strings that contain a hyphen.  See `gprintf`.
+
+ Note that this command is ignored when you are using any of the LaTeX
+ terminals, as LaTeX has its own mechanism for handling minus signs.
+ It also is not necessary when using the postscript terminal because the 
+ postscript prologue output by gnuplot remaps the ascii hyphen code \055 to a
+ different glyph named `minus`.  If you want to use the postscript terminal
+ while `set minussign` is active,  you will probably need to select the option
+ `set term post adobeglyphnames`.
+
+ This command is EXPERIMENTAL. It has known limitations and implementation
+ details may change.
+
+ Example (assumes utf8 locale):
+
+      set minus
+      A = -5
+      print "A = ",A                 # printed string will contain a hyphen
+      print gprintf("A = %g",A)      # printed string will contain character U+2212
+      set label "V = -5"             # label will contain a hyphen
+      set label sprintf("V = %g",-5) # label will contain a hyphen
+      set label gprintf("V = %g",-5) # label will contain character U+2212
 3 monochrome
 ?commands set monochrome
 ?set monochrome
@@ -10382,7 +10524,7 @@ Ffigure_missing
 ?nomultiplot
 ?layout
  The command `set multiplot` places `gnuplot` in the multiplot mode, in which
- several plots are placed on the same page, window, or screen.
+ several plots are placed next to each other on the same page or screen window.
 
  Syntax:
        set multiplot
@@ -10401,8 +10543,10 @@ Ffigure_missing
  to its normal single-plot mode.  For other terminals, each separate `plot`
  command produces an updated display.
 
+=inset
  The `clear` command is used to erase the rectangular area of the page that will
- be used for the next plot.  This is typically needed for "inset" plots.
+ be used for the next plot.  This is typically needed to inset a small plot
+ inside a larger plot.
 
  Any labels or arrows that have been defined will be drawn for each plot
  according to the current size and origin (unless their coordinates are
@@ -11945,7 +12089,7 @@ Ffigure_missing
        set style histogram <histogram style options>
        set style line <n> <linestyle>
        set style rectangle <object options> <linestyle> <fillstyle>
-       set style textbox {opaque|transparent} {{no}border}
+       set style textbox {opaque|transparent} {{no}border} {fillcolor}
 
 4 set style arrow
 ?commands set style arrow
@@ -12147,10 +12291,27 @@ Ffigure_missing
  from pattern <n>, much as the line type cycles for multiple line plots.
 
  The `empty` option causes filled boxes not to be filled. This is the default.
+5 set style fill border
+?commands set style fill border
+?set style fill border
+?fillstyle border
+=border
+ The bare keyword `border` causes the filled object to be surrounded by a
+ solid line of the current linetype and color.  You can change the color of
+ this line by adding either a linetype or a linecolor.
+ `noborder` specifies that no bounding line is drawn.
+ Examples:
+      # Half-intensity fill, full intensity border in same color
+      set style fill solid 0.5 border
+      # Half-transparent fill, solid black border (linetype -1)
+      set style fill transparent solid 0.5 border -1
+      # Pattern fill in current color, border using color of linetype 5
+      plot ... with boxes fillstyle pattern 2 border lt 5
+      # Fill area in cyan, border in blue
+      plot ... with boxes fillcolor "cyan" fs solid border linecolor "blue"
 
- By default, `border`, the box is bounded by a solid line of the current
- linetype. `border <colorspec>` allows you to change the color of the border.
- `noborder` specifies that no bounding lines are drawn.
+ Note: The border property of a fill style with only affect plots drawn
+ `with filledcurves` in the default mode (closed curve).
 5 set style fill transparent
 ?commands set style fill transparent
 ?set style fill transparent
@@ -12480,10 +12641,14 @@ Ffigure_missing
 ?show style textbox
 ?textbox
 
- Syntax: set style textbox {opaque|transparent}{{no}border}
+ Syntax: set style textbox {opaque|transparent}{{no}border {<bordercolor>}}
+                           {fillcolor <color>}
+                           {margins <xmargin>,<ymargin>}
 
  This command controls the appearance of labels with the attribute 'boxed'.
  Terminal types that do not support boxed text will ignore this style.
+ Note: The current implementation is experimental; details may change.
+ Implementation for some terminals (svg, win) is incomplete.
 3 surface
 ?commands set surface
 ?commands unset surface
@@ -12609,8 +12774,8 @@ Ffigure_missing
       set termoption {no}enhanced
       set termoption font "<fontname>{,<fontsize>}"
       set termoption fontscale <scale>
-      set termoption {solid|dashed}
       set termoption {linewidth <lw>}{lw <lw>}
+      set termoption {dashed|solid}         # not generally relevant in verion 5
 
 3 tics
 ?commands set tics
@@ -14458,13 +14623,17 @@ Ffigure_missing
  When `matrix` is specified, all matrix entries are included in the analysis.
  The matrix dimensions are saved in the variables STATS_size_x and STATS_size_y.
 
- It may be convenient to track the statistics from more than one file at the
- same time. The `name` option causes the default prefix "STATS" to be replaced
- by a user-specified string.  For example, the mean value of column 2 data from
- two different files could be compared by
+=columnheader
+ It may be convenient to track the statistics from more than one file or data
+ column in parallel. The `name` option causes the default prefix "STATS" to be
+ replaced by a user-specified string.  For example, the mean value of column 2
+ data from two different files could be compared by
       stats "file1.dat" using 2 name "A"
       stats "file2.dat" using 2 name "B"
       if (A_mean < B_mean) {...}
+ The keyword `columnheader` or function `columnheader(N)` can be used to
+ generate the prefix from the contents of the first row of a data file:
+      do for [COL=5:8] { stats 'datafile' using COL name columnheader }
 
  The index reported in STATS_index_xxx corresponds to the value of pseudo-column
  0 ($0) in plot commands.  I.e. the first point has index 0, the last point
@@ -14481,8 +14650,9 @@ Ffigure_missing
  stats.dem.
 ^ </a>
 
- The current implementation does not allow analysis if either the X or Y axis is
- set to log-scaling.  This restriction may be removed in a later version.
+ The `stats` command in this version of gnuplot can handle log-scaled data, but
+ not the presence of time/date fields (`set xdata time` or `set ydata time`).
+ This restriction may be relaxed in a future version.
 
 2 system
 ?commands system

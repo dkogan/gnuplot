@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.135 2016-03-17 05:53:47 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.138 2016-08-22 22:22:44 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -710,13 +710,17 @@ evaluate_at(struct at_type *at_ptr, struct value *val_ptr)
     }
 
     if (!undefined && val_ptr->type == ARRAY) {
-	int_warn(NO_CARET, "evaluate_at: unsupported array operation");
+	/* Aug 2016: error rather than warning because too many places
+	 * cannot deal with UNDEFINED or NaN where they were expecting a number
+	 * E.g. load_one_range()
+	 */
 	val_ptr->type = NOTDEFINED;
+	int_error(NO_CARET, "evaluate_at: unsupported array operation");
     }
 }
 
 void
-free_at(struct at_type *at_ptr)
+real_free_at(struct at_type *at_ptr)
 {
     int i;
     /* All string constants belonging to this action table have to be
@@ -730,7 +734,7 @@ free_at(struct at_type *at_ptr)
 	    gpfree_string(&(a->arg.v_arg));
 	/* a summation contains its own action table wrapped in a private udf */
 	if (a->index == SUM) {
-	    free_at(a->arg.udf_arg->at);
+	    real_free_at(a->arg.udf_arg->at);
 	    free(a->arg.udf_arg);
 	}
 #ifdef HAVE_EXTERNAL_FUNCTIONS
@@ -984,6 +988,7 @@ update_gpval_variables(int context)
 	fill_gpval_string("GPVAL_TERMOPTIONS", term_options);
 	fill_gpval_string("GPVAL_OUTPUT", (outstr) ? outstr : "");
 	fill_gpval_string("GPVAL_ENCODING", encoding_names[encoding]);
+	fill_gpval_string("GPVAL_MINUS_SIGN", minus_sign ? minus_sign : "-");
     }
 
     /* If we are called from int_error() then set the error state */

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.304 2016-05-27 04:20:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.309 2016-08-25 20:07:08 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -593,10 +593,8 @@ save_set_all(FILE *fp)
 #endif
 
 #ifdef EAM_BOXED_TEXT
-    fprintf(fp, "set style textbox %s margins %4.1f, %4.1f %s\n",
-	    textbox_opts.opaque ? "opaque": "transparent",
-	    textbox_opts.xmargin, textbox_opts.ymargin,
-	    textbox_opts.noborder ? "noborder" : "border");
+    fprintf(fp, "set style textbox");
+    save_style_textbox(fp);
 #endif
 
     save_offsets(fp, "set offsets");
@@ -619,6 +617,11 @@ set encoding %s\n\
 	fprintf(fp, "set decimalsign '%s'\n", decimalsign);
     if (!numeric_locale && !decimalsign)
 	fprintf(fp, "unset decimalsign\n");
+
+    if (use_minus_sign)
+	fprintf(fp, "set minussign\n");
+    else
+	fprintf(fp, "unset minussign\n");
 
     fputs("set view ", fp);
     if (splot_map == TRUE)
@@ -988,6 +991,7 @@ set origin %g,%g\n",
     fputs(" size ", fp);
     save_position(fp, &color_box.size, 2, FALSE);
     fprintf(fp, " %s ", color_box.layer ==  LAYER_FRONT ? "front" : "back");
+    fprintf(fp, " %sinvert ", color_box.invert ? "" : "no");
     if (color_box.border == 0) fputs("noborder", fp);
 	else if (color_box.border_lt_tag < 0) fputs("bdefault", fp);
 		 else fprintf(fp, "border %d", color_box.border_lt_tag);
@@ -1210,11 +1214,34 @@ save_num_or_time_input(FILE *fp, double x, struct axis *this_axis)
 void
 save_style_parallel(FILE *fp)
 {
+    if (fp == stderr)
+	fputs("\t",fp);
     fprintf(fp, "set style parallel %s ",
-	    parallel_axis_style.layer == LAYER_BACK ? "back" : "front");
+	parallel_axis_style.layer == LAYER_BACK ? "back" : "front");
     save_linetype(fp, &(parallel_axis_style.lp_properties), FALSE);
     fprintf(fp, "\n");
 }
+
+#ifdef EAM_BOXED_TEXT
+void
+save_style_textbox(FILE *fp)
+{
+    fprintf(fp, " %s margins %4.1f, %4.1f",
+	    textbox_opts.opaque ? "opaque": "transparent",
+	    textbox_opts.xmargin, textbox_opts.ymargin);
+    if (textbox_opts.opaque) {
+	fprintf(fp, " fc ");
+	save_pm3dcolor(fp, &(textbox_opts.fillcolor));
+    }
+    if (textbox_opts.noborder) {
+	fprintf(fp, " noborder");
+    } else {
+	fprintf(fp, " border ");
+	save_pm3dcolor(fp, &(textbox_opts.border_color));
+    }
+    fputs("\n",fp);
+}
+#endif
 
 void
 save_position(FILE *fp, struct position *pos, int ndim, TBOOLEAN offset)
@@ -1344,13 +1371,18 @@ void
 save_nonlinear(FILE *fp, AXIS *this_axis)
 {
 #ifdef NONLINEAR_AXES
-    if (this_axis->linked_to_primary
-    &&  this_axis->index == -this_axis->linked_to_primary->index) {
+    AXIS *primary = this_axis->linked_to_primary;
+
+    if (primary &&  this_axis->index == -primary->index) {
 	fprintf(fp, "set nonlinear %s ", axis_name(this_axis->index));
-	if (this_axis->linked_to_primary->link_udf->at)
-	    fprintf(fp, "via %s ", this_axis->linked_to_primary->link_udf->definition);
+	if (primary->link_udf->at)
+	    fprintf(fp, "via %s ", primary->link_udf->definition);
+	else
+	    fprintf(stderr, "[corrupt linkage] ");
 	if (this_axis->link_udf->at)
 	    fprintf(fp, "inverse %s ", this_axis->link_udf->definition);
+	else
+	    fprintf(stderr, "[corrupt linkage] ");
 	fputs("\n", fp);
     }
 #endif

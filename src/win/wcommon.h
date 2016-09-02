@@ -1,5 +1,5 @@
 /*
- * $Id: wcommon.h,v 1.25 2016-05-21 05:29:31 markisch Exp $
+ * $Id: wcommon.h,v 1.28 2016-08-10 16:02:22 markisch Exp $
  */
 
 /* GNUPLOT - wcommon.h */
@@ -73,13 +73,13 @@ extern HINSTANCE hdllInstance;
 extern LPWSTR szParentClass;
 extern LPWSTR szTextClass;
 extern LPWSTR szPauseClass;
-extern LPSTR szGraphClass;
-extern LPSTR szAboutClass;
+extern LPTSTR szGraphClass;
+extern LPTSTR szAboutClass;
 
-void NEAR * LocalAllocPtr(UINT flags, UINT size);
-void NEAR * LocalReAllocPtr(void NEAR * ptr, UINT flags, UINT size);
-void LocalFreePtr(void NEAR *ptr);
-LPSTR GetInt(LPSTR str, LPINT pval);
+void * LocalAllocPtr(UINT flags, UINT size);
+void * LocalReAllocPtr(void * ptr, UINT flags, UINT size);
+void LocalFreePtr(void *ptr);
+LPTSTR GetInt(LPTSTR str, LPINT pval);
 
 /* wtext.c */
 void WriteTextIni(LPTW lptw);
@@ -96,6 +96,9 @@ void LoadMacros(LPTW lptw);
 void CloseMacros(LPTW lptw);
 
 /* wprinter.c - Printer setup and dump */
+extern HGLOBAL hDevNames;
+extern HGLOBAL hDevMode;
+
 BOOL PrintSize(HDC printer, HWND hwnd, LPRECT lprect);
 void PrintRegister(GP_LPPRINT lpr);
 void PrintUnregister(GP_LPPRINT lpr);
@@ -107,11 +110,9 @@ unsigned luma_from_color(unsigned red, unsigned green, unsigned blue);
 void add_tooltip(LPGW lpgw, PRECT rect, LPWSTR text);
 void clear_tooltips(LPGW lpgw);
 void draw_update_keybox(LPGW lpgw, unsigned plotno, unsigned x, unsigned y);
-int draw_enhanced_text(LPGW lpgw, HDC hdc, LPRECT rect, int x, int y, const char * str);
+int draw_enhanced_text(LPGW lpgw, LPRECT rect, int x, int y, const char * str);
 void draw_get_enhanced_text_extend(PRECT extend);
 void draw_image(LPGW lpgw, HDC hdc, char *image, POINT corners[4], unsigned int width, unsigned int height, int color_mode);
-void SetFont(LPGW lpgw, HDC hdc);
-void GraphChangeFont(LPGW lpgw, LPCSTR font, int fontsize, HDC hdc, RECT rect);
 
 #ifdef __cplusplus
 }

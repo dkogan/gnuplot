@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.238 2016-05-27 04:20:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.241 2016-08-07 18:18:15 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -105,6 +105,7 @@ static void unset_logscale __PROTO((void));
 static void unset_mapping __PROTO((void));
 static void unset_margin __PROTO((t_position *));
 static void unset_missing __PROTO((void));
+static void unset_minus_sign __PROTO((void));
 #ifdef USE_MOUSE
 static void unset_mouse __PROTO((void));
 #endif
@@ -333,6 +334,9 @@ unset_command()
 	df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
 	df_unset_datafile_binary();
 	break;
+    case S_MINUS_SIGN:
+	unset_minus_sign();
+	break;
     case S_MONOCHROME:
 	unset_monochrome();
 	break;
@@ -478,7 +482,7 @@ unset_command()
 	break;
     case S_Y2DTICS:
     case S_Y2MTICS:
-	unset_month_day_tics(FIRST_X_AXIS);
+	unset_month_day_tics(SECOND_Y_AXIS);
 	break;
     case S_MZTICS:
 	unset_minitics(&axis_array[FIRST_Z_AXIS]);
@@ -1182,6 +1186,7 @@ unset_logscale()
 	    sprintf(command, "unset nonlinear %s", axis_name(axis));
 	    do_string(command); 
 	    axis_array[axis].log = FALSE;
+	    axis_array[axis].ticdef.logscaling = FALSE;
 	}
     }
 
@@ -1213,6 +1218,13 @@ unset_margin(t_position *margin)
 {
     margin->scalex = character;
     margin->x = -1;
+}
+
+/* process 'unset minus_sign' command */
+static void
+unset_minus_sign()
+{
+    use_minus_sign = FALSE;
 }
 
 /* process 'unset datafile' command */

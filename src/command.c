@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.337 2016-05-26 20:53:49 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.345 2016-08-19 16:13:59 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -1431,6 +1431,7 @@ link_command()
 	    int_error(NO_CARET,"must unlink axis before setting it to nonlinear");
 	/* Clear previous log status */
 	secondary_axis->log = FALSE;
+	secondary_axis->ticdef.logscaling = FALSE;
 #else
 	int_error(command_token, "This copy of gnuplot does not support nonlinear axes");
 #endif
@@ -1470,8 +1471,6 @@ link_command()
 	/* FIXME: could return here except for the need to free link_udf->at */
 	linked = FALSE;
     } else {
-	secondary_axis->linked_to_primary = primary_axis;
-	primary_axis->linked_to_secondary = secondary_axis;
 	linked = TRUE;
     }
 
@@ -1506,18 +1505,25 @@ link_command()
 	struct udft_entry *temp = primary_axis->link_udf;
 	primary_axis->link_udf = secondary_axis->link_udf;
 	secondary_axis->link_udf = temp;
+	secondary_axis->linked_to_primary = primary_axis;
+	primary_axis->linked_to_secondary = secondary_axis;
 	clone_linked_axes(secondary_axis, primary_axis);
     } else 
 #endif
 
     /* Clone the range information */
     if (linked) {
+	secondary_axis->linked_to_primary = primary_axis;
+	primary_axis->linked_to_secondary = secondary_axis;
 	clone_linked_axes(primary_axis, secondary_axis);
     } else {
 	free_at(secondary_axis->link_udf->at);
 	secondary_axis->link_udf->at = NULL;
 	free_at(primary_axis->link_udf->at);
 	primary_axis->link_udf->at = NULL;
+	/* Shouldn't be necessary, but it doesn't hurt */
+	primary_axis->linked_to_secondary = NULL;
+	secondary_axis->linked_to_primary = NULL;
     }
 
     if (secondary_axis->index == POLAR_AXIS)
@@ -1633,51 +1639,6 @@ timed_pause(double sleep_time)
 /* process the 'pause' command */
 #define EAT_INPUT_WITH(slurp) do {int junk=0; do {junk=slurp;} while (junk != EOF && junk != '\n');} while (0)
 
-#if defined(_WIN32)
-/* mode == 0: => enc -> current locale (for output)
- * mode == !0: => current locale -> enc (for input)
- */
-char *
-translate_string_encoding(char *str, int mode, enum set_encoding_id enc)
-{
-    char *lenc, *nstr, *locale;
-    unsigned loccp, enccp, fromcp, tocp;
-    int length;
-    LPWSTR textw;
-
-    if (enc == S_ENC_DEFAULT) return gp_strdup(str);
-#ifdef WGP_CONSOLE
-    if (mode == 0)
-	loccp = GetConsoleOutputCP(); /* output codepage */
-    else
-	loccp = GetConsoleCP(); /* input code page */
-#else
-    locale = setlocale(LC_CTYPE, "");
-    if (!(lenc = strchr(locale, '.')) || !sscanf(++lenc, "%i", &loccp))
-	return gp_strdup(str);
-#endif
-    enccp = WinGetCodepage(enc);
-    if (enccp == loccp)
-	return gp_strdup(str);
-    if (mode == 0) {
-	fromcp = enccp; 
-	tocp = loccp;
-    } else {
-	fromcp = loccp;
-	tocp = enccp;
-    }
-
-    length = MultiByteToWideChar(fromcp, 0, str, -1, NULL, 0);
-    textw = (LPWSTR) malloc(sizeof(WCHAR) * length);
-    MultiByteToWideChar(fromcp, 0, str, -1, textw, length);
-    length = WideCharToMultiByte(tocp, 0, textw, -1, NULL, 0, NULL, NULL);
-    nstr = (char *) malloc(length);
-    WideCharToMultiByte(tocp, 0, textw, -1, nstr, length, NULL, NULL);
-    free(textw);
-    return nstr;
-}
-#endif
-
 
 void
 pause_command()
@@ -1737,7 +1698,7 @@ pause_command()
 	    current = add_udv_by_name("MOUSE_BUTTON");
 	    Ginteger(&current->udv_value,-1);
 	} else
-	    int_warn(NO_CARET,"Mousing not active");
+	    int_warn(NO_CARET, "Mousing not active");
     } else
 #endif
 	sleep_time = real_expression();
@@ -1754,11 +1715,6 @@ pause_command()
 	    free(buf);
 	    buf = tmp;
 	    if (sleep_time >= 0) {
-#ifdef WGP_CONSOLE
-		char * nbuf = translate_string_encoding(buf, 0, encoding);
-		free(buf);
-		buf = nbuf;
-#endif
 		fputs(buf, stderr);
 	    }
 #elif defined(OS2)
@@ -1812,7 +1768,7 @@ pause_command()
 		EAT_INPUT_WITH(fgetc(stdin));
 	    }
 	}
-#else /* !(WIN32 || OS2) */
+#else /* !(_WIN32 || OS2) */
 #ifdef USE_MOUSE
 	if (term && term->waitforinput) {
 	    /* It does _not_ work to do EAT_INPUT_WITH(term->waitforinput()) */
@@ -1821,7 +1777,7 @@ pause_command()
 #endif /* USE_MOUSE */
 	    EAT_INPUT_WITH(fgetc(stdin));
 
-#endif /* !(WIN32 || OS2) */
+#endif /* !(_WIN32 || OS2) */
     }
     if (sleep_time > 0)
 	timed_pause(sleep_time);
@@ -1984,7 +1940,7 @@ print_command()
 	    }
 	    continue;
 	}
-	if (type_udv(c_token) == ARRAY && !equals(c_token+1,"[")) {
+	if (type_udv(c_token) == ARRAY && !equals(c_token+1, "[")) {
 	    udvt_entry *array = add_udv(c_token++);
 	    save_array_content(print_out, array->udv_value.v.value_array);
 	    continue;
@@ -1994,14 +1950,6 @@ print_command()
 	    if (dataline != NULL)
 		len = strappend(&dataline, &size, len, a.v.string_val);
 	    else
-#ifdef WIN32
-		if (print_out == stderr) {
-			char *nbuf = translate_string_encoding(a.v.string_val, 0, encoding);
-			gpfree_string(&a);
-			fputs(nbuf, print_out);
-			free(nbuf);
-	    } else
-#endif
 		fputs(a.v.string_val, print_out);
 	    gpfree_string(&a);
 	    need_space = FALSE;
@@ -2106,7 +2054,7 @@ refresh_request()
     }
 
     if (refresh_ok == E_REFRESH_OK_2D) {
-	refresh_bounds(first_plot, refresh_nplots); 
+	refresh_bounds(first_plot, refresh_nplots);
 	do_plot(first_plot, refresh_nplots);
 	update_gpval_variables(1);
     } else if (refresh_ok == E_REFRESH_OK_3D) {
@@ -2338,8 +2286,9 @@ $PALETTE u 1:2 t 'red' w l lt 1 lc rgb 'red',\
 #if defined(_MSC_VER) || defined(__MINGW32__)
     /* On Vista/Windows 7 tmpfile() fails. */
     if (!f) {
-	char  buf[PATH_MAX];
-	GetTempPath(sizeof(buf), buf);
+	char buf[PATH_MAX];
+	/* We really want the "ANSI" version */
+	GetTempPathA(sizeof(buf), buf);
 	strcat(buf, "gnuplot-pal.tmp");
 	f = fopen(buf, "w+");
     }
@@ -2587,7 +2536,7 @@ changedir(char *path)
 
 # if defined(__EMX__)
 	(void) _chdrive(driveno + 1);
-# elif defined(__DJGPP__) 
+# elif defined(__DJGPP__)
 	(void) setdisk(driveno);
 # endif
 	path += 2;		/* move past drive letter */
@@ -2600,7 +2549,10 @@ changedir(char *path)
     return 0;			/* should report error with setdrive also */
 
 #elif defined(_WIN32)
-    return !(SetCurrentDirectory(path));
+    LPWSTR pathw = UnicodeText(path, encoding);
+    int ret = !SetCurrentDirectoryW(pathw);
+    free(pathw);
+    return ret;
 #elif defined(__EMX__) && defined(OS2)
     return _chdir2(path);
 #else
@@ -2886,32 +2838,40 @@ help_command()
     /* open help file if necessary */
     help_window = HtmlHelp(parent, winhelpname, HH_GET_WIN_HANDLE, (DWORD_PTR)NULL);
     if (help_window == NULL) {
-        help_window = HtmlHelp(parent, winhelpname, HH_DISPLAY_TOPIC, (DWORD_PTR)NULL);
-        if (help_window == NULL) {
-            fprintf(stderr, "Error: Could not open help file \"%s\"\n", winhelpname);
-            return;
-        }
+	help_window = HtmlHelp(parent, winhelpname, HH_DISPLAY_TOPIC, (DWORD_PTR)NULL);
+	if (help_window == NULL) {
+	    fprintf(stderr, "Error: Could not open help file \"" TCHARFMT "\"\n", winhelpname);
+	    return;
+	}
     }
     if (END_OF_COMMAND) {
-        /* show table of contents */
-        HtmlHelp(parent, winhelpname, HH_DISPLAY_TOC, (DWORD_PTR)NULL);
+	/* show table of contents */
+	HtmlHelp(parent, winhelpname, HH_DISPLAY_TOC, (DWORD_PTR)NULL);
     } else {
-        /* lookup topic in index */
-        HH_AKLINK link;
-        char buf[128];
-        int start = c_token;
-        while (!(END_OF_COMMAND))
-            c_token++;
-        capture(buf, start, c_token - 1, 128);
-        link.cbStruct =     sizeof(HH_AKLINK) ;
-        link.fReserved =    FALSE;
-        link.pszKeywords =  buf;
-        link.pszUrl =       NULL;
-        link.pszMsgText =   NULL;
-        link.pszMsgTitle =  NULL;
-        link.pszWindow =    NULL;
-        link.fIndexOnFail = TRUE;
-        HtmlHelp(parent, winhelpname, HH_KEYWORD_LOOKUP, (DWORD_PTR)&link);
+	/* lookup topic in index */
+	HH_AKLINK link;
+	char buf[128];
+#ifdef UNICODE
+	WCHAR wbuf[128];
+#endif
+	int start = c_token;
+	while (!(END_OF_COMMAND))
+	    c_token++;
+	capture(buf, start, c_token - 1, sizeof(buf));
+	link.cbStruct =     sizeof(HH_AKLINK) ;
+	link.fReserved =    FALSE;
+#ifdef UNICODE
+	MultiByteToWideChar(WinGetCodepage(encoding), 0, buf, sizeof(buf), wbuf, sizeof(wbuf) / sizeof(WCHAR));
+	link.pszKeywords =  wbuf;
+#else
+	link.pszKeywords =  buf;
+#endif
+	link.pszUrl =       NULL;
+	link.pszMsgText =   NULL;
+	link.pszMsgTitle =  NULL;
+	link.pszWindow =    NULL;
+	link.fIndexOnFail = TRUE;
+	HtmlHelp(parent, winhelpname, HH_KEYWORD_LOOKUP, (DWORD_PTR)&link);
     }
 }
 #else  /* !_Windows */
@@ -3041,7 +3001,7 @@ help_command()
     if (len > 0)
 	helpbuf[len++] = ' ';	/* add a space */
     capture(helpbuf + len, start, c_token - 1, MAX_LINE_LEN - len);
-    squash_spaces(helpbuf + base);	/* only bother with new stuff */
+    squash_spaces(helpbuf + base, 1);	/* only bother with new stuff */
     len = strlen(helpbuf);
 
     /* now, a lone ? will print subtopics only */
@@ -3116,7 +3076,7 @@ do_system(const char *cmd)
     if (!cmd)
 	return;
     restrict_popen();
-#if defined(_WIN32) && !defined(WGP_CONSOLE)
+#ifdef _WIN32
     {
 	LPWSTR wcmd = UnicodeText(cmd, encoding);
 	_wsystem(wcmd);
@@ -3238,7 +3198,8 @@ rlgets(char *s, size_t n, const char *prompt)
 # endif				/* USE_READLINE */
 
 
-# if defined(MSDOS) || defined(_Windows)
+# if defined(MSDOS) || defined(_WIN32)
+
 void
 do_shell()
 {
@@ -3246,14 +3207,14 @@ do_shell()
     c_token++;
 
     if (user_shell) {
-#  if defined(_Windows)
+#  if defined(_WIN32)
 	if (WinExec(user_shell, SW_SHOWNORMAL) <= 32)
 #  elif defined(DJGPP)
-	    if (system(user_shell) == -1)
+	if (system(user_shell) == -1)
 #  else
-		if (spawnl(P_WAIT, user_shell, NULL) == -1)
-#  endif			/* !(_Windows || DJGPP) */
-		    os_error(NO_CARET, "unable to spawn shell");
+	if (spawnl(P_WAIT, user_shell, NULL) == -1)
+#  endif /* !(_WIN32 || DJGPP) */
+	    os_error(NO_CARET, "unable to spawn shell");
     }
 }
 

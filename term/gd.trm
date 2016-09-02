@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: gd.trm,v 1.183 2015/07/09 01:40:56 sfeam Exp $
+ * $Id: gd.trm,v 1.185 2016-07-23 03:34:41 sfeam Exp $
  */
 
 /* GNUPLOT -- gd.trm */
@@ -639,7 +639,7 @@ PNG_options()
 	PNG_linewidth_factor = 1.0;
 	PNG_dashlength_factor = 1.0;
 	png_state.capbutt = FALSE; /* to preserve previous default behavior */
-#ifdef _Windows
+#ifdef _WIN32
 	/* Set the default search path for fonts to something useful. */
 	if (getenv("GDFONTPATH") == NULL) {
 	    const char fonts[] = "\\fonts";
@@ -650,7 +650,7 @@ PNG_options()
 		if (gdfontpath) {
 		   strcpy(gdfontpath, windir);
 		   strcat(gdfontpath, fonts);
-		   SetEnvironmentVariable("GDFONTPATH", gdfontpath);
+		   SetEnvironmentVariableA("GDFONTPATH", gdfontpath);
 		   free(gdfontpath);
 		}
 	    }
@@ -2209,13 +2209,13 @@ ENHGD_boxed_text(unsigned int x, unsigned int y, int option)
 		png_state.color);
 	break;
     case TEXTBOX_BACKGROUNDFILL:
-	/* Fill the box with background color. FIXME - other colors? */
+	/* Fill the box with current color. */
 	gdImageFilledRectangle(png_state.image,
 		bounding_box[0] - bounding_xmargin,
 		bounding_box[1] - bounding_ymargin,
 		bounding_box[2] + bounding_xmargin,
 		bounding_box[3] + bounding_ymargin,
-		png_state.color_table[0]);
+		png_state.color);
 	break;
     case TEXTBOX_MARGINS:
 	/* Change the text margins */
@@ -2337,7 +2337,6 @@ PNG_image (unsigned int M, unsigned int N, coordval * image, gpiPoint * corner, 
 
     /* Restore previous clipping, if any */
     gdImageSetClip(png_state.image, x1, y1, x2, y2);
-
 }
 
 

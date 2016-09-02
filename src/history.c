@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: history.c,v 1.37 2016-05-27 15:22:00 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: history.c,v 1.41 2016-07-21 05:50:38 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - history.c */
@@ -282,7 +282,6 @@ remove_history(int which)
 
 
 #if defined(READLINE) || defined(HAVE_LIBEDITLINE)
-//  FIXME: Feature test in configure
 histdata_t 
 free_history_entry(HIST_ENTRY *histent)
 {
@@ -377,7 +376,7 @@ gp_read_history(const char *filename)
 
 		/* skip leading whitespace */
 		pline = line;
-		while (isspace((unsigned int) *pline))
+		while (isspace((unsigned char) *pline))
 		    pline++;
 
 		/* avoid adding empty lines */
@@ -393,92 +392,14 @@ gp_read_history(const char *filename)
 }
 
 
-#ifdef READLINE
-/*
- * New functions for browsing the history. They are called from command.c
- * when the user runs the 'history' command
- */
+#ifdef USE_READLINE
 
-/* write <n> last entries of the history to the file <filename>
- * Input parameters:
- *    n > 0 ... write only <n> last entries; otherwise all entries
- *    filename == NULL ... write to stdout; otherwise to the filename
- *    filename == "" ... write to stdout, but without entry numbers
- *    mode ... should be "w" or "a" to select write or append for file,
- *	       ignored if history is written to a pipe
-*/
-void
-write_history_n(const int n, const char *filename, const char *mode)
-{
-    struct hist *entry = history, *start = NULL;
-    FILE *out = stdout;
-#ifdef PIPES
-    int is_pipe = 0; /* not filename but pipe to an external program */
-#endif
-    int hist_entries = 0;
-    int hist_index = 1;
-
-    if (entry == NULL)
-	return;			/* no history yet */
-
-    /* find the beginning of the history and count nb of entries */
-    while (entry->prev != NULL) {
-	entry = entry->prev;
-	hist_entries++;
-	if (n <= 0 || hist_entries <= n)
-	    start = entry;	/* listing will start from this entry */
-    }
-    entry = start;
-    hist_index = (n > 0) ? GPMAX(hist_entries - n, 0) + 1 : 1;
-
-    /* now write the history */
-    if (filename != NULL && filename[0]) {
-#ifdef PIPES
-	if (filename[0]=='|') {
-	    restrict_popen();
-	    out = popen(filename+1, "w");
-	    is_pipe = 1;
-	} else
-#endif
-	out = fopen(filename, mode);
-    }
-    if (!out) {
-	/* cannot use int_error() because we are just exiting gnuplot:
-	   int_error(NO_CARET, "cannot open file for saving the history");
-	*/
-	fprintf(stderr, "Warning: cannot open file %s for saving the history.", filename);
-    } else {
-	while (entry != NULL) {
-	    /* don't add line numbers when writing to file
-	    * to make file loadable */
-	    if (filename) {
-		if (filename[0]==0) fputs(" ", out);
-		fprintf(out, "%s\n", entry->line);
-	    } else
-		fprintf(out, "%5i  %s\n", hist_index++, entry->line);
-	    entry = entry->next;
-	}
-	if (filename != NULL && filename[0]) {
-#ifdef PIPES
-	    if (is_pipe)
-		pclose(out);
-	    else
-#endif
-	    fclose(out);
-	}
-    }
-}
-#endif
-
-
-#if defined(HAVE_LIBREADLINE) || defined(HAVE_LIBEDITLINE)
 /* Save history to file, or write to stdout or pipe.
  * For pipes, only "|" works, pipes starting with ">" get a strange 
  * filename like in the non-readline version.
  *
  * Peter Weilbacher, 28Jun2004
  */
-
 void
 write_history_list(const int num, const char *const filename, const char *mode)
 {
@@ -489,43 +410,41 @@ write_history_list(const int num, const char *const filename, const char *mode)
     int is_quiet = 0;
     int i, istart;
 
-    if (filename && filename[0] ) {
-        /* good filename given and not quiet */
+    if (filename && filename[0]) {
+	/* good filename given and not quiet */
 #ifdef PIPES
-        if (filename[0]=='|') {
+	if (filename[0] == '|') {
 	    restrict_popen();
-            out = popen(filename+1, "w");
-            is_pipe = 1;
-        } else
+	    out = popen(filename + 1, "w");
+	    is_pipe = 1;
+	} else
 #endif
 	{
-            if (! (out = fopen(filename, mode) ) ) {
-                int_warn(NO_CARET, "Cannot open file to save history, using standard output.\n");
-                out = stdout;
-            } else {
+	    if (!(out = fopen(filename, mode))) {
+		int_warn(NO_CARET, "Cannot open file to save history, using standard output.\n");
+		out = stdout;
+	    } else {
 		is_file = 1;
 	    }
-        }
+	}
+    } else if (filename && !filename[0]) {
+	is_quiet = 1;
+    }
 
-    } else if (filename && !filename[0])
-        is_quiet = 1;
-
-    /* Determine starting point and output in loop.
-     * For some reason the readline functions append_history() 
-     * and write_history() do not work they way I thought they did...
-     */
+    /* Determine starting point and output in loop. */
     if (num > 0)
-        istart = history_length - num;
+	istart = history_length - num - 1;
     else
-	istart = 1;
-    if (istart <= 0 || istart > history_length)
-	istart = 1;
+	istart = 0;
+    if (istart < 0 || istart > history_length)
+	istart = 0;
 
-    for (i = istart; (list_entry = history_get(i)); i++) {
-        /* don't add line numbers when writing to file to make file loadable */
+    for (i = istart; (list_entry = history_get(i + history_base)); i++) {
+	/* don't add line numbers when writing to file to make file loadable */
 	if (!is_file && !is_quiet)
-	    fprintf(out, "%5i ", i + history_base - 1);
-	fprintf(out, "  %s\n", list_entry->line);
+	    fprintf(out, "%5i   %s\n", i + history_base, list_entry->line);
+	else
+	    fprintf(out, "%s\n", list_entry->line);
     }
 
 #ifdef PIPES
@@ -533,6 +452,7 @@ write_history_list(const int num, const char *const filename, const char *mode)
 #endif
     if (is_file) fclose(out);
 }
+
 
 /* This is the function getting called in command.c */
 void

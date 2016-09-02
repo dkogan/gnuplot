@@ -1,5 +1,5 @@
 /* Hello, Emacs: this is -*-C-*- !
- * $Id: post.trm,v 1.292 2016-05-15 22:18:22 sfeam Exp $
+ * $Id: post.trm,v 1.295 2016-08-17 17:09:13 sfeam Exp $
  */
 
 /* GNUPLOT - post.trm */
@@ -389,7 +389,7 @@ NULL
 	       TBx2 TBxmargin add TBy2 TBymargin add L\n\
 	       TBx2 TBxmargin add TBy1 TBymargin sub L closepath } def\n\
 /DrawTextBox { PopTextBox stroke /Boxing false def} def\n\
-/FillTextBox { gsave PopTextBox 1 1 1 setrgbcolor fill grestore /Boxing false def} def\n\
+/FillTextBox { gsave PopTextBox fill grestore /Boxing false def} def\n\
 0 0 0 0 InitTextBox\n\
 /TBxmargin 20 def\n\
 /TBymargin 20 def\n\
@@ -400,13 +400,13 @@ NULL
 
 /* external/internal prologue files machinery */
 #if defined(GNUPLOT_PS_DIR)
-# if defined(_Windows)
+# if defined(_WIN32)
 #  include "win/winmain.h"
 # elif defined(OS2)
 #  define INCL_DOSPROCESS
 #  define INCL_DOSMODULEMGR
 #  include <os2.h>
-# endif /* _Windows || OS2 */
+# endif /* _WIN32 || OS2 */
 #else /* GNUPLOT_PS_DIR */
 # include "PostScript/prologues.h"
 #endif /* GNUPLOT_PS_DIR */
@@ -1769,9 +1769,25 @@ end\n\
 	    fprintf(gppsfile,"%s",OldEPSL_linetypes[i]);
     }
 
-    if (ps_params->duplex_option)
-	fprintf(gppsfile, "statusdict begin %s setduplexmode end\n",
+    /* The use of statusdict and setduplexmode is not 'Standard'  */
+    /* PostScript.  This method is used in Level 1 as a means of  */
+    /* controlling device properties, and is device specific.     */
+    /* Level 2/3 PostScript performs these functions via          */
+    /* setpagedevice.  See PostScript Language Reference 3rd Ed.  */
+    /* pages 426-32 and 679-80 for details.  The code below just  */
+    /* makes the passing of _simplex_ work across levels 1-3 and  */
+    /* the matter of Duplex and Tumble is left to others.         */
+    /* Be aware that BRscript3 is not happy if presented with a   */
+    /* single page and Duplex is forced on, whereas the Xerox     */
+    /* Phaser 8560 sees there is only one page and uses simplex.  */
+
+    if (ps_params->duplex_option) {
+	if (ps_params->level1 )
+	    fprintf(gppsfile, "statusdict begin %s setduplexmode end\n",
 		ps_params->duplex_state ? "true" : "false");
+	else if (!ps_params->duplex_state) fprintf(gppsfile,
+	    "%%%%BeginFeature: *Duplex Simplex\n << /Duplex false >> setpagedevice\n%%%%EndFeature\n");
+    }
 
     if (dict)
 	while (*dict)
@@ -4055,15 +4071,8 @@ PS_open_prologue_file(char *name)
     /* Allocate and load default directory into ps_prologue_dir.　*/
     /* FIXME:  Why should we have to recalculate this every time? */
 #ifdef GNUPLOT_PS_DIR
-#   if defined(_Windows)
-	/* retrieve prologues path relatively to gnuplot executable,
-	 * whose path is in szModuleName (winmain.c) */
-	ps_prologue_dir = gp_alloc(strlen((char*) szPackageDir)
-			+ strlen(GNUPLOT_PS_DIR) + 2, "Prolog path");
-	strcpy(ps_prologue_dir, (char*) szPackageDir);
-	strcat(ps_prologue_dir, "\\");
-	/* GNUPLOT_PS_DIR is _relative_ path */
-	strcat(ps_prologue_dir, GNUPLOT_PS_DIR);
+#   if defined(_WIN32)
+	ps_prologue_dir = RelativePathToGnuplot(GNUPLOT_PS_DIR);
 #   elif defined(OS2)
 	const ULONG bufsiz = 1024;
 	CHAR exepath[bufsiz];
@@ -4088,7 +4097,7 @@ PS_open_prologue_file(char *name)
 	    /* unsucessful to retrieve executable path */
 	    strcpy(ps_prologue_dir,"");
 	}
-#   else /* !_Windows && !OS2 */
+#   else /* !_WIN32 && !OS2 */
 	/* use hardcoded _absolute_ path */
 	ps_prologue_dir = gp_strdup(GNUPLOT_PS_DIR);
 #   endif
