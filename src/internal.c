@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: internal.c,v 1.92 2016-05-13 07:05:02 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: internal.c,v 1.94 2016-10-23 23:14:06 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - internal.c */
@@ -74,6 +74,8 @@ static enum DATA_TYPES sprintf_specifier __PROTO((const char *format));
 
 #define BADINT_DEFAULT int_error(NO_CARET, "error: bit shift applied to non-INT");
 #define BAD_TYPE(type) int_error(NO_CARET, (type==NOTDEFINED) ? "uninitialized user variable" : "internal error : type neither INT nor CMPLX");
+	
+static const char *nonstring_error = "internal error : STRING operator applied to undefined or non-STRING variable";
 
 static int recursion_depth = 0;
 void
@@ -1155,7 +1157,7 @@ f_concatenate(union argument *arg)
     }
 
     if (a.type != STRING || b.type != STRING)
-	int_error(NO_CARET, "internal error : STRING operator applied to non-STRING type");
+	int_error(NO_CARET, nonstring_error);
 
     (void) Gstring(&result, gp_stradd(a.v.string_val, b.v.string_val));
     gpfree_string(&a);
@@ -1174,7 +1176,7 @@ f_eqs(union argument *arg)
     (void) pop(&a);
 
     if (a.type != STRING || b.type != STRING)
-	int_error(NO_CARET, "internal error : STRING operator applied to non-STRING type");
+	int_error(NO_CARET, nonstring_error);
 
     (void) Ginteger(&result, !strcmp(a.v.string_val, b.v.string_val));
     gpfree_string(&a);
@@ -1192,7 +1194,7 @@ f_nes(union argument *arg)
     (void) pop(&a);
 
     if (a.type != STRING || b.type != STRING)
-	int_error(NO_CARET, "internal error : STRING operator applied to non-STRING type");
+	int_error(NO_CARET, nonstring_error);
 
     (void) Ginteger(&result, (int)(strcmp(a.v.string_val, b.v.string_val)!=0));
     gpfree_string(&a);
@@ -1313,6 +1315,22 @@ f_index(union argument *arg)
 	int_error(NO_CARET, "array index out of range");
 
     push( &array.v.value_array[i] );
+}
+
+/*
+ * f_cardinality() extracts the number of elements in an array.
+ */
+void
+f_cardinality(union argument *arg)
+{
+    struct value array;
+    (void) arg;			/* avoid -Wunused warning */
+    (void) pop(&array);
+
+    if (array.type != ARRAY)
+	int_error(NO_CARET, "internal error: cardinality of a non-array variable");
+
+    push(Ginteger(&array, array.v.value_array[0].v.int_val));
 }
 
 /* Magic number! */

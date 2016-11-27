@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tables.c,v 1.147 2016-08-25 20:07:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tables.c,v 1.150 2016-11-05 21:21:07 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tables.c */
@@ -217,6 +217,7 @@ const struct gen_table set_tbl[] =
     { "tmar$gin", S_TMARGIN },
     { "bmar$gin", S_BMARGIN },
 
+    { "micro", S_MICRO },
     { "minus$sign", S_MINUS_SIGN },
 #ifdef USE_MOUSE
     { "mo$use", S_MOUSE },
@@ -391,6 +392,7 @@ const struct gen_table set_key_tbl[] =
     { "at", S_KEY_MANUAL },
     { "ins$ide", S_KEY_INSIDE },
     { "o$utside", S_KEY_OUTSIDE },
+    { "fix$ed", S_KEY_FIXED },
     { "tm$argin", S_KEY_TMARGIN },
     { "bm$argin", S_KEY_BMARGIN },
     { "lm$argin", S_KEY_LMARGIN },
@@ -715,6 +717,7 @@ const struct gen_table plotstyle_tbl[] =
     { "sur$face", SURFACEGRID },
     { "parallel$axes", PARALLELPLOT },
     { "table", TABLESTYLE },
+    { "zerror$fill", ZERRORFILL },
     { NULL, PLOT_STYLE_NONE }
 };
 

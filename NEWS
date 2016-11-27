@@ -1,6 +1,7 @@
 Changes not in 5.0
 ==================
 * NEW command "set nonlinear <axis> via f(axis) inverse g(axis)"
+* NEW 3D plot style "splot ... using <x>:<y>:<z>:<zlow>:<zhigh> with zerrorfill
 * NEW implementation of "set log" (treat as special case of "set nonlinear")
 * NEW array data type
 * NEW styles points and linespoints accept `pointtype variable`
@@ -20,9 +21,14 @@ Changes not in 5.0
 * NEW windows terminal supports saving graph as bitmap
 * NEW textbox style supports fillcolor and bordercolor
 * NEW command "set minussign" (first appeared in 5.0.5)
+* NEW command "set micro"
 * NEW "smooth fnormal" normalized frequency
 * NEW terminal domterm (supports in-line SVG in DomTerm terminal emulator)
+* NEW "set view azimuth <angle>" controls azimuth of the z axis in 3D plots
+* NEW wxt supports saving graph as EMF on Windows
+* NEW wxt supports printing on Windows
 * CHANGE Revise placement of axis labels in 3D plots
+* CHANGE Timestamp is now placed relative to page rather than plot boundary
 * CHANGE Track font/enhanced for key title separately from the key entries
 * CHANGE order of margins in `set margins <left>, <right>, <bottom>, <top>`
 * CHANGE Store and reuse x,y dimensions from the time image data is read in
@@ -30,9 +36,15 @@ Changes not in 5.0
 * CHANGE ^R starts a backward search when using the built-in readline
 * CHANGE Only update axis->data_min/max if the point being stored is INRANGE
 * CHANGE auto-generation of minitics on logscale axis has changed
+* CHANGE revised printing dialogs on Windows
+* CHANGE preserve whitespace following opening { in enhanced text strings
+* CHANGE windows terminal provides better oversampling
+* CHANGE New default "set key fixed" prevents 3D key box from rotating with plot
+* CHANGE Deprecate pdf terminal requiring non-free library PDFlib
 * FIX cairo.trm - reset terminal font after printing an enhanced text string
 * FIX autoscaling of data with "smooth cnorm"
 * FIX Built-in readline handles S-JIS encoding
+* FIX Output to printer on Windows via special file "PRN"
 
 Changes in 5.0.rc3
 ==================

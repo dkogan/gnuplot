@@ -71,7 +71,7 @@ plot demo . 'silver.dat' u 1:($2-10.) title 'with fsteps' with fsteps
 set output out . 'figure_steps' . ext
 set style fill solid 0.25 noborder
 plot demo . 'silver.dat' u 1:($2-10.) title 'with fillsteps' with fillsteps, \
-                      '' u 1:($2-10.) title 'with steps' with steps lw 4
+                      '' u 1:($2-10.) title 'with steps' with steps lw 3 dt solid
 #
 set output out . 'figure_histeps' . ext
 plot demo . 'silver.dat' u 1:($2-10.) title 'with histeps' with histeps
@@ -125,9 +125,9 @@ plot demo . 'candlesticks.dat' using 1:4:3:5 with yerrorbars title 'with yerrorb
 set output out . 'figure_yerrorlines' . ext
 plot demo . 'candlesticks.dat' using 1:4:3:5 with yerrorlines title 'with yerrorlines'
 #
-set output out . 'figure_boxxyerrorbars' . ext
+set output out . 'figure_boxxyerror' . ext
 plot demo . 'candlesticks.dat' using 1:4:($1-sin($1)/2.):($1+sin($1)/2.):3:5 \
-     with boxxyerrorbars title 'with boxxyerrorbars' fs empty
+     with boxxyerror title 'with boxxyerror' fs empty
 #
 set output out . 'figure_xyerrorbars' . ext
 plot demo . 'candlesticks.dat' using 1:4:($1-sin($1)/2.):($1+sin($1)/2.):3:5 \
@@ -182,69 +182,6 @@ unset ytics
 set xrange [-3:3]
 set yrange [-4:4]
 splot invnorm(rand(0)),invnorm(rand(0)),invnorm(rand(0)) with dots notitle
-
-#
-# Histograms
-# ==========
-#
-reset
-set style data histogram
-set boxwidth 0.9 rel
-set key auto column invert
-set yrange [0:*]
-set offset 0,0,2,0
-unset xtics
-set tmargin 1
-#
-set output out . 'figure_histclust' . ext
-set style histogram clustered
-plot demo . 'histopt.dat' using 1 fs solid 0.5, '' using 2 fs empty
-#
-set output out . 'figure_histerrorbar' . ext
-set title "Histogram with error bars" offset 0,-1
-set style fill solid border -1
-set style histogram errorbars lw 2
-plot demo . 'histerror.dat' using 2:3 fs solid 0.5 ti 'A', '' using 4:5 fs empty ti 'B'
-#
-set output out . 'figure_histrows' . ext
-set style histogram rows
-set title "Rowstacked" offset 0,-1
-plot demo . 'histopt.dat' using 1 fs solid 0.5, '' using 2 fs empty
-#
-set output out . 'figure_newhist' . ext
-set style histogram cluster
-set style data histogram
-unset title
-set key auto column noinvert
-set xtics 1 offset character 0,0.3
-plot newhistogram "Set A", \
-    demo . 'histopt.dat' u 1 t col, '' u 2 t col fs empty, \
-    newhistogram "Set B" at 8, \
-    demo . 'histopt.dat' u 1 t col, '' u 2 t col fs empty
-#
-set output out . 'figure_histcols' . ext
-set style histogram columnstacked
-set title "Columnstacked" offset 0,-1
-set boxwidth 0.8 rel
-set xtics
-
-if (winhelp !=0) {
-# greyscale rgb for png
-set linetype 11 lc rgb "gray0"
-set linetype 12 lc rgb "white"
-set linetype 13 lc rgb "gray40"
-set linetype 14 lc rgb "gray70"
-set style fill solid 1.0 border -1
-
-plot newhistogram lt 11, \
-     'histopt.dat' using 1 title column, \
-     '' using 2 title column
-} else {
-# patterned fill for pdf
-set style fill pattern
-plot 'histopt.dat' using 1 title column, \
-     '' using 2 title column
-}
 
 #
 # Circles
@@ -524,6 +461,69 @@ unset multiplot
 if (GPVAL_TERM eq "pdfcairo") \
     set term pdfcairo color font fontspec size 3.5,2.0 dashlength 0.2
 
+#
+# Histograms
+# ==========
+#
+reset
+set style data histogram
+set boxwidth 0.9 rel
+set key auto column invert
+set yrange [0:*]
+set offset 0,0,2,0
+unset xtics
+set tmargin 1
+#
+set output out . 'figure_histclust' . ext
+set style histogram clustered
+plot demo . 'histopt.dat' using 1 fs solid 0.5, '' using 2 fs empty
+#
+set output out . 'figure_histerrorbar' . ext
+set title "Histogram with error bars" offset 0,-1
+set style fill solid border -1
+set style histogram errorbars lw 2
+plot demo . 'histerror.dat' using 2:3 fs solid 0.5 ti 'A', '' using 4:5 fs empty ti 'B'
+#
+set output out . 'figure_histrows' . ext
+set style histogram rows
+set title "Rowstacked" offset 0,-1
+plot demo . 'histopt.dat' using 1 fs solid 0.5, '' using 2 fs empty
+#
+set output out . 'figure_newhist' . ext
+set style histogram cluster
+set style data histogram
+unset title
+set key auto column noinvert
+set xtics 1 offset character 0,0.3
+plot newhistogram "Set A", \
+    demo . 'histopt.dat' u 1 t col, '' u 2 t col fs empty, \
+    newhistogram "Set B" at 8, \
+    demo . 'histopt.dat' u 1 t col, '' u 2 t col fs empty
+#
+set output out . 'figure_histcols' . ext
+set style histogram columnstacked
+set title "Columnstacked" offset 0,-1
+set boxwidth 0.8 rel
+set xtics
+
+if (winhelp !=0) {
+# greyscale rgb for png
+set linetype 11 lc rgb "gray0"
+set linetype 12 lc rgb "white"
+set linetype 13 lc rgb "gray40"
+set linetype 14 lc rgb "gray70"
+set style fill solid 1.0 border -1
+
+plot newhistogram lt 11, \
+     'histopt.dat' using 1 title column, \
+     '' using 2 title column
+} else {
+# patterned fill for pdf
+# set style fill pattern
+plot 'histopt.dat' using 1 title column, \
+     '' using 2 title column
+}
+
 
 #
 # Parallel axis plot
@@ -592,6 +592,25 @@ set xtics font ",6"  offset 0,1
 set label 1 font ",10"
 set key font ",9" spacing 0.5
 load '../demo/custom_key.dem'
+
+# Fence plot
+reset
+set output out . 'figure_fenceplot' . ext
+set title "fence plot constructed with zerrorfill" 
+unset key
+set zrange [-1:1]
+set xtics ( "A" -2, "B" -1, "C" 0, "D" 1, "E" 2 ) scale 0 offset -1
+set xrange [-3:2]
+set xyplane at -1.1
+set yrange [-0.5:0.5]
+set ytics format "  %.1f" scale 0
+set ylabel "Y value"  rotate parallel offset -2
+unset ztics
+set zlabel "Z value" rotate offset 5
+sinc(u,v) = sin(sqrt(u**2+v**2)) / sqrt(u**2+v**2)
+set style fill  solid 0.5 noborder
+splot for [x=-2:2][y=-50:50:3] '+' using (x):($1/100.):(-1):(-1):(sinc($1/10., 1.+2*x)) with zerrorfill
+reset
 
 # close last file
 unset outp

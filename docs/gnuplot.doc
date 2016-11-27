@@ -1,4 +1,4 @@
-C RCS $Id: gnuplot.doc,v 1.1016 2016-08-28 18:42:27 sfeam Exp $
+C RCS $Id: gnuplot.doc,v 1.1032 2016-11-18 05:34:26 sfeam Exp $
 C
 C Copyright (C) 1986 - 1993, 1998, 1999, 2000, 2001, 2004   Thomas Williams, Colin Kelley et al.
 C
@@ -204,6 +204,10 @@ C
 
  * New commands `break` and `continue` allow more complicated loop structure.
 
+ * 3D plots can be rotated about the line of sight (see `set view azimuth`).
+
+ * New 3D plot style `with zerrorfill`
+
  * Support for array variables (see `arrays`).
 
  * Support for nonlinear axes (see `set nonlinear`).
@@ -265,11 +269,14 @@ C
  * Shell invocation of gnuplot can pass parameters to a gnuplot script.
  gnuplot -c scriptfile.gp ARG1 ARG2 ARG3 ...
 
- * New command `set minussign` causes routine gprintf() to use a typographic
- character "minus sign" rather than a hyphen for negative numbers.  This affects
- only axis tic labels and strings explicitly created with gprintf(). This 
- command first appeared in version 5.0 patchlevel 5 and is considered EXPERIMENTAL
- (implementation details may change).
+ * New commands `set minussign` and `set micro` cause routine gprintf() to use a
+ typographic character "minus sign" rather than a hyphen for negative numbers, 
+ and "micro sign" rather than "u" for prefixing units in scientific notation.
+ This affects only axis tic labels and strings explicitly created with gprintf().
+ The specific byte sequence used to represent these characters depends on the 
+ current encoding.
+ The `set minus`  command first appeared in version 5.0 patchlevel 5 and is
+ considered EXPERIMENTAL (implementation details may change).
 
 3 New commands
 #start
@@ -291,6 +298,7 @@ C
 # set view map {scale}                     # allows resizing a 3D projection plot
 # set multiplot {next|previous}            # navigate within the auto-layout grid
 # set minussign                            # use typographic "minus sign", not hyphen
+# set micro                                # use typographic "micro sign", not "u"
 #end
 
 2 Differences from version 4
@@ -654,7 +662,8 @@ C
 
    plot for [i=2:6] 'datafile' using i title "Results for ".columnhead(i)
 
- See `labels`, `using xticlabels`, `plot title`, `using`.
+ This use of column headings is automated by `set key autotitle columnhead`.
+ See `labels`, `using xticlabels`, `plot title`, `using`, `key autotitle`.
 2 Enhanced text mode
 ?enhanced text
 ?enhanced
@@ -1137,18 +1146,27 @@ C marker below is used to signal this to doc2html:
 %atanh(x)@any@$tanh sup -1 x$ (inverse hyperbolic tangent) in radians
  The `atanh(x)` function returns the inverse hyperbolic tangent of its
  argument in radians.
+?expressions functions EllipticK
+?EllipticK
 4 EllipticK
 #EllipticK(k) & real k $\in$ (-1:1) & $K(k)$ complete elliptic integral of the first kind \\
 %EllipticK(k)@real k in (-1:1)@$K ( k )$ complete elliptic integral of the first kind
- See `elliptic integrals`.
+ The `EllipticK(k)` function returns the complete elliptic integral of the
+ first kind. See `elliptic integrals` for more details.
+?expressions functions EllipticE
+?EllipticE
 4 EllipticE
 #EllipticE(k) & real k $\in$ [-1:1] & $E(k)$ complete elliptic integral of the second kind \\
 %EllipticE(k)@real k in [-1:1]@ $E ( k )$ complete elliptic integral of the second kind
- See `elliptic integrals`.
+ The `EllipticE(k)` function returns the complete elliptic integral of the
+ second kind. See `elliptic integrals` for more details.
+?expressions functions EllipticPi
+?EllipticPi
 4 EllipticPi
 #EllipticPi(n,k) & real n$<$1, real k $\in$ (-1:1) & $\Pi(n,k)$ complete elliptic integral of the third kind \\
 %EllipticPi(n,k)@ real n<1, real k in (-1:1)@ $Pi ( n,k )$ complete elliptic integral of the third kind
- See `elliptic integrals`.
+ The `EllipticPi(n,k)` function returns the complete elliptic integral of the
+ third kind. See `elliptic integrals` for more details.
 4 besj0
 ?expressions functions besj0
 ?besj0
@@ -1303,9 +1321,9 @@ C marker below is used to signal this to doc2html:
 ?lambertw
 #lambertw(x) & real & Lambert W function \\
 %lambertw(x)@real@Lambert W function
- The lambertw function returns the value of the principal branch of
- Lambert's W function, which is defined by the equation (W(z)*exp(W(z))=z.
- z must be a real number with z >= -exp(-1).
+ The `lambertw(x)` function returns the value of the principal branch of
+ Lambert's W function, which is defined by the equation (W(x)*exp(W(x))=x.
+ x must be a real number with x >= -exp(-1).
 4 lgamma
 ?expressions functions lgamma
 ?lgamma
@@ -1339,7 +1357,7 @@ C marker below is used to signal this to doc2html:
 ?rand
 #rand(x) & int & pseudo random number in the interval [0:1] \\
 %rand(x)@int@pseudo random number in the interval [0:1]
- `rand(0)` returns a pseudo random number in the interval [0:1].
+ The `rand(x)` function returns a pseudo random number in the interval [0:1].
  See `random` for more details.
 4 real
 ?expressions functions real
@@ -1433,8 +1451,8 @@ C marker below is used to signal this to doc2html:
 ?faddeeva
 %faddeeva(z)@complex@rescaled complex error function w(z) = exp(-z^2) * erfc(-i*z)
 #faddeeva(z)&complex&rescaled complex error function $w(z) = e^{-z^2}~ erfc(-iz) $ \\
- `Faddeeva(z)` returns the rescaled complex error function 
-  w(z) = exp(-z^2) * erfc(-i*z)
+ The `faddeeva(z)` function returns the rescaled complex error function 
+ faddeeva(z) = exp(-z^2) * erfc(-i*z)
  This corresponds to Eqs 7.1.3 and 7.1.4 of Abramowitz and Stegun.
 4 erfi
 ?expressions functions erfi
@@ -1562,23 +1580,23 @@ C marker below is used to signal this to doc2html:
 ?column
 #column(x) & int or string & column $x$ during datafile manipulation. \\
 %column(x)@int or string@column $x$ during datafile manipulation.
- `column(x)` may be used only in expressions as part of `using` manipulations
- to fits or datafile plots.  It evaluates to the numerical value of the contents
- of column x. See `plot datafile using`.
+ `column(x)` may be used only as part of a plot, splot, or stats command.
+ It evaluates to the numerical value of the content of column x.
+ See `plot datafile using`.
 4 columnhead
 ?expressions functions columnhead
 ?columnhead
 #columnhead(x) & int & string containing first entry of column $x$ in datafile. \\
 %columnhead(x)@int@string containing first entry of column $x$ in datafile.
- `columnhead(x)` may only be used in expressions as part of `using` manipulations
- to fits or datafile plots.  It evaluates to a string containing the contents of
- column x in the first line of data. See `plot datafile using`.
+ `columnhead(x)` may only be used as part of a plot, splot, or stats command.
+ It evaluates to a string containing the content of column x in the first line
+ of a data file. See `plot datafile using`.
 4 exists
 ?expressions functions exists
 ?exists
 #exists("X") & string & returns 1 if a variable named X is defined, 0 otherwise. \\
 %exists("X")@string@returns 1 if a variable named X is defined, 0 otherwise.
- The argument to exists() is a string constant or a string variable;
+ The argument to `exists()` is a string constant or a string variable;
  if the string contains the name of a defined variable, the function returns 1.
  Otherwise the function returns 0.
 4 hsv2rgb
@@ -1587,7 +1605,8 @@ C marker below is used to signal this to doc2html:
 ?hsv
 #hsv2rgb(h,s,v) & h,s,v $\in$ [0:1] & 24bit RGB color value. \\
 %hsv2rgb(h,s,v)@h,s,v in [0:1]@24bit RGB color value.
- The HSV (Hue/Saturation/Value) triplet is converted to an equivalent RGB value.
+ The `hsv2rgb(h,s,v)` function converts HSV (Hue/Saturation/Value) triplet
+ to an equivalent RGB value.
 4 stringcolumn
 ?expressions functions stringcolumn
 ?stringcolumn
@@ -1596,7 +1615,8 @@ C marker below is used to signal this to doc2html:
 #stringcolumn(x) & int or string & content of column $x$ as a string. \\
 %stringcolumn(x)@int or string@content column $x$ as a string.
  `stringcolumn(x)` may be used only in expressions as part of `using` manipulations
- to fits or datafile plots.  It returns the content of column x as a string variable.
+ to fits or datafile plots.  It returns the content of column x as a string variable. 
+ `strcol(x)` is shorthand for `stringcolumn(x)`.
  See `plot datafile using`.
 4 timecolumn
 ?expressions functions timecolumn
@@ -1611,70 +1631,70 @@ C marker below is used to signal this to doc2html:
  Note: prior to version 5 this function took only a single parameter and worked only
  for columns that contained purely an axis coordinate.
 4 tm_hour
-?expressions tm_hour
+?expressions functions tm_hour
 ?tm_hour
 #tm\_hour(x) & int & the hour \\
 %tm_hour(x)@int@the hour
- The `tm_hour` function interprets its argument as a time, in seconds from
+ The `tm_hour(x)` function interprets its argument as a time, in seconds from
  1 Jan 1970.  It returns the hour (an integer in the range 0--23) as a real.
 4 tm_mday
-?expressions tm_mday
+?expressions functions tm_mday
 ?tm_mday
 #tm\_mday(x) & int & the day of the month \\
 %tm_mday(x)@int@the day of the month
- The `tm_mday` function interprets its argument as a time, in seconds from
+ The `tm_mday(x)` function interprets its argument as a time, in seconds from
  1 Jan 1970.  It returns the day of the month (an integer in the range 1--31)
  as a real.
 4 tm_min
-?expressions tm_min
+?expressions functions tm_min
 ?tm_min
 #tm\_min(x) & int & the minute \\
 %tm_min(x)@int@the minute
- The `tm_min` function interprets its argument as a time, in seconds from
+ The `tm_min(x)` function interprets its argument as a time, in seconds from
  1 Jan 1970.  It returns the minute (an integer in the range 0--59) as a real.
 4 tm_mon
-?expressions tm_mon
+?expressions functions tm_mon
 ?tm_mon
 #tm\_mon(x) & int & the month \\
 %tm_mon(x)@int@the month
- The `tm_mon` function interprets its argument as a time, in seconds from
+ The `tm_mon(x)` function interprets its argument as a time, in seconds from
  1 Jan 1970.  It returns the month (an integer in the range 0--11) as a real.
 4 tm_sec
-?expressions tm_sec
+?expressions functions tm_sec
 ?tm_sec
 #tm\_sec(x) & int & the second \\
 %tm_sec(x)@int@the second
- The `tm_sec` function interprets its argument as a time, in seconds from
+ The `tm_sec(x)` function interprets its argument as a time, in seconds from
  1 Jan 1970.  It returns the second (an integer in the range 0--59) as a real.
 4 tm_wday
-?expressions tm_wday
+?expressions functions tm_wday
 ?tm_wday
 #tm\_wday(x) & int & the day of the week \\
 %tm_wday(x)@int@the day of the week
- The `tm_wday` function interprets its argument as a time, in seconds from
+ The `tm_wday(x)` function interprets its argument as a time, in seconds from
  1 Jan 1970.  It returns the day of the week (an integer in the range 0--6) as
  a real.
 4 tm_yday
-?expressions tm_yday
+?expressions functions tm_yday
 ?tm_yday
 #tm\_yday(x) & int & the day of the year \\
 %tm_yday(x)@int@the day of the year
- The `tm_yday` function interprets its argument as a time, in seconds from
+ The `tm_yday(x)` function interprets its argument as a time, in seconds from
  1 Jan 1970.  It returns the day of the year (an integer in the range 1--366)
  as a real.
 4 tm_year
-?expressions tm_year
+?expressions functions tm_year
 ?tm_year
 #tm\_year(x) & int & the year \\
 %tm_year(x)@int@the year
- The `tm_year` function interprets its argument as a time, in seconds from
+ The `tm_year(x)` function interprets its argument as a time, in seconds from
  1 Jan 1970.  It returns the year (an integer) as a real.
 4 time
-?expressions time
+?expressions functions time
 ?time
 #time(x) & any & the current system time \\
 %time(x)@any@the current system time
- The `time` function returns the current system time. This value can be 
+ The `time(x)` function returns the current system time. This value can be
  converted to a date string with the `strftime` function, or it can be used
  in conjunction with `timecolumn` to generate relative time/date plots. 
  The type of the argument determines what is returned. If the argument is an
@@ -1695,7 +1715,6 @@ C marker below is used to signal this to doc2html:
 @end table
 
 4 elliptic integrals
-?expressions functions elliptic integrals
 ?elliptic integrals
 =elliptic integrals
  The `EllipticK(k)` function returns the complete elliptic integral of the first
@@ -1788,10 +1807,12 @@ C marker below is used to signal this to doc2html:
        !           !a        * logical negation
        !           a!        * factorial
        $           $3        * call arg/column during `using` manipulation
+       ||          |A|         cardinality of array A
 =factorial
 =negation
 =one's complement
 =operator precedence
+=cardinality
 #\begin{tabular}{|ccl|} \hline
 #\multicolumn{3}{|c|}{Unary Operators}\\ \hline \hline
 #Symbol & Example & Explanation \\ \hline
@@ -1801,6 +1822,7 @@ C marker below is used to signal this to doc2html:
 #\verb@!@ & \verb@!a@ & * logical negation \\
 #\verb@!@ & \verb@a!@ & * factorial \\
 #\verb@$@ & \verb@$3@ & * call arg/column during `using` manipulation \\
+#\verb@|@ & \verb@|A|@ & cardinality of array A \\
 C ugly hack: doc2ms uses $ as delimiter for eqn's so it doesn't seem to
 C be able to print them. So we have to typeset this table without using
 C eqn (at least that's the only solution I found, without any real docs
@@ -1824,6 +1846,7 @@ C ... and restart the table:
 %!@!a@* logical negation
 %!@a!@* factorial
 %$@$3@* call arg/column during `using` manipulation
+%|@|A|@cardinality of array A
 @end table
 
 ^<table align="center" border="1" rules="groups" frame="hsides" cellpadding="3">
@@ -1842,6 +1865,7 @@ C ... and restart the table:
 ^<tr>    <td><tt>!</tt></td>    <td><tt>!a</tt></td>    <td>* logical negation</td></tr>
 ^<tr>    <td><tt>!</tt></td>    <td><tt>a!</tt></td>    <td>* factorial</td></tr>
 ^<tr>    <td><tt>$</tt></td>    <td><tt>$3</tt></td>    <td>* call arg/column during `using` manipulation</td></tr>
+^<tr>    <td><tt>|</tt></td>    <td><tt>|A|</tt></td>   <td>cardinality of array A</td></tr>
 ^</tbody>
 ^</table>
 
@@ -2177,11 +2201,13 @@ C ... and restart the table:
  `value`.
 3 Arrays
 ?arrays
+?cardinality
  Arrays are implemented as indexed lists of user variables.  The elements in an
  array are not limited to a single type of variable.  Arrays must be created
  explicitly before being referenced. The size of an array cannot be changed
  after creation.  All elements are initially undefined.  In most places an array
  element can be used instead of a named user variable.
+ The cardinality (number of elements) of array A is given by the expression |A|.
 
  Example:
       array A[6]
@@ -2580,6 +2606,11 @@ Ffigure_newsyntax
  associated with each line, analogous to `linecolor` or `linewidth`.  It is not
  necessary to place the current terminal in a special mode just to draw dashed
  lines.  I.e. the command `set term <termname> {solid|dashed}` is now ignored.
+ If backwards compatibility with old scripts written for version 4 is required,
+ the following lines can be used instead:
+
+      if (GPVAL_VERSION >= 5.0) set for [i=1:9] linetype i dashtype i
+      if (GPVAL_VERSION < 5.0) set termoption dashed
 
  All lines have the property `dashtype solid` unless you specify otherwise.
  You can change the default for a particular linetype using the command
@@ -3328,14 +3359,14 @@ Ffigure_boxplot
  These default properties may be changed using the `set style boxplot` command.
  See `set style boxplot`, `bars`, `boxwidth`, `fillstyle`, `candlesticks`.
 
-2 boxxyerrorbars
-?plotting styles boxxyerrorbars
-?style boxxyerrorbars
-?boxxyerrorbars
-Ffigure_boxxyerrorbars
- The `boxxyerrorbars` style is only relevant to 2D data plotting.  It is similar
- to the `xyerrorbars` style except that it draws rectangular areas rather than
- simple crosses.  It uses either 4 or 6 basic columns of input data.
+2 boxxyerror
+?plotting styles boxxyerror
+?style boxxyerror
+?boxxyerror
+Ffigure_boxxyerror
+ The `boxxyerror` plot style is only relevant to 2D data plotting.
+ It is similar to the `xyerrorbars` style except that it draws rectangular areas
+ rather than crosses.  It uses either 4 or 6 basic columns of input data.
  Additional input columns may be used to provide information such as
  variable line or fill color (see `rgbcolor variable`).
 
@@ -3346,6 +3377,9 @@ Ffigure_boxxyerrorbars
  way as they are for the `xyerrorbars` style---either from xlow to xhigh and
  from ylow to yhigh, or from x-xdelta to x+xdelta and from y-ydelta to
  y+ydelta, depending on how many data columns are provided.
+
+ The 6 column form of the command provides a convenient way to plot rectangles
+ with arbitraty x and y bounds.
 
  An additional (5th or 7th) input column may be used to provide variable 
  (per-datapoint) color information (see `linecolor` and `rgbcolor variable`).
@@ -3535,8 +3569,8 @@ Ffigure_dots
 ?style filledcurves
 ?filledcurves
 Ffigure_filledcurves
- The `filledcurves` style is only relevant to 2D plotting. Three variants
- are possible. The first two variants require either a function or two columns
+ The `filledcurves` style is only used for 2D plotting. It has three variants.
+ The first two variants require either a single function or two columns (x,y)
  of input data, and may be further modified by the options listed below.
 
  Syntax:
@@ -3561,10 +3595,10 @@ Ffigure_filledcurves
      filledcurves xy=10,20 ... point 10,20 of x1,y1 axes (arc-like shape).
      filledcurves above r=1.5  the area of a polar plot outside radius 1.5
 
- The third variant requires three columns of input data: the x coordinate and
- two y coordinates corresponding to two curves sampled at the same set of
- x coordinates; the area between the two curves is filled.
+ The third variant fills the area between two curves sampled at the same set of
+ x coordinates.  It requires three columns of input data (x, y1, y2).
  This is the default if there are three or more columns of input data.
+ See also the similar 3D plot style `zerrorfill`.
 
       3 columns:  x  y1  y2
 
@@ -3926,8 +3960,8 @@ Ffigure_scaled_image
  transparent and does not alter the underlying contents of the plot. A pixel
  with alpha = 255 is purely opaque.  All terminal types can handle these two
  extreme cases.  A pixel with 0 < alpha < 255 is partially transparent.
- Only a few terminal types can handle this correctly; other terminals will
- approximate this by treating alpha as being either 0 or 255.
+ Terminal types that do not support partial transparency will round this value
+ to 0 or 255.
 3 image pixels
 ?plotting styles image pixels
 ?style image pixels
@@ -4311,6 +4345,44 @@ Ffigure_yerrorlines
 ^ <a href="http://www.gnuplot.info/demo/mgr.html">
  errorbar demo.
 ^ </a>
+2 zerrorfill
+?plotting styles zerrorfill
+?style zerrorfill
+?zerrorfill
+ Syntax:
+
+      splot DATA using 1:2:3:4[:5] with zerrorfill {fc|fillcolor <colorspec>}
+                 {lt|linetype <n>} {<line properties>}
+
+ The `zerrorfill` plot style is similar to one variant of the 2D plot style
+ `filledcurves`.  It fills the area between two functions or data lines that
+ are sampled at the same x and y points.  It requires 4 or 5 input columns:
+
+      4 columns:  x  y  z  zdelta
+      5 columns:  x  y  z  zlow  zhigh
+
+ The area between zlow and zhigh is filled and then a line is drawn through the
+ z values. By default both the line and the fill area use the same color, but
+ you can change this in the splot command.  The fill area properties are also
+ affected by the global fill style; see `set style fill`.
+
+ If there are multiple curves in the splot command each new curve may occlude
+ all previous curves.  To get proper depth sorting so that curves can only be
+ occluded by curves closer to the viewer, use the command `set pm3d depthorder`.
+ Unfortunately this causes all the filled areas to be drawn after all of the
+ corresponding lines of z values.  In order to see both the lines and the
+ depth-sorted fill areas you probably will need to make the fill areas 
+ partially transparent or use pattern fill rather than solid fill.
+
+ The fill area in the first two examples below is the same.
+
+      splot 'data' using 1:2:3:4 with zerrorfill fillcolor "grey" lt black
+      splot 'data' using 1:2:3:($3-$4):($3+$4) with zerrorfill
+      splot '+' using 1:(const):(func1($1)):(func2($1)) with zerrorfill
+      splot for [k=1:5] datafile[k] with zerrorfill lt black fc lt (k+1)
+
+ This plot style can also be used to create fence plots. See `fenceplots`.
+
 2 3D plots
 ?3D plots
 ?plotting styles 3D plots
@@ -4363,6 +4435,19 @@ Ffigure_jitter
  displacement pattern used for jittering.  The plots in the figure were created
  by the same plot command but different jitter settings.
       `plot $data using 1:2:1 lc variable`
+2 Fence plots
+?fenceplots
+=zerrorfill
+Ffigure_fenceplot
+ Fence plots combine several 2D plots by aligning their Y coordinates and
+ separating them from each other by a displacement along X. Filling the area
+ between a base value and each plot's series of Z values enhances the visual
+ impact of the alignment on Y and comparison on Z. There are several ways
+ such plots can be created in gnuplot. The simplest is to use the 5 column
+ variant of the `zerrorfill` style. Suppose there are separate curves z = Fi(y)
+ indexed by i. A fence plot is generated by `splot with zerrorfill` using
+ input columns
+      i y z_base z_base Fi(y)
 
 1 Commands
 ?commands
@@ -6497,7 +6582,7 @@ Ffigure_jitter
  $1, $2, ... are shorthand for column(1), column(2) ...  The function `valid(N)`
  tests whether the value in the Nth column is a valid number.
 =column
-=columnhead
+=columnheader
  If each column of data in the input file contains a label in the first row
  rather than a data value, this label can be used to identify the column on
  input and/or in the plot legend. The column() function can be used to select
@@ -6513,8 +6598,7 @@ Ffigure_jitter
        plot 'datafile' using "Age":"Height", '' using "Age":"Weight"
 
  The full string must match. Comparison is case-sensitive.
- To use the column labels in the plot legend, use 
- `set key autotitle columnhead`.
+ To use column labels in the plot legend, use `set key autotitle columnhead`.
 
  In addition to the actual columns 1...N in the input data file, gnuplot
  presents data from several "pseudo-columns" that hold bookkeeping information.
@@ -7092,8 +7176,8 @@ Ffigure_jitter
       surface      vectors    parallelaxes
  or
       boxes            boxplot        ellipses       image
-      boxerrorbars     candlesticks   filledcurves   rgbimage
-      boxxyerrorbars   circles        histograms     rgbalpha   pm3d
+      boxerrorbars     candlesticks   filledcurves   rgbimage    pm3d
+      boxxyerror       circles        histograms     rgbalpha    zerrorfill
  or
       table
 
@@ -7135,7 +7219,7 @@ Ffigure_jitter
  the index of the desired style.
 
  If gnuplot was built with `pm3d` support, the special keyword `palette` is
- allowed for smooth color change of lines, points and dots in `splots`. The
+ allowed for smooth color change of lines, points and dots in `splot`. The
  color is chosen from a smooth palette which was set previously with the
  command `set palette`. The color value corresponds to the z-value of the
  point coordinates or to the color coordinate if specified by the 4th parameter
@@ -9624,7 +9708,7 @@ Ffigure_missing
 
  Syntax:
        set key {on|off} {default}
-             {{inside | outside} | {lmargin | rmargin | tmargin | bmargin}
+             {{inside | outside | fixed} | {lmargin | rmargin | tmargin | bmargin}
                | {at <position>}}
              {left | right | center} {top | bottom | center}
              {vertical | horizontal} {Left | Right}
@@ -9685,21 +9769,6 @@ Ffigure_missing
  subtracted from the height of the key box.  This is useful mainly when you are
  putting a box around the key and want larger borders around the key entries.
 
- All plotted curves of `plot`s and `splot`s are titled according to the
- default option `autotitles`. The automatic generation of titles can be
- suppressed by `noautotitles`; then only those titles explicitly defined
- by `(s)plot ... title ...` will be drawn.
-
-=columnheader
- The command `set key autotitle columnheader` causes the first entry in each
- column of input data to be interpreted as a text string and used as a title for
- the corresponding plot. If the quantity being plotted is a function of data
- from several columns, gnuplot may be confused as to which column to draw the
- title from. In this case it is necessary to specify the column explicitly in
- the plot command, e.g.
-
-       plot "datafile" using (($2+$3)/$4) title columnhead(3) with lines
-
  An overall title can be put on the key (`title "<text>"`)---see also `syntax`
  for the distinction between text in single- or double-quotes. The justification
  of the title defaults to center and can be changed by the keywords `right` or
@@ -9719,20 +9788,38 @@ Ffigure_missing
  arranged so that an imaginary straight line divides the left- and right-hand
  sides of the key.  It is the coordinates of the top of this line that are
  specified with the `set key` command.  In a `plot`, only the x and y
- coordinates are used to specify the line position.  For a `splot`, x, y and
- z are all used as a 3D location mapped using the same mapping as the graph
- itself to form the required 2D screen position of the imaginary line.
+ coordinates are used to specify the line position.
 
  When using the TeX/LaTeX group of terminals or terminals in which formatting
  information is embedded in the string, `gnuplot` can only estimate the width
  of the string for key positioning.  If the key is to be positioned at the
  left, it may be convenient to use the combination `set key left Left reverse`.
 
- If `splot` is being used to draw contours, by default the contour labels will
- be listed in the key.  You can adjust this display using `set cntrlabel format`.
+4 3D key
+?set key 3D
+?set key splot
+?key 3D
+?key splot
+?set key fixed
+?key fixed
+ Placement of the key for 3D plots (`splot`) by default uses the `fixed` option.
+ Note that this is a change from earlier gnuplot versions. `fixed` placement is
+ very similar to `inside` placement with one important difference.  The plot 
+ boundaries of a 3D plot change as the view point is rotated or scaled.  If the
+ key is positioned `inside` these boundaries then the key also moves when the
+ view is changed. `fixed` positioning ignores changes to the view angles or 
+ scaling; i.e. the key remains fixed in one location on the canvas as the plot
+ is rotated.
 
- Examples:
+ For 2D plots the `fixed` option is exactly equivalent to `inside`.
 
+ If `splot` is being used to draw contours, by default a separate key entry is
+ generated for each contour level with a distinct line type.
+ To modify this see `set cntrlabel`.
+
+4 key examples
+?set key examples
+?key examples
  This places the key at the default location:
        set key default
 
@@ -9749,6 +9836,31 @@ Ffigure_missing
  This places the key in the bottom left corner, left-justifies the text,
  gives it a title, and draws a box around it in linetype 3:
        set key left bottom Left title 'Legend' box 3
+4 key autotitle
+?commands set key autotitle
+?set key autotitle
+?key autotitle
+?autotitle
+ `set key autotitle` causes each plot to be identified in the key by the name
+ of the data file or function used in the plot command. This is the default.
+ `set key noautotitle` disables the automatic generation of plot titles.
+=columnnheader
+ The command `set key autotitle columnheader` causes the first entry in each
+ column of input data to be interpreted as a text string and used as a title for
+ the corresponding plot. If the quantity being plotted is a function of data
+ from several columns, gnuplot may be confused as to which column to draw the
+ title from. In this case it is necessary to specify the column explicitly in
+ the plot command, e.g.
+
+       plot "datafile" using (($2+$3)/$4) title columnhead(3) with lines
+
+ Note: The effect of `set key autotitle columnheader`, treatment of the first
+ line in a data file as column headers rather than data applies even if the
+ key is disabled by `unset key`.  It also applies to `stats` and `fit` commands
+ even though they generate no key.
+
+ In all cases an explicit `title` or `notitle` keyword in the plot command
+ itself will override the default from `set key autotitle`.
 4 key placement
 ?commands set key placement
 ?set key placement
@@ -10301,6 +10413,23 @@ Ffigure_multiple_keys
  labels will be included in either the margin calculation or the calculation
  of the positions of other text to be written in the margin.  This can lead
  to tic labels overwriting other text if the axis is very close to the border.
+3 micro
+?commands set micro
+?commands show micro
+?commands unset micro
+?set micro
+?show micro
+?unset micro
+?micro
+ By default the "%c" format specifier for scientific notation used to generate
+ axis tick labels uses a lower case u as a prefix to indicate "micro" (10^-6).
+ The `set micro` command tells gnuplot to use a different typographic 
+ character (unicode U+00B5).  The byte sequence used to represent this character
+ depends on the current encoding.  See `format specifiers`, `encoding`.
+
+ This command is EXPERIMENTAL. It has known limitations and implementation
+ details may change.
+
 3 minussign
 ?commands set minussign
 ?commands show minussign
@@ -10329,9 +10458,7 @@ Ffigure_multiple_keys
  terminals, as LaTeX has its own mechanism for handling minus signs.
  It also is not necessary when using the postscript terminal because the 
  postscript prologue output by gnuplot remaps the ascii hyphen code \055 to a
- different glyph named `minus`.  If you want to use the postscript terminal
- while `set minussign` is active,  you will probably need to select the option
- `set term post adobeglyphnames`.
+ different glyph named `minus`.
 
  This command is EXPERIMENTAL. It has known limitations and implementation
  details may change.
@@ -12310,7 +12437,7 @@ Ffigure_multiple_keys
       # Fill area in cyan, border in blue
       plot ... with boxes fillcolor "cyan" fs solid border linecolor "blue"
 
- Note: The border property of a fill style with only affect plots drawn
+ Note: The border property of a fill style only affects plots drawn
  `with filledcurves` in the default mode (closed curve).
 5 set style fill transparent
 ?commands set style fill transparent
@@ -12459,6 +12586,7 @@ Ffigure_multiple_keys
                               {{pointtype | pt} <point_type>}
                               {{pointsize | ps} <point_size>}
                               {{pointinterval | pi} <interval>}
+                              {{dashtype | dt} <dashtype>}
                               {palette}
        unset style line
        show style line
@@ -12640,6 +12768,7 @@ Ffigure_multiple_keys
 ?unset style textbox
 ?show style textbox
 ?textbox
+?boxed
 
  Syntax: set style textbox {opaque|transparent}{{no}border {<bordercolor>}}
                            {fillcolor <color>}
@@ -12648,7 +12777,8 @@ Ffigure_multiple_keys
  This command controls the appearance of labels with the attribute 'boxed'.
  Terminal types that do not support boxed text will ignore this style.
  Note: The current implementation is experimental; details may change.
- Implementation for some terminals (svg, win) is incomplete.
+ Implementation for some terminals (svg, latex) is incomplete.
+ Most terminals cannot place a box correctly around rotated text.
 3 surface
 ?commands set surface
 ?commands unset surface
@@ -12775,7 +12905,6 @@ Ffigure_multiple_keys
       set termoption font "<fontname>{,<fontsize>}"
       set termoption fontscale <scale>
       set termoption {linewidth <lw>}{lw <lw>}
-      set termoption {dashed|solid}         # not generally relevant in verion 5
 
 3 tics
 ?commands set tics
@@ -12881,8 +13010,7 @@ Ffigure_multiple_keys
 ?show timestamp
 ?timestamp
 ?notimestamp
- The command `set timestamp` places the time and date of the plot in the left
- margin.
+ The command `set timestamp` places the current time and date in the plot margin. 
 
  Syntax:
        set timestamp {"<format>"} {top|bottom} {{no}rotate}
@@ -12891,12 +13019,11 @@ Ffigure_multiple_keys
        unset timestamp
        show timestamp
 
- The format string allows you to choose the format used to write the date and
- time.  Its default value is what asctime() uses: "%a %b %d %H:%M:%S %Y"
- (weekday, month name, day of the month, hours, minutes, seconds, four-digit
- year).  With `top` or `bottom` you can place the timestamp at the top or
- bottom of the left margin (default: bottom).  `rotate` lets you write the
- timestamp vertically, if your terminal supports vertical text.  The constants
+ The format string is used to write the date and time.  Its default value is
+ what asctime() uses: "%a %b %d %H:%M:%S %Y" (weekday, month name, day of the
+ month, hours, minutes, seconds, four-digit year).  With `top` or `bottom` you
+ can place the timestamp along the top left or bottom left margin
+ (default: bottom).  `rotate` writes the timestamp vertically. The constants
  <xoff> and <yoff> are offsets that let you adjust the position more finely.
  <font> is used to specify the font with which the time is to be written.
 
@@ -13132,6 +13259,7 @@ Ffigure_multiple_keys
        set view <rot_x>{,{<rot_z>}{,{<scale>}{,<scale_z>}}}
        set view map {scale <scale>}
        set view {no}equal {xy|xyz}
+       set view azimuth <angle>
        show view
 
  where <rot_x> and <rot_z> control the rotation angles (in degrees) in a
@@ -13157,6 +13285,17 @@ Ffigure_multiple_keys
 
  The first sets all the four default values.  The second changes only scale,
  to 0.5.
+4 azimuth
+?set view azimuth
+?view azimuth
+?azimuth
+       set view azimuth <angle-in-degrees>
+ The setting of azimuth affects the orientation of the z axis in a 3D graph
+ (splot). At the default azimuth = 0 the z axis of the plot lies in the plane
+ orthogonal to the screen horizontal.  I.e. the projection of the z axis lies
+ along the screen vertical.  Non-zero azimuth rotates the plot about the line
+ of sight through the origin so that a projection of the z axis is no longer
+ vertical.  When azimuth = 90 the z axis is horizontal rather than vertical.
 4 equal_axes
 ?set view equal_axes
 ?set view equal xyz

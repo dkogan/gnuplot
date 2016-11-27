@@ -94,11 +94,11 @@ typedef struct text_label {
 
 /* This is the default state for the axis, timestamp, and plot title labels
  * indicated by tag = -2 */
-#define NONROTATABLE_LABEL_TAG -2
+#define NONROTATING_LABEL_TAG -2
 #define ROTATE_IN_3D_LABEL_TAG -3
 #define VARIABLE_ROTATE_LABEL_TAG -4
 #define EMPTY_LABELSTRUCT \
-    {NULL, NONROTATABLE_LABEL_TAG, \
+    {NULL, NONROTATING_LABEL_TAG, \
      {character, character, character, 0.0, 0.0, 0.0}, CENTRE, 0, 0, \
      0, \
      NULL, NULL, {TC_LT, -2, 0.0}, DEFAULT_LP_STYLE_TYPE, \
@@ -334,6 +334,7 @@ typedef struct {
     struct position user_pos;	/* if user specified position, this is it */
     VERT_JUSTIFY vpos;		/* otherwise these guide auto-positioning */
     JUSTIFY hpos;
+    TBOOLEAN fixed;		/* prevents key in 3D plot from rotating/scaling with plot */
     t_key_sample_positioning just;
     t_key_stack_direction stack_dir;
     double swidth;		/* 'width' of the linestyle sample line in the key */
@@ -364,7 +365,7 @@ extern legend_key keyT;
 		{ TRUE, \
 		GPKEY_AUTO_INTERIOR_LRTBC, GPKEY_RMARGIN, \
 		DEFAULT_KEY_POSITION, \
-		JUST_TOP, RIGHT, \
+		JUST_TOP, RIGHT, TRUE, \
 		GPKEY_RIGHT, GPKEY_VERTICAL, \
 		4.0, 1.0, 0.0, 0.0, \
 		FILENAME_KEYTITLES, \
@@ -413,6 +414,7 @@ typedef struct t_image {
 } t_image;
 
 extern BoundingBox plot_bounds;	/* Plot Boundary */
+extern BoundingBox page_bounds;	/* 3D boundary prior to view transformation */
 extern BoundingBox canvas; 	/* Writable area on terminal */
 extern BoundingBox *clip_area;	/* Current clipping box */
 
@@ -453,7 +455,6 @@ extern text_label timelabel;
 /* asctime() format */
 # define DEFAULT_TIMESTAMP_FORMAT "%a %b %d %H:%M:%S %Y"
 #endif
-extern int timelabel_rotate;
 extern int timelabel_bottom;
 
 extern TBOOLEAN	polar;
@@ -551,6 +552,9 @@ void clip_vector __PROTO((unsigned int x, unsigned int y));
 /* Common routines for setting line or text color from t_colorspec */
 void apply_pm3dcolor __PROTO((struct t_colorspec *tc));
 void reset_textcolor __PROTO((const struct t_colorspec *tc));
+
+/* Timestamp code shared by 2D and 3D */
+void do_timelabel __PROTO((unsigned int x, unsigned int y));
 
 extern fill_style_type default_fillstyle;
 

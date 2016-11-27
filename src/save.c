@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.309 2016-08-25 20:07:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.318 2016-11-14 23:29:36 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -404,7 +404,7 @@ save_set_all(FILE *fp)
     fputs("set key ", fp);
     switch (key->region) {
 	case GPKEY_AUTO_INTERIOR_LRTBC:
-	    fputs("inside", fp);
+	    fputs(key->fixed ? "fixed" : "inside", fp);
 	    break;
 	case GPKEY_AUTO_EXTERIOR_LRTBC:
 	    fputs("outside", fp);
@@ -618,10 +618,8 @@ set encoding %s\n\
     if (!numeric_locale && !decimalsign)
 	fprintf(fp, "unset decimalsign\n");
 
-    if (use_minus_sign)
-	fprintf(fp, "set minussign\n");
-    else
-	fprintf(fp, "unset minussign\n");
+    fprintf(fp, "%sset micro\n", use_micro ? "" : "un");
+    fprintf(fp, "%sset minussign\n", use_minus_sign ? "" : "un");
 
     fputs("set view ", fp);
     if (splot_map == TRUE)
@@ -629,6 +627,7 @@ set encoding %s\n\
     else {
 	fprintf(fp, "%g, %g, %g, %g",
 	    surface_rot_x, surface_rot_z, surface_scale, surface_zscale);
+	fprintf(fp, "\nset view azimuth %g", azimuth);
     }
     if (aspect_ratio_3D)
 	fprintf(fp, "\nset view  %s", aspect_ratio_3D == 2 ? "equal xy" :
@@ -803,6 +802,8 @@ set origin %g,%g\n",
 	save_textcolor(fp, &(lab.textcolor));				 \
 	if (lab.tag == ROTATE_IN_3D_LABEL_TAG)				 \
 	    fprintf(fp, " rotate parallel");				 \
+	else if (lab.rotate == TEXT_VERTICAL)				 \
+	    fprintf(fp, " rotate");					 \
 	else if (lab.rotate)						 \
 	    fprintf(fp, " rotate by %d", lab.rotate);			 \
 	else								 \
@@ -936,17 +937,16 @@ set origin %g,%g\n",
     else {
       fputs( "color model ", fp );
       switch( sm_palette.cmodel ) {
+	default:
 	case C_MODEL_RGB: fputs( "RGB ", fp ); break;
 	case C_MODEL_HSV: fputs( "HSV ", fp ); break;
 	case C_MODEL_CMY: fputs( "CMY ", fp ); break;
 	case C_MODEL_YIQ: fputs( "YIQ ", fp ); break;
 	case C_MODEL_XYZ: fputs( "XYZ ", fp ); break;
-	default:
-	  fprintf( stderr, "%s:%d ooops: Unknown color model '%c'.\n",
-		   __FILE__, __LINE__, (char)(sm_palette.cmodel) );
       }
       fputs( "\nset palette ", fp );
       switch( sm_palette.colorMode ) {
+      default:
       case SMPAL_COLOR_MODE_RGB:
 	fprintf( fp, "rgbformulae %d, %d, %d\n", sm_palette.formulaR,
 		 sm_palette.formulaG, sm_palette.formulaB );
@@ -975,9 +975,6 @@ set origin %g,%g\n",
 		sm_palette.cubehelix_start, sm_palette.cubehelix_cycles,
 		sm_palette.cubehelix_saturation);
 	break;
-      default:
-	fprintf( stderr, "%s:%d ooops: Unknown color mode '%c'.\n",
-		 __FILE__, __LINE__, (char)(sm_palette.colorMode) );
       }
     }
 
@@ -1115,7 +1112,7 @@ save_ptics(FILE *fp, struct axis *this_axis)
 	fprintf(fp,"by %d ",this_axis->tic_rotate);
     save_position(fp, &this_axis->ticdef.offset, 3, TRUE);
     if (this_axis->manual_justify)
-	save_justification(this_axis->label.pos, fp);
+	save_justification(this_axis->tic_pos, fp);
     else
 	fputs(" autojustify", fp);
     fprintf(fp, "\nset %stics ", axis_name(this_axis->index));
@@ -1536,7 +1533,7 @@ save_data_func_style(FILE *fp, const char *which, enum PLOT_STYLE style)
 	fputs("boxerrorbars\n", fp);
 	break;
     case BOXXYERROR:
-	fputs("boxxyerrorbars\n", fp);
+	fputs("boxxyerror\n", fp);
 	break;
     case STEPS:
 	fputs("steps\n", fp);
@@ -1624,6 +1621,8 @@ save_linetype(FILE *fp, lp_style_type *lp, TBOOLEAN show_point)
 	fprintf(fp, " lt black");
     else if (lp->l_type == LT_BACKGROUND)
 	fprintf(fp, " lt bgnd");
+    else if (lp->l_type == LT_DEFAULT)
+	; /* Dont' print anything */
     else if (lp->l_type < 0)
 	fprintf(fp, " lt %d", lp->l_type+1);
 

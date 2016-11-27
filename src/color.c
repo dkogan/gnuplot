@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: color.c,v 1.122 2016-08-25 20:07:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: color.c,v 1.126 2016-11-14 19:59:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - color.c */
@@ -216,9 +216,13 @@ ifilled_quadrangle(gpiPoint* icorners)
     if (pm3d.border.l_type != LT_NODRAW) {
 	int i;
 
-	/* It should be sufficient to set only the color, but for some */
-	/* reason this causes the svg terminal to lose the fill type.  */
-	term_apply_lp_properties(&pm3d_border_lp);
+	/* LT_DEFAULT means draw border in current color */
+	/* FIXME: currently there is no obvious way to set LT_DEFAULT  */
+	if (pm3d.border.l_type != LT_DEFAULT) {
+	    /* It should be sufficient to set only the color, but for some */
+	    /* reason this causes the svg terminal to lose the fill type.  */
+	    term_apply_lp_properties(&pm3d_border_lp);
+	}
 
 	term->move(icorners[0].x, icorners[0].y);
 	for (i = 3; i >= 0; i--) {
@@ -513,7 +517,7 @@ cbtick_callback(
 	    if (y3<0) y3 = 0;
 	    just = hrotate ? LEFT : CENTRE;
 	    if (this_axis->manual_justify)
-		just = this_axis->label.pos;
+		just = this_axis->tic_pos;
 	    write_multiline(x2+offsetx, y3+offsety, text,
 			    just, JUST_CENTRE, hrotate,
 			    this_axis->ticdef.font);
@@ -524,7 +528,7 @@ cbtick_callback(
 	    if (len > 0) x3 += len; /* add outer tics len */
 	    just = LEFT;
 	    if (this_axis->manual_justify)
-		just = this_axis->label.pos;	    
+		just = this_axis->tic_pos;	    
 	    write_multiline(x3+offsetx, y2+offsety, text,
 			    just, JUST_CENTRE, 0.0,
 			    this_axis->ticdef.font);
@@ -645,11 +649,15 @@ draw_color_smooth_box(int plot_mode)
 	color_box.bounds.ybot = tmp;
     }
 
+    term->layer(TERM_LAYER_BEGIN_COLORBOX);
+
     /* The PostScript terminal has an Optimized version */
     if ((term->flags & TERM_IS_POSTSCRIPT) != 0)
 	draw_inside_color_smooth_box_postscript();
     else
 	draw_inside_color_smooth_box_bitmap();
+
+    term->layer(TERM_LAYER_END_COLORBOX);
 
     if (color_box.border) {
 	/* now make boundary around the colour box */
@@ -683,48 +691,33 @@ draw_color_smooth_box(int plot_mode)
     /* write the colour box label */
     if (CB_AXIS.label.text) {
 	int x, y;
+	int len;
+	int save_rotation = CB_AXIS.label.rotate;
 	apply_pm3dcolor(&(CB_AXIS.label.textcolor));
 	if (color_box.rotation == 'h') {
-	    int len = CB_AXIS.ticscale * (CB_AXIS.tic_in ? 1 : -1) * 
-		(term->v_tic);
+	    len = CB_AXIS.ticscale * (CB_AXIS.tic_in ? 1 : -1) * (term->v_tic);
 
-	    map3d_position_r(&(CB_AXIS.label.offset), &x, &y, "smooth_box");
-	    x += (color_box.bounds.xleft + color_box.bounds.xright) / 2;
+	    x = (color_box.bounds.xleft + color_box.bounds.xright) / 2;
+	    y = color_box.bounds.ybot - 2.7 * term->v_char;
 
-#define DEFAULT_Y_DISTANCE 1.0
-	    y += color_box.bounds.ybot + (- DEFAULT_Y_DISTANCE - 1.7) * term->v_char;
-#undef DEFAULT_Y_DISTANCE
 	    if (len < 0) y += len;
-	    if (x<0) x = 0;
-	    if (y<0) y = 0;
-	    write_multiline(x, y, CB_AXIS.label.text, CENTRE, JUST_CENTRE, 0,
-			    CB_AXIS.label.font);
+	    if (CB_AXIS.label.rotate == TEXT_VERTICAL)
+		CB_AXIS.label.rotate = 0;
 	} else {
-	    int len = CB_AXIS.ticscale * (CB_AXIS.tic_in ? -1 : 1) *
-		(term->h_tic);
+	    len = CB_AXIS.ticscale * (CB_AXIS.tic_in ? -1 : 1) * (term->h_tic);
 	    /* calculate max length of cb-tics labels */
 	    widest_tic_strlen = 0;
-	    if (CB_AXIS.ticmode & TICS_ON_BORDER) {
-	      	widest_tic_strlen = 0; /* reset the global variable */
+	    if (CB_AXIS.ticmode & TICS_ON_BORDER) /* Recalculate widest_tic_strlen */
 		gen_tics(&axis_array[COLOR_AXIS], widest_tic_callback);
-	    }
-	    map3d_position_r(&(CB_AXIS.label.offset), &x, &y, "smooth_box");
-#define DEFAULT_X_DISTANCE 0.0
-	    x += color_box.bounds.xright + (widest_tic_strlen + DEFAULT_X_DISTANCE + 1.5) * term->h_char;
-#undef DEFAULT_X_DISTANCE
+	    x = color_box.bounds.xright + (widest_tic_strlen + 1.5) * term->h_char;
 	    if (len > 0) x += len;
-	    y += (color_box.bounds.ybot + color_box.bounds.ytop) / 2;
-	    if (x<0) x = 0;
-	    if (y<0) y = 0;
-	    if ((*term->text_angle)(CB_AXIS.label.rotate)) {
-		write_multiline(x, y, CB_AXIS.label.text, CENTRE, JUST_TOP,
-				CB_AXIS.label.rotate, CB_AXIS.label.font);
-		(*term->text_angle)(0);
-	    } else {
-		write_multiline(x, y, CB_AXIS.label.text, LEFT, JUST_TOP, 0, CB_AXIS.label.font);
-	    }
+	    y = (color_box.bounds.ybot + color_box.bounds.ytop) / 2;
 	}
+	if (x<0) x = 0;
+	if (y<0) y = 0;
+	write_label(x, y, &(CB_AXIS.label));
 	reset_textcolor(&(CB_AXIS.label.textcolor));
+	CB_AXIS.label.rotate = save_rotation;
     }
 
 }

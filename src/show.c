@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.367 2016-08-27 20:51:06 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.376 2016-11-14 19:59:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -160,6 +160,7 @@ static void show_loadpath __PROTO((void));
 static void show_fontpath __PROTO((void));
 static void show_zero __PROTO((void));
 static void show_datafile __PROTO((void));
+static void show_micro __PROTO((void));
 static void show_minus_sign __PROTO((void));
 #ifdef USE_MOUSE
 static void show_mouse __PROTO((void));
@@ -266,7 +267,9 @@ show_command()
 	break;
     case S_ZEROAXIS:
 	show_zeroaxis(FIRST_X_AXIS);
+	show_zeroaxis(SECOND_X_AXIS);
 	show_zeroaxis(FIRST_Y_AXIS);
+	show_zeroaxis(SECOND_Y_AXIS);
 	show_zeroaxis(FIRST_Z_AXIS);
 	break;
     case S_XZEROAXIS:
@@ -334,6 +337,9 @@ show_command()
 	break;
     case S_LOGSCALE:
 	show_logscale();
+	break;
+    case S_MICRO:
+	show_micro();
 	break;
     case S_MINUS_SIGN:
 	show_minus_sign();
@@ -760,6 +766,7 @@ show_all()
     show_logscale();
     show_offsets();
     show_margin();
+    show_micro();
     show_minus_sign();
     show_output();
     show_print();
@@ -1713,12 +1720,6 @@ show_zeroaxis(AXIS_INDEX axis)
 	fputc('\n',stderr);
     } else
 	fprintf(stderr, "\t%szeroaxis is OFF\n", axis_name(axis));
-
-    /* If this is a 'first' axis. To output secondary axis, call self
-     * recursively: */
-    if (AXIS_IS_FIRST(axis)) {
-	show_zeroaxis(AXIS_MAP_FROM_FIRST_TO_SECOND(axis));
-    }
 }
 
 /* Show label number <tag> (0 means show all) */
@@ -1860,8 +1861,9 @@ show_key()
     SHOW_ALL_NL;
 
     if (!(key->visible)) {
-	fputs("\
-\tkey is OFF\n", stderr);
+	fputs("\tkey is OFF\n", stderr);
+	if (key->auto_titles == COLUMNHEAD_KEYTITLES)
+	    fputs("\ttreatment of first record as column headers remains in effect\n", stderr);
 	return;
     }
 
@@ -1892,7 +1894,7 @@ show_key()
 	    fputs(" horizontal", stderr);
 	}
 	if (key->region == GPKEY_AUTO_INTERIOR_LRTBC)
-	    fputs(" inside", stderr);
+	    fputs(key->fixed ? " fixed" : " inside", stderr);
 	else if (key->region == GPKEY_AUTO_EXTERIOR_LRTBC)
 	    fputs(" outside", stderr);
 	else {
@@ -2332,6 +2334,7 @@ show_palette()
 	    sm_palette.colorMode == SMPAL_COLOR_MODE_GRAY ? "GRAY" : "COLOR");
 
 	switch( sm_palette.colorMode ) {
+	  default:
 	  case SMPAL_COLOR_MODE_GRAY: break;
 	  case SMPAL_COLOR_MODE_RGB:
 	    fprintf(stderr,"\trgb color mapping by rgbformulae are %i,%i,%i\n",
@@ -2358,9 +2361,6 @@ show_palette()
 			sm_palette.cubehelix_start, sm_palette.cubehelix_cycles,
 			sm_palette.cubehelix_saturation);
 	    break;
-	  default:
-	    fprintf( stderr, "%s:%d oops: Unknown color mode '%c'.\n",
-		     __FILE__, __LINE__, (char)(sm_palette.colorMode) );
 	}
 	fprintf(stderr,"\tfigure is %s\n",
 	    sm_palette.positive == SMPAL_POSITIVE ? "POSITIVE" : "NEGATIVE");
@@ -2375,14 +2375,12 @@ show_palette()
 	fputs(" color positions for discrete palette terminals\n", stderr);
 	fputs( "\tColor-Model: ", stderr );
 	switch( sm_palette.cmodel ) {
+	default:
 	case C_MODEL_RGB: fputs( "RGB\n", stderr ); break;
 	case C_MODEL_HSV: fputs( "HSV\n", stderr ); break;
 	case C_MODEL_CMY: fputs( "CMY\n", stderr ); break;
 	case C_MODEL_YIQ: fputs( "YIQ\n", stderr ); break;
 	case C_MODEL_XYZ: fputs( "XYZ\n", stderr ); break;
-	default:
-	  fprintf( stderr, "%s:%d ooops: Unknown color mode '%c'.\n",
-		   __FILE__, __LINE__, (char)(sm_palette.cmodel) );
 	}
 	fprintf(stderr,"\tgamma is %.4g\n", sm_palette.gamma );
 	return;
@@ -2571,6 +2569,16 @@ show_decimalsign()
     fprintf(stderr, "\tdegree sign for output is %s \n", degree_sign);
 }
 
+/* process 'show micro' command */
+static void
+show_micro()
+{
+    SHOW_ALL_NL;
+
+    fprintf(stderr, "\tmicro character for output is %s \n", 
+    	(use_micro && micro) ? micro : "u");
+}
+
 /* process 'show minus_sign' command */
 static void
 show_minus_sign()
@@ -2736,6 +2744,7 @@ show_view()
     fprintf(stderr,"\t\t%s axes are %s\n",
 		aspect_ratio_3D == 2 ? "x/y" : aspect_ratio_3D == 3 ? "x/y/z" : "",
 		aspect_ratio_3D >= 2 ? "on the same scale" : "independently scaled");
+    fprintf(stderr, "\t\t azimuth %g\n", azimuth);
 }
 
 
@@ -2912,10 +2921,6 @@ show_timestamp()
     show_xyzlabel("", "time", &timelabel);
     fprintf(stderr, "\twritten in %s corner\n",
 	    (timelabel_bottom ? "bottom" : "top"));
-    if (timelabel_rotate)
-	fputs("\trotated if the terminal allows it\n\t", stderr);
-    else
-	fputs("\tnot rotated\n\t", stderr);
 }
 
 
@@ -3276,9 +3281,7 @@ show_arrowstyle(int tag)
 	    fflush(stderr);
 
 	    fprintf(stderr, "\t %s %s",
-		    this_arrowstyle->arrow_properties.head ?
-		    (this_arrowstyle->arrow_properties.head==2 ?
-		     " both heads " : " one head ") : " nohead",
+		    arrow_head_names[this_arrowstyle->arrow_properties.head],
 		    this_arrowstyle->arrow_properties.layer ? "front" : "back");
 	    save_linetype(stderr, &(this_arrowstyle->arrow_properties.lp_properties), FALSE);
 	    fputc('\n', stderr);
@@ -3350,7 +3353,7 @@ show_ticdefp(struct axis *this_axis)
 	fprintf(stderr, "\n\t  tics are limited to data range");
     fputs("\n\t  labels are ", stderr);
     if (this_axis->manual_justify) {
-    	switch (this_axis->label.pos) {
+    	switch (this_axis->tic_pos) {
     	case LEFT:{
 		fputs("left justified, ", stderr);
 		break;

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.112 2016-05-27 04:20:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.115 2016-11-19 06:43:49 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - pm3d.c */
@@ -35,6 +35,7 @@ struct lp_style_type default_pm3d_border = DEFAULT_LP_STYLE_TYPE;
 
 /* Used by routine filled_quadrangle() in color.c */
 struct lp_style_type pm3d_border_lp;
+TBOOLEAN track_pm3d_quadrangles;
 
 /*
   Global options for pm3d algorithm (to be accessed by set / show).
@@ -64,6 +65,8 @@ typedef struct {
 #endif
     t_colorspec *border_color;	/* Only used by depthorder processing */
 } quadrangle;
+
+#define PM3D_USE_BORDER_COLOR_INSTEAD_OF_GRAY -12345
 
 static int allocated_quadrangles = 0;
 static int current_quadrangle = 0;
@@ -370,20 +373,18 @@ static int compare_quadrangles(const void* v1, const void* v2)
 
 void pm3d_depth_queue_clear(void)
 {
-    if (pm3d.direction != PM3D_DEPTH)
-	return;
-
-    if (quadrangles)
-	free(quadrangles);
-    quadrangles = (quadrangle*)0;
+    free(quadrangles);
+    quadrangles = NULL;
     allocated_quadrangles = 0;
     current_quadrangle = 0;
 }
 
 void pm3d_depth_queue_flush(void)
 {
-    if (pm3d.direction != PM3D_DEPTH)
+    if (pm3d.direction != PM3D_DEPTH && !track_pm3d_quadrangles)
 	return;
+
+    term->layer(TERM_LAYER_BEGIN_PM3D_FLUSH);
 
     if (current_quadrangle > 0 && quadrangles) {
 
@@ -427,7 +428,9 @@ void pm3d_depth_queue_flush(void)
 	for (qp = quadrangles, qe = quadrangles + current_quadrangle; qp != qe; qp++) {
 
 	    /* set the color */
-	    if (color_from_rgbvar || pm3d_shade.strength > 0)
+	    if (qp->gray == PM3D_USE_BORDER_COLOR_INSTEAD_OF_GRAY)
+		apply_pm3dcolor(qp->border_color);
+	    else if (color_from_rgbvar || pm3d_shade.strength > 0)
 		set_rgbcolor_var((unsigned int)qp->gray);
 	    else
 		set_color(qp->gray);
@@ -441,6 +444,8 @@ void pm3d_depth_queue_flush(void)
     }
 
     pm3d_depth_queue_clear();
+
+    term->layer(TERM_LAYER_END_PM3D_FLUSH);
 }
 
 /*
@@ -1148,6 +1153,25 @@ pm3d_draw_one(struct surface_points *plot)
 }
 
 
+/*
+ * Add one pm3d quadrangle to the mix.
+ * Called by zerrorfill().
+ */
+void
+pm3d_add_quadrangle(struct surface_points *plot, gpdPoint corners[4])
+{
+    quadrangle *q;
+
+    if (allocated_quadrangles < current_quadrangle + plot->iso_crvs->p_count) {
+	allocated_quadrangles += 2 * plot->iso_crvs->p_count;
+	quadrangles = (quadrangle*)gp_realloc(quadrangles, allocated_quadrangles * sizeof (quadrangle), "pm3d_plot->quadrangles");
+    }
+    q = quadrangles + current_quadrangle++;
+    memcpy(q->corners, corners, 4*sizeof(gpdPoint));
+    q->border_color = &plot->fill_properties.border_color;
+    q->gray = PM3D_USE_BORDER_COLOR_INSTEAD_OF_GRAY;
+}
+
 /* Display an error message for the routine get_pm3d_at_option() below.
  */
 
@@ -1200,6 +1224,7 @@ set_plot_with_palette(int plot_num, int plot_mode)
     struct curve_points *this_2dplot = first_plot;
     int surface = 0;
     struct text_label *this_label = first_label;
+    struct object *this_object;
 
     plot_has_palette = TRUE;
     /* Is pm3d switched on globally? */
@@ -1248,8 +1273,9 @@ set_plot_with_palette(int plot_num, int plot_mode)
 	}
     }
 
-    /* Any label with 'textcolor palette'? */
 #define TC_USES_PALETTE(tctype) (tctype==TC_Z) || (tctype==TC_CB) || (tctype==TC_FRAC)
+
+    /* Any label with 'textcolor palette'? */
     for (; this_label != NULL; this_label = this_label->next) {
 	if (TC_USES_PALETTE(this_label->textcolor.type))
 	    return;
@@ -1263,6 +1289,12 @@ set_plot_with_palette(int plot_num, int plot_mode)
     if (plot_mode == MODE_SPLOT)
 	if (TC_USES_PALETTE(axis_array[FIRST_Z_AXIS].label.textcolor.type)) return;
     if (TC_USES_PALETTE(axis_array[COLOR_AXIS].label.textcolor.type)) return;
+
+    for (this_object = first_object; this_object != NULL; this_object = this_object->next) {
+	if (TC_USES_PALETTE(this_object->lp_properties.pm3d_color.type))
+	    return;
+    }
+    
 #undef TC_USES_PALETTE
 
     /* Palette with continuous colors is not used. */

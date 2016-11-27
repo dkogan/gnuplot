@@ -1,5 +1,5 @@
 /*
- * $Id: winmain.c,v 1.90 2016-08-06 13:22:50 markisch Exp $
+ * $Id: winmain.c,v 1.95 2016-11-15 08:16:12 markisch Exp $
  */
 
 /* GNUPLOT - win/winmain.c */
@@ -168,6 +168,9 @@ WinExit(void)
     /* Last chance, call before anything else to avoid a crash. */
     WinCloseHelp();
 
+    /* clean-up call for printing system */
+    PrintingCleanup();
+
     term_reset();
 
     _fcloseall();
@@ -190,6 +193,7 @@ WinExit(void)
 #endif
     return;
 }
+
 
 /* call back function from Text Window WM_CLOSE */
 int CALLBACK
@@ -1129,9 +1133,9 @@ ConsoleReadCh()
 		} else {
 		    int i, count;
 		    char mbchar[8];
-		    count = WideCharToMultiByte(WinGetCodepage(encoding), 0, 
-				&rec.Event.KeyEvent.uChar.UnicodeChar, 1, 
-				mbchar, sizeof(mbchar), 
+		    count = WideCharToMultiByte(WinGetCodepage(encoding), 0,
+				&rec.Event.KeyEvent.uChar.UnicodeChar, 1,
+				mbchar, sizeof(mbchar),
 				NULL, NULL);
 		    for (i = 1; i < count; i++) {
 			console_input[last_input_char] = mbchar[i];
@@ -1213,21 +1217,37 @@ open_printer()
     strncat(win_prntmp, "_gptmp", MAX_PRT_LEN - strlen(win_prntmp));
     strncat(win_prntmp, "XXXXXX", MAX_PRT_LEN - strlen(win_prntmp));
     _mktemp(win_prntmp);
-    return fopen(win_prntmp, "w");
+    return fopen(win_prntmp, "wb");
 }
 
 
 void
 close_printer(FILE *outfile)
 {
+    LPTSTR fname;
+    HWND hwnd;
+    TCHAR title[100];
+
 #ifdef UNICODE
-    LPWSTR printer = UnicodeText(win_prntmp, S_ENC_DEFAULT);
-    fclose(outfile);
-    DumpPrinter(graphwin->hWndGraph, graphwin->Title, printer);
-    free(printer);
+    fname = UnicodeText(win_prntmp, S_ENC_DEFAULT);
 #else
+    fname = win_prntmp;
+#endif
     fclose(outfile);
-    DumpPrinter(graphwin->hWndGraph, graphwin->Title, win_prntmp);
+
+#ifndef WGP_CONSOLE
+    hwnd = textwin.hWndParent;
+#else
+    hwnd = GetDesktopWindow();
+#endif
+    if (term->name != NULL)
+	wsprintf(title, TEXT("gnuplot graph (%hs)"), term->name);
+    else
+	_tcscpy(title, TEXT("gnuplot graph"));
+    DumpPrinter(hwnd, title, fname);
+
+#ifdef UNICODE
+    free(fname);
 #endif
 }
 
@@ -1235,7 +1255,20 @@ close_printer(FILE *outfile)
 void
 screen_dump()
 {
-    GraphPrint(graphwin);
+    if (term == NULL) {
+	int_error(c_token, "");
+    }
+    if (strcmp(term->name, "windows") == 0)
+	GraphPrint(graphwin);
+#ifdef WXWIDGETS
+    else if (strcmp(term->name, "wxt") == 0)
+	wxt_screen_dump();
+#endif
+#ifdef QTTERM
+    //else if (strcmp(term->name, "qt") == 0)
+#endif
+    else
+	int_error(c_token, "screendump not supported for terminal `%s`", term->name);
 }
 
 
@@ -1246,7 +1279,8 @@ win_raise_terminal_window(int id)
     while ((lpgw != NULL) && (lpgw->Id != id))
 	lpgw = lpgw->next;
     if (lpgw != NULL) {
-	ShowWindow(lpgw->hWndGraph, SW_SHOWNORMAL);
+	if (IsIconic(lpgw->hWndGraph))
+	    ShowWindow(lpgw->hWndGraph, SW_SHOWNORMAL);
 	BringWindowToTop(lpgw->hWndGraph);
     }
 }
@@ -1257,7 +1291,8 @@ win_raise_terminal_group(void)
 {
     LPGW lpgw = listgraphs;
     while (lpgw != NULL) {
-	ShowWindow(lpgw->hWndGraph, SW_SHOWNORMAL);
+	if (IsIconic(lpgw->hWndGraph))
+	    ShowWindow(lpgw->hWndGraph, SW_SHOWNORMAL);
 	BringWindowToTop(lpgw->hWndGraph);
 	lpgw = lpgw->next;
     }
@@ -1303,7 +1338,7 @@ WinWindowOpened(void)
 
 
 /* returns true if there are any graph windows open (wxt/caca/win terminals) */
-/* Note: This routine is used to handle "persist". Do not test for qt windows here 
+/* Note: This routine is used to handle "persist". Do not test for qt windows here
          since they run in a separate process */
 TBOOLEAN
 WinAnyWindowOpen(void)
@@ -1355,7 +1390,8 @@ WinRaiseConsole(void)
     console = GetConsoleWindow();
 #endif
     if (console != NULL) {
-	ShowWindow(console, SW_SHOWNORMAL);
+	if (IsIconic(console))
+	    ShowWindow(console, SW_SHOWNORMAL);
 	BringWindowToTop(console);
     }
 }
@@ -1473,7 +1509,7 @@ AnsiText(LPCWSTR strw,  enum set_encoding_id encoding)
 }
 
 
-FILE * 
+FILE *
 win_fopen(const char *filename, const char *mode)
 {
     FILE * file;

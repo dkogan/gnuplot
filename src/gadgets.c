@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.129 2016-08-25 20:07:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.133 2016-11-08 05:41:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - gadgets.c */
@@ -61,9 +61,11 @@ color_box_struct default_color_box = {SMCOLOR_BOX_DEFAULT, 'v', 1, LT_BLACK, LAY
 					{screen, screen, screen, 0.05, 0.6, 0.0}, FALSE,
 					{0,0,0,0} };
 
-/* The graph box, in terminal coordinates, as calculated by boundary()
- * or boundary3d(): */
+/* The graph box (terminal coordinates) calculated by boundary() or boundary3d() */
 BoundingBox plot_bounds;
+
+/* The bounding box for 3D plots prior to applying view transformations */
+BoundingBox page_bounds;
 
 /* The bounding box for the entire drawable area  of current terminal */
 BoundingBox canvas;
@@ -121,7 +123,6 @@ text_label title = EMPTY_LABELSTRUCT;
 
 /* 'set timelabel' status */
 text_label timelabel = EMPTY_LABELSTRUCT;
-int timelabel_rotate = FALSE;
 int timelabel_bottom = TRUE;
 
 /* flag for polar mode */
@@ -660,7 +661,9 @@ reset_textcolor(const struct t_colorspec *tc)
 void
 default_arrow_style(struct arrow_style_type *arrow)
 {
-    static const struct lp_style_type tmp_lp_style = DEFAULT_LP_STYLE_TYPE;
+    static const struct lp_style_type tmp_lp_style = 
+	{0, LT_DEFAULT, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, DEFAULT_P_CHAR,
+	DEFAULT_COLORSPEC, DEFAULT_DASHPATTERN};
 
     arrow->tag = -1;
     arrow->layer = LAYER_BACK;
@@ -772,8 +775,11 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 	    get_offsets(this_label, &htic, &vtic);
 #ifdef EAM_BOXED_TEXT
 	    /* Initialize the bounding box accounting */
-	    if (this_label->boxed && term->boxed_text)
+	    if ((this_label->boxed && term->boxed_text)
+	    &&  (textbox_opts.opaque || !textbox_opts.noborder))
+	    {
 		(*term->boxed_text)(x + htic, y + vtic, TEXTBOX_INIT);
+	    }
 #endif
 	    if (this_label->rotate && (*term->text_angle) (this_label->rotate)) {
 		write_multiline(x + htic, y + vtic, this_label->text,
@@ -786,7 +792,9 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 	    }
 	}
 #ifdef EAM_BOXED_TEXT
-	if (this_label->boxed && term->boxed_text) {
+	if ((this_label->boxed && term->boxed_text)
+	&&  (textbox_opts.opaque || !textbox_opts.noborder))
+	{
 
 	    /* Adjust the bounding box margins */
 	    (*term->boxed_text)((int)(textbox_opts.xmargin * 100.),
@@ -797,6 +805,9 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 		apply_pm3dcolor(&textbox_opts.fillcolor);
 		(*term->boxed_text)(0,0, TEXTBOX_BACKGROUNDFILL);
 		apply_pm3dcolor(&(this_label->textcolor));
+		/* Init for each of fill and border */
+		if (!textbox_opts.noborder)
+		    (*term->boxed_text)(x + htic, y + vtic, TEXTBOX_INIT);
 		if (this_label->rotate && (*term->text_angle) (this_label->rotate)) {
 		    write_multiline(x + htic, y + vtic, this_label->text,
 				this_label->pos, justify, this_label->rotate,
@@ -869,3 +880,26 @@ label_width(const char *str, int *lines)
     return (mlen);
 }
 
+/*
+ * Here so that it can be shared by the 2D and 3D code
+ */
+void
+do_timelabel(unsigned int x, unsigned int y)
+{
+    char str[MAX_LINE_LEN+1];
+    char *save_format = timelabel.text;
+    time_t now;
+    time(&now);
+    /* there is probably no way to find out in advance how many
+     * chars strftime() writes */
+    strftime(str, MAX_LINE_LEN, save_format, localtime(&now));
+    timelabel.text = str;
+
+    /* The only drawback of using write_label() is that there is no way  */
+    /* to pass in a request for vertical justification JUST_BOT */
+    if (timelabel.rotate == 0 && !timelabel_bottom)
+	y -= term->v_char;
+
+    write_label(x, y, &timelabel);
+    timelabel.text = save_format;
+}

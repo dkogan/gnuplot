@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: axis.c,v 1.203 2016-08-19 21:27:23 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: axis.c,v 1.205 2016-11-14 19:59:23 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - axis.c */
@@ -1492,12 +1492,12 @@ axis_output_tics(
     struct termentry *t = term;
     struct axis *this_axis = &axis_array[axis];
     TBOOLEAN axis_is_vertical = ((axis == FIRST_Y_AXIS) || (axis == SECOND_Y_AXIS));
-    TBOOLEAN axis_is_second = AXIS_IS_SECOND(axis);
+    TBOOLEAN axis_is_second = ((axis == SECOND_X_AXIS) || (axis == SECOND_Y_AXIS));
     int axis_position;		/* 'non-running' coordinate */
     int mirror_position;	/* 'non-running' coordinate, 'other' side */
     double axis_coord = 0.0;	/* coordinate of this axis along non-running axis */
 
-    if (AXIS_IS_SECOND(zeroaxis_basis)) {
+    if ((zeroaxis_basis == SECOND_X_AXIS) || (zeroaxis_basis == SECOND_Y_AXIS)) {
 	axis_position = axis_array[zeroaxis_basis].term_upper;
 	mirror_position = axis_array[zeroaxis_basis].term_lower;
     } else {
@@ -1550,9 +1550,9 @@ axis_output_tics(
 	}
 
 	if (this_axis->manual_justify)
-	    tic_hjust = this_axis->label.pos;
+	    tic_hjust = this_axis->tic_pos;
 	else
-	    this_axis->label.pos = tic_hjust;
+	    this_axis->tic_pos = tic_hjust;
 
 	if (this_axis->ticmode & TICS_MIRROR)
 	    tic_mirror = mirror_position;

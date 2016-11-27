@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.530 2016-08-25 20:07:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.541 2016-11-18 08:20:57 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -108,6 +108,7 @@ static void set_logscale __PROTO((void));
 static void set_mapping __PROTO((void));
 static void set_margin __PROTO((t_position *));
 static void set_minus_sign __PROTO((void));
+static void set_micro __PROTO((void));
 static void set_missing __PROTO((void));
 static void set_separator __PROTO((void));
 static void set_datafile_commentschars __PROTO((void));
@@ -175,6 +176,7 @@ static void parse_histogramstyle __PROTO((histogram_style *hs,
 static void set_style_parallel __PROTO((void));
 static void parse_lighting_options __PROTO((void));
 
+static const char *encoding_micro __PROTO((void));
 static const char *encoding_minus __PROTO((void));
 
 static const struct position default_position
@@ -361,6 +363,9 @@ set_command()
 	case S_TMARGIN:
 	    set_margin(&tmargin);
 	    break;
+	case S_MICRO:
+	    set_micro();
+	    break;
 	case S_MINUS_SIGN:
 	    set_minus_sign();
 	    break;
@@ -475,6 +480,7 @@ set_command()
 	    break;
 	case S_TITLE:
 	    set_xyzlabel(&title);
+	    title.rotate = 0.0;
 	    break;
 	case S_VIEW:
 	    set_view();
@@ -1639,11 +1645,7 @@ set_encoding()
 	encoding = temp;
     }
 
-    /* Set degree sign to match encoding */
-    set_degreesign(l);
-
-    /* Set minus sign to match encoding */
-    minus_sign = encoding_minus();
+    init_special_chars();
 }
 
 static void
@@ -1713,6 +1715,30 @@ set_degreesign(char *locale)
     }
 }
 
+/* Encoding-specific character enabled by "set micro" */
+static const char *
+encoding_micro()
+{
+    static const char micro_utf8[4] = {0xC2, 0xB5, 0x0, 0x0};
+    static const char micro_437[2] = {0x96, 0x0};
+    static const char micro_latin1[2] = {0xB5, 0x0};
+    static const char micro_default[2] = {'u', 0x0};
+    switch (encoding) {
+	case S_ENC_UTF8:	return micro_utf8;
+	case S_ENC_CP1250:
+	case S_ENC_CP1251:
+	case S_ENC_CP1252:
+	case S_ENC_CP1254:
+	case S_ENC_ISO8859_1:
+	case S_ENC_ISO8859_9:
+	case S_ENC_ISO8859_15:	return micro_latin1;
+	case S_ENC_CP437:
+	case S_ENC_CP850:	return micro_437;
+	default:		return micro_default;
+    }
+}
+
+/* process 'set fit' command */
 /* Encoding-specific character enabled by "set minussign" */
 static const char *
 encoding_minus()
@@ -1728,6 +1754,25 @@ encoding_minus()
 	default:		return NULL;
     }
 }
+
+
+void
+init_special_chars(void)
+{
+    /* Set degree sign to match encoding */
+    char * l = NULL;
+#ifdef HAVE_LOCALE_H
+    l = setlocale(LC_CTYPE, "");
+#endif
+    set_degreesign(l);
+
+    /* Set minus sign to match encoding */
+    minus_sign = encoding_minus();
+
+    /* Set micro character to match encoding */
+    micro = encoding_micro();
+}
+
 
 /* process 'set fit' command */
 static void
@@ -2273,12 +2318,20 @@ set_key()
 	    if (reg_set)
 		int_warn(c_token, reg_warn);
 	    key->region = GPKEY_AUTO_INTERIOR_LRTBC;
+	    key->fixed = FALSE;
 	    reg_set = TRUE;
 	    break;
 	case S_KEY_OUTSIDE:
 	    if (reg_set)
 		int_warn(c_token, reg_warn);
 	    key->region = GPKEY_AUTO_EXTERIOR_LRTBC;
+	    reg_set = TRUE;
+	    break;
+	case S_KEY_FIXED:
+	    if (reg_set)
+		int_warn(c_token, reg_warn);
+	    key->region = GPKEY_AUTO_INTERIOR_LRTBC;
+	    key->fixed = TRUE;
 	    reg_set = TRUE;
 	    break;
 	case S_KEY_TMARGIN:
@@ -2803,6 +2856,14 @@ set_margin(t_position *margin)
 	    margin->x = 1;
     }
 
+}
+
+/* process 'set micro' command */
+static void
+set_micro()
+{
+    c_token++;
+    use_micro = TRUE;
 }
 
 /* process 'set minus_sign' command */
@@ -4673,6 +4734,10 @@ set_style()
 	    } else if (almost_equals(c_token,"bo$rdercolor")) {
 		c_token++;
 		textbox_opts.noborder = FALSE;
+		textbox_opts.border_color.type = TC_LT;
+		textbox_opts.border_color.lt = LT_BLACK;
+		if (END_OF_COMMAND)
+		    continue;
 		if (equals(c_token,"lt"))
 		    c_token--;
 		parse_colorspec(&textbox_opts.border_color, TC_RGB);
@@ -4857,11 +4922,8 @@ set_termoptions()
 	    real_expression();   /* Silently ignore the request */
 	}
     } else if (almost_equals(c_token,"dash$ed") || equals(c_token,"solid")) {
-	num_tokens = GPMIN(num_tokens,c_token+1);
-	if (term->flags & TERM_CAN_DASH)
-	    ok_to_call_terminal = TRUE;
-	else
-	    c_token++;
+	/* Silently ignore the request */
+	num_tokens = GPMIN(num_tokens,++c_token);
     } else if (almost_equals(c_token,"dashl$ength") || equals(c_token,"dl")) {
 	num_tokens = GPMIN(num_tokens,c_token+2);
 	if (term->flags & TERM_CAN_DASH)
@@ -4948,20 +5010,20 @@ set_tics()
 	    ++c_token;
 	} else if (almost_equals(c_token, "l$eft")) {
 	    for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
-		axis_array[i].label.pos = LEFT;
+		axis_array[i].tic_pos = LEFT;
 		axis_array[i].manual_justify = TRUE;
 	    }
 	    c_token++;
 	} else if (almost_equals(c_token, "c$entre")
 		|| almost_equals(c_token, "c$enter")) {
 	    for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
-		axis_array[i].label.pos = CENTRE;
+		axis_array[i].tic_pos = CENTRE;
 		axis_array[i].manual_justify = TRUE;
 	    }
 	    c_token++;
 	} else if (almost_equals(c_token, "ri$ght")) {
 	    for (i = 0; i < AXIS_ARRAY_SIZE; ++i) {
-		axis_array[i].label.pos = RIGHT;
+		axis_array[i].tic_pos = RIGHT;
 		axis_array[i].manual_justify = TRUE;
 	    }
 	    c_token++;
@@ -5150,11 +5212,11 @@ set_timestamp()
 	}
 
 	if (almost_equals(c_token,"r$otate")) {
-	    timelabel_rotate = TRUE;
+	    timelabel.rotate = TEXT_VERTICAL;
 	    c_token++;
 	    continue;
 	} else if (almost_equals(c_token, "n$orotate")) {
-	    timelabel_rotate = FALSE;
+	    timelabel.rotate = 0;
 	    c_token++;
 	    continue;
 	}
@@ -5192,7 +5254,10 @@ set_timestamp()
 
     if (!(timelabel.text))
 	timelabel.text = gp_strdup(DEFAULT_TIMESTAMP_FORMAT);
-
+    if (timelabel.rotate && !timelabel_bottom)
+	timelabel.pos = RIGHT;
+    else
+	timelabel.pos = LEFT;
 }
 
 
@@ -5234,6 +5299,12 @@ set_view()
     } else if (almost_equals(c_token,"noequal$_axes")) {
 	aspect_ratio_3D = 0;
 	c_token++;
+	return;
+    }
+
+    if (equals(c_token,"azimuth")) {
+	c_token++;
+	azimuth = real_expression();
 	return;
     }
 
@@ -5492,16 +5563,16 @@ set_tic_prop(struct axis *this_axis)
 		++c_token;
 		this_axis->ticdef.offset = default_offset;
 	    } else if (almost_equals(c_token, "l$eft")) {
-		this_axis->label.pos = LEFT;
+		this_axis->tic_pos = LEFT;
 		this_axis->manual_justify = TRUE;
 		c_token++;
 	    } else if (almost_equals(c_token, "c$entre")
 		       || almost_equals(c_token, "c$enter")) {
-		this_axis->label.pos = CENTRE;
+		this_axis->tic_pos = CENTRE;
 		this_axis->manual_justify = TRUE;
 		c_token++;
 	    } else if (almost_equals(c_token, "ri$ght")) {
-		this_axis->label.pos = RIGHT;
+		this_axis->tic_pos = RIGHT;
 		this_axis->manual_justify = TRUE;
 		c_token++;
 	    } else if (almost_equals(c_token, "autoj$ustify")) {
@@ -6062,7 +6133,7 @@ parse_label_options( struct text_label *this_label, int ndim)
 	set_rot = FALSE, set_font = FALSE, set_offset = FALSE,
 	set_layer = FALSE, set_textcolor = FALSE, set_hypertext = FALSE;
     int layer = LAYER_BACK;
-    TBOOLEAN axis_label = (this_label->tag == -2);
+    TBOOLEAN axis_label = (this_label->tag <= NONROTATING_LABEL_TAG);
     TBOOLEAN hypertext = FALSE;
     struct position offset = default_offset;
     t_colorspec textcolor = {TC_DEFAULT,0,0.0};
@@ -6108,6 +6179,8 @@ parse_label_options( struct text_label *this_label, int ndim)
 	    if (equals(c_token, "by")) {
 		c_token++;
 		rotate = int_expression();
+		if (this_label->tag == ROTATE_IN_3D_LABEL_TAG)
+		    this_label->tag = NONROTATING_LABEL_TAG;
 	    } else if (almost_equals(c_token,"para$llel")) {
 		if (this_label->tag >= 0)
 		    int_error(c_token,"invalid option");
@@ -6127,7 +6200,7 @@ parse_label_options( struct text_label *this_label, int ndim)
 	    c_token++;
 	    set_rot = TRUE;
 	    if (this_label->tag == ROTATE_IN_3D_LABEL_TAG)
-		this_label->tag = NONROTATABLE_LABEL_TAG;
+		this_label->tag = NONROTATING_LABEL_TAG;
 	    continue;
 	}
 

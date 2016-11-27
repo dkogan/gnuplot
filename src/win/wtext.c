@@ -1,5 +1,5 @@
 /*
- * $Id: wtext.c,v 1.71 2016-08-06 13:22:50 markisch Exp $
+ * $Id: wtext.c,v 1.74 2016-10-08 19:09:16 markisch Exp $
  */
 
 /* GNUPLOT - win/wtext.c */
@@ -139,7 +139,6 @@ CreateTextClass(LPTW lptw)
 {
     /* We deliberately call the "W" API variant in order to
        to receive UTF16 WM_CHAR messages. */
-
     WNDCLASSW wndclass;
 
     hdllInstance = lptw->hInstance;	/* not using a DLL */
@@ -149,7 +148,7 @@ CreateTextClass(LPTW lptw)
     wndclass.cbWndExtra = 2 * sizeof(void *);
     wndclass.hInstance = lptw->hInstance;
     wndclass.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-    wndclass.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wndclass.hCursor = NULL;
     wndclass.hbrBackground = NULL;
     lptw->hbrBackground = CreateSolidBrush(lptw->bSysColors ?
 					   GetSysColor(COLOR_WINDOW) : RGB(0,0,0));
@@ -260,7 +259,7 @@ TextInit(LPTW lptw)
 	SetWindowPos(lptw->hWndText, (HWND)NULL, 0, 0,
 			rect.right, rect.bottom - lptw->StatusHeight,
 			SWP_NOZORDER | SWP_NOACTIVATE);
-	ShowWindow(lptw->hStatusbar, TRUE);
+	ShowWindow(lptw->hStatusbar, SW_SHOW);
     }
 
     lptw->hPopMenu = CreatePopupMenu();
@@ -1024,11 +1023,11 @@ TextMakeFont(LPTW lptw)
 
 
 static void
-TextSelectFont(LPTW lptw) {
+TextSelectFont(LPTW lptw)
+{
     LOGFONT lf;
     CHOOSEFONT cf;
     HDC hdc;
-    TCHAR lpszStyle[LF_FACESIZE];
     LPTSTR p;
 
     /* Set all structure fields to zero. */
@@ -1038,26 +1037,30 @@ TextSelectFont(LPTW lptw) {
     cf.hwndOwner = lptw->hWndParent;
     _tcsncpy(lf.lfFaceName, lptw->fontname, LF_FACESIZE);
     if ((p = _tcsstr(lptw->fontname, TEXT(" Bold"))) != NULL) {
-	_tcsncpy(lpszStyle, p + 1, LF_FACESIZE);
-	lf.lfFaceName[ (unsigned int)(p-lptw->fontname) ] = NUL;
+	lf.lfWeight = FW_BOLD;
+	lf.lfFaceName[p - lptw->fontname] = NUL;
+    } else {
+	lf.lfWeight = FW_NORMAL;
     }
-    else if ((p = _tcsstr(lptw->fontname, TEXT(" Italic"))) != NULL) {
-	_tcsncpy(lpszStyle, p + 1, LF_FACESIZE);
-	lf.lfFaceName[ (unsigned int)(p-lptw->fontname) ] = NUL;
-    } else
-	_tcscpy(lpszStyle, TEXT("Regular"));
-    cf.lpszStyle = lpszStyle;
+    if ((p = _tcsstr(lptw->fontname, TEXT(" Italic"))) != NULL) {
+	lf.lfItalic = TRUE;
+	lf.lfFaceName[p - lptw->fontname] = NUL;
+    } else {
+	lf.lfItalic = FALSE;
+    }
+    lf.lfCharSet = DEFAULT_CHARSET;
     hdc = GetDC(lptw->hWndText);
     lf.lfHeight = -MulDiv(lptw->fontsize, GetDeviceCaps(hdc, LOGPIXELSY), 72);
     ReleaseDC(lptw->hWndText, hdc);
     lf.lfPitchAndFamily = FIXED_PITCH;
     cf.lpLogFont = &lf;
     cf.nFontType = SCREEN_FONTTYPE;
-    cf.Flags = CF_SCREENFONTS | CF_FIXEDPITCHONLY | CF_INITTOLOGFONTSTRUCT | CF_USESTYLE;
+    cf.Flags = CF_SCREENFONTS | CF_FIXEDPITCHONLY | CF_INITTOLOGFONTSTRUCT | CF_SCALABLEONLY;
+
     if (ChooseFont(&cf)) {
 	RECT rect;
 
-	_tcscpy(lptw->fontname,lf.lfFaceName);
+	_tcscpy(lptw->fontname, lf.lfFaceName);
 	lptw->fontsize = cf.iPointSize / 10;
 	if (cf.nFontType & BOLD_FONTTYPE)
 	    _tcscat(lptw->fontname, TEXT(" Bold"));
@@ -1605,6 +1608,7 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 	    RECT rect;
 	    POINT pt;
 
+	    SetCursor(LoadCursor(NULL, IDC_IBEAM));
 	    pt.x = LOWORD(lParam);
 	    pt.y = HIWORD(lParam);
 	    GetClientRect(hwnd, &rect);
@@ -1665,6 +1669,9 @@ WndTextProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 		      && (GetAsyncKeyState(VK_LBUTTON) < 0));
 	    } /* moved inside viewport */
 	} /* if(dragging) */
+	else {
+	    SetCursor(LoadCursor(NULL, IDC_ARROW));
+	}
 	break;
     case WM_MOUSEWHEEL: {
 	    WORD fwKeys;

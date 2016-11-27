@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.h,v 1.57 2016-08-26 04:16:10 sfeam Exp $
+ * $Id: wxt_gui.h,v 1.59 2016-10-08 16:23:05 markisch Exp $
  */
 
 /* GNUPLOT - wxt_gui.h */
@@ -105,6 +105,9 @@
 /* Debugging support, required to turn off asserts */
 #include <wx/debug.h>
 
+/* printer data */
+#include <wx/cmndata.h>
+
 /* c++ vectors and lists, used to store gnuplot commands */
 #include <vector>
 #include <list>
@@ -164,6 +167,14 @@ extern "C" {
 #else
 # error "wxt does not know if this platform has to be single- or multi-threaded"
 #endif
+#endif
+
+/* Enable the print dialog on Windows only
+ */
+#ifdef __WXMSW__
+# ifndef WXT_PRINT
+#  define WXT_PRINT
+# endif
 #endif
 
 extern "C" {
@@ -433,8 +444,6 @@ private:
 #if defined(GTK_SURFACE)
 	GdkPixmap *gdkpixmap;
 #elif defined(__WXMSW__)
-	HDC hdc;
-	HBITMAP hbm;
 #else /* generic 'image' surface */
 	unsigned int *data32;
 	wxBitmap* cairo_bitmap;
@@ -491,6 +500,9 @@ public:
 	void OnSize( wxSizeEvent& event );
 	void OnCopy( wxCommandEvent& event );
 	void OnExport( wxCommandEvent& event );
+#ifdef WXT_PRINT
+	void OnPrint( wxCommandEvent& event );
+#endif
 #ifdef USE_MOUSE
 	void OnReplot( wxCommandEvent& event );
 	void OnToggleGrid( wxCommandEvent& event );
@@ -514,7 +526,10 @@ public:
 
 private:
 	wxtConfigDialog * config_dialog;
-
+#ifdef WXT_PRINT
+	// persistent printer choice and settings
+	wxPrintData printData;
+#endif
 	/* any class wishing to process wxWidgets events must use this macro */
 	DECLARE_EVENT_TABLE()
 };
@@ -524,6 +539,9 @@ enum {
 /* start at wxID_HIGHEST to avoid collisions */
 Toolbar_CopyToClipboard = wxID_HIGHEST,
 Toolbar_ExportToFile,
+#ifdef WXT_PRINT
+Toolbar_Print,
+#endif
 Toolbar_Replot,
 Toolbar_ToggleGrid,
 Toolbar_ZoomPrevious,

@@ -266,7 +266,14 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		QPolygonF polygon; in >> polygon;
 
 		if (!m_inKeySample)
+		{
+			// Distinguish between opaque and transparent pattern fill
+			if (m_currentFillStyle ==  FS_PATTERN)
+				m_currentPointsItem->addFilledPolygon(clipPolygon(polygon, false), 
+					QBrush(m_widget->backgroundColor()));
+
 			m_currentPointsItem->addFilledPolygon(clipPolygon(polygon, false), m_currentBrush);
+		}
 		else
 		{
 			flushCurrentPointsItem();
@@ -353,8 +360,11 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		else
 			m_currentGroup.append(textItem);
 #ifdef EAM_BOXED_TEXT
-		if (m_inTextBox)
+		if (m_inTextBox) {
 			m_currentTextBox |= rect;
+			m_currentBoxRotation = m_textAngle;
+			m_currentBoxOrigin = point;
+		}
 #endif
 	}
 	else if (type == GEEnhancedFlush)
@@ -400,8 +410,11 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		else
 			m_currentGroup.append(m_enhanced);
 #ifdef EAM_BOXED_TEXT
-		if (m_inTextBox)
+		if (m_inTextBox) {
 			m_currentTextBox |= rect;
+			m_currentBoxRotation = m_textAngle;
+			m_currentBoxOrigin = point;
+		}
 #endif
 		m_enhanced = 0;
 	}
@@ -599,6 +612,8 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 				  m_textMargin.x(), m_textMargin.y());
 			rectItem = addRect(outline, m_currentPen, Qt::NoBrush);
 			rectItem->setZValue(m_currentZ++);
+			rectItem->setTransformOriginPoint(m_currentBoxOrigin);
+			rectItem->setRotation(-m_currentBoxRotation);
 			m_currentGroup.append(rectItem);
 			m_inTextBox = false;
 			break;
@@ -611,6 +626,8 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 				  m_textMargin.x(), m_textMargin.y());
 			rectItem = addRect(outline, Qt::NoPen, m_currentBrush);
 			rectItem->setZValue(m_currentZ++);
+			rectItem->setTransformOriginPoint(m_currentBoxOrigin);
+			rectItem->setRotation(-m_currentBoxRotation);
 			m_currentGroup.append(rectItem);
 			m_inTextBox = false;
 			break;
@@ -689,6 +706,7 @@ void QtGnuplotScene::setBrushStyle(int style)
 	int fillstyle = style & 0xf;
 
 	m_currentBrush.setStyle(Qt::SolidPattern);
+	m_currentFillStyle = fillstyle;
 
 	QColor color = m_currentPen.color();
 
@@ -707,7 +725,6 @@ void QtGnuplotScene::setBrushStyle(int style)
 		}
 	}
 	else if ((fillstyle == FS_TRANSPARENT_PATTERN) || (fillstyle == FS_PATTERN))
-		/// @todo color & transparent. See other terms
 		m_currentBrush.setStyle(QtGnuplot::brushes[abs(fillpar) % 8]);
 	else if (fillstyle == FS_EMPTY) // fill with background plot->color
 		color = m_widget->backgroundColor();

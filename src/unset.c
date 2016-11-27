@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.241 2016-08-07 18:18:15 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.245 2016-11-08 05:41:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -105,6 +105,7 @@ static void unset_logscale __PROTO((void));
 static void unset_mapping __PROTO((void));
 static void unset_margin __PROTO((t_position *));
 static void unset_missing __PROTO((void));
+static void unset_micro __PROTO((void));
 static void unset_minus_sign __PROTO((void));
 #ifdef USE_MOUSE
 static void unset_mouse __PROTO((void));
@@ -333,6 +334,9 @@ unset_command()
 	free(df_commentschars);
 	df_commentschars = gp_strdup(DEFAULT_COMMENTS_CHARS);
 	df_unset_datafile_binary();
+	break;
+    case S_MICRO:
+	unset_micro();
 	break;
     case S_MINUS_SIGN:
 	unset_minus_sign();
@@ -1220,6 +1224,13 @@ unset_margin(t_position *margin)
     margin->x = -1;
 }
 
+/* process 'unset micro' command */
+static void
+unset_micro()
+{
+    use_micro = FALSE;
+}
+
 /* process 'unset minus_sign' command */
 static void
 unset_minus_sign()
@@ -1625,7 +1636,7 @@ static void
 unset_timestamp()
 {
     unset_axislabel_or_title(&timelabel);
-    timelabel_rotate = 0;
+    timelabel.rotate = 0;
     timelabel_bottom = TRUE;
 }
 
@@ -1641,6 +1652,7 @@ unset_view()
     surface_scale = 1.0;
     surface_lscale = 0.0;
     surface_zscale = 1.0;
+    azimuth = 0.0;
 }
 
 
@@ -1708,6 +1720,7 @@ unset_axislabel_or_title(text_label *label)
 	label->font = NULL;
 	label->offset = default_offset;
 	label->textcolor.type = TC_DEFAULT;
+	label->boxed = 0;
     }
 }
 

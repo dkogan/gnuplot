@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: datafile.c,v 1.332 2016-08-19 16:51:58 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: datafile.c,v 1.336 2016-11-03 17:15:46 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - datafile.c */
@@ -1040,7 +1040,6 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
 	data_fp = NULL;
     }
 
-    /*{{{  initialise static variables */
     free(df_format);
     df_format = NULL;         /* no format string */
 
@@ -1087,10 +1086,20 @@ df_open(const char *cmd_filename, int max_using, struct curve_points *plot)
     /* Save for use by df_readline(). */
     /* Perhaps it should be a parameter to df_readline? */
     df_current_plot = plot;
+
+    /* If 'set key autotitle columnhead' is in effect we always treat the
+     * first data row as non-data (df_readline() will return DF_COLUMNHEADERS
+     * rather than the column count).  This is true even if the key is off
+     * or the data is read from 'stats' or from 'fit' rather than plot.
+     * FIXME:  This should probably be controlled by an option to 
+     *         'set datafile' rather than 'set key'.  Or maybe both?
+     */
     column_for_key_title = NO_COLUMN_HEADER;
-    parse_1st_row_as_headers = FALSE;
     df_already_got_headers = FALSE;
-    /*}}} */
+    if ((&keyT)->auto_titles == COLUMNHEAD_KEYTITLES)
+	parse_1st_row_as_headers = TRUE;
+    else
+	parse_1st_row_as_headers = FALSE;
 
     if (!cmd_filename)
 	int_error(c_token, "missing filename");
@@ -2056,14 +2065,11 @@ df_readascii(double v[], int max)
 			    axcol = 2;
 			    break;
 			case CT_CBTICLABEL:
-			    /* EAM FIXME - Which column to set for cbtic? */
 			    axis = COLOR_AXIS;
 			    axcol = 3;
 			    break;
 		    }
-		    /* FIXME EAM - Trap special case of only a single
-		     * 'using' column. But really we need to handle
-		     * general case of implicit column 0 */
+		    /* Trap special case of only a single 'using' column */
 		    if (output == 1)
 			xpos = (axcol == 0) ? df_datum : v[axcol-1];
 		    else
@@ -3512,8 +3518,8 @@ plot_option_binary(TBOOLEAN set_matrix, TBOOLEAN set_default)
 	    df_matrix_file = FALSE;
 	    plot_option_array();
 	    set_record = TRUE;
-	    df_xpixels = df_bin_record[df_num_bin_records - 1].cart_dim[1];
-	    df_ypixels = df_bin_record[df_num_bin_records - 1].cart_dim[0];
+	    df_xpixels = df_bin_record[df_num_bin_records - 1].cart_dim[0];
+	    df_ypixels = df_bin_record[df_num_bin_records - 1].cart_dim[1];
 	    FPRINTF((stderr,"datafile.c:%d  record dimensions %d x %d\n", __LINE__,
 		df_xpixels, df_ypixels));
 	    continue;
@@ -4805,7 +4811,6 @@ df_readbinary(double v[], int max)
 	    bytes_total    += record_skip;
 
 	    /* Allocate a chunk of memory and stuff it */
-	    /* EAM FIXME: Is this a leak if the plot errors out? */
 	    memory_data = gp_alloc(bytes_total, "df_readbinary slurper");
 	    this_record->memory_data = memory_data;
 
@@ -5236,7 +5241,6 @@ df_readbinary(double v[], int max)
 			axcol = 2;
 			break;
 		    case CT_CBTICLABEL:
-			/* EAM FIXME - Which column to set for cbtic? */
 			axis = COLOR_AXIS;
 			axcol = 2;
 			break;
@@ -5320,7 +5324,6 @@ df_generate_pseudodata()
 
 	if ((axis_array[SAMPLE_AXIS].range_flags & RANGE_SAMPLED)) {
 	    /* This is the case of an explicit sampling range */
-	    /* FIXME: should allow for round-off error in floating point summation! */
 	    if (!inrange(t, t_min, t_max))
 		return NULL;
 	} else {
@@ -5347,15 +5350,8 @@ df_generate_pseudodata()
 	AXIS_INDEX u_axis = FIRST_X_AXIS;
 	AXIS_INDEX v_axis = FIRST_Y_AXIS;
 
-	if ((df_pseudorecord >= nusteps) && (df_pseudorecord > 0)) {
-	    df_pseudorecord = 0;
-	    if (++df_pseudospan >= nvsteps)
-		return NULL;
-	    else
-		return ""; /* blank record for end of scan line */
-	}
-
-	if (df_pseudospan == 0) {
+	/* Fill in the static variables only once per plot */
+	if (df_pseudospan == 0 && df_pseudorecord == 0) {
 	    if (samples_1 < 2 || samples_2 < 2 || iso_samples_1 < 2 || iso_samples_2 < 2)
 		int_error(NO_CARET, "samples or iso_samples < 2. Must be at least 2.");
 	    if (parametric) {
@@ -5393,9 +5389,25 @@ df_generate_pseudodata()
 	    nvsteps = iso_samples_2;
 	}
 
+	/* wrap at end of each line */
+	if (df_pseudorecord >= nusteps) {
+	    df_pseudorecord = 0;
+	    if (++df_pseudospan >= nvsteps)
+		return NULL;
+	    else
+		return ""; /* blank record for end of scan line */
+	}
+
 	/* Duplicate algorithm from calculate_set_of_isolines() */
 	u = u_min + df_pseudorecord * u_step;
 	v = v_max - df_pseudospan * v_isostep;
+
+	/* Round-off error is most visible at the border */
+	if (df_pseudorecord == nusteps-1)
+	    u = u_max;
+	if (df_pseudospan == nvsteps-1)
+	    v = v_min;
+
 	if (parametric) {
 	    df_pseudovalue_0 = u;
 	    df_pseudovalue_1 = v;

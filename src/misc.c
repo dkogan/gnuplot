@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.206 2016-08-16 19:19:27 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.208 2016-11-18 08:20:57 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -45,6 +45,7 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.206 2016-08-16 19:19:27 sfe
 #include "variable.h"
 #include "axis.h"
 #include "scanner.h"		/* so that scanner() can count curly braces */
+#include "setshow.h"
 #ifdef _Windows
 # include <fcntl.h>
 # if defined(__WATCOMC__) || defined(__MSC__)
@@ -1503,19 +1504,29 @@ arrow_use_properties(struct arrow_style_type *arrow, int tag)
      *  copies its data into the structure 'ap'. */
     struct arrowstyle_def *this;
 
+    /* If a color has already been set for this arrow, keep it */
+    struct t_colorspec save_colorspec = arrow->lp_properties.pm3d_color;
+
+    /* Default if requested style is not found */
+    default_arrow_style(arrow);
+
     this = first_arrowstyle;
     while (this != NULL) {
 	if (this->tag == tag) {
 	    *arrow = this->arrow_properties;
-	    return;
+	    break;
 	} else {
 	    this = this->next;
 	}
     }
 
     /* tag not found: */
-    default_arrow_style(arrow);
-    int_warn(NO_CARET,"arrowstyle %d not found", tag);
+    if (this->tag != tag)
+	int_warn(NO_CARET,"arrowstyle %d not found", tag);
+
+    /* Restore orginal color if the style doesn't specify one */
+    if (arrow->lp_properties.pm3d_color.type == TC_DEFAULT)
+	arrow->lp_properties.pm3d_color = save_colorspec;
 }
 
 void
@@ -1723,4 +1734,5 @@ init_encoding(void)
     encoding = encoding_from_locale();
     if (encoding == S_ENC_INVALID)
 	encoding = S_ENC_DEFAULT;
+    init_special_chars();
 }

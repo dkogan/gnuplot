@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.190 2016-08-06 05:47:08 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.192 2016-09-12 17:37:58 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -1143,6 +1143,8 @@ builtin_toggle_mouse(struct gp_event_t *ge)
 	    fprintf(stderr, "turning mouse off.\n");
 	}
     }
+    if (term->set_cursor)
+	term->set_cursor(0, 0, 0);
 # ifdef OS2
     PM_update_menu_items();
 # endif
@@ -1946,7 +1948,7 @@ event_buttonpress(struct gp_event_t *ge)
 	}
     } else {
 	if (term->set_cursor) {
-	    if (button & (1 << 1))
+	    if (button & (1 << 1) || button & (1 << 3))
 		term->set_cursor(1, 0, 0);
 	    else if (button & (1 << 2))
 		term->set_cursor(2, 0, 0);
@@ -2034,7 +2036,7 @@ event_buttonrelease(struct gp_event_t *ge)
 	    }
 	}
     }
-    if (is_3d_plot && (b == 1 || b == 2)) {
+    if (is_3d_plot && (b == 1 || b == 2 || b == 3)) {
 	if (!!(modifier_mask & Mod_Ctrl) && !needreplot) {
 	    /* redraw the 3d plot if its last redraw was 'quick'
 	     * (only axes) because modifier key was pressed */
@@ -2119,7 +2121,12 @@ event_motion(struct gp_event_t *ge)
 	    start_x = mouse_x;
 	    start_y = mouse_y;
 	    redraw = TRUE;
-	} /* if (mousebutton 2 is down) */
+	} else if (button & (1 << 3)) {
+	    /* dragging with button 3 -> change azimuth */
+	    azimuth += (mouse_x - start_x) * 90.0 / term->xmax;
+	    start_x = mouse_x;
+	    redraw = TRUE;
+	}
 
 	if (!ALMOST2D) {
 	    turn_ruler_off();
@@ -2136,6 +2143,7 @@ event_motion(struct gp_event_t *ge)
 		fill_gpval_float("GPVAL_VIEW_ROT_Z", surface_rot_z);
 		fill_gpval_float("GPVAL_VIEW_SCALE", surface_scale);
 		fill_gpval_float("GPVAL_VIEW_ZSCALE", surface_zscale);
+		fill_gpval_float("GPVAL_VIEW_AZIMUTH", azimuth);
 	    } else {
 		/* postpone the replotting */
 		needreplot = TRUE;
@@ -2563,6 +2571,7 @@ bind_display(char *lhs)
 	fprintf(stderr, fmt, "<B1-Motion>", "change view (rotation); use <Ctrl> to rotate the axes only");
 	fprintf(stderr, fmt, "<B2-Motion>", "change view (scaling); use <Ctrl> to scale the axes only");
 	fprintf(stderr, fmt, "<Shift-B2-Motion>", "vertical motion -- change xyplane");
+	fprintf(stderr, fmt, "<B3-Motion>", "change view (azimuth)");
 
 	/* mouse wheel */
 	fprintf(stderr, fmt, "<wheel-up>", "  scroll up (in +Y direction)");

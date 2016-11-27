@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.400 2016-08-24 17:46:52 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.404 2016-10-27 18:43:47 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -116,6 +116,7 @@ cp_alloc(int num)
     cp->lp_properties = default_lp_properties;
     default_arrow_style(&(cp->arrow_properties));
     cp->fill_properties = default_fillstyle;
+    cp->filledcurves_options = filledcurves_opts_data;
 
     return (cp);
 }
@@ -2004,7 +2005,6 @@ eval_plots()
     char *xtitle = NULL;
     int begin_token = c_token;  /* so we can rewind for second pass */
     int start_token=0, end_token;
-    int highest_iteration = 0;	/* last index reached in iteration [i=start:*] */
     legend_key *key = &keyT;
     char orig_dummy_var[MAX_ID_LEN+1];
 
@@ -2138,7 +2138,8 @@ eval_plots()
 #ifdef EAM_OBJECTS
 	    TBOOLEAN set_ellipseaxes_units = FALSE;
 #endif
-	    t_colorspec fillcolor;
+	    t_colorspec fillcolor = DEFAULT_COLORSPEC;
+
 	    int sample_range_token;	/* Only used by function plots */
 
 	    plot_num++;
@@ -2964,12 +2965,12 @@ eval_plots()
 	if (empty_iteration(plot_iterator) && this_plot) {
 	    this_plot->plot_type = NODATA;
 	} else if (forever_iteration(plot_iterator) && (this_plot->plot_type == NODATA)) {
-	    highest_iteration = plot_iterator->iteration;
+	    FPRINTF((stderr,"Ending * iteration at %d\n",plot_iterator->iteration));
+	    ;
 	} else if (forever_iteration(plot_iterator) && (this_plot->plot_type == FUNC)) {
 	    int_error(NO_CARET,"unbounded iteration in function plot");
 	} else if (next_iteration(plot_iterator)) {
 	    c_token = start_token;
-	    highest_iteration = plot_iterator->iteration;
 	    continue;
 	}
 
@@ -3333,10 +3334,8 @@ eval_plots()
 
 	    /* Iterate-over-plot mechanism */
 	    if (next_iteration(plot_iterator)) {
-		if (plot_iterator->iteration <= highest_iteration) {
-		    c_token = start_token;
-		    continue;
-		}
+		c_token = start_token;
+		continue;
 	    }
 
 	    plot_iterator = cleanup_iteration(plot_iterator);
