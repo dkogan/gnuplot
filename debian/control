@@ -136,7 +136,6 @@ Package: gnuplot5-data
 Architecture: all
 Section: doc
 Depends: aglfn,
-         gnuplot-tex,
          ${misc:Depends}
 Description: Command-line driven interactive plotting program. Data-files
  Gnuplot is a portable command-line driven interactive data and function
