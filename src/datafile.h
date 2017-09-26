@@ -1,5 +1,5 @@
 /*
- * $Id: datafile.h,v 1.52 2016-08-19 16:51:58 sfeam Exp $
+ * $Id: datafile.h,v 1.55 2017-09-18 22:24:03 sfeam Exp $
  */
 
 /* GNUPLOT - datafile.h */
@@ -98,12 +98,9 @@ extern char *df_filename;
 extern int df_line_number;
 extern AXIS_INDEX df_axis[];
 
-#ifdef BACKWARDS_COMPATIBLE
-extern struct udft_entry ydata_func; /* deprecated "thru" function */
-#endif
-
 /* Returned to caller by df_readline() */
 extern char *df_tokens[];
+extern struct value df_strings[];	/* used only by TABLESTYLE */
 
 /* number of columns in first row of data return to user in STATS_columns */
 extern int df_last_col;
@@ -133,6 +130,7 @@ extern TBOOLEAN df_warn_on_missing_columnheader;
 
 /* Used by plot title columnhead, stats name columnhead */
 extern char *df_key_title;
+extern struct at_type *df_plot_title_at;
 
 /* Prototypes of functions exported by datafile.c */
 

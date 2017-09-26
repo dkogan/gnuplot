@@ -1,5 +1,5 @@
 /*
- * $Id: util.h,v 1.51 2016-10-10 22:53:38 sfeam Exp $
+ * $Id: util.h,v 1.54 2017-09-04 18:02:21 sfeam Exp $
  */
 
 /* GNUPLOT - util.h */
@@ -70,6 +70,8 @@ extern TBOOLEAN use_minus_sign;
 
 extern const char *current_prompt; /* needed by is_error() and friends */
 
+extern int debug;
+
 /* Functions exported by util.c: */
 
 /* Command parsing helpers: */
@@ -94,8 +96,8 @@ char *gp_stradd __PROTO((const char *, const char *));
 /* HBB 20010726: IMHO this one belongs into alloc.c: */
 char *gp_strdup __PROTO((const char *));
 
-/* HBB 20020405: moved this here, from axis.[ch] */
 void gprintf __PROTO((char *, size_t, char *, double, double));
+void gprintf_value __PROTO((char *, size_t, char *, double, struct value *));
 
 /* Error message handling */
 #if defined(VA_START) && defined(STDC_HEADERS)
@@ -137,7 +139,6 @@ char * gp_strchrn __PROTO((const char *s, int N));
 TBOOLEAN streq __PROTO((const char *a, const char *b));
 size_t strappend(char **dest, size_t *size, size_t len, const char *src);
 
-char *num_to_str(double r);
 char *value_to_str(struct value *val, TBOOLEAN need_quotes);
 
 /* To disallow 8-bit characters in variable names, set this to */

@@ -1,5 +1,5 @@
 /*
- * $Id: gp_cairo.c,v 1.97 2016-09-22 01:39:35 sfeam Exp $
+ * $Id: gp_cairo.c,v 1.102 2017-08-17 18:05:23 sfeam Exp $
  */
 
 /* GNUPLOT - gp_cairo.c */
@@ -771,14 +771,14 @@ static gchar * gp_cairo_convert(plot_struct *plot, const char* string)
 }
 
 /*
- * The following #ifdef WIN32 section is all to work around a bug in
+ * The following #ifdef _WIN32 section is all to work around a bug in
  * the cairo/win32 backend for font rendering.  It has the effect of
  * testing for libfreetype support, and using that instead if possible.
  * Suggested by cairo developer Behdad Esfahbod.
  * Allin Cottrell suggests that this not necessary anymore for newer
  * versions of cairo.
  */
-#if defined(WIN32) && (CAIRO_VERSION_MAJOR < 2) && (CAIRO_VERSION_MINOR < 10)
+#if defined(_WIN32) && (CAIRO_VERSION_MAJOR < 2) && (CAIRO_VERSION_MINOR < 10)
 static PangoLayout *
 gp_cairo_create_layout(cairo_t *cr)
 {
@@ -800,7 +800,7 @@ gp_cairo_create_layout(cairo_t *cr)
 #endif
 
     layout = pango_layout_new(context);
-    g_object_unref(context);
+    g_clear_object (&context);
 
     return layout;
 }
@@ -938,6 +938,7 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 		case LEFT:
 			box_x = box_origin_x;
 			break;
+		default:
 		case CENTRE:
 			box_x = box_origin_x - delta;
 			break;
@@ -966,7 +967,7 @@ void gp_cairo_draw_text(plot_struct *plot, int x1, int y1, const char* string,
 #endif
 
 	/* free the layout object */
-	g_object_unref (layout);
+	g_clear_object (&layout);
 	cairo_restore (plot->cr);
 }
 
@@ -1335,8 +1336,11 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		pango_layout_set_text (save_layout, gp_cairo_save_utf8, -1);
 		pango_layout_set_attributes (save_layout, gp_cairo_enhanced_save_AttrList);
 		pango_layout_get_extents(save_layout, NULL, &save_logical_rect);
-		g_object_unref (save_layout);
+		g_clear_object (&save_layout);
+
 		pango_attr_list_unref( gp_cairo_enhanced_save_AttrList );
+		gp_cairo_enhanced_save_AttrList = NULL;
+
 		/* invert the size, so we will go back to the saved state */
 		save_logical_rect.width = -save_logical_rect.width;
 		/* EAM FIXME:  Zero height necessary but I don't understand why */
@@ -1363,7 +1367,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		else
 			pango_layout_set_attributes (underprinted_layout, gp_cairo_enhanced_underprinted_AttrList);
 		pango_layout_get_extents(underprinted_layout, NULL, &underprinted_logical_rect);
-		g_object_unref (underprinted_layout);
+		g_clear_object (&underprinted_layout);
 
 		/* compute the size of the text to overprint*/
 
@@ -1380,7 +1384,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		pango_layout_set_font_description (current_layout, current_desc);
 		pango_font_description_free (current_desc);
 		pango_layout_get_extents(current_layout, &current_ink_rect, &current_logical_rect);
-		g_object_unref (current_layout);
+		g_clear_object (&current_layout);
 
 		/* calculate the distance to remove to center the overprinted text */
 		underprinted_logical_rect.width = -(underprinted_logical_rect.width + current_logical_rect.width)/2;
@@ -1409,7 +1413,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		pango_layout_set_text (current_layout, gp_cairo_utf8, -1);
 		pango_layout_set_attributes (current_layout, gp_cairo_enhanced_AttrList);
 		pango_layout_get_extents(current_layout, &current_ink_rect, &current_logical_rect);
-		g_object_unref (current_layout);
+		g_clear_object (&current_layout);
 
 		/* we first compute the size of the text */
 		/* Create a PangoLayout, set the font and text */
@@ -1425,7 +1429,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		pango_font_description_free (hide_desc);
 
 		pango_layout_get_extents(hide_layout, &hide_ink_rect, &hide_logical_rect);
-		g_object_unref (hide_layout);
+		g_clear_object (&hide_layout);
 
 		/* rect.y must be reworked to take previous text into account, which may be smaller */
 		/* hide_logical_rect.y is always initialized at zero, but should be : */
@@ -1454,7 +1458,7 @@ void gp_cairo_enhanced_flush(plot_struct *plot)
 		pango_layout_set_font_description (zerowidth_layout, zerowidth_desc);
 		pango_font_description_free (zerowidth_desc);
 		pango_layout_get_extents(zerowidth_layout, NULL, &zerowidth_logical_rect);
-		g_object_unref (zerowidth_layout);
+		g_clear_object (&zerowidth_layout);
 
 		/* invert the size, so we will go back to the start of the string */
 		zerowidth_logical_rect.width = -zerowidth_logical_rect.width;
@@ -1535,8 +1539,9 @@ void gp_cairo_enhanced_open(plot_struct *plot, char* fontname, double fontsize, 
 	}
 
 	if (!gp_cairo_enhanced_opened_string) {
-		// Strip off Bold or Italic and apply immediately
-		// Is it really necessary to preserve plot->fontname?
+		/* Strip off Bold or Italic and apply immediately
+		 * Is it really necessary to preserve plot->fontname?
+		 */
 		char *save_plot_font = strdup(plot->fontname);
 		gp_cairo_set_font(plot, fontname, plot->fontsize);
 		strncpy(gp_cairo_enhanced_font, plot->fontname, sizeof(gp_cairo_enhanced_font));
@@ -1643,6 +1648,7 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 		case LEFT:
 			box_x = box_origin_x;
 			break;
+		default:
 		case CENTRE:
 			box_x = box_origin_x - delta;
 			break;
@@ -1672,7 +1678,8 @@ void gp_cairo_enhanced_finish(plot_struct *plot, int x, int y)
 
 	/* free the layout object */
 	pango_attr_list_unref( gp_cairo_enhanced_AttrList );
-	g_object_unref (layout);
+	gp_cairo_enhanced_AttrList = NULL;
+	g_clear_object (&layout);
 	cairo_restore(plot->cr);
 	strncpy(gp_cairo_utf8, "", sizeof(gp_cairo_utf8));
 	free(gp_cairo_enhanced_string);
@@ -1784,7 +1791,8 @@ void gp_cairo_boxed_text(plot_struct *plot, int x, int y, int option)
 		    cairo_set_source_rgba(plot->cr, 0.75, 0.75, 0.75, 0.50);
 		    cairo_fill(plot->cr);
 		} else {  /* option == TEXTBOX_OUTLINE */
-		    cairo_set_line_width(plot->cr, 0.5*plot->oversampling_scale);
+		    cairo_set_line_width(plot->cr,
+					 0.5*plot->linewidth*plot->oversampling_scale);
 		    cairo_set_source_rgba(plot->cr, plot->color.r, plot->color.g,
 					  plot->color.b, 1. - plot->color.alpha);
 		    cairo_stroke(plot->cr);
@@ -1932,7 +1940,7 @@ void gp_cairo_set_termvar(plot_struct *plot, unsigned int *v_char,
 	pango_layout_set_font_description (layout, desc);
 	pango_font_description_free (desc);
 	pango_layout_get_extents(layout, &ink_rect, &logical_rect);
-	g_object_unref (layout);
+	g_clear_object (&layout);
 
 	/* we don't use gnuplot_x() and gnuplot_y() in the following
 	 * as the scale should have just been updated to 1.
@@ -1995,7 +2003,7 @@ const char* gp_cairo_enhanced_get_fontname(plot_struct *plot)
 const char *
 gp_cairo_default_font(void)
 {
-#ifdef WIN32
+#ifdef _WIN32
 	return "Tahoma";
 #else
 	return "Sans";

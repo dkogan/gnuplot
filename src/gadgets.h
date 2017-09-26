@@ -63,7 +63,8 @@ typedef enum position_type {
     second_axes,
     graph,
     screen,
-    character
+    character,
+    polar_axes
 } position_type;
 
 /* A full 3D position, with all 3 coordinates of possible using different axes.
@@ -210,7 +211,7 @@ struct pa_style {
     int layer;			/* front/back */
 };
 #define DEFAULT_PARALLEL_AXIS_STYLE \
-	{{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 2.0, 0.0, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, LAYER_FRONT }
+	{{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 0, 2.0, 0.0, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, LAYER_FRONT }
 
 /* The stacking direction of the key box: (vertical, horizontal) */
 typedef enum en_key_stack_direction {
@@ -302,10 +303,11 @@ typedef struct textbox_style {
     TBOOLEAN noborder;	/* True if you want fill only, no lines */
     double xmargin;	/* fraction of default margin to use */
     double ymargin;	/* fraction of default margin to use */
+    double linewidth;	/* applied to border */
     t_colorspec border_color;	/* TC_LT + LT_NODRAW is "noborder" */
     t_colorspec fillcolor;	/* only used if opaque is TRUE */
 } textbox_style;
-#define DEFAULT_TEXTBOX_STYLE { FALSE, FALSE, 1.0, 1.0, BLACK_COLORSPEC, BACKGROUND_COLORSPEC }
+#define DEFAULT_TEXTBOX_STYLE { FALSE, FALSE, 1.0, 1.0, 1.0, BLACK_COLORSPEC, BACKGROUND_COLORSPEC }
 #endif
 
 /***********************************************************/
@@ -357,7 +359,7 @@ typedef struct {
 
 extern legend_key keyT;
 
-#define DEFAULT_KEYBOX_LP {0, LT_NODRAW, 0, DASHTYPE_SOLID, 0, 1.0, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}
+#define DEFAULT_KEYBOX_LP {0, LT_NODRAW, 0, DASHTYPE_SOLID, 0, 0, 1.0, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}
 
 #define DEFAULT_KEY_POSITION { graph, graph, graph, 0.9, 0.9, 0. }
 
@@ -458,12 +460,14 @@ extern text_label timelabel;
 extern int timelabel_bottom;
 
 extern TBOOLEAN	polar;
+extern TBOOLEAN inverted_raxis;	/* true if R_AXIS.set_min > R_AXIS.set_max */
 
 #define ZERO 1e-8		/* default for 'zero' set option */
 extern double zero;		/* zero threshold, not 0! */
 
 extern double pointsize;
 extern double pointintervalbox;
+extern t_colorspec background_fill;
 
 #define SOUTH		1 /* 0th bit */
 #define WEST		2 /* 1th bit */
@@ -473,7 +477,6 @@ extern double pointintervalbox;
 #define border_west	(draw_border & WEST)
 #define border_south	(draw_border & SOUTH)
 #define border_north	(draw_border & NORTH)
-#define border_complete	((draw_border & 15) == 15)
 extern int draw_border;
 extern int user_border;
 extern int border_layer;
@@ -563,24 +566,24 @@ extern fill_style_type default_fillstyle;
 extern struct object default_rectangle;
 #define DEFAULT_RECTANGLE_STYLE { NULL, -1, 0, OBJ_RECTANGLE, OBJ_CLIP,	\
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
 	{.rectangle = {0, {0,0,0,0.,0.,0.}, {0,0,0,0.,0.,0.}, {0,0,0,0.,0.,0.}, {0,0,0,0.,0.,0.}}} }
 
 extern struct object default_circle;
 #define DEFAULT_CIRCLE_STYLE { NULL, -1, 0, OBJ_CIRCLE, OBJ_CLIP, \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
 	{.circle = {1, {0,0,0,0.,0.,0.}, {graph,0,0,0.02,0.,0.}, 0., 360., TRUE }} }
 
 extern struct object default_ellipse;
 #define DEFAULT_ELLIPSE_STYLE { NULL, -1, 0, OBJ_ELLIPSE, OBJ_CLIP, \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN}, \
 	{.ellipse = {ELLIPSEAXES_XY, {0,0,0,0.,0.,0.}, {graph,graph,0,0.05,0.03,0.}, 0. }} }
 
 #define DEFAULT_POLYGON_STYLE { NULL, -1, 0, OBJ_POLYGON, OBJ_CLIP, \
 	{FS_SOLID, 100, 0, BLACK_COLORSPEC},   			\
-	{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
+	{0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 0, 1.0, 0.0, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}, \
 	{.polygon = {0, NULL} } }
 
 #endif

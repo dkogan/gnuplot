@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: internal.c,v 1.94 2016-10-23 23:14:06 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: internal.c,v 1.105 2017-09-05 20:18:58 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - internal.c */
@@ -42,10 +42,16 @@ static char *RCSid() { return RCSid("$Id: internal.c,v 1.94 2016-10-23 23:14:06 
 #include "util.h"	/* for int_error() */
 #include "gp_time.h"	/* for str(p|f)time */
 #include "command.h"	/* for do_system_func */
+#include "datablock.h"	/* for datablock_size() */
 #include "variable.h"	/* for locale handling */
 #include "parse.h"	/* for string_result_only */
 
 #include <math.h>
+
+#ifdef _WIN32
+# define WIN32_LEAN_AND_MEAN
+# include <windows.h>
+#endif
 
 #if !defined(__MINGW64_VERSION_MAJOR)
 /*
@@ -1051,7 +1057,7 @@ f_power(union argument *arg)
 	switch (b.type) {
 	case INTGR:
 	    if (a.v.cmplx_val.imag == 0.0) {
-		mag = pow(a.v.cmplx_val.real, (double) abs(b.v.int_val));
+		mag = pow(a.v.cmplx_val.real, fabs((double)b.v.int_val));
 		if (b.v.int_val < 0) {
 		    if (mag != 0.0)
 			mag = 1.0 / mag;
@@ -1061,7 +1067,7 @@ f_power(union argument *arg)
 		(void) Gcomplex(&result, mag, 0.0);
 	    } else {
 		/* not so good, but...! */
-		mag = pow(magnitude(&a), (double) abs(b.v.int_val));
+		mag = pow(magnitude(&a), fabs((double)b.v.int_val));
 		if (b.v.int_val < 0) {
 		    if (mag != 0.0)
 			mag = 1.0 / mag;
@@ -1102,6 +1108,20 @@ f_power(union argument *arg)
     default:
 	BAD_TYPE(a.type)
     }
+
+    /* Catch underflow and return 0 */
+    /* Note: fpclassify() is an ISOC99 macro found also in other libc implementations */
+#ifdef fpclassify
+    if (errno == ERANGE && result.type == CMPLX) {
+	int fperror = fpclassify(result.v.cmplx_val.real);
+	if (fperror == FP_ZERO || fperror == FP_SUBNORMAL) {
+	    result.v.cmplx_val.real = 0.0;
+	    result.v.cmplx_val.imag = 0.0;
+	    errno = 0;
+	}
+    }
+#endif
+
     push(&result);
 }
 
@@ -1149,11 +1169,7 @@ f_concatenate(union argument *arg)
 	int i = b.v.int_val;
 	b.type = STRING;
 	b.v.string_val = (char *)gp_alloc(32,"str_const");
-#ifdef HAVE_SNPRINTF
 	snprintf(b.v.string_val,32,"%d",i);
-#else
-	sprintf(b.v.string_val,"%d",i);
-#endif
     }
 
     if (a.type != STRING || b.type != STRING)
@@ -1303,18 +1319,25 @@ f_index(union argument *arg)
     (void) pop(&index);
     (void) pop(&array);
 
-    if (array.type != ARRAY)
-	int_error(NO_CARET, "internal error: attempt to index non-array variable");
-
     if (index.type == INTGR)
 	i = index.v.int_val;
     else if (index.type == CMPLX)
 	i = floor(index.v.cmplx_val.real);
 
-    if (i <= 0 || i > array.v.value_array[0].v.int_val) 
-	int_error(NO_CARET, "array index out of range");
+    if (array.type == ARRAY) {
+	if (i <= 0 || i > array.v.value_array[0].v.int_val) 
+	    int_error(NO_CARET, "array index out of range");
+	push( &array.v.value_array[i] );
 
-    push( &array.v.value_array[i] );
+    } else if (array.type == DATABLOCK) {
+	i--;	/* line numbers run from 1 to nlines */
+	if (i < 0 || i >= datablock_size(&array))
+	    int_error(NO_CARET, "datablock index out of range");
+	push( Gstring(&array, array.v.data_array[i]) );
+    }
+
+    else
+	int_error(NO_CARET, "internal error: attempt to index a scalar variable");
 }
 
 /*
@@ -1324,13 +1347,18 @@ void
 f_cardinality(union argument *arg)
 {
     struct value array;
+    int size;
     (void) arg;			/* avoid -Wunused warning */
     (void) pop(&array);
 
-    if (array.type != ARRAY)
-	int_error(NO_CARET, "internal error: cardinality of a non-array variable");
+    if (array.type == ARRAY)
+	size = array.v.value_array[0].v.int_val;
+    else if (array.type == DATABLOCK)
+	size = datablock_size(&array);
+    else
+	int_error(NO_CARET, "internal error: cardinality of a scalar variable");
 
-    push(Ginteger(&array, array.v.value_array[0].v.int_val));
+    push(Ginteger(&array, size));
 }
 
 /* Magic number! */
@@ -1353,7 +1381,7 @@ f_word(union argument *arg)
     int nwords = 0;
     int in_string = 0;
     int ntarget;
-    char q;
+    char q = '\0';
     char *s;
 
     (void) arg;
@@ -1488,7 +1516,6 @@ f_sprintf(union argument *arg)
 	if ( spec_type != STRING && next_param->type == STRING )
 	    int_error(NO_CARET,"f_sprintf: attempt to print string value with numeric format");
 
-#ifdef HAVE_SNPRINTF
 	/* Use the format to print next arg */
 	switch(spec_type) {
 	case INTGR:
@@ -1506,22 +1533,6 @@ f_sprintf(union argument *arg)
 	default:
 	    int_error(NO_CARET,"internal error: invalid spec_type");
 	}
-#else
-	/* FIXME - this is bad; we should dummy up an snprintf equivalent */
-	switch(spec_type) {
-	case INTGR:
-	    sprintf(outpos, next_start, (int)real(next_param));
-	    break;
-	case CMPLX:
-	    sprintf(outpos, next_start, real(next_param));
-	    break;
-	case STRING:
-	    sprintf(outpos, next_start, next_param->v.string_val);
-	    break;
-	default:
-	    int_error(NO_CARET,"internal error: invalid spec_type");
-	}
-#endif
 
 	next_start[next_length] = tempchar;
 	next_start += next_length;
@@ -1596,7 +1607,7 @@ f_gprintf(union argument *arg)
     buffer = gp_alloc(length, "f_gprintf");
 
     /* Call the old internal routine */
-    gprintf(buffer, length, fmt.v.string_val, base, real(&val));
+    gprintf_value(buffer, length, fmt.v.string_val, base, &val);
 
     FPRINTF((stderr," gprintf result = \"%s\"\n",buffer));
     push(Gstring(&result, buffer));
@@ -1674,14 +1685,14 @@ f_strptime(union argument *arg)
 
 
     /* string -> time_tm  plus extra fractional second */
-    gstrptime(val.v.string_val, fmt.v.string_val, &time_tm, &usec);
-
-    /* time_tm -> result */
-    result = gtimegm(&time_tm);
+    if (gstrptime(val.v.string_val, fmt.v.string_val, &time_tm, &usec, &result)
+	    == DT_TIMEDATE) {
+	/* time_tm -> result */
+	result = gtimegm(&time_tm);
+	/* Add back any extra fractional second */
+	result += usec;
+    }
     FPRINTF((stderr," strptime result = %g seconds \n", result));
-
-    /* Add back any extra fractional second */
-    result += usec;
 
     gpfree_string(&val);
     gpfree_string(&fmt);
@@ -1708,8 +1719,21 @@ f_time(union argument *arg)
     gettimeofday(&tp, NULL);
     tp.tv_sec -= SEC_OFFS_SYS;
     time_now = tp.tv_sec + (tp.tv_usec/1000000.0);
-#else
+#elif defined(_WIN32)
+    SYSTEMTIME systime;
+    FILETIME filetime;
+    ULARGE_INTEGER itime;
 
+    /* get current system time (UTC) */
+    GetSystemTime(&systime);
+    /* convert to integer value in 100ns steps */
+    SystemTimeToFileTime(&systime, &filetime);
+    itime.HighPart = filetime.dwHighDateTime;
+    itime.LowPart = filetime.dwLowDateTime;
+    /* reference of this value is 1601-01-01 (no typo!) */
+    /* strptime("%Y-%m-%d", "1601-01-01") = -11644473600.0 */
+    time_now = itime.QuadPart * 100e-9 - 11644473600.0 - SEC_OFFS_SYS;
+#else
     time_now = (double) time(NULL);
     time_now -= SEC_OFFS_SYS;
 #endif
@@ -1717,7 +1741,7 @@ f_time(union argument *arg)
     (void) arg; /* Avoid compiler warnings */
     pop(&val); 
     
-    switch(val.type) {
+    switch (val.type) {
 	case INTGR:
 	    push(Ginteger(&val, (int) time_now));
 	    break;
@@ -1801,9 +1825,9 @@ f_system(union argument *arg)
 
     ierr = do_system_func(val.v.string_val, &output);
     fill_gpval_integer("GPVAL_ERRNO", ierr); 
-    output_len = strlen(output);
 
     /* chomp result */
+    output_len = strlen(output);
     if ( output_len > 0 && output[output_len-1] == '\n' )
 	output[output_len-1] = NUL;
 
@@ -1894,6 +1918,7 @@ f_value(union argument *arg)
 	/* int_warn(NO_CARET,"undefined variable name passed to value()"); */
 	result.type = CMPLX;
 	result.v.cmplx_val.real = not_a_number();
+	result.v.cmplx_val.imag = 0;
     }
     push(&result);
 }

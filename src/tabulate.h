@@ -1,5 +1,5 @@
 /*
- * $Id: tabulate.h,v 1.2 2014/04/05 06:17:09 markisch Exp $
+ * $Id: tabulate.h,v 1.4 2017-07-21 04:31:16 sfeam Exp $
  */
 
 /* GNUPLOT - tabulate.h */
@@ -13,9 +13,12 @@
 
 void print_table __PROTO((struct curve_points * first_plot, int plot_num));
 void print_3dtable __PROTO((int pcount));
+TBOOLEAN tabulate_one_line __PROTO((double v[], struct value str[], int ncols));
 
 extern FILE *table_outfile;
 extern udvt_entry *table_var;
 extern TBOOLEAN table_mode;
+extern char *table_sep;
+extern struct at_type *table_filter_at;
 
 #endif /* GNUPLOT_TABULATE_H */

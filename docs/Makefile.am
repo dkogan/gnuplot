@@ -51,7 +51,7 @@ noinst_PROGRAMS = checkdoc doc2ipf doc2tex doc2gih doc2rnh doc2hlp	\
 AM_CPPFLAGS = -I$(top_srcdir)/src -I$(top_srcdir)/term
 
 T = $(top_srcdir)/term/
-CORETERM = $(T)ai.trm $(T)aquaterm.trm $(T)be.trm \
+CORETERM = $(T)ai.trm $(T)aquaterm.trm $(T)be.trm $(T)caca.trm \
 $(T)cairo.trm $(T)canvas.trm $(T)cgm.trm $(T)context.trm \
 $(T)corel.trm $(T)debug.trm $(T)djsvga.trm $(T)dumb.trm $(T)dxf.trm \
 $(T)dxy.trm $(T)eepic.trm $(T)emf.trm $(T)emxvga.trm $(T)epson.trm \
@@ -78,7 +78,8 @@ DOCHEADERS = doc2x.h xref.h
 EXTRA_DIST = Makefile.in doc2texi.el figure_missing.pdf gnuplot.doc \
 titlepag.ipf titlepag.ms titlepag.tex	\
 toc_entr.sty psdoc faq-ja.tex gnuplot-ja.doc README.ja	\
-term-ja.diff plotstyles.gnu gnuplot.pdf windows
+term-ja.diff plotstyles.gnu gnuplot.pdf \
+windows/wgnuplot.hhk windows/wgnuplot.hhp windows/wgnuplot.stp windows/doc2html.c
 
 ELCS = gnuplot-eldoc.elc
 
@@ -110,7 +111,7 @@ $(GNUPLOT_EXE):
 if BUILD_LUA
 LUA_HELP = gnuplot-tikz.help
 $(LUA_HELP): $(top_srcdir)/term/lua/gnuplot-tikz.lua
-	$(AM_V_GEN)lua $< termhelp > $@
+	$(AM_V_GEN) $(LUA) $< termhelp > $@
 else
 LUA_HELP = 
 endif

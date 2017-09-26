@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: command.c,v 1.346 2016-10-15 09:08:52 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: command.c,v 1.362 2017-08-09 18:00:51 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - command.c */
@@ -117,11 +117,12 @@ int thread_rl_RetCode = -1; /* return code from readline in a thread */
 #endif /* OS2_IPC */
 
 
-#ifndef _Windows
+#ifndef _WIN32
 # include "help.h"
-#endif /* _Windows */
+#endif
 
-#ifdef _Windows
+#ifdef _WIN32
+# define WIN32_LEAN_AND_MEAN
 # include <windows.h>
 # ifdef __MSC__
 #  include <malloc.h>
@@ -131,7 +132,7 @@ int thread_rl_RetCode = -1; /* return code from readline in a thread */
 # endif				/* !MSC */
 # include <htmlhelp.h>
 # include "win/winmain.h"
-#endif /* _Windows */
+#endif /* _WIN32 */
 
 #ifdef VMS
 int vms_vkid;			/* Virtual keyboard id */
@@ -149,6 +150,7 @@ static int read_line __PROTO((const char *prompt, int start));
 static void do_system __PROTO((const char *));
 static void test_palette_subcommand __PROTO((void));
 static int find_clause __PROTO((int *, int *));
+static int report_error __PROTO((int ierr));
 
 static int expand_1level_macros __PROTO((void));
 
@@ -649,7 +651,7 @@ raise_lower_command(int lower)
 #ifdef X11
 	    x11_lower_terminal_group();
 #endif
-#ifdef _Windows
+#ifdef _WIN32
 	    win_lower_terminal_group();
 #endif
 #ifdef WXWIDGETS
@@ -662,7 +664,7 @@ raise_lower_command(int lower)
 #ifdef X11
 	    x11_raise_terminal_group();
 #endif
-#ifdef _Windows
+#ifdef _WIN32
 	    win_raise_terminal_group();
 #endif
 #ifdef WXWIDGETS
@@ -686,7 +688,7 @@ raise_lower_command(int lower)
 #ifdef X11
 		x11_lower_terminal_window(number);
 #endif
-#ifdef _Windows
+#ifdef _WIN32
 		win_lower_terminal_window(number);
 #endif
 #ifdef WXWIDGETS
@@ -699,7 +701,7 @@ raise_lower_command(int lower)
 #ifdef X11
 		x11_raise_terminal_window(number);
 #endif
-#ifdef _Windows
+#ifdef _WIN32
 		win_raise_terminal_window(number);
 #endif
 #ifdef WXWIDGETS
@@ -1135,19 +1137,6 @@ do {                                  \
     gp_input_line[idx++] = ' '; /* e */  \
 } while (0)
 
-#if 0
-#define PRINT_TOKEN(tok)                                                    \
-do {                                                                        \
-    int i;                                                                  \
-    int end_index = token[tok].start_index + token[tok].length;             \
-    for (i = token[tok].start_index; i < end_index && gp_input_line[i]; i++) { \
-	fputc(gp_input_line[i], stderr);                                       \
-    }                                                                       \
-    fputc('\n', stderr);                                                    \
-    fflush(stderr);                                                         \
-} while (0)
-#endif
-
 /* Make a copy of an input line substring delimited by { and } */
 static char *
 new_clause(int clause_start, int clause_end)
@@ -1320,16 +1309,25 @@ do_command()
     c_token++;
     do_iterator = check_for_iteration();
 
-    if (!equals(c_token,"{"))
+    if (!equals(c_token,"{")) {
+	cleanup_iteration(do_iterator);
 	int_error(c_token,"expecting {do-clause}");
+    }
     end_token = find_clause(&do_start, &do_end);
 
     clause = new_clause(do_start, do_end);
     begin_clause();
 
     iteration_depth++;
-    if (empty_iteration(do_iterator))
+
+    /* Sometimes the start point of a nested iteration is not within the
+     * limits for all levels of nesting. In this case we need to advance
+     * through the iteration to find the first good set of indices.
+     * If we don't find one, forget the whole thing.
+     */
+    if (empty_iteration(do_iterator) && !next_iteration(do_iterator)) {
 	strcpy(clause, ";");
+    }
 
     do {
 	requested_continue = FALSE;
@@ -1342,6 +1340,10 @@ do_command()
     free(clause);
     end_clause();
     c_token = end_token;
+
+    /* FIXME:  If any of the above exited via int_error() then this	*/
+    /* cleanup never happens and we leak memory.  But do_iterator can	*/
+    /* not be static or global because do_command() can recurse.	*/
     do_iterator = cleanup_iteration(do_iterator);
     requested_break = FALSE;
     requested_continue = FALSE;
@@ -1416,7 +1418,6 @@ link_command()
      * "set nonlinear" currently supports axes x x2 y y2 z r cb
      */
     if (equals(command_token,"nonlinear")) {
-#ifdef NONLINEAR_AXES
 	AXIS_INDEX axis;
 	if ((axis = lookup_table(axisname_tbl, c_token)) >= 0)
 	    secondary_axis = &axis_array[axis];
@@ -1432,9 +1433,6 @@ link_command()
 	/* Clear previous log status */
 	secondary_axis->log = FALSE;
 	secondary_axis->ticdef.logscaling = FALSE;
-#else
-	int_error(command_token, "This copy of gnuplot does not support nonlinear axes");
-#endif
 
     /*
      * "set link" applies to either x|x2 or y|y2
@@ -1494,7 +1492,6 @@ link_command()
 	}
     }
 
-#ifdef NONLINEAR_AXES
     else if (equals(command_token,"nonlinear") && linked) {
 	int_warn(c_token,"via mapping function required");
 	linked = FALSE;
@@ -1508,11 +1505,8 @@ link_command()
 	secondary_axis->linked_to_primary = primary_axis;
 	primary_axis->linked_to_secondary = secondary_axis;
 	clone_linked_axes(secondary_axis, primary_axis);
-    } else 
-#endif
-
-    /* Clone the range information */
-    if (linked) {
+    } else if (linked) {
+	/* Clone the range information */
 	secondary_axis->linked_to_primary = primary_axis;
 	primary_axis->linked_to_secondary = secondary_axis;
 	clone_linked_axes(primary_axis, secondary_axis);
@@ -1722,7 +1716,7 @@ pause_command()
 	    buf = tmp;
 	    if (strcmp(term->name, "pm") != 0 || sleep_time >= 0)
 		fputs(buf, stderr);
-#else /* Not WIN32 or OS2 */
+#else /* Not _WIN32 or OS2 */
 	    free(buf);
 	    buf = tmp;
 	    fputs(buf, stderr);
@@ -1739,7 +1733,7 @@ pause_command()
 	    int junk = 0;
 	    if (buf) {
 		/* Use of fprintf() triggers a bug in MinGW + SJIS encoding */
-		fputs(buf, stderr); fputs("\n",stderr);
+		fputs(buf, stderr); fputs("\n", stderr);
 	    }
 	    /* cannot use EAT_INPUT_WITH here */
 	    do {
@@ -1809,6 +1803,9 @@ plot_command()
     add_udv_by_name("MOUSE_CTRL")->udv_value.type = NOTDEFINED;
 #endif
     plotrequest();
+    /* Clear "hidden" flag for any plots that may have been toggled off */
+    if (term->modify_plots)
+	term->modify_plots(MODPLOTS_SET_VISIBLE, -1);
     SET_CURSOR_ARROW;
 }
 
@@ -1829,10 +1826,10 @@ print_set_output(char *name, TBOOLEAN datablock, TBOOLEAN append_p)
 
     free(print_out_name);
     print_out_name = NULL;
+    print_out_var = NULL;
 
     if (! name) {
 	print_out = stderr;
-	print_out_var = NULL;
 	return;
     }
 
@@ -1923,7 +1920,7 @@ print_command()
     screen_ok = FALSE;
     do {
 	++c_token;
-	if (equals(c_token, "$") && isletter(c_token+1)) {
+	if (equals(c_token, "$") && isletter(c_token+1) && !equals(c_token+2,"[")) {
 	    char *datablock_name = parse_datablock_name();
 	    char **line = get_datablock(datablock_name);
 
@@ -1988,12 +1985,12 @@ pwd_command()
 {
     char *save_file = NULL;
 
-    save_file = (char *) gp_alloc(PATH_MAX, "print current dir");
-    if (save_file) {
-	GP_GETCWD(save_file, PATH_MAX);
+    save_file = gp_alloc(PATH_MAX, "print current dir");
+    if (GP_GETCWD(save_file, PATH_MAX) == NULL)
+	fprintf(stderr, "<invalid>\n");
+    else
 	fprintf(stderr, "%s\n", save_file);
-	free(save_file);
-    }
+    free(save_file);
     c_token++;
 }
 
@@ -2128,6 +2125,7 @@ save_command()
 	case SAVE_SET:
 	case SAVE_TERMINAL:
 	case SAVE_VARS:
+	case SAVE_FIT:
 	    c_token++;
 	    break;
 	default:
@@ -2145,7 +2143,11 @@ save_command()
 #endif
     {
     gp_expand_tilde(&save_file);
+#ifdef _WIN32
     fp = strcmp(save_file,"-") ? loadpath_fopen(save_file,"w") : stdout;
+#else
+    fp = strcmp(save_file,"-") ? fopen(save_file,"w") : stdout;
+#endif
     }
 
     if (!fp)
@@ -2163,6 +2165,9 @@ save_command()
 	break;
     case SAVE_VARS:
 	    save_variables(fp);
+	break;
+    case SAVE_FIT:
+	    save_fit(fp);
 	break;
     default:
 	    save_all(fp);
@@ -2186,7 +2191,7 @@ void
 screendump_command()
 {
     c_token++;
-#ifdef _Windows
+#ifdef _WIN32
     screen_dump();
 #else
     fputs("screendump not implemented\n", stderr);
@@ -2218,6 +2223,9 @@ splot_command()
     add_udv_by_name("MOUSE_BUTTON")->udv_value.type = NOTDEFINED;
 #endif
     plot3drequest();
+    /* Clear "hidden" flag for any plots that may have been toggled off */
+    if (term->modify_plots)
+	term->modify_plots(MODPLOTS_SET_VISIBLE, -1);
     SET_CURSOR_ARROW;
 }
 
@@ -2422,26 +2430,10 @@ toggle_command()
 	term->modify_plots(MODPLOTS_INVERT_VISIBILITIES, plotno);
 }
 
-/* unset_command is in unset.c */
-
-/* process the 'update' command */
 void
 update_command()
 {
-    /* old parameter filename */
-    char *opfname = NULL;
-    /* new parameter filename */
-    char *npfname = NULL;
-
-    c_token++;
-    if (!(opfname = try_to_get_string()))
-	int_error(c_token, "Parameter filename expected");
-    if (!END_OF_COMMAND && !(npfname = try_to_get_string()))
-	int_error(c_token, "New parameter filename expected");
-
-    update(opfname, npfname);
-    free(npfname);
-    free(opfname);
+    int_error(NO_CARET, "DEPRECATED command 'update', please use 'save fit' instead");
 }
 
 /* the "import" command is only implemented if support is configured for */
@@ -2826,7 +2818,7 @@ do_system(const char *cmd)
 
 
 #ifdef NO_GIH
-#if defined(_Windows)
+#ifdef _WIN32
 void
 help_command()
 {
@@ -2874,7 +2866,7 @@ help_command()
 	HtmlHelp(parent, winhelpname, HH_KEYWORD_LOOKUP, (DWORD_PTR)&link);
     }
 }
-#else  /* !_Windows */
+#else  /* !_WIN32 */
 #ifndef VMS
 void
 help_command()
@@ -2884,7 +2876,7 @@ help_command()
     fputs("This gnuplot was not built with inline help\n", stderr);
 }
 #endif /* VMS */
-#endif /* _Windows */
+#endif /* _WIN32 */
 #endif /* NO_GIH */
 
 
@@ -3067,6 +3059,8 @@ help_command()
 static void
 do_system(const char *cmd)
 {
+    int ierr;
+
 /* (am, 19980929)
  * OS/2 related note: cmd.exe returns 255 if called w/o argument.
  * i.e. calling a shell by "!" will always end with an error message.
@@ -3076,15 +3070,16 @@ do_system(const char *cmd)
     if (!cmd)
 	return;
     restrict_popen();
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(__WATCOMC__)
     {
 	LPWSTR wcmd = UnicodeText(cmd, encoding);
-	_wsystem(wcmd);
+	ierr = _wsystem(wcmd);
 	free(wcmd);
     }
 #else
-    system(cmd);
+    ierr = system(cmd);
 #endif
+    report_error(ierr);
 }
 
 /* is_history_command:
@@ -3259,7 +3254,7 @@ do_shell()
 /* read from stdin, everything except VMS */
 
 # ifndef USE_READLINE
-#  if defined(MSDOS) && !defined(_Windows) && !defined(__EMX__) && !defined(DJGPP)
+#  if defined(MSDOS) && !defined(__EMX__) && !defined(DJGPP)
 
 /* if interactive use console IO so CED will work */
 
@@ -3365,7 +3360,6 @@ read_line(const char *prompt, int start)
     /* line are no longer valid.  We used to _not_ clear things here, but */
     /* that lead to errors when a mouse-triggered replot request came in  */
     /* while a new line was being read.   Bug 3602388 Feb 2013.           */
-    /* FIXME: If this causes problems, push it down into fgets_ipc().     */
     if (start == 0) {
 	c_token = num_tokens = 0;
 	gp_input_line[0] = '\0';
@@ -3586,8 +3580,11 @@ do_system_func(const char *cmd, char **output)
     /* close stream */
     ierr = pclose(f);
 
+    ierr = report_error(ierr);
+
     result = gp_realloc(result, strlen(result)+1, "do_system_func");
     *output = result;
+
     return ierr;
 
 #else /* VMS || PIPES */
@@ -3598,4 +3595,28 @@ do_system_func(const char *cmd, char **output)
 
 #endif /* VMS || PIPES */
 
+}
+
+#if defined(_WIN32) && !defined(WEXITSTATUS)
+#define WEXITSTATUS(error) (error)
+#endif
+
+static int
+report_error(int ierr)
+{
+    int reported_error;
+
+    /* FIXME:  This does not seem to report all reasonable errors correctly */
+    if (ierr == -1 && errno != 0)
+	reported_error = errno;
+    else
+	reported_error = WEXITSTATUS(ierr);
+
+    fill_gpval_integer("GPVAL_SYSTEM_ERRNO", reported_error); 
+    if (reported_error == 127)
+	fill_gpval_string("GPVAL_SYSTEM_ERRMSG", "command not found or shell failed");
+    else
+	fill_gpval_string("GPVAL_SYSTEM_ERRMSG", strerror(reported_error));
+
+    return reported_error;
 }

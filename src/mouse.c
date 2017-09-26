@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: mouse.c,v 1.192 2016-09-12 17:37:58 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: mouse.c,v 1.205 2017-08-31 23:03:55 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - mouse.c */
@@ -66,7 +66,7 @@ static char *RCSid() { return RCSid("$Id: mouse.c,v 1.192 2016-09-12 17:37:58 ma
 #include "util3d.h"
 #include "hidden3d.h"
 
-#ifdef _Windows
+#ifdef _WIN32
 # include "win/winmain.h"
 #endif
 
@@ -183,6 +183,7 @@ static void UpdateStatuslineWithMouseSetting __PROTO((mouse_setting_t * ms));
 
 static void event_keypress __PROTO((struct gp_event_t * ge, TBOOLEAN current));
 static void ChangeView __PROTO((int x, int z));
+static void ChangeAzimuth __PROTO((int x));
 static void event_buttonpress __PROTO((struct gp_event_t * ge));
 static void event_buttonrelease __PROTO((struct gp_event_t * ge));
 static void event_motion __PROTO((struct gp_event_t * ge));
@@ -224,6 +225,8 @@ static char *builtin_rotate_right __PROTO((struct gp_event_t * ge));
 static char *builtin_rotate_up __PROTO((struct gp_event_t * ge));
 static char *builtin_rotate_left __PROTO((struct gp_event_t * ge));
 static char *builtin_rotate_down __PROTO((struct gp_event_t * ge));
+static char *builtin_azimuth_left __PROTO((struct gp_event_t * ge));
+static char *builtin_azimuth_right __PROTO((struct gp_event_t * ge));
 static char *builtin_cancel_zoom __PROTO((struct gp_event_t * ge));
 static char *builtin_zoom_in_around_mouse __PROTO((struct gp_event_t * ge));
 static char *builtin_zoom_out_around_mouse __PROTO((struct gp_event_t * ge));
@@ -365,14 +368,6 @@ MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double 
        *x = xmin + rounded-to-screen-resolution (xdistance)
      */
 
-    /* Now take into account possible log scales of x and y axes */
-    *x = AXIS_DE_LOG_VALUE(FIRST_X_AXIS, *x);
-    *y = AXIS_DE_LOG_VALUE(FIRST_Y_AXIS, *y);
-    if (!is_3d_plot) {
-	*x2 = AXIS_DE_LOG_VALUE(SECOND_X_AXIS, *x2);
-	*y2 = AXIS_DE_LOG_VALUE(SECOND_Y_AXIS, *y2);
-    }
-
     /* If x2 or y2 is linked to a primary axis via mapping function, apply it now */
     if (!is_3d_plot) {
 	AXIS *secondary = &axis_array[SECOND_X_AXIS];
@@ -383,7 +378,6 @@ MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double 
 	    *y2 = eval_link_function(secondary, *y);
     }
 
-#ifdef NONLINEAR_AXES
     /* If x or y is linked to a (hidden) primary axis, it's a bit more complicated */
     if (!is_3d_plot) {
 	AXIS *secondary;
@@ -412,8 +406,6 @@ MousePosToGraphPosReal(int xx, int yy, double *x, double *y, double *x2, double 
 	    *y2 = eval_link_function(secondary, *y2);
 	}
     }
-#endif
-
 }
 
 static char *
@@ -489,21 +481,29 @@ GetAnnotateString(char *s, double x, double y, int mode, char *fmt)
 	sprintf(s, xy_format(), x, y);	/* w/o brackets */
     } else if (mode == MOUSE_COORDINATES_ALT && (fmt || polar)) {
 	if (polar) {
-	    double phi, r;
+	    double r;
+	    double phi = atan2(y,x);
 	    double rmin = (R_AXIS.autoscale & AUTOSCALE_MIN) ? 0.0 : R_AXIS.set_min;
-	    phi = atan2(y,x);
+	    double theta = phi / DEG2RAD;
+
+	    /* Undo "set theta" */
+	    theta = (theta - theta_origin) * theta_direction;
+	    if (theta > 180.)
+		theta = theta - 360.;
+
 	    if (nonlinear(&R_AXIS))
 		r = eval_link_function(&R_AXIS, x/cos(phi) + R_AXIS.linked_to_primary->min);
 	    else if (R_AXIS.log)
-		r = AXIS_UNDO_LOG(POLAR_AXIS, x/cos(phi) + AXIS_DO_LOG(POLAR_AXIS, rmin));
+		r = rmin + x/cos(phi);
+	    else if (inverted_raxis)
+		r = rmin - x/cos(phi);
 	    else
-		r = x/cos(phi) + rmin;
+		r = rmin + x/cos(phi);
+
 	    if (fmt)
-		sprintf(s, fmt, phi/ang2rad, r);
+		sprintf(s, fmt, theta, r);
 	    else {
-		sprintf(s, "polar: ");
-		s += strlen(s);
-		sprintf(s, xy_format(), phi/ang2rad, r);
+		sprintf(s, "theta: %.1f%s  r: %g", theta, degree_sign, r);
 	    }
 	} else {
 	    sprintf(s, fmt, x, y);	/* user defined format */
@@ -608,10 +608,8 @@ GetRulerString(char *p, double x, double y)
     if (mouse_setting.polardistance) {
 	double rho, phi, rx, ry;
 	char ptmp[69];
-	x = AXIS_LOG_VALUE(FIRST_X_AXIS, x);
-	y = AXIS_LOG_VALUE(FIRST_Y_AXIS, y);
-	rx = AXIS_LOG_VALUE(FIRST_X_AXIS, ruler.x);
-	ry = AXIS_LOG_VALUE(FIRST_Y_AXIS, ruler.y);
+	rx = ruler.x;
+	ry = ruler.y;
 	format[0] = '\0';
 	strcat(format, " (");
 	strcat(format, mouse_setting.fmt);
@@ -644,7 +642,6 @@ static AXIS *axis_array_copy = NULL;
 static void
 apply_zoom(struct t_zoom *z)
 {
-    char s[1024];		/* HBB 20011005: made larger */
     int is_splot_map = (is_3d_plot && (splot_map == TRUE));
 
     if (zoom_now != NULL) {	/* remember the current zoom */
@@ -685,21 +682,19 @@ apply_zoom(struct t_zoom *z)
     /* Now we're committed. Notify the terminal the the next replot is a zoom */
     (*term->layer)(TERM_LAYER_BEFORE_ZOOM);
 
-    sprintf(s, "set xr[%.12g:%.12g]; set yr[%.12g:%.12g]",
-	       zoom_now->xmin, zoom_now->xmax, 
-	       zoom_now->ymin, zoom_now->ymax);
+    /* New range on primary axes */
+    set_explicit_range(&axis_array[FIRST_X_AXIS], zoom_now->xmin, zoom_now->xmax);
+    set_explicit_range(&axis_array[FIRST_Y_AXIS], zoom_now->ymin, zoom_now->ymax);
 
     /* EAM Apr 2013 - The tests on VERYLARGE protect against trying to   */
     /* interpret the autoscaling initial state as an actual limit value. */
     if (!is_3d_plot
     && (zoom_now->x2min < VERYLARGE && zoom_now->x2max > -VERYLARGE)) {
-	sprintf(s + strlen(s), "; set x2r[% #g:% #g]",
-		zoom_now->x2min, zoom_now->x2max);
+	set_explicit_range(&axis_array[SECOND_X_AXIS], zoom_now->x2min, zoom_now->x2max);
     }
     if (!is_3d_plot
     && (zoom_now->y2min < VERYLARGE && zoom_now->y2max > -VERYLARGE)) {
-	sprintf(s + strlen(s), "; set y2r[% #g:% #g]",
-		zoom_now->y2min, zoom_now->y2max);
+	set_explicit_range(&axis_array[SECOND_Y_AXIS], zoom_now->y2min, zoom_now->y2max);
     }
 
     /* EAM Jun 2007 - The autoscale save/restore was too complicated, and broke
@@ -717,7 +712,6 @@ apply_zoom(struct t_zoom *z)
 	    axis_array_copy[i].formatstring = axis_array[i].formatstring;
 	}
 	memcpy(axis_array, axis_array_copy, sizeof(axis_array));
-	s[0] = '\0';	/* FIXME:  Is this better than calling replotrequest()? */
 
 	/* The shadowed primary axis, if any, is not restored by the memcpy.	*/
 	/* We choose to recalculate the limits, but alternatively we could find	*/
@@ -743,7 +737,7 @@ apply_zoom(struct t_zoom *z)
 	inside_zoom = TRUE;
     }
 
-    do_string_replot(s);
+    do_string_replot("");
     inside_zoom = FALSE;
 }
 
@@ -1350,6 +1344,26 @@ builtin_rotate_down(struct gp_event_t *ge)
 }
 
 static char *
+builtin_azimuth_left(struct gp_event_t *ge)
+{
+    if (!ge)
+	return "`rotate azimuth left in 3d`; <ctrl> faster";
+    if (is_3d_plot)
+	ChangeAzimuth(-1);
+    return (char *) 0;
+}
+
+static char *
+builtin_azimuth_right(struct gp_event_t *ge)
+{
+    if (!ge)
+	return "`rotate azimuth right in 3d`; <ctrl> faster";
+    if (is_3d_plot)
+	ChangeAzimuth(1);
+    return (char *) 0;
+}
+
+static char *
 builtin_cancel_zoom(struct gp_event_t *ge)
 {
     if (!ge) {
@@ -1485,17 +1499,40 @@ ChangeView(int x, int z)
     }
 }
 
+static void
+ChangeAzimuth(int x)
+{
+    /* Can't use Mod_Shift because keyboards differ on the */
+    /* shift status of the < and > keys. */
+    if (modifier_mask & Mod_Ctrl)
+	x *= 10;
+
+    if (x) {
+	azimuth += x;
+	if (azimuth < 0)
+	    azimuth += 360;
+	if (azimuth > 360)
+	    azimuth -= 360;
+
+	fill_gpval_float("GPVAL_VIEW_AZIMUTH", azimuth);
+    }
+
+    if (display_ipc_commands())
+	fprintf(stderr, "changing azimuth to %f.\n", azimuth);
+
+    do_save_3dplot(first_3dplot, plot3d_num, 0 /* not quick */ );
+}
+
+
 int is_mouse_outside_plot(void)
 {
-    // Here I look at both min/max each time because reversed ranges can make
-    // min > max
 #define CHECK_AXIS_OUTSIDE(real, axis)                                  \
     ( axis_array[axis].min <  VERYLARGE &&                              \
       axis_array[axis].max > -VERYLARGE &&                              \
-      ( (real < AXIS_DE_LOG_VALUE(axis, axis_array[axis].min) &&        \
-         real < AXIS_DE_LOG_VALUE(axis, axis_array[axis].max)) ||       \
-        (real > AXIS_DE_LOG_VALUE(axis, axis_array[axis].min) &&        \
-         real > AXIS_DE_LOG_VALUE(axis, axis_array[axis].max))))
+      ( (real < axis_array[axis].min &&        \
+         real < axis_array[axis].max) ||       \
+        (real > axis_array[axis].min &&        \
+         real > axis_array[axis].max)))
 
     return
         CHECK_AXIS_OUTSIDE(real_x,  FIRST_X_AXIS)  ||
@@ -1506,17 +1543,29 @@ int is_mouse_outside_plot(void)
 #undef CHECK_AXIS_OUTSIDE
 }
 
-/* Return a new (upper or lower) axis limit that is a linear
-   combination of the current limits.  */
+/* Return a new upper or lower axis limit that is a linear
+ * combination of the current limits.
+ */
 static double
 rescale(int AXIS, double w1, double w2) 
 {
-  double logval, val;
-  logval = w1*axis_array[AXIS].min+w2*axis_array[AXIS].max;
-  val = AXIS_DE_LOG_VALUE(AXIS,logval);
-  return val;
-}
+    double newlimit;
+    struct axis *axis = &axis_array[AXIS];
+    double axmin = axis->min;
+    double axmax = axis->max;
 
+    if (nonlinear(axis)) {
+	axmin = eval_link_function(axis->linked_to_primary, axmin);
+	axmax = eval_link_function(axis->linked_to_primary, axmax);
+    }
+
+    newlimit = w1*axmin + w2*axmax;
+
+    if (nonlinear(axis))
+	newlimit = eval_link_function(axis->linked_to_primary->linked_to_secondary, newlimit);
+
+    return newlimit;
+}
 
 /* Rescale axes and do zoom. */
 static void
@@ -1602,18 +1651,30 @@ do_zoom_scroll_down()
 }
 
 
-/* Return new lower and upper axis limits as current limits resized
-   around current mouse position. */
+/* Return new lower and upper axis limits from expanding current limits
+ * relative to current mouse position.
+ */
 static void
 rescale_around_mouse(double *newmin, double *newmax, int AXIS, double mouse_pos, double scale)
 {
-  double unlog_pos = AXIS_LOG_VALUE(AXIS, mouse_pos);
+    struct axis *axis = &axis_array[AXIS];
+    struct axis *primary = axis->linked_to_primary;
+    double axmin = axis->min;
+    double axmax = axis->max;
 
-  *newmin = unlog_pos + (axis_array[AXIS].min - unlog_pos) * scale;
-  *newmin = AXIS_DE_LOG_VALUE(AXIS,*newmin);
+    if (nonlinear(axis)) {
+	axmin = eval_link_function(primary, axmin);
+	axmax = eval_link_function(primary, axmax);
+	mouse_pos = eval_link_function(primary, mouse_pos);
+    } 
 
-  *newmax = unlog_pos + (axis_array[AXIS].max - unlog_pos) * scale;
-  *newmax = AXIS_DE_LOG_VALUE(AXIS,*newmax);
+  *newmin = mouse_pos + (axmin - mouse_pos) * scale;
+  *newmax = mouse_pos + (axmax - mouse_pos) * scale;
+
+    if (nonlinear(axis)) {
+	*newmin = eval_link_function(primary->linked_to_secondary, *newmin);
+	*newmax = eval_link_function(primary->linked_to_secondary, *newmax);
+    }
 }
 
 
@@ -1621,7 +1682,6 @@ rescale_around_mouse(double *newmin, double *newmax, int AXIS, double mouse_pos,
 static void
 zoom_in_X(int zoom_key)
 {
-    // I don't check for "outside" here. will do that later
     if (is_mouse_outside_plot()) {
         /* zoom in (X axis only) */
         double w1 = (zoom_key=='+') ? 23./25. : 23./21.;
@@ -2211,7 +2271,7 @@ event_reset(struct gp_event_t *ge)
 
     if (paused_for_mouse) {
 	paused_for_mouse = 0;
-#ifdef WIN32
+#ifdef _WIN32
 	/* close pause message box */
 	kill_pending_Pause_dialog();
 #endif
@@ -2339,8 +2399,12 @@ do_event(struct gp_event_t *ge)
     case GE_buttonrelease_old:
 	/* ignore */
 	break;
+    case GE_raise:
+	/* FIXME: No generic routine implemented! */
+	/* Individual terminal types must handle it themselves if they care */
+	break;
     default:
-	fprintf(stderr, "%s:%d protocol error\n", __FILE__, __LINE__);
+	fprintf(stderr, "%s:%d unrecognized event type %d\n", __FILE__, __LINE__, ge->type);
 	break;
     }
 
@@ -2414,6 +2478,8 @@ bind_install_default_bindings()
     bind_append("Up", (char *) 0, builtin_rotate_up);
     bind_append("Left", (char *) 0, builtin_rotate_left);
     bind_append("Down", (char *) 0, builtin_rotate_down);
+    bind_append("Opt-<", (char *) 0, builtin_azimuth_left);
+    bind_append("Opt->", (char *) 0, builtin_azimuth_right);
     bind_append("Escape", (char *) 0, builtin_cancel_zoom);
 }
 
@@ -2470,6 +2536,12 @@ bind_scan_lhs(bind_t * out, const char *in)
 	} else if (!strncasecmp(ptr, "ctrl-", 5)) {
 	    out->modifier |= Mod_Ctrl;
 	    ptr += 5;
+	} else if (!strncasecmp(ptr, "shift-", 6)) {
+	    out->modifier |= Mod_Shift;
+	    ptr += 6;
+	} else if (!strncasecmp(ptr, "opt-", 4)) {
+	    out->modifier |= Mod_Opt;
+	    ptr += 4;
 	} else if (NO_KEY != (itmp = lookup_key(ptr, &len))) {
 	    out->key = itmp;
 	    ptr += len;
@@ -2501,6 +2573,9 @@ bind_fmt_lhs(const bind_t * in)
     if (in->modifier & Mod_Alt) {
 	strcat(out, "Alt-");
     }
+    if (in->modifier & Mod_Shift) {
+	strcat(out, "Shift-");
+    }
     if (in->key > GP_FIRST_KEY && in->key < GP_LAST_KEY) {
 	strcat(out,special_keys[in->key - GP_FIRST_KEY]);
     } else {
@@ -2524,12 +2599,20 @@ bind_fmt_lhs(const bind_t * in)
 static int
 bind_matches(const bind_t * a, const bind_t * b)
 {
-    /* discard Shift modifier */
-    int a_mod = a->modifier & (Mod_Ctrl | Mod_Alt);
-    int b_mod = b->modifier & (Mod_Ctrl | Mod_Alt);
+    int a_mod = a->modifier;
+    int b_mod = b->modifier;
+
+    /* discard Shift modifier (except for mouse button) */
+    if (a->key != GP_Button1) {
+	a_mod &= (Mod_Ctrl | Mod_Alt);
+	b_mod &= (Mod_Ctrl | Mod_Alt);
+    }
 
     if (a->key == b->key && a_mod == b_mod)
 	return 1;
+    else if (a->key == b->key && (b->modifier & Mod_Opt))
+	/* Mod_Opt means both Alt and Ctrl are optional */
+	return 2;
     else
 	return 0;
 }
@@ -2537,7 +2620,7 @@ bind_matches(const bind_t * a, const bind_t * b)
 static void
 bind_display_one(bind_t * ptr)
 {
-    fprintf(stderr, " %-12s ", bind_fmt_lhs(ptr));
+    fprintf(stderr, " %-13s ", bind_fmt_lhs(ptr));
     fprintf(stderr, "%c ", ptr->allwindows ? '*' : ' ');
     if (ptr->command) {
 	fprintf(stderr, "`%s`\n", ptr->command);
@@ -2585,8 +2668,10 @@ bind_display(char *lhs)
 
 	fprintf(stderr, "\n");
 	/* keystrokes */
+#if (0)	/* Not implemented in the core code! */
 #ifndef DISABLE_SPACE_RAISES_CONSOLE
 	fprintf(stderr, " %-12s   %s\n", "Space", "raise gnuplot console window");
+#endif
 #endif
 	fprintf(stderr, " %-12s * %s\n", "q", "close this plot window");
 	fprintf(stderr, "\n");
@@ -2760,13 +2845,13 @@ recalc_ruler_pos()
     if (axis_array[FIRST_X_AXIS].log && ruler.x < 0)
 	ruler.px = -1;
     else {
-	P = AXIS_LOG_VALUE(FIRST_X_AXIS, ruler.x);
+	P = ruler.x;
 	ruler.px = AXIS_MAP(FIRST_X_AXIS, P);
     }
     if (axis_array[FIRST_Y_AXIS].log && ruler.y < 0)
 	ruler.py = -1;
     else {
-	P = AXIS_LOG_VALUE(FIRST_Y_AXIS, ruler.y);
+	P = ruler.y;
 	ruler.py = AXIS_MAP(FIRST_Y_AXIS, P);
     }
     MousePosToGraphPosReal(ruler.px, ruler.py, &dummy, &dummy, &ruler.x2, &ruler.y2);

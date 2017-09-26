@@ -1,5 +1,5 @@
 /*
- * $Id: plot2d.h,v 1.18 2015/12/21 20:08:40 sfeam Exp $
+ * $Id: plot2d.h,v 1.22 2017-09-18 22:24:03 sfeam Exp $
  */
 
 /* GNUPLOT - plot2d.h */
@@ -39,9 +39,6 @@
 
 #include "syscfg.h"
 
-/* EXPERIMENTAL configuration option */
-#define SMOOTH_BINS_OPTION 1
-
 /* This allows a natural interpretation of providing only a single column in 'using' */
 #define default_smooth_weight(option) \
  (option == SMOOTH_BINS || option == SMOOTH_KDENSITY || \
@@ -69,5 +66,6 @@ struct text_label *store_label __PROTO((struct text_label *, struct coordinate *
 					int i, char * string, double colorval));
 void parse_plot_title __PROTO((struct curve_points *this_plot, 
 					char *xtitle, char *ytitle, TBOOLEAN *set_title));
+void reevaluate_plot_title __PROTO((struct curve_points *this_plot));
 
 #endif /* GNUPLOT_PLOT2D_H */

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: interpol.c,v 1.55 2016-08-17 19:38:16 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: interpol.c,v 1.65 2017-09-24 05:06:39 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - interpol.c */
@@ -135,15 +135,14 @@ static char *RCSid() { return RCSid("$Id: interpol.c,v 1.55 2016-08-17 19:38:16 
  */
 
 
-/* store VALUE or log(VALUE) in STORE, set TYPE as appropriate Do
- * OUT_ACTION or UNDEF_ACTION as appropriate. Adjust range provided
+/* store VALUE in STORE, set TYPE to INRANGE/OUTRANGE
+ * Do UNDEF_ACTION as appropriate. Adjust range provided
  * type is INRANGE (ie dont adjust y if x is outrange). VALUE must not
  * be same as STORE */
-/* FIXME 20010610: UNDEF_ACTION is completely unused ??? Furthermore,
- * this is so similar to STORE_WITH_LOG_AND_UPDATE_RANGE() from axis.h
+/* FIXME 20010610: 
+ * this is so similar to STORE_AND_UPDATE_RANGE() from axis.h
  * that the two should probably be merged.  */
-#define STORE_AND_FIXUP_RANGE(store, value, type, min, max, auto,	\
-			      out_action, undef_action)			\
+#define STORE_AND_FIXUP_RANGE(store, value, type, min, max, auto)	\
 do {									\
     store=value;							\
     if (type != INRANGE)						\
@@ -153,8 +152,6 @@ do {									\
 	   (min) = (value);						\
        else {								\
 	   (type) = OUTRANGE;						\
-	   out_action;							\
-	   break;							\
        }								\
     }									\
     if ((value) > (max)) {						\
@@ -162,15 +159,13 @@ do {									\
 	   (max) = (value);						\
        else {								\
 	   (type) = OUTRANGE;						\
-	   out_action;							\
        }								\
     }									\
 } while(0)
 
-#define UPDATE_RANGE(TEST,OLD,NEW,AXIS)		\
-do {						\
-    if (TEST)					\
-	(OLD) = AXIS_DE_LOG_VALUE(AXIS,NEW);	\
+#define UPDATE_RANGE(TEST,OLD,NEW) \
+do {				   \
+    if (TEST) (OLD) = NEW;	   \
 } while(0)
 
 #define spline_coeff_size 4
@@ -272,7 +267,7 @@ eval_kdensity (
     unsigned int i;
     struct coordinate GPHUGE *this_points = (cp->points) + first_point;
   
-    double y, Z, ytmp;
+    double y, Z;
     double avg, sigma;
     double bandwidth, default_bandwidth;
 
@@ -299,8 +294,7 @@ eval_kdensity (
     y = 0;
     for (i = 0; i < num_points; i++) {
 	Z = ( x - this_points[i].x )/bandwidth;
-	ytmp = this_points[i].y;
-	y += AXIS_DE_LOG_VALUE(cp->y_axis,ytmp) * exp( -0.5*Z*Z ) / bandwidth;
+	y += this_points[i].y * exp( -0.5*Z*Z ) / bandwidth;
     }
     y /= sqrt(2.0*M_PI);
 
@@ -337,8 +331,8 @@ do_kdensity(
 	/* now we have to store the points and adjust the ranges */
 	dest[i].type = INRANGE;
 	dest[i].x = x;
-	STORE_WITH_LOG_AND_UPDATE_RANGE( dest[i].y, y, dest[i].type, y_axis,
-				cp->noautoscale, NOOP, NOOP);
+	STORE_AND_UPDATE_RANGE( dest[i].y, y, dest[i].type, y_axis,
+				cp->noautoscale, NOOP);
 	dest[i].xlow = dest[i].xhigh = dest[i].x;
 	dest[i].ylow = dest[i].yhigh = dest[i].y;
 	dest[i].z = -1;
@@ -462,10 +456,10 @@ do_bezier(
     x_axis = cp->x_axis;
     y_axis = cp->y_axis;
 
-    ixmin = sxmin = AXIS_LOG_VALUE(x_axis, X_AXIS.min);
-    ixmax = sxmax = AXIS_LOG_VALUE(x_axis, X_AXIS.max);
-    iymin = symin = AXIS_LOG_VALUE(y_axis, Y_AXIS.min);
-    iymax = symax = AXIS_LOG_VALUE(y_axis, Y_AXIS.max);
+    ixmin = sxmin = X_AXIS.min;
+    ixmax = sxmax = X_AXIS.max;
+    iymin = symin = Y_AXIS.min;
+    iymax = symax = Y_AXIS.max;
 
     for (i = 0; i < samples_1; i++) {
 	eval_bezier(cp, first_point, num_points,
@@ -475,8 +469,8 @@ do_bezier(
 	/* now we have to store the points and adjust the ranges */
 
 	dest[i].type = INRANGE;
-	STORE_AND_FIXUP_RANGE(dest[i].x, x, dest[i].type, ixmin, ixmax, X_AXIS.autoscale, NOOP, continue);
-	STORE_AND_FIXUP_RANGE(dest[i].y, y, dest[i].type, iymin, iymax, Y_AXIS.autoscale, NOOP, NOOP);
+	STORE_AND_FIXUP_RANGE(dest[i].x, x, dest[i].type, ixmin, ixmax, X_AXIS.autoscale);
+	STORE_AND_FIXUP_RANGE(dest[i].y, y, dest[i].type, iymin, iymax, Y_AXIS.autoscale);
 
 	dest[i].xlow = dest[i].xhigh = dest[i].x;
 	dest[i].ylow = dest[i].yhigh = dest[i].y;
@@ -484,10 +478,10 @@ do_bezier(
 	dest[i].z = -1;
     }
 
-    UPDATE_RANGE(ixmax > sxmax, X_AXIS.max, ixmax, x_axis);
-    UPDATE_RANGE(ixmin < sxmin, X_AXIS.min, ixmin, x_axis);
-    UPDATE_RANGE(iymax > symax, Y_AXIS.max, iymax, y_axis);
-    UPDATE_RANGE(iymin < symin, Y_AXIS.min, iymin, y_axis);
+    UPDATE_RANGE(ixmax > sxmax, X_AXIS.max, ixmax);
+    UPDATE_RANGE(ixmin < sxmin, X_AXIS.min, ixmin);
+    UPDATE_RANGE(iymax > symax, Y_AXIS.max, iymax);
+    UPDATE_RANGE(iymin < symin, Y_AXIS.min, iymin);
 }
 
 /*
@@ -615,13 +609,11 @@ cp_approx_spline(
     xp = gp_alloc((num_points) * sizeof(double), "x pos");
     yp = gp_alloc((num_points) * sizeof(double), "y pos");
 
-    /* KB 981107: With logarithmic axis first convert back to linear scale */
-
-    xp[0] = AXIS_DE_LOG_VALUE(x_axis, this_points[0].x);
-    yp[0] = AXIS_DE_LOG_VALUE(y_axis, this_points[0].y);
+    xp[0] = this_points[0].x;
+    yp[0] = this_points[0].y;
     for (i = 1; i < num_points; i++) {
-	xp[i] = AXIS_DE_LOG_VALUE(x_axis, this_points[i].x);
-	yp[i] = AXIS_DE_LOG_VALUE(y_axis, this_points[i].y);
+	xp[i] = this_points[i].x;
+	yp[i] = this_points[i].y;
 	h[i - 1] = xp[i] - xp[i - 1];
     }
 
@@ -737,11 +729,11 @@ cp_tridiag(struct curve_points *plot, int first_point, int num_points)
 
     /* KB 981107: With logarithmic axis first convert back to linear scale */
 
-    xp[0] = AXIS_DE_LOG_VALUE(x_axis,this_points[0].x);
-    yp[0] = AXIS_DE_LOG_VALUE(y_axis,this_points[0].y);
+    xp[0] = this_points[0].x;
+    yp[0] = this_points[0].y;
     for (i = 1; i < num_points; i++) {
-	xp[i] = AXIS_DE_LOG_VALUE(x_axis,this_points[i].x);
-	yp[i] = AXIS_DE_LOG_VALUE(y_axis,this_points[i].y);
+	xp[i] = this_points[i].x;
+	yp[i] = this_points[i].y;
 	h[i - 1] = xp[i] - xp[i - 1];
     }
 
@@ -856,10 +848,10 @@ do_cubic(
     x_axis = plot->x_axis;
     y_axis = plot->y_axis;
 
-    ixmin = sxmin = AXIS_LOG_VALUE(x_axis, X_AXIS.min);
-    ixmax = sxmax = AXIS_LOG_VALUE(x_axis, X_AXIS.max);
-    iymin = symin = AXIS_LOG_VALUE(y_axis, Y_AXIS.min);
-    iymax = symax = AXIS_LOG_VALUE(y_axis, Y_AXIS.max);
+    ixmin = sxmin = X_AXIS.min;
+    ixmax = sxmax = X_AXIS.max;
+    iymin = symin = Y_AXIS.min;
+    iymax = symax = Y_AXIS.max;
 
     this_points = (plot->points) + first_point;
 
@@ -874,9 +866,12 @@ do_cubic(
     xstart = GPMAX(this_points[0].x, sxmin);
     xend = GPMIN(this_points[num_points - 1].x, sxmax);
 
-    if (xstart >= xend)
-	int_error(plot->token,
-		  "Cannot smooth: no data within fixed xrange!");
+    if (xstart >= xend) {
+	/* This entire segment lies outside the current x range. */
+	for (i = 0; i < samples_1; i++)
+	    dest[i].type = OUTRANGE;
+	return;
+    }
 #endif
     xdiff = (xend - xstart) / (samples_1 - 1);
 
@@ -887,27 +882,18 @@ do_cubic(
 	while ((x >= this_points[l + 1].x) && (l < num_points - 2))
 	    l++;
 
-	/* KB 981107: With logarithmic x axis the values were
-         * converted back to linear scale before calculating the
-         * coefficients. Use exponential for log x values. */
-	temp = AXIS_DE_LOG_VALUE(x_axis, x)
-	    - AXIS_DE_LOG_VALUE(x_axis, this_points[l].x);
+	temp = x - this_points[l].x;
 
 	/* Evaluate cubic spline polynomial */
 	y = ((sc[l][3] * temp + sc[l][2]) * temp + sc[l][1]) * temp + sc[l][0];
 
-	/* With logarithmic y axis, we need to convert from linear to
-         * log scale now. */
-	if (Y_AXIS.log) {
-	    if (y > 0.)
-		y = AXIS_DO_LOG(y_axis, y);
-	    else
+	/* With logarithmic y axis, we need to convert from linear to log scale now */
+	if (Y_AXIS.log && y <= 0)
 		y = symin - (symax - symin);
-	}
 
 	dest[i].type = INRANGE;
-	STORE_AND_FIXUP_RANGE(dest[i].x, x, dest[i].type, ixmin, ixmax, X_AXIS.autoscale, NOOP, continue);
-	STORE_AND_FIXUP_RANGE(dest[i].y, y, dest[i].type, iymin, iymax, Y_AXIS.autoscale, NOOP, NOOP);
+	STORE_AND_FIXUP_RANGE(dest[i].x, x, dest[i].type, ixmin, ixmax, X_AXIS.autoscale);
+	STORE_AND_FIXUP_RANGE(dest[i].y, y, dest[i].type, iymin, iymax, Y_AXIS.autoscale);
 
 	dest[i].xlow = dest[i].xhigh = dest[i].x;
 	dest[i].ylow = dest[i].yhigh = dest[i].y;
@@ -916,10 +902,10 @@ do_cubic(
 
     }
 
-    UPDATE_RANGE(ixmax > sxmax, X_AXIS.max, ixmax, x_axis);
-    UPDATE_RANGE(ixmin < sxmin, X_AXIS.min, ixmin, x_axis);
-    UPDATE_RANGE(iymax > symax, Y_AXIS.max, iymax, y_axis);
-    UPDATE_RANGE(iymin < symin, Y_AXIS.min, iymin, y_axis);
+    UPDATE_RANGE(ixmax > sxmax, X_AXIS.max, ixmax);
+    UPDATE_RANGE(ixmin < sxmin, X_AXIS.min, ixmin);
+    UPDATE_RANGE(iymax > symax, Y_AXIS.max, iymax);
+    UPDATE_RANGE(iymin < symin, Y_AXIS.min, iymin);
 
 }
 
@@ -950,10 +936,10 @@ do_freq(
     double ixmin, ixmax, iymin, iymax;
     double sxmin, sxmax, symin, symax;	/* starting values of above */
 
-    ixmin = sxmin = AXIS_LOG_VALUE(x_axis, X_AXIS.min);
-    ixmax = sxmax = AXIS_LOG_VALUE(x_axis, X_AXIS.max);
-    iymin = symin = AXIS_LOG_VALUE(y_axis, Y_AXIS.min);
-    iymax = symax = AXIS_LOG_VALUE(y_axis, Y_AXIS.max);
+    ixmin = sxmin = X_AXIS.min;
+    ixmax = sxmax = X_AXIS.max;
+    iymin = symin = Y_AXIS.min;
+    iymax = symax = Y_AXIS.max;
 
     this = (plot->points) + first_point;
 
@@ -964,18 +950,18 @@ do_freq(
 
 	this[i].type = INRANGE;
 
-	STORE_AND_FIXUP_RANGE(this[i].x, x, this[i].type, ixmin, ixmax, X_AXIS.autoscale, NOOP, continue);
-	STORE_AND_FIXUP_RANGE(this[i].y, y, this[i].type, iymin, iymax, Y_AXIS.autoscale, NOOP, NOOP);
+	STORE_AND_FIXUP_RANGE(this[i].x, x, this[i].type, ixmin, ixmax, X_AXIS.autoscale);
+	STORE_AND_FIXUP_RANGE(this[i].y, y, this[i].type, iymin, iymax, Y_AXIS.autoscale);
 
 	this[i].xlow = this[i].xhigh = this[i].x;
 	this[i].ylow = this[i].yhigh = this[i].y;
 	this[i].z = -1;
     }
 
-    UPDATE_RANGE(ixmax > sxmax, X_AXIS.max, ixmax, x_axis);
-    UPDATE_RANGE(ixmin < sxmin, X_AXIS.min, ixmin, x_axis);
-    UPDATE_RANGE(iymax > symax, Y_AXIS.max, iymax, y_axis);
-    UPDATE_RANGE(iymin < symin, Y_AXIS.min, iymin, y_axis);
+    UPDATE_RANGE(ixmax > sxmax, X_AXIS.max, ixmax);
+    UPDATE_RANGE(ixmin < sxmin, X_AXIS.min, ixmin);
+    UPDATE_RANGE(iymax > symax, Y_AXIS.max, iymax);
+    UPDATE_RANGE(iymin < symin, Y_AXIS.min, iymin);
 }
 
 
@@ -1232,36 +1218,19 @@ cp_implode(struct curve_points *cp)
 		cp->points[j].yhigh = suy / (double) k;
 		cp->points[j].ylow = sly / (double) k;
 		cp->points[j].z = weight / (double) k;
-		/* HBB 20000405: I wanted to use STORE_AND_FIXUP_RANGE
-		 * here, but won't: it assumes we want to modify the
-		 * range, and that the range is given in 'input'
-		 * coordinates.  For logarithmic axes, the overhead
-		 * would be larger than the possible gain, so write it
-		 * out explicitly, instead:
-		 * */
+		/* HBB 20000405: I wanted to use STORE_AND_FIXUP_RANGE here,
+		 * but won't: it assumes we want to modify the range, and
+		 * that the range is given in 'input' coordinates. 
+		 */
 		cp->points[j].type = INRANGE;
 		if (! all_inrange) {
-		    if (X_AXIS.log) {
-			if (x <= -VERYLARGE) {
-			    cp->points[j].type = OUTRANGE;
-			    goto is_outrange;
-			}
-			x = AXIS_UNDO_LOG(x_axis, x);
-		    }
 		    if (((x < X_AXIS.min) && !(X_AXIS.autoscale & AUTOSCALE_MIN))
-			|| ((x > X_AXIS.max) && !(X_AXIS.autoscale & AUTOSCALE_MAX))) {
+		    ||  ((x > X_AXIS.max) && !(X_AXIS.autoscale & AUTOSCALE_MAX))) {
 			cp->points[j].type = OUTRANGE;
 			goto is_outrange;
 		    }
-		    if (Y_AXIS.log) {
-			if (y <= -VERYLARGE) {
-			    cp->points[j].type = OUTRANGE;
-			    goto is_outrange;
-			}
-			y = AXIS_UNDO_LOG(y_axis, y);
-		    }
 		    if (((y < Y_AXIS.min) && !(Y_AXIS.autoscale & AUTOSCALE_MIN))
-			|| ((y > Y_AXIS.max) && !(Y_AXIS.autoscale & AUTOSCALE_MAX)))
+		    ||  ((y > Y_AXIS.max) && !(Y_AXIS.autoscale & AUTOSCALE_MAX)))
 			cp->points[j].type = OUTRANGE;
 		is_outrange:
 		    ;
@@ -1288,27 +1257,13 @@ cp_implode(struct curve_points *cp)
 	    cp->points[j].z = weight / (double) k;
 	    cp->points[j].type = INRANGE;
 	    if (! all_inrange) {
-		    if (X_AXIS.log) {
-			if (x <= -VERYLARGE) {
-			    cp->points[j].type = OUTRANGE;
-			    goto is_outrange2;
-			}
-			x = AXIS_UNDO_LOG(x_axis, x);
-		    }
 		    if (((x < X_AXIS.min) && !(X_AXIS.autoscale & AUTOSCALE_MIN))
-			|| ((x > X_AXIS.max) && !(X_AXIS.autoscale & AUTOSCALE_MAX))) {
+		    ||  ((x > X_AXIS.max) && !(X_AXIS.autoscale & AUTOSCALE_MAX))) {
 			cp->points[j].type = OUTRANGE;
 			goto is_outrange2;
 		    }
-		    if (Y_AXIS.log) {
-			if (y <= -VERYLARGE) {
-			    cp->points[j].type = OUTRANGE;
-			    goto is_outrange2;
-			}
-			y = AXIS_UNDO_LOG(y_axis, y);
-		    }
 		    if (((y < Y_AXIS.min) && !(Y_AXIS.autoscale & AUTOSCALE_MIN))
-			|| ((y > Y_AXIS.max) && !(Y_AXIS.autoscale & AUTOSCALE_MAX)))
+		    ||  ((y > Y_AXIS.max) && !(Y_AXIS.autoscale & AUTOSCALE_MAX)))
 			cp->points[j].type = OUTRANGE;
 		is_outrange2:
 		    ;
@@ -1347,17 +1302,28 @@ mcs_interp(struct curve_points *plot)
     struct coordinate *p = gp_realloc(plot->points, (N+1) * sizeof(coordinate), "mcs");
     int i;
 
-    /* These will track the resulting smoothed curve */
-    /* V5: Try to ensure that the sampling is fine enough to pass through the original points */
+    /* These will track the resulting smoothed curve (>= 3X original count) */
+    /* Larger number of samples gives smoother curve (no surprise!) */
     int Nsamp = (samples_1 > 2*N) ? samples_1 : 2*N;
-    struct coordinate *new_points = gp_alloc((Nsamp+1) * sizeof(coordinate), "mcs");
-    double sxmin = AXIS_LOG_VALUE(plot->x_axis, X_AXIS.min);
-    double sxmax = AXIS_LOG_VALUE(plot->x_axis, X_AXIS.max);
-    double xstart, xend, xstep;
+    int Ntot = N + Nsamp;
+    struct coordinate *new_points = gp_alloc((Ntot) * sizeof(coordinate), "mcs");
+    double xstart = GPMAX(p[0].x, X_AXIS.min);
+    double xend = GPMIN(p[N-1].x, X_AXIS.max);
+    double xstep = (xend - xstart) / (Nsamp - 1);
 
-    xstart = GPMAX(p[0].x, sxmin);
-    xend = GPMIN(p[N-1].x, sxmax);
-    xstep = (xend - xstart) / (Nsamp - 1);
+    /* Load output x coords for sampling */
+    for (i=0; i<N; i++)
+	new_points[i].x = p[i].x;
+    for ( ; i<Ntot; i++)
+	new_points[i].x = xstart + (i-N)*xstep;
+    /* Sort output x coords */
+    qsort(new_points, Ntot, sizeof(struct coordinate), compare_points);
+    /* Displace any collisions */
+    for (i=1; i<Ntot-1; i++) {
+	double delta = new_points[i].x - new_points[i-1].x;
+	if (new_points[i+1].x - new_points[i].x < delta/1000.)
+	    new_points[i].x -= delta/2.;
+    }
 
     /* Calculate spline coefficients */
 #define DX	xlow
@@ -1365,10 +1331,6 @@ mcs_interp(struct curve_points *plot)
 #define C1	ylow
 #define C2	yhigh
 #define C3	z
-
-    /* Work with the un-logged y values */
-    for (i = 0; i < N-1; i++)
-	p[i].y = AXIS_DE_LOG_VALUE(plot->y_axis, p[i].y);
 
     for (i = 0; i < N-1; i++) {
 	p[i].DX = p[i+1].x - p[i].x;
@@ -1395,8 +1357,8 @@ mcs_interp(struct curve_points *plot)
     }
 
     /* Use the coefficients C1, C2, C3 to interpolate over the requested range */
-    for (i = 0; i < Nsamp; i++) {
-	double x = xstart + i * xstep;
+    for (i = 0; i < Ntot; i++) {
+	double x = new_points[i].x;
 	double y;
 	TBOOLEAN exact = FALSE;
 
@@ -1426,18 +1388,22 @@ mcs_interp(struct curve_points *plot)
 	    }
 	}
 
-	/* FIXME:  Log x?  autoscale x? */
-	new_points[i].x = x;
-	new_points[i].type = INRANGE;
-	STORE_WITH_LOG_AND_UPDATE_RANGE(new_points[i].y, y, new_points[i].type,
-		plot->y_axis, plot->noautoscale, NOOP, NOOP);
+	xstart = X_AXIS.min;
+	xend = X_AXIS.max;
+	if (inrange(x, xstart, xend))
+	    new_points[i].type = INRANGE;
+	else
+	    new_points[i].type = OUTRANGE;
+	/* FIXME:  simpler test for outrange would be sufficient */
+	STORE_AND_UPDATE_RANGE(new_points[i].y, y, new_points[i].type,
+		plot->y_axis, plot->noautoscale, NOOP);
     }
 
     /* Replace original data with the interpolated curve */
     free(p);
     plot->points = new_points;
-    plot->p_count = Nsamp;
-    plot->p_max = Nsamp + 1;
+    plot->p_count = Ntot;
+    plot->p_max = Ntot + 1;
 
 #undef DX
 #undef SLOPE
@@ -1446,41 +1412,75 @@ mcs_interp(struct curve_points *plot)
 #undef C3
 }
 
-#ifdef SMOOTH_BINS_OPTION
 /*
  * Binned histogram of input values.
- *   plot FOO using N:(1) bins{=<nbins>} {binrange=[binlow:binhigh]} with boxes
- * If no binrange is given, the range is taken from the x axis range.
- * In the latter case "set xrange" may exclude some data points,
- * while "set auto x" will include all data points.
+ *
+ *   plot FOO using N:(1) bins{=<nbins>} {binrange=[binlow:binhigh]}
+ *                        {binwidth=<width>} with boxes
+ *
+ * This option is EXPERIMENTAL, details may change before inclusion in a stable
+ * gnuplot release.
+ *
+ * If no binrange is given, binlow and binhigh are taken from the x range of the data.
+ * In either of these cases binlow is the midpoint x-coordinate of the first bin
+ * and binhigh is the midpoint x-coordinate of the last bin.
+ * Points that lie exactly on a bin boundary are assigned to the upper bin.
+ * Bin assignments are not affected by "set xrange".
+ * Notes:
+ *    binwidth = (binhigh-binlow) / (nbins-1)
+ *        xmin = binlow - binwidth/2
+ *        xmax = binhigh + binwidth/2
+ *    first bin holds points with (xmin =< x < xmin + binwidth)
+ *    last bin holds points with (xmax-binwidth =< x < binhigh + binwidth)
  */
 void
-make_bins(struct curve_points *plot, int nbins, double binlow, double binhigh)
+make_bins(struct curve_points *plot, int nbins,
+          double binlow, double binhigh, double binwidth)
 {
     int i, binno;
     double *bin;
-    double bottom, top, binwidth, range;
+    double bottom, top, range;
     struct axis *xaxis = &axis_array[plot->x_axis];
     struct axis *yaxis = &axis_array[plot->y_axis];
     double ymax = 0;
     int N = plot->p_count;
 
-    /* Divide the range on X into the requested number of bins.
-     * NB: This range is independent of the values of the points.
-     */
-    if (binlow == 0 && binhigh == 0) {
-	bottom = xaxis->data_min;
-	top = xaxis->data_max;
-    } else {
+    /* Find the range of points to be binned */
+    if (binlow != binhigh) {
+	/* Explicit binrange [min:max] in the plot command */
 	bottom = binlow;
 	top = binhigh;
+    } else {
+	/* Take binrange from the data itself */
+	bottom = VERYLARGE; top = -VERYLARGE;
+	for (i=0; i<N; i++) {
+	    if (bottom > plot->points[i].x)
+		bottom = plot->points[i].x;
+	    if (top < plot->points[i].x)
+		top = plot->points[i].x;
+	}
+	if (top <= bottom)
+	    int_warn(NO_CARET, "invalid bin range [%g:%g]", bottom, top);
     }
-    bottom = axis_log_value(xaxis, bottom);
-    top = axis_log_value(xaxis, top);
-    binwidth = (top - bottom) / (nbins - 1);
-    bottom -= binwidth/2.;
-    top += binwidth/2.;
+
+    /* If a fixed binwidth was provided, find total number of bins */
+    if (binwidth > 0) {
+	double temp;
+	nbins = 1 + (top - bottom) / binwidth;
+	temp = nbins * binwidth - (top - bottom);
+	bottom -= temp/2.;
+	top += temp/2.;
+    }
+    /* otherwise we use (N-1) intervals between midpoints of bin 1 and bin N */
+    else {
+	binwidth = (top - bottom) / (nbins - 1);
+	bottom -= binwidth/2.;
+	top += binwidth/2.;
+    }
     range = top - bottom;
+
+    FPRINTF((stderr,"make_bins: %d bins from %g to %g, binwidth %g\n",
+	    nbins, bottom, top, binwidth));
 
     bin = gp_alloc(nbins*sizeof(double), "bins");
     for (i=0; i<nbins; i++)
@@ -1489,9 +1489,8 @@ make_bins(struct curve_points *plot, int nbins, double binlow, double binhigh)
 	if (plot->points[i].type == UNDEFINED)
 	    continue;
 	binno = floor(nbins * (plot->points[i].x - bottom) / range);
-        /* FIXME: Should outrange points be dumped in the first/last bin? */
 	if (0 <= binno && binno < nbins)
-	    bin[binno] += axis_de_log_value(yaxis, plot->points[i].y);
+	    bin[binno] += plot->points[i].y;
     }
 
     if (xaxis->autoscale & AUTOSCALE_MIN) {
@@ -1515,11 +1514,11 @@ make_bins(struct curve_points *plot, int nbins, double binlow, double binhigh)
 	plot->points[i].x     = bincent;
 	plot->points[i].xlow  = bincent - binwidth/2.;
 	plot->points[i].xhigh = bincent + binwidth/2.;
-	plot->points[i].y     = axis_log_value(yaxis, bin[i]);
+	plot->points[i].y     = bin[i];
 	plot->points[i].ylow  = plot->points[i].y;
 	plot->points[i].yhigh = plot->points[i].y;
 	plot->points[i].z = 0;	/* FIXME: leave it alone? */
-	if (inrange(axis_de_log_value(xaxis, bincent), xaxis->min, xaxis->max)) {
+	if (inrange(bincent, xaxis->min, xaxis->max)) {
 	    if (ymax < bin[i])
 		ymax = bin[i];
 	} else {
@@ -1540,4 +1539,3 @@ make_bins(struct curve_points *plot, int nbins, double binlow, double binhigh)
     /* Clean up */
     free(bin);
 }
-#endif

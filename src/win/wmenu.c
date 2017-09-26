@@ -1,5 +1,5 @@
 /*
- * $Id: wmenu.c,v 1.37 2016-10-08 19:09:16 markisch Exp $Id: wmenu.c,v 1.37 2016-10-08 19:09:16 markisch Exp $
+ * $Id: wmenu.c,v 1.41 2017-01-29 12:18:21 markisch Exp $Id: wmenu.c,v 1.41 2017-01-29 12:18:21 markisch Exp $
  */
 
 /* GNUPLOT - win/wmenu.c */
@@ -56,6 +56,9 @@
 #include <sys/stat.h>
 #include <wchar.h>
 #include <tchar.h>
+#ifdef __WATCOMC__
+# include <direct.h>
+#endif
 #include "wgnuplib.h"
 #include "wresourc.h"
 #include "stdfn.h"
@@ -590,7 +593,7 @@ LoadMacros(LPTW lptw)
 	    /* new menu */
 	    if (!(nInc = GetLine(buf, MAXSTR, menufile))) {
 		nLine += nInc;
-		swprintf_s(wbuf, MAXSTR, L"Problem on line %d of %s\n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Problem on line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
@@ -598,7 +601,7 @@ LoadMacros(LPTW lptw)
 	    if (nMenuLevel < MENUDEPTH) {
 		nMenuLevel++;
 	    } else {
-		swprintf_s(wbuf, MAXSTR, L"Menu is too deep at line %d of %s\n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Menu is too deep at line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
@@ -615,7 +618,7 @@ LoadMacros(LPTW lptw)
 
 	    if (!(nInc = GetLine(buf, MAXSTR, menufile))) {
 		nLine += nInc;
-		swprintf_s(wbuf, MAXSTR, L"Problem on line %d of %s\n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Problem on line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
@@ -634,13 +637,13 @@ LoadMacros(LPTW lptw)
 	    char *icon;
 
 	    if (lpmw->nButton >= BUTTONMAX) {
-		swprintf_s(wbuf, MAXSTR, L"Too many buttons at line %d of %s\n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Too many buttons at line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
 	    if (!(nInc = GetLine(buf, MAXSTR, menufile))) {
 		nLine += nInc;
-		swprintf_s(wbuf, MAXSTR, L"Problem on line %d of %s\n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Problem on line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
@@ -648,7 +651,7 @@ LoadMacros(LPTW lptw)
 	    if (strlen(buf) + 1 < MACROLEN - (macroptr - lpmw->macrobuf)) {
 		strcpy((char *)macroptr, buf);
 	    } else {
-		swprintf_s(wbuf, MAXSTR, L"Out of space for storing menu macros\n at line %d of %s\n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Out of space for storing menu macros\n at line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
@@ -680,7 +683,7 @@ LoadMacros(LPTW lptw)
 	    *macroptr = '\0';
 	    if (!(nInc = GetLine(buf, MAXSTR, menufile))) {
 		nLine += nInc;
-		swprintf_s(wbuf, MAXSTR, L"Problem on line %d of %s\n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Problem on line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
@@ -689,7 +692,7 @@ LoadMacros(LPTW lptw)
 	    if (strlen(buf) + 1 < MACROLEN - (macroptr - lpmw->macrobuf))
 		strcpy((char *)macroptr,buf);
 	    else {
-		swprintf_s(wbuf, MAXSTR, L"Out of space for storing menu macros\n at line %d of %s \n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Out of space for storing menu macros\n at line %d of " TCHARFMT " \n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
@@ -702,7 +705,7 @@ LoadMacros(LPTW lptw)
 	} else {
 	    /* menu item */
 	    if (lpmw->nCountMenu >= NUMMENU) {
-		swprintf_s(wbuf, MAXSTR, L"Too many menu items at line %d of %s\n", nLine, lpmw->szMenuName);
+		swprintf_s(wbuf, MAXSTR, L"Too many menu items at line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		goto errorcleanup;
 	    }
@@ -723,7 +726,7 @@ LoadMacros(LPTW lptw)
 		AppendMenuW(hMenu[nMenuLevel], MF_STRING, lpmw->nCountMenu, wbuf);
 		if (!(nInc = GetLine(buf, MAXSTR, menufile))) {
 		    nLine += nInc;
-		    swprintf_s(wbuf, MAXSTR, L"Problem on line %d of %s\n", nLine, lpmw->szMenuName);
+		    swprintf_s(wbuf, MAXSTR, L"Problem on line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		    MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		    goto errorcleanup;
 		}
@@ -732,7 +735,7 @@ LoadMacros(LPTW lptw)
 		if (strlen(buf) + 1 < MACROLEN - (macroptr - lpmw->macrobuf))
 		    strcpy((char *)macroptr, buf);
 		else {
-		    swprintf_s(wbuf, MAXSTR, L"Out of space for storing menu macros\n at line %d of %s\n", nLine, lpmw->szMenuName);
+		    swprintf_s(wbuf, MAXSTR, L"Out of space for storing menu macros\n at line %d of " TCHARFMT "\n", nLine, lpmw->szMenuName);
 		    MessageBoxW(lptw->hWndParent, wbuf, MBOXTITLE, MB_ICONEXCLAMATION);
 		    goto errorcleanup;
 		}
@@ -744,7 +747,7 @@ LoadMacros(LPTW lptw)
 	}
     }
 
-    if ( (lpmw->nCountMenu - lpmw->nButton) > 0 ) {
+    if ((lpmw->nCountMenu - lpmw->nButton) > 0) {
 	/* we have a menu bar so put it on the window */
 	SetMenu(lptw->hWndParent, lpmw->hMenu);
 	DrawMenuBar(lptw->hWndParent);
@@ -754,13 +757,15 @@ LoadMacros(LPTW lptw)
 	goto cleanup;		/* no buttons */
 
     /* create a toolbar */
-    lpmw->hToolbar = CreateWindowEx(0, TOOLBARCLASSNAME, NULL,
-				    WS_CHILD | TBSTYLE_LIST, // TBSTYLE_WRAPABLE
+    lpmw->hToolbar = CreateWindowEx(0,
+				    TOOLBARCLASSNAME, NULL,
+				    WS_CHILD | TBSTYLE_LIST | TBSTYLE_TOOLTIPS,
 				    0, 0, 0, 0,
-				    lptw->hWndParent, (HMENU)ID_TOOLBAR, lptw->hInstance, NULL);
+				    lptw->hWndToolbar, (HMENU)ID_TOOLBAR, lptw->hInstance, NULL);
     if (lpmw->hToolbar == NULL)
 	goto cleanup;
 
+    SendMessage(lpmw->hToolbar, TB_SETEXTENDEDSTYLE, 0, (LPARAM) TBSTYLE_EX_MIXEDBUTTONS | TBSTYLE_EX_DOUBLEBUFFER | TBSTYLE_EX_HIDECLIPPEDBUTTONS);
     SendMessage(lpmw->hToolbar, TB_BUTTONSTRUCTSIZE, (WPARAM)sizeof(TBBUTTON), 0);
     bitmap.hInst = HINST_COMMCTRL;
 
@@ -773,11 +778,11 @@ LoadMacros(LPTW lptw)
     /* only load standard bitmaps if required. */
     if (bLoadStandardButtons) {
 	bitmap.nID = (dpi > 96)  ? IDB_STD_LARGE_COLOR : IDB_STD_SMALL_COLOR;
-	SendMessage(lpmw->hToolbar, TB_ADDBITMAP, 0, (WPARAM)&bitmap);
+	SendMessage(lpmw->hToolbar, TB_ADDBITMAP, 0, (LPARAM)&bitmap);
 	bitmap.nID = (dpi > 96)  ? IDB_HIST_LARGE_COLOR : IDB_HIST_SMALL_COLOR;
-	SendMessage(lpmw->hToolbar, TB_ADDBITMAP, 0, (WPARAM)&bitmap);
+	SendMessage(lpmw->hToolbar, TB_ADDBITMAP, 0, (LPARAM)&bitmap);
 	bitmap.nID = (dpi > 96)  ? IDB_VIEW_LARGE_COLOR : IDB_VIEW_SMALL_COLOR;
-	SendMessage(lpmw->hToolbar, TB_ADDBITMAP, 0, (WPARAM)&bitmap);
+	SendMessage(lpmw->hToolbar, TB_ADDBITMAP, 0, (LPARAM)&bitmap);
     }
 
     /* create buttons */
@@ -802,7 +807,7 @@ LoadMacros(LPTW lptw)
 	    wfname = UnicodeText(fname, S_ENC_DEFAULT);
 	    bitmap.hInst = NULL;
 	    bitmap.nID = (UINT_PTR) gdiplusLoadBitmap(wfname, ButtonSize);
-	    SendMessage(lpmw->hToolbar, TB_ADDBITMAP, 0, (WPARAM)&bitmap);
+	    SendMessage(lpmw->hToolbar, TB_ADDBITMAP, 0, (LPARAM)&bitmap);
 	    free(fname);
 	    free(wfname);
 #else
@@ -814,7 +819,7 @@ LoadMacros(LPTW lptw)
 	}
 	button.idCommand = lpmw->hButtonID[i];
 	button.fsState = TBSTATE_ENABLED;
-	button.fsStyle = BTNS_AUTOSIZE | BTNS_SHOWTEXT | BTNS_NOPREFIX;
+	button.fsStyle = BTNS_AUTOSIZE | BTNS_NOPREFIX;
 	if (MacroCommand(lptw, lpmw->hButtonID[i]) == OPTIONS)
 	    button.fsStyle |= BTNS_WHOLEDROPDOWN;
 #ifdef UNICODE
@@ -830,15 +835,20 @@ LoadMacros(LPTW lptw)
 
     /* auto-resize and show */
     SendMessage(lpmw->hToolbar, TB_AUTOSIZE, (WPARAM)0, (LPARAM)0);
-    ShowWindow(lpmw->hToolbar, SW_SHOW);
+    ShowWindow(lpmw->hToolbar, SW_SHOWNOACTIVATE);
 
     /* move top of client text window down to allow space for toolbar */
     GetClientRect(lpmw->hToolbar, &rect);
-    lptw->ButtonHeight = rect.bottom + 1;
-    lptw->ButtonHeight++;
+    lptw->ButtonHeight = rect.bottom - rect.top + 1;
     GetClientRect(lptw->hWndParent, &rect);
-    SetWindowPos(lptw->hWndText, (HWND)NULL, 0, lptw->ButtonHeight,
-		rect.right, rect.bottom - lptw->ButtonHeight - lptw->StatusHeight,
+    SetWindowPos(lptw->hWndToolbar, NULL,
+		 0, 0,
+		 rect.right, lptw->ButtonHeight,
+		 SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(lptw->hWndText, (HWND)NULL,
+		0, lptw->ButtonHeight,
+		rect.right,
+		rect.bottom - lptw->ButtonHeight - lptw->StatusHeight,
 		SWP_NOZORDER | SWP_NOACTIVATE);
     goto cleanup;
 

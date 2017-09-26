@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot.c,v 1.171 2016-08-06 13:22:50 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot.c,v 1.176 2017-07-24 07:54:51 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - plot.c */
@@ -162,6 +162,8 @@ static int exit_status = EXIT_SUCCESS;
 
 /* Flag for asynchronous handling of Ctrl-C. Used by fit.c and Windows */
 TBOOLEAN ctrlc_flag = FALSE;
+/* Flag for (asynchronous) term signal on Windows. */
+TBOOLEAN terminate_flag = FALSE;
 
 #ifdef OS2
 # include <process.h>
@@ -280,10 +282,13 @@ main(int argc, char **argv)
 /* make sure that we really have revoked root access, this might happen if
    gnuplot is compiled without vga support but is installed suid by mistake */
 #ifdef __linux__
-    setuid(getuid());
+    if (setuid(getuid()) != 0) {
+	fprintf(stderr,"gnuplot: refusing to run at elevated privilege\n");
+	exit(EXIT_FAILURE);
+    }
 #endif
 
-#if defined(MSDOS) && !defined(_WIN32) && !defined(__GNUC__)
+#if defined(MSDOS) && !defined(__GNUC__)
     PC_setup();
 #endif /* MSDOS !Windows */
 
@@ -385,7 +390,7 @@ main(int argc, char **argv)
 	    return 0;
 
 	} else if (!strncmp(argv[i], "-persist", 2) || !strcmp(argv[i], "--persist")
-#ifdef _Windows
+#ifdef _WIN32
 		|| !stricmp(argv[i], "-noend") || !stricmp(argv[i], "/noend")
 #endif
 		) {
@@ -436,15 +441,11 @@ main(int argc, char **argv)
     init_memory();
 
     interactive = FALSE;
-    init_terminal();		/* can set term type if it likes */
-    push_terminal(0);		/* remember the default terminal */
 
-    /* reset the terminal when exiting */
-    /* this is done through gp_atexit so that other terminal functions
-     * can be registered to be executed before the terminal is reset. */
-    gp_atexit(term_reset);
+    /* April 2017:  We used to call init_terminal() here, but now   */
+    /* We defer initialization until error handling has been set up. */
 
-# if defined(WIN32) && !defined(WGP_CONSOLE)
+# if defined(_WIN32) && !defined(WGP_CONSOLE)
     interactive = TRUE;
 # else
     interactive = isatty(fileno(stdin));
@@ -487,8 +488,6 @@ main(int argc, char **argv)
     if (!SETJMP(command_line_env, 1)) {
 	/* first time */
 	interrupt_setup();
-	/* should move this stuff to another initialisation routine,
-	 * something like init_set() maybe */
 	get_user_env();
 	init_loadpath();
 	init_locale();
@@ -501,6 +500,17 @@ main(int argc, char **argv)
 	   to properly handle keyboard input. */
 	init_encoding();
 #endif
+	/* April 2017: Now that error handling is in place, it is safe parse
+	 * GNUTERM during terminal initialization.
+	 * atexit processing is done in reverse order. We want
+	 * the generic terminal shutdown in term_reset to be executed before
+	 * any terminal specific cleanup requested by individual terminals.
+	 */
+	init_terminal();
+	push_terminal(0);	/* remember the initial terminal */
+	gp_atexit(term_reset);
+
+	/* Execute commands in ~/.gnuplot */
 	init_session();
 
 	if (interactive && term != 0) {		/* not unknown */
@@ -522,7 +532,6 @@ main(int argc, char **argv)
 	    gp_atexit(wrapper_for_write_history);
 #endif /* GNUPLOT_HISTORY */
 
-	    fprintf(stderr, "\nTerminal type set to '%s'\n", term->name);
 #if defined(READLINE) && defined(WGP_CONSOLE)
 	    fprintf(stderr, "Encoding set to '%s'.\n", encoding_names[encoding]);
 #endif
@@ -537,8 +546,7 @@ main(int argc, char **argv)
 	if (interactive == FALSE)
 	    exit_status = EXIT_FAILURE;
 #ifdef HAVE_READLINE_RESET
-	else
-	{
+	else {
 	    /* reset properly readline after a SIGINT+longjmp */
 	    rl_reset_after_signal ();
 	}
@@ -809,7 +817,7 @@ get_user_env()
 	const char *env_home;
 
 	if ((env_home = getenv(HOME))
-#ifdef WIN32
+#ifdef _WIN32
 	    || (env_home = appdata_directory())
 	    || (env_home = getenv("USERPROFILE"))
 #endif

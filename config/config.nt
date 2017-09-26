@@ -307,9 +307,6 @@
 /* #undef HAVE_SLEEP */
 /* Comment: well, actually it is there, but stdlib.h says it is `obsolete' */
 
-/* Define to 1 if you have the `snprintf' function. */
-#define HAVE_SNPRINTF 1
-
 /* Define to 1 if stdbool.h conforms to C99. */
 /* Available since VS 2013 only */ 
 #if _MSC_VER >= 1800
@@ -621,17 +618,14 @@
  * ==================================================
  */
 
-
-#ifndef WIN32
-# define WIN32
-#endif
-
 /* Windows Interprocess Communication is required for mouse support. */
 #ifdef USE_MOUSE
 # define WIN_IPC 1
 #endif
 
 #define HAVE_GDIPLUS
+#define HAVE_DWRITE
+#define HAVE_D2D
 
 #define GP_INLINE __inline
 #define GP_EXCEPTION_NAME _exception
@@ -651,7 +645,8 @@
 #ifdef USE_FAKEPIPES
 # define PIPES
 #elif defined(PIPES)
-# define popen _popen
+// Already defined in syscfg.h
+//# define popen _popen
 # define pclose _pclose
 #endif
 

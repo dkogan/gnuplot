@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: stdfn.c,v 1.31 2016-05-08 13:03:17 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: stdfn.c,v 1.38 2017-08-06 09:12:08 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - stdfn.c */
@@ -41,20 +41,23 @@ static char *RCSid() { return RCSid("$Id: stdfn.c,v 1.31 2016-05-08 13:03:17 mar
  * - Lars Hecking
  */
 
+#if defined(_WIN32) && defined(__WATCOMC__)
+#  include <direct.h>
+#endif
+
 #include "stdfn.h"
 
 #ifdef _WIN32
 /* the WIN32 API has a Sleep function that does not consume CPU cycles */
-#include <windows.h>
-#include "term_api.h"
-#include "win/winmain.h"
-#ifndef HAVE_DIRENT_H
-#include <io.h> /* _findfirst and _findnext set errno iff they return -1 */
-#endif
+# define WIN32_LEAN_AND_MEAN
+# include <windows.h>
+# include "term_api.h"
+# include "win/winmain.h"
+# include <io.h> /* _findfirst and _findnext set errno iff they return -1 */
 #endif
 #ifdef NEED_CEXP
-#include <math.h>
-#include <complex.h>
+# include <math.h>
+# include <complex.h>
 #endif
 
 /*
@@ -314,7 +317,7 @@ safe_strncpy(char *d, const char *s, size_t n)
 #ifndef HAVE_STRCSPN
 /*
  * our own substitute for strcspn()
- * return the length of the inital segment of str1
+ * return the length of the initial segment of str1
  * consisting of characters not in str2
  * returns strlen(str1) if none of the characters
  * from str2 are in str1
@@ -338,7 +341,7 @@ gp_strcspn(const char *str1, const char *str2)
 
 
 /* Standard compliant replacement functions for MSVC */
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && (_MSC_VER < 1900)
 int
 ms_vsnprintf(char *str, size_t size, const char *format, va_list ap)
 {
@@ -457,8 +460,7 @@ void gp_exit_cleanup(void)
 static void debug_exit_handler(void)
 {
     if (exit_handlers) {
-        fprintf(stderr, "Gnuplot not exited using gp_exit(). Exit handlers may"
-                " not work correctly!\n");
+        fprintf(stderr, "Gnuplot exiting abnormally. Trying to execute exit handlers anyway.\n");
         gp_exit_cleanup();
     }
 }
@@ -488,9 +490,22 @@ void gp_exit(int status)
     exit(status);
 }
 
+#ifdef _WIN32
+char *
+gp_getcwd(char *path, size_t len)
+{
+    wchar_t wpath[MAX_PATH + 1];
+    if (_wgetcwd(wpath, MAX_PATH) != NULL) {
+	WideCharToMultiByte(WinGetCodepage(encoding), 0, wpath, -1, path, len, NULL, 0);
+	return path;
+    }
+    return NULL;
+}
+#endif
 
-#if !defined(HAVE_DIRENT_H) && defined(_WIN32) && (!defined(__WATCOMC__))
-/* BM: OpenWatcom has dirent functions in direct.h!*/
+#ifdef _WIN32
+/* Note: OpenWatcom has dirent functions in direct.h but we use our functions
+		 since they support encodings. */
 /*
 
     Implementation of POSIX directory browsing functions and types for Win32.
@@ -505,14 +520,14 @@ struct DIR
 {
     intptr_t            handle; /* -1 for failed rewind */
     struct _wfinddata_t info;
-    struct dirent       result; /* d_name null iff first time */
+    struct gp_dirent    result; /* d_name null iff first time */
     WCHAR               *name;  /* null-terminated string */
     char                info_mbname[4*260];
 };
 
 
 DIR *
-opendir(const char *name)
+gp_opendir(const char *name)
 {
     DIR *dir = 0;
     char *mbname;
@@ -550,7 +565,7 @@ opendir(const char *name)
 
 
 int
-closedir(DIR *dir)
+gp_closedir(DIR *dir)
 {
     int result = -1;
 
@@ -570,10 +585,10 @@ closedir(DIR *dir)
 }
 
 
-struct dirent *
-readdir(DIR *dir)
+struct gp_dirent *
+gp_readdir(DIR *dir)
 {
-    struct dirent *result = 0;
+    struct gp_dirent *result = 0;
 
     if (dir && dir->handle != -1) {
 	if (!dir->result.d_name || _wfindnext(dir->handle, &dir->info) != -1) {
@@ -581,7 +596,7 @@ readdir(DIR *dir)
 	    WideCharToMultiByte(WinGetCodepage(encoding), 0, 
 				dir->info.name, sizeof(dir->info.name) / sizeof(wchar_t),
 				dir->info_mbname, sizeof(dir->info_mbname) / sizeof(char),
-				NUL, 0);
+				NULL, 0);
 	    result->d_name = dir->info_mbname;
 	}
     } else {
@@ -593,7 +608,7 @@ readdir(DIR *dir)
 
 
 void
-rewinddir(DIR *dir)
+gp_rewinddir(DIR *dir)
 {
     if (dir && dir->handle != -1) {
 	_findclose(dir->handle);
@@ -619,4 +634,4 @@ rewinddir(DIR *dir)
     But that said, if there are any problems please get in touch.
 
 */
-#endif /* !HAVE_DIRENT_H && _WIN32 */
+#endif /* _WIN32 */

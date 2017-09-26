@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.133 2016-11-08 05:41:24 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: gadgets.c,v 1.140 2017-08-01 01:19:37 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - gadgets.c */
@@ -127,6 +127,7 @@ int timelabel_bottom = TRUE;
 
 /* flag for polar mode */
 TBOOLEAN polar = FALSE;
+TBOOLEAN inverted_raxis = FALSE;
 
 /* zero threshold, may _not_ be 0! */
 double zero = ZERO;
@@ -135,14 +136,17 @@ double zero = ZERO;
 double pointsize = 1.0;
 double pointintervalbox = 1.0;
 
+/* used for filled points */
+t_colorspec background_fill = BACKGROUND_COLORSPEC;
+
 /* set border */
 int draw_border = 31;	/* The current settings */
 int user_border = 31;	/* What the user last set explicitly */
 int border_layer = LAYER_FRONT;
-# define DEFAULT_BORDER_LP { 0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 1.0, 1.0, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN }
+# define DEFAULT_BORDER_LP { 0, LT_BLACK, 0, DASHTYPE_SOLID, 0, 0, 1.0, 1.0, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN }
 struct lp_style_type border_lp = DEFAULT_BORDER_LP;
 const struct lp_style_type default_border_lp = DEFAULT_BORDER_LP;
-const struct lp_style_type background_lp = {0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN};
+const struct lp_style_type background_lp = {0, LT_BACKGROUND, 0, DASHTYPE_SOLID, 0, 0, 1.0, 0.0, DEFAULT_P_CHAR, BACKGROUND_COLORSPEC, DEFAULT_DASHPATTERN};
 
 /* set clip */
 TBOOLEAN clip_lines1 = TRUE;
@@ -605,10 +609,7 @@ apply_pm3dcolor(struct t_colorspec *tc)
 	return;
     }
     if (tc->type == TC_LT) {
-	/* Removed Jan 2015 
-	if (!monochrome_terminal)
-	 */
-	    t->set_color(tc);
+	t->set_color(tc);
 	return;
     }
     if (tc->type == TC_RGB) {
@@ -639,7 +640,7 @@ apply_pm3dcolor(struct t_colorspec *tc)
 		break;
 	case TC_CB:
 		if (CB_AXIS.log)
-		    cbval = (tc->value <= 0) ? CB_AXIS.min : axis_do_log((&CB_AXIS),tc->value);
+		    cbval = (tc->value <= 0) ? CB_AXIS.min : tc->value;
 		else
 		    cbval = tc->value;
 		set_color(cb2gray(cbval));
@@ -662,7 +663,7 @@ void
 default_arrow_style(struct arrow_style_type *arrow)
 {
     static const struct lp_style_type tmp_lp_style = 
-	{0, LT_DEFAULT, 0, DASHTYPE_SOLID, 0, 1.0, 0.0, DEFAULT_P_CHAR,
+	{0, LT_DEFAULT, 0, DASHTYPE_SOLID, 0, 0, 1.0, 0.0, DEFAULT_P_CHAR,
 	DEFAULT_COLORSPEC, DEFAULT_DASHPATTERN};
 
     arrow->tag = -1;
@@ -821,6 +822,7 @@ write_label(unsigned int x, unsigned int y, struct text_label *this_label)
 
 	    /* Draw the bounding box */
 	    if (!textbox_opts.noborder) {
+		(*term->linewidth)(textbox_opts.linewidth);
 		apply_pm3dcolor(&textbox_opts.border_color);
 		(*term->boxed_text)(0,0, TEXTBOX_OUTLINE);
 	    }
@@ -886,20 +888,16 @@ label_width(const char *str, int *lines)
 void
 do_timelabel(unsigned int x, unsigned int y)
 {
+    struct text_label temp = timelabel;
     char str[MAX_LINE_LEN+1];
-    char *save_format = timelabel.text;
     time_t now;
-    time(&now);
-    /* there is probably no way to find out in advance how many
-     * chars strftime() writes */
-    strftime(str, MAX_LINE_LEN, save_format, localtime(&now));
-    timelabel.text = str;
 
-    /* The only drawback of using write_label() is that there is no way  */
-    /* to pass in a request for vertical justification JUST_BOT */
     if (timelabel.rotate == 0 && !timelabel_bottom)
 	y -= term->v_char;
 
-    write_label(x, y, &timelabel);
-    timelabel.text = save_format;
+    time(&now);
+    strftime(str, MAX_LINE_LEN, timelabel.text, localtime(&now));
+    temp.text = str;
+
+    write_label(x, y, &temp);
 }

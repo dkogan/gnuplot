@@ -1,5 +1,5 @@
 /*
- * $Id: wxt.trm,v 1.48 2016-08-21 22:24:55 sfeam Exp $
+ * $Id: wxt.trm,v 1.51 2017-07-24 07:54:56 markisch Exp $
  */
 
 /* GNUPLOT - wxt.trm */
@@ -160,7 +160,7 @@ TERM_PUBLIC void wxt_options()
 	TBOOLEAN set_capjoin = FALSE, set_size = FALSE;
 	TBOOLEAN set_position = FALSE;
 
-#ifndef WIN32
+#ifndef _WIN32
 	if (term_interlock != NULL && term_interlock != (void *)wxt_init) {
 		term = NULL;
 		int_error(NO_CARET, "The wxt terminal cannot be used in a qt session");
@@ -466,7 +466,7 @@ TERM_PUBLIC void wxt_text_wrapper()
 
 #ifdef TERM_TABLE
 TERM_TABLE_START (wxt_driver)
-    "wxt", "wxWidgets cross-platform windowed terminal",
+    "wxt", "wxWidgets cross-platform interactive terminal",
     /* the following values are overriden by wxt_graphics */
     1 /* xmax */ , 1 /* ymax */ , 1 /* vchar */ , 1 /* hchar */ ,
     1 /* vtic */ , 1 /* htic */ ,
@@ -475,7 +475,7 @@ TERM_TABLE_START (wxt_driver)
     wxt_text_angle, wxt_justify_text,
     wxt_point, do_arrow, wxt_set_font,
     wxt_pointsize,
-    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH|TERM_FONTSCALE|TERM_ENHANCED_TEXT,
+    TERM_CAN_MULTIPLOT|TERM_NO_OUTPUTFILE|TERM_ALPHA_CHANNEL|TERM_CAN_DASH|TERM_FONTSCALE|TERM_ENHANCED_TEXT|TERM_LINEWIDTH,
     wxt_text /* suspend */, 0 /* resume */, wxt_fillbox, wxt_linewidth
 #ifdef USE_MOUSE
     , wxt_waitforinput, wxt_put_tmptext, wxt_set_ruler, wxt_set_cursor, wxt_set_clipboard

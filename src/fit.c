@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: fit.c,v 1.167 2016-08-19 22:28:41 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: fit.c,v 1.177 2017-07-28 01:35:35 sfeam Exp $"); }
 #endif
 
 /*  NOTICE: Change of Copyright Status
@@ -38,9 +38,6 @@ static char *RCSid() { return RCSid("$Id: fit.c,v 1.167 2016-08-19 22:28:41 sfea
  *
  * drd: allow 3d fitting. Data value is now called fit_z internally,
  * ie a 2d fit is z vs x, and a 3d fit is z vs x and y.
- *
- * Lars Hecking : review update command, for VMS in particular, where
- * it is not necessary to rename the old file.
  *
  * HBB, 971023: lifted fixed limit on number of datapoints, and number
  * of parameters.
@@ -132,7 +129,7 @@ static void Dblfn __PROTO(());
 #elif !defined(VMS)
 #  include <fcntl.h>
 #endif
-#ifdef WIN32
+#ifdef _WIN32
 # include "win/winmain.h"
 #endif
 
@@ -253,7 +250,7 @@ static udvt_entry *fit_dummy_udvs[MAX_NUM_VAR];
 			 internal Prototypes
 *****************************************************************/
 
-#if !defined(WIN32) || defined(WGP_CONSOLE)
+#if !defined(_WIN32) || defined(WGP_CONSOLE)
 static RETSIGTYPE ctrlc_handle __PROTO((int an_int));
 #endif
 static void ctrlc_setup __PROTO((void));
@@ -283,7 +280,6 @@ static void setvar __PROTO((char *varname, double value));
 static void setvarerr __PROTO((char *varname, double value));
 static void setvarcovar(char *varname1, char *varname2, double value);
 static char *get_next_word __PROTO((char **s, char *subst));
-static void backup_file __PROTO((char *, const char *));
 
 
 /*****************************************************************
@@ -308,7 +304,7 @@ wri_to_fil_last_fit_cmd(FILE *fp)
     This is called when a SIGINT occurs during fit
 *****************************************************************/
 
-#if !defined(WIN32) || defined(WGP_CONSOLE)
+#if !defined(_WIN32) || defined(WGP_CONSOLE)
 static RETSIGTYPE
 ctrlc_handle(int an_int)
 {
@@ -335,7 +331,7 @@ ctrlc_setup()
  *
  *  I hope that other OSes do it better, if not... add #ifdefs :-(
  */
-#if (defined(__EMX__) || !defined(MSDOS)) && (!defined(WIN32) || defined(WGP_CONSOLE))
+#if (defined(__EMX__) || !defined(MSDOS)) && (!defined(_WIN32) || defined(WGP_CONSOLE))
     (void) signal(SIGINT, (sigfunc) ctrlc_handle);
 #endif
 }
@@ -346,7 +342,6 @@ ctrlc_setup()
 *****************************************************************/
 #if defined(MSDOS)
 
-/* HBB 980317: added a prototype... */
 int getchx __PROTO((void));
 
 int
@@ -652,12 +647,15 @@ call_gnuplot(const double *par, double *data)
 	/* initialize extra dummy variables from the corresponding
 	 actual variables, if any. */
 	for (j = 0; j < MAX_NUM_VAR; j++) {
+	    double dummy_value;
 	    struct udvt_entry *udv = fit_dummy_udvs[j];
 	    if (!udv)
 		int_error(NO_CARET, "Internal error: lost a dummy parameter!");
-	    Gcomplex(&func.dummy_values[j],
-	             udv->udv_value.type == NOTDEFINED ? 0 : real(&(udv->udv_value)),
-	             0.0);
+	    if (udv->udv_value.type == CMPLX || udv->udv_value.type == INTGR)
+		dummy_value = real(&(udv->udv_value));
+	    else
+		dummy_value = 0.0;
+	    Gcomplex(&func.dummy_values[j], dummy_value, 0.0);
 	}
 	/* set actual dummy variables from file data */
 	for (j = 0; j < num_indep; j++)
@@ -750,7 +748,7 @@ fit_interrupt()
 {
     while (TRUE) {
 	fputs("\n\n(S)top fit, (C)ontinue, (E)xecute FIT_SCRIPT:  ", STANDARD);
-#ifdef WIN32
+#ifdef _WIN32
 	WinRaiseConsole();
 #endif
 	switch (getchar()) {
@@ -1008,7 +1006,7 @@ regress_check_stop(int iter, double chisq, double last_chisq, double lambda)
 	ctrlc_flag = TRUE;
     }
 #endif
-#ifdef WIN32
+#ifdef _WIN32
     /* This call makes the Windows GUI functional during fits.
        Pressing Ctrl-Break now finally has an effect. */
     WinMessageLoop();
@@ -1468,238 +1466,6 @@ createdvar(char *varname, double value)
 }
 
 
-/* argument: char *fn */
-#define VALID_FILENAME(fn) ((fn) != NULL && (*fn) != '\0')
-
-/*****************************************************************
-    write the actual parameters to start parameter file
-*****************************************************************/
-void
-update(char *pfile, char *npfile)
-{
-    char ifilename[PATH_MAX];
-    char *ofilename;
-    TBOOLEAN createfile = FALSE;
-
-    if (existfile(pfile)) {
-	/* update pfile npfile:
-	   if npfile is a valid file name, take pfile as input file and
-	   npfile as output file
-	*/
-	if (VALID_FILENAME(npfile)) {
-	    safe_strncpy(ifilename, pfile, sizeof(ifilename));
-	    ofilename = npfile;
-	} else {
-#ifdef BACKUP_FILESYSTEM
-	    /* filesystem will keep original as previous version */
-	    safe_strncpy(ifilename, pfile, sizeof(ifilename));
-#else
-	    backup_file(ifilename, pfile);	/* will Eex if it fails */
-#endif
-	    ofilename = pfile;
-	}
-    } else {
-	/* input file does not exists; will create new file */
-	createfile = TRUE;
-	if (VALID_FILENAME(npfile))
-	    ofilename = npfile;
-	else
-	    ofilename = pfile;
-    }
-
-    if (createfile) {
-	/* The input file does not exists and--strictly speaking--there is
-	   nothing to 'update'.  Instead of bailing out we guess the intended use:
-	   We output all INTGR/CMPLX user variables and mark them as '# FIXED' if
-	   they were not used during the last fit command. */
-	struct udvt_entry *udv = first_udv;
-	FILE *nf;
-
-	if ((last_fit_command == NULL) || (strlen(last_fit_command) == 0)) {
-	    /* Technically, a prior fit command isn't really required.  But since
-	    all variables in the parameter file would be marked '# FIXED' in that
-	    case, it cannot be directly used in a subsequent fit command. */
-	    Eex("Nothing to update!");
-	}
-
-	if (!(nf = fopen(ofilename, "w")))
-	    Eex2("new parameter file %s could not be created", ofilename);
-
-	fputs("# Parameter file created by 'update' from current variables\n", nf);
-	if ((last_fit_command != NULL) && (strlen(last_fit_command) > 0))
-	    fprintf(nf, "## %s\n", last_fit_command);
-
-	while (udv) {
-	    if ((strncmp(udv->udv_name, "GPVAL_", 6) == 0) ||
-	        (strncmp(udv->udv_name, "MOUSE_", 6) == 0) ||
-	        (strncmp(udv->udv_name, "FIT_", 4) == 0) ||
-	        (strcmp(udv->udv_name, "NaN") == 0) ||
-	        (strcmp(udv->udv_name, "pi") == 0)) {
-		/* skip GPVAL_, MOUSE_, FIT_ and builtin variables */
-		udv = udv->next_udv;
-		continue;
-	    }
-	    if ((udv->udv_value.type == INTGR) || (udv->udv_value.type == CMPLX)) {
-		int k;
-
-		/* ignore indep. variables */
-		for (k = 0; k < MAX_NUM_VAR; k++) {
-		    if (last_dummy_var[k] && strcmp(last_dummy_var[k], udv->udv_name) == 0)
-			break;
-		}
-		if (k != MAX_NUM_VAR) {
-		    udv = udv->next_udv;
-		    continue;
-		}
-
-		if (udv->udv_value.type == INTGR)
-		    fprintf(nf, "%-15s = %-22i", udv->udv_name, udv->udv_value.v.int_val);
-		else /* CMPLX */
-		    fprintf(nf, "%-15s = %-22s", udv->udv_name, num_to_str(udv->udv_value.v.cmplx_val.real));
-		/* mark variables not used for the last fit as fixed */
-		for (k = 0; k < last_num_params; k++) {
-		    if (strcmp(last_par_name[k], udv->udv_name) == 0)
-			break;
-		}
-		if (k == last_num_params)
-		    fprintf(nf, "   %s", GP_FIXED);
-		putc('\n', nf);
-	    }
-	    udv = udv->next_udv;
-	}
-
-	if (fclose(nf))
-	    Eex("I/O error during update");
-
-    } else { /* !createfile */
-
-	/* input file exists - this is the originally intended case of
-	   the update command: update an existing parameter file */
-	char sstr[256];
-	char *s = sstr;
-	char * fnam;
-	FILE *of, *nf;
-
-	if (!(of = loadpath_fopen(ifilename, "r")))
-	    Eex2("parameter file %s could not be read", ifilename);
-
-	if (!(nf = fopen(ofilename, "w")))
-	    Eex2("new parameter file %s could not be created", ofilename);
-
-	fnam = gp_basename(ifilename); /* strip off the path */
-	if (fnam == NULL)
-	    fnam = ifilename;
-
-	while (fgets(s = sstr, sizeof(sstr), of) != NULL) {
-	    char pname[64]; /* name of parameter */
-	    double pval;    /* parameter value */
-	    char tail[127]; /* trailing characters */
-	    char * tmp;
-	    char c;
-
-	    if (is_empty(s)) {
-		fputs(s, nf);	/* preserve comments */
-		continue;
-	    }
-	    if ((tmp = strchr(s, '#')) != NULL) {
-		safe_strncpy(tail, tmp, sizeof(tail));
-		*tmp = NUL;
-	    } else
-		strcpy(tail, "\n");
-
-	    tmp = get_next_word(&s, &c);
-	    if (!legal_identifier(tmp) || strlen(tmp) > MAX_ID_LEN) {
-		fclose(nf);
-		fclose(of);
-		Eex2("syntax error in parameter file %s", fnam);
-	    }
-	    safe_strncpy(pname, tmp, sizeof(pname));
-	    /* next must be '=' */
-	    if (c != '=') {
-		tmp = strchr(s, '=');
-		if (tmp == NULL) {
-		    fclose(nf);
-		    fclose(of);
-		    Eex2("syntax error in parameter file %s", fnam);
-		}
-		s = tmp + 1;
-	    }
-	    tmp = get_next_word(&s, &c);
-	    if (!sscanf(tmp, "%lf", &pval)) {
-		fclose(nf);
-		fclose(of);
-		Eex2("syntax error in parameter file %s", fnam);
-	    }
-	    if ((tmp = get_next_word(&s, &c)) != NULL) {
-		fclose(nf);
-		fclose(of);
-		Eex2("syntax error in parameter file %s", fnam);
-	    }
-
-	    /* now modify */
-	    pval = getdvar(pname);
-	    fprintf(nf, "%-15s = %-22s   %s", pname, num_to_str(pval), tail);
-	}
-
-	if (fclose(nf) || fclose(of))
-	    Eex("I/O error during update");
-    }
-}
-
-
-/*****************************************************************
-    Backup a file by renaming it to something useful. Return
-    the new name in tofile
-*****************************************************************/
-
-/* tofile must point to a char array[] or allocated data. See update() */
-
-static void
-backup_file(char *tofile, const char *fromfile)
-{
-#if defined(MSDOS) || defined(VMS)
-    char *tmpn;
-#endif
-
-/* first attempt, for all o/s other than MSDOS */
-
-#ifndef MSDOS
-    strcpy(tofile, fromfile);
-#ifdef VMS
-    /* replace all dots with _, since we will be adding the only
-     * dot allowed in VMS names
-     */
-    while ((tmpn = strchr(tofile, '.')) != NULL)
-	*tmpn = '_';
-#endif /*VMS */
-    strcat(tofile, BACKUP_SUFFIX);
-    if (rename(fromfile, tofile) == 0)
-	return;			/* hurrah */
-    if (existfile(tofile))
-	Eex2("The backup file %s already exists and will not be overwritten.", tofile);
-#endif
-
-#ifdef MSDOS
-    /* first attempt for msdos. */
-
-    /* Copy only the first 8 characters of the filename, to comply
-     * with the restrictions of FAT filesystems. */
-    safe_strncpy(tofile, fromfile, 8 + 1);
-
-    while ((tmpn = strchr(tofile, '.')) != NULL)
-	*tmpn = '_';
-
-    strcat(tofile, BACKUP_SUFFIX);
-
-    if (rename(fromfile, tofile) == 0)
-	return;			/* success */
-#endif /* MSDOS */
-
-    /* get here => rename failed. */
-    Eex3("Could not rename file %s to %s", fromfile, tofile);
-}
-
-
 /* Modified from save.c:save_range() */
 static void
 log_axis_restriction(FILE *log_f, int param, double min, double max, int autoscale, char *name)
@@ -1801,9 +1567,6 @@ print_function_definitions(struct at_type *at, FILE * device)
 void
 fit_command()
 {
-/* HBB 20000430: revised this completely, to make it more similar to
- * what plot3drequest() does */
-
     /* Backwards compatibility - these were the default names in 4.4 and 4.6	*/
     static const char *dummy_old_default[5] = {"x","y","t","u","v"};
 
@@ -1827,6 +1590,7 @@ fit_command()
     double tmpd;
     time_t timer;
     int token1, token2, token3;
+    int fit_token;
     char *tmp, *file_name;
     TBOOLEAN zero_initial_value;
     AXIS *fit_xaxis, *fit_yaxis, *fit_zaxis;
@@ -1838,7 +1602,7 @@ fit_command()
     fit_yaxis = &axis_array[FIRST_Y_AXIS];
     fit_zaxis = &axis_array[FIRST_Z_AXIS];
 
-    c_token++;
+    fit_token = c_token++;
 
     /* First look for a restricted fit range... */
     /* Start with the current range limits on variable 1 ("x"),
@@ -2086,7 +1850,7 @@ fit_command()
     /* tsm patchset 230: new absolute convergence variable */
     FPRINTF((STANDARD, "epsilon_abs=%e\n", epsilon_abs));
 
-    /* HBB 970304: maxiter patch */
+    /* maximum number of iterations */
     maxiter = getivar(FITMAXITER);
     if (maxiter < 0)
 	maxiter = 0;
@@ -2338,7 +2102,7 @@ fit_command()
     }
 
     /* read in parameters */
-    max_params = MAX_PARAMS;	/* HBB 971023: make this resizeable */
+    max_params = MAX_PARAMS;
 
     if (!equals(c_token++, "via"))
 	Eexc(c_token, "Need via and either parameter list or file");
@@ -2509,15 +2273,12 @@ fit_command()
 	free(last_dummy_var[i]);
 	last_dummy_var[i] = gp_strdup(c_dummy_var[i]);
     }
-    /* remember last fit command for 'save' */
+    /* remember last fit command for 'save fit' */
+    /* FIXME: This breaks if there is a ; internal to the fit command */
     free(last_fit_command);
-    last_fit_command = strdup(gp_input_line);
-    for (i = 0; i < num_tokens; i++) {
-	if (equals(i,";")) {
-	    last_fit_command[token[i].start_index] = '\0';
-	    break;
-	}
-    }
+    last_fit_command = strdup(&gp_input_line[token[fit_token].start_index]);
+    if (strchr(last_fit_command,';'))
+	*strchr(last_fit_command,';') = '\0';
     /* save fit command to user variable */
     fill_gpval_string("GPVAL_LAST_FIT", last_fit_command);
 }
@@ -2573,6 +2334,12 @@ getfitlogfile()
     if (fitlogfile == NULL) {
 	char *tmp = getenv(GNUFITLOG);	/* open logfile */
 
+	/* If GNUFITLOG is defined but null, do not write to log file */
+	if (tmp != NULL && *tmp == '\0') {
+	    fit_suppress_log = TRUE;
+	    return NULL;
+	}
+
 	if (tmp != NULL && *tmp != '\0') {
 	    char *tmp2 = tmp + (strlen(tmp) - 1);
 
@@ -2594,4 +2361,36 @@ getfitlogfile()
 	logfile = gp_strdup(fitlogfile);
     }
     return logfile;
+}
+
+
+/*
+ * replacement for "update", which is now deprecated.
+ * write current value of parameters used in previous fit to a file.
+ * That file can be used as an argument to 'via' in a subsequent fit command.
+ */
+void
+save_fit(FILE *fp)
+{
+    struct udvt_entry *udv;
+    int k;
+
+    if ((last_fit_command == NULL) || (strlen(last_fit_command) == 0)) {
+	int_warn(NO_CARET, "no previous fit command");
+	return;
+    } else {
+	fputs("# ", fp);
+	fputs(last_fit_command, fp);
+	fputs("\n", fp);
+	udv = get_udv_by_name("FIT_STDFIT");
+	if (udv)
+	    fprintf(fp,"# final sum of squares of residuals : %g\n",
+			udv->udv_value.v.cmplx_val.real);
+    }
+
+    for (k = 0; k < last_num_params; k++) {
+	udv = get_udv_by_name(last_par_name[k]);
+	fprintf(fp, "%-15s = %-22s\n", udv->udv_name, value_to_str(&(udv->udv_value), FALSE));
+    }
+    return;
 }

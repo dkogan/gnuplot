@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: doc2tex.c,v 1.28 2015/08/21 19:46:33 broeker Exp $"); }
+static char *RCSid() { return RCSid("$Id: doc2tex.c,v 1.31 2017-07-14 19:16:28 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - doc2tex.c */
@@ -205,6 +205,19 @@ process_line( char *line, FILE *b)
 		    (void) fputs("\\begin{itemize}\\setlength{\\itemsep}{0pt}\n", b);
 		else if (line[1] == 'e')
 		    (void) fputs("\\end{itemize}\n", b);
+		else if (line[1] == 'b') {
+		    /* Bullet */
+		    fprintf(b, "\\item\n");
+		    puttex(line+2, b);
+		}
+		else if (line[1] == '#') {
+		    /* Continuation of bulleted line */
+		    puttex(line+2, b);
+		}
+		else if (!strncmp(line+1,"TeX",3)) {
+		    /* Treat rest of line as LaTeX command */
+		    fprintf(b, "%s\n", line + 5);
+		}
 		else {
 		    if (strchr(line, '\n'))
 			*(strchr(line, '\n')) = '\0';
@@ -261,7 +274,9 @@ process_line( char *line, FILE *b)
 	                        inhref = TRUE;
 				in_internal_href = FALSE;
                                 if (strstr(line,"</a>") == NULL){
-                                   fputs("\\par\\hskip2.7em\\href{",b);
+				   /* To always place urls on a separate line */
+                                   /* fputs("\\par\\hskip2.7em\\href{",b); */
+                                   fputs("\\href{",b);
                                 } else {
                                    fputs("\\href{",b);
                                 }
@@ -501,13 +516,6 @@ puttex( char *str, FILE *file)
 #ifndef NO_CROSSREFS
 		    /* Make the final word an index entry also */
 		    fputs("\\index{",file);
-#if 0
-		    /* Aug 2006: no need to split index words at - or _ */
-		    if (strrchr(index,'-'))
-			index = strrchr(index,'-')+1;
-		    if (strrchr(index,'_'))
-			index = strrchr(index,'_')+1;
-#endif
 		    if (strrchr(index,' '))
 			index = strrchr(index,' ')+1;
 		    while ((s = strchr(index,'_')) != NULL) /* replace _ by space */

@@ -1,5 +1,5 @@
 /*
- * $Id: boundary.c,v 1.40 2016-11-14 20:09:46 sfeam Exp $
+ * $Id: boundary.c,v 1.51 2017-09-10 21:41:52 sfeam Exp $
  */
 
 /* GNUPLOT - boundary.c */
@@ -106,11 +106,6 @@ boundary(struct curve_points *plots, int count)
     legend_key *key = &keyT;
 
     struct termentry *t = term;
-    /* FIXME HBB 20000506: this line is the reason for the 'D0,1;D1,0'
-     * bug in the HPGL terminal: we actually carry out the switch of
-     * text orientation, just for finding out if the terminal can do
-     * that. *But* we're not in graphical mode, yet, so this call
-     * yields undesirable results */
     int can_rotate = (*t->text_angle) (TEXT_VERTICAL);
 
     int xtic_textheight=0;	/* height of xtic labels */
@@ -129,6 +124,7 @@ boundary(struct curve_points *plots, int count)
     int xtic_height=0;
     int ytic_width=0;
     int y2tic_width=0;
+    int ttic_textheight=0;	/* vertical clearance for ttics */
 
     /* figure out which rotatable items are to be rotated
      * (ylabel and y2label are rotated if possible) */
@@ -222,6 +218,12 @@ boundary(struct curve_points *plots, int count)
     } else
 	x2tic_height = 0;
 
+    /* Polar (theta) tic labels need space at top and bottom of plot */
+    if (THETA_AXIS.ticmode) {
+	/* FIXME:  Really 5% of polar grid radius, but we don't know that yet */
+	ttic_textheight = 2. * t->v_char;
+    }
+
     /* timestamp */
     if (timelabel.text) {
 	int timelin;
@@ -293,6 +295,7 @@ boundary(struct curve_points *plots, int count)
 	top_margin += t->v_char;
 	if (x2tic_height > 0)
 	    top_margin += x2tic_height;
+	top_margin += ttic_textheight;
 
 	plot_bounds.ytop -= top_margin;
 	if (plot_bounds.ytop == (int)(0.5 + (ysize + yoffset) * (t->ymax-1))) {
@@ -385,6 +388,12 @@ boundary(struct curve_points *plots, int count)
 	    /* make room for the end of rotated ytics or y2tics */
 	    plot_bounds.ybot += (int) (t->h_char * 2);
 	}
+	/* Last chance for better estimate of space required for ttic labels */
+	/* It is too late to go back and adjust positions relative to ytop */
+	if (ttic_textheight > 0) {
+	    ttic_textheight = 0.05 * (plot_bounds.ytop - plot_bounds.ybot);
+	    plot_bounds.ybot += ttic_textheight;
+	}
     }
 
     /*  end of preliminary plot_bounds.ybot calculation }}} */
@@ -406,8 +415,6 @@ boundary(struct curve_points *plots, int count)
 
     /* Adjust color axis limits if necessary. */
     if (is_plot_with_palette()) {
-	/* June 2014 - moved outside do_plot so that it is not called during a refresh */
-	/* set_cbminmax(); */
 	axis_checked_extend_empty_range(COLOR_AXIS, "All points of color axis undefined.");
 	if (color_box.where != SMCOLOR_BOX_NO)
 	    setup_tics(&axis_array[COLOR_AXIS], 20);
@@ -525,7 +532,7 @@ boundary(struct curve_points *plots, int count)
 		    axis_array[FIRST_X_AXIS].set_min,
 		    axis_array[FIRST_X_AXIS].set_max)) {
 			xx = axis_log_value_checked(FIRST_X_AXIS, tic->position, "xtic");
-		        xx = AXIS_MAP(FIRST_X_AXIS, xx);
+			xx = map_x(xx);
 			xx += (axis_array[FIRST_X_AXIS].tic_rotate) ? length : length /2;
 			if (maxrightlabel < xx)
 			    maxrightlabel = xx;
@@ -595,8 +602,17 @@ boundary(struct curve_points *plots, int count)
     setup_tics(&axis_array[FIRST_X_AXIS], 20);
     setup_tics(&axis_array[SECOND_X_AXIS], 20);
 
-    if (polar)
+    /* Make sure that if polar grid is shown on a cartesian axis plot */
+    /* the rtics match up with the primary x tics.                    */
+    if (R_AXIS.ticmode && (polar || raxis)) {
+	if (bad_axis_range(&R_AXIS) || (!polar && R_AXIS.min != 0)) {
+	    set_explicit_range(&R_AXIS, 0.0, X_AXIS.max);
+	    R_AXIS.min = 0;
+	    R_AXIS.max = axis_array[FIRST_X_AXIS].max;
+	    int_warn(NO_CARET, "resetting rrange");
+	}
 	setup_tics(&axis_array[POLAR_AXIS], 10);
+    }
 
 
     /* Modify the bounding box to fit the aspect ratio, if any was
@@ -720,6 +736,7 @@ boundary(struct curve_points *plots, int count)
 
     title_x = (plot_bounds.xleft + plot_bounds.xright) / 2;
     title_y = plot_bounds.ytop + title_textheight + x2tic_textheight;
+    title_y += ttic_textheight;
     if (x2label_y + x2label_yoffset > plot_bounds.ytop)
 	title_y += x2label_textheight;
     if (x2tic_height > 0)
@@ -728,6 +745,7 @@ boundary(struct curve_points *plots, int count)
     /* Shift upward by 0.2 line to allow for descenders in xlabel text */
     xlabel_y = plot_bounds.ybot - xtic_height - xtic_textheight - xlabel_textheight
 	+ ((float)xlablin+0.2) * t->v_char;
+    xlabel_y -= ttic_textheight;
     ylabel_x = plot_bounds.xleft - ytic_width - ytic_textwidth;
     ylabel_x -= ylabel_textwidth;
 
@@ -754,7 +772,7 @@ boundary(struct curve_points *plots, int count)
 	- (int) (vertical_xtics ? t->h_char : t->v_char);
 
     x2tic_y = plot_bounds.ytop + (x2tic_height > 0 ? x2tic_height : 0)
-	+ (vertical_x2tics ? (int) t->h_char : x2tic_textheight);
+	+ (vertical_x2tics ? (int) t->h_char : t->v_char);
 
     ytic_x = plot_bounds.xleft - ytic_width
 	- (vertical_ytics
@@ -780,7 +798,7 @@ boundary(struct curve_points *plots, int count)
     /* Set default clipping to the plot boundary */
     clip_area = &plot_bounds;
 
-    /* Sanity check. FIXME:  Stricter test? Fatal error? */
+    /* Sanity checks */
     if (plot_bounds.xright < plot_bounds.xleft
     ||  plot_bounds.ytop   < plot_bounds.ybot)
 	int_warn(NO_CARET, "Terminal canvas area too small to hold plot."
@@ -1353,18 +1371,9 @@ draw_key(legend_key *key, TBOOLEAN key_pass, int *xinkey, int *yinkey)
 
 	/* Only draw the title once */
 	if (key_pass || !key->front) {
-	    /* FIXME: Now that there is a full text_label structure for the key title */
-	    /*        maybe we should call write_label() to get the full processing?  */
-	    if (key->textcolor.type == TC_RGB && key->textcolor.value < 0)
-		apply_pm3dcolor(&(key->box.pm3d_color));
-	    else
-		apply_pm3dcolor(&(key->textcolor));
-	    ignore_enhanced(key->title.noenhanced);
-	    write_multiline(title_anchor, 
+	    write_label(title_anchor,
 			key->bounds.ytop - (key_title_extra + key_entry_height)/2,
-			key->title.text, key->title.pos, JUST_TOP, 0, 
-			key->title.font ? key->title.font : key->font);
-	    ignore_enhanced(FALSE);
+			&key->title);
 	    (*t->linetype)(LT_BLACK);
 	}
     }
@@ -1466,6 +1475,17 @@ draw_titles()
 	y = x2label_y - t->v_char / 2;
 	write_label(x, y, &(axis_array[SECOND_X_AXIS].label));
 	reset_textcolor(&(axis_array[SECOND_X_AXIS].label.textcolor));
+    }
+
+    /* RLABEL */
+    if (axis_array[POLAR_AXIS].label.text) {
+	unsigned int x, y;
+
+	/* This assumes we always have a horizontal R axis */
+	x = map_x(polar_radius(R_AXIS.max) / 2.0);
+	y = map_y(0.0) + t->v_char;
+	write_label(x, y, &(axis_array[POLAR_AXIS].label));
+	reset_textcolor(&(axis_array[POLAR_AXIS].label.textcolor));
     }
 
     /* PLACE TIMELABEL */

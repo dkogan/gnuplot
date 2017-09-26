@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.115 2016-11-19 06:43:49 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: pm3d.c,v 1.118 2017-08-01 00:56:21 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - pm3d.c */
@@ -168,29 +168,6 @@ rms4 (double x1, double x2, double x3, double x4)
 /*
 * Now the routines which are really just those for pm3d.c
 */
-
-/*
- * Rescale z to cb values. Nothing to do if both z and cb are linear or log of the
- * same base, other it has to un-log z and subsequently log it again.
- */
-#if defined(NONLINEAR_AXES) && (NONLINEAR_AXES > 0)
-    /* z2cb is a no-op */
-#else
-double
-z2cb_with_logs(double z)
-{
-    if (!Z_AXIS.log && !CB_AXIS.log) /* both are linear */
-	return z;
-    if (Z_AXIS.log && !CB_AXIS.log) /* log z, linear cb */
-	return axis_undo_log((&Z_AXIS), z);
-    if (!Z_AXIS.log && CB_AXIS.log) /* linear z, log cb */
-	return (z<=0) ? CB_AXIS.min : axis_do_log((&CB_AXIS), z);
-    /* both are log */
-    if (Z_AXIS.base==CB_AXIS.base) /* can we compare double numbers like that? */
-	return z;
-    return z * Z_AXIS.log_base / CB_AXIS.log_base; /* log_cb(unlog_z(z)) */
-}
-#endif
 
 /*
  * Rescale cb (color) value into the interval of grays [0,1], taking care
@@ -552,6 +529,7 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
     }
 
     if (pm3d.direction == PM3D_DEPTH) {
+	int needed_quadrangles = 0;
 
 	for (scan = 0; scan < this_plot->num_iso_read - 1; scan++) {
 
@@ -560,15 +538,21 @@ pm3d_plot(struct surface_points *this_plot, int at_which_z)
 
 	    are_ftriangles = pm3d.ftriangles && (scanA->p_count != scanB->p_count);
 	    if (!are_ftriangles)
-		allocated_quadrangles += GPMIN(scanA->p_count, scanB->p_count) - 1;
+		needed_quadrangles += GPMIN(scanA->p_count, scanB->p_count) - 1;
 	    else {
-		allocated_quadrangles += GPMAX(scanA->p_count, scanB->p_count) - 1;
+		needed_quadrangles += GPMAX(scanA->p_count, scanB->p_count) - 1;
 	    }
 	}
-	allocated_quadrangles *= (interp_i > 1) ? interp_i : 1;
-	allocated_quadrangles *= (interp_j > 1) ? interp_j : 1;
-	quadrangles = (quadrangle*)gp_realloc(quadrangles, allocated_quadrangles * sizeof (quadrangle), "pm3d_plot->quadrangles");
-	/* DEBUG: fprintf(stderr, "allocated_quadrangles = %d\n", allocated_quadrangles); */
+	needed_quadrangles *= (interp_i > 1) ? interp_i : 1;
+	needed_quadrangles *= (interp_j > 1) ? interp_j : 1;
+
+	while (current_quadrangle + needed_quadrangles >= allocated_quadrangles) {
+	    FPRINTF((stderr, "allocated_quadrangles = %d current = %d needed = %d\n",
+		allocated_quadrangles, current_quadrangle, needed_quadrangles));
+	    allocated_quadrangles = needed_quadrangles + 2*allocated_quadrangles;	
+	    quadrangles = (quadrangle*)gp_realloc(quadrangles, 
+			allocated_quadrangles * sizeof (quadrangle), "pm3d_plot->quadrangles");
+	}
     }
     /* pm3d_rearrange_scan_array(this_plot, (struct iso_curve***)0, (int*)0, &scan_array, &invert); */
 
@@ -1289,11 +1273,12 @@ set_plot_with_palette(int plot_num, int plot_mode)
     if (plot_mode == MODE_SPLOT)
 	if (TC_USES_PALETTE(axis_array[FIRST_Z_AXIS].label.textcolor.type)) return;
     if (TC_USES_PALETTE(axis_array[COLOR_AXIS].label.textcolor.type)) return;
-
+#ifdef EAM_OBJECTS
     for (this_object = first_object; this_object != NULL; this_object = this_object->next) {
 	if (TC_USES_PALETTE(this_object->lp_properties.pm3d_color.type))
 	    return;
     }
+#endif
     
 #undef TC_USES_PALETTE
 

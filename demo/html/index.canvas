@@ -2,17 +2,17 @@
 <html>
 <head>
 <meta charset="UTF-8"> 
-<title>Gnuplot 5.1 demos (HTML canvas terminal)</title>
+<title>Gnuplot 5.3 demos (HTML canvas terminal)</title>
 <link type="text/css" href="gnuplot_demo.css" rel="stylesheet">
 <link type="text/css" href="gnuplot_mouse.css" rel="stylesheet">
 </head>
 
 <body oncontextmenu="return false;">
 
-<h2 align=center>Gnuplot 5.1 demos (HTML canvas terminal)<br>
+<h2 align=center>Gnuplot 5.3 demos (HTML canvas terminal)<br>
     See also the demo output for the
-    <a href="http://gnuplot.sourceforge.net/demo_5.1/">PNG</a> and
-    <a href="http://gnuplot.sourceforge.net/demo_svg_5.1/">SVG</a> terminals.
+    <a href="http://gnuplot.sourceforge.net/demo_cvs/">PNG</a> and
+    <a href="http://gnuplot.sourceforge.net/demo_svg_cvs/">SVG</a> terminals.
 </h2>
 <canvas id="warning" width=1 height=1>
     <div class='box'><h2>Your browser may not support the HTML 5 canvas element</h2></div>
@@ -28,8 +28,9 @@
     <li><a href="fillcrvs.html">filled&nbsp;curves</a></li>
     <li><a href="fillbetween.html">fill&nbsp;between&nbsp;curves</a></li>
     <li><a href="candlesticks.html">candlesticks</a></li>
-    <li><a href="mgr.html">error bars</a></li>
+    <li><a href="errorbars.html">error bars</a></li>
     <li><a href="histograms.html">histograms</a> (<a href="histograms2.html">more</a>)</li>
+    <li><a href="boxclusters.html">bar graphs</a>
     <li><a href="steps.html">step functions</a></li>
     <li><a href="multiaxis.html">multiple axis scales</a></li>
     <li><a href="using.html">mixing styles</a></li>
@@ -47,14 +48,20 @@
     <h4>Math functions</h4>
     <ul>
     <li><a href="approximate.html">approximation</a></li>
-    <li><a href="spline.html">B-splines</a></li>
-    <li><a href="airfoil.html">Bezier splines</a></li>
     <li><font color=gray>complex functions</font></li>
     <li><a href="prob2.html">probability</a></li>
     <li><a href="prob.html">probability (more)</a></li>
     <li><a href="random.html">random numbers</a></li>
     <li><a href="bivariat.html">recursion, etc...</a></li>
     <li><a href="stats.html">data statistics</a></li>
+    </ul>
+
+    <h4>Curve fitting</h4>
+    <ul>
+    <li><a href="smooth_splines.html">cubic and Bezier splines</a></li>
+    <li><a href="monotonic_spline.html">monotonic csplines</a></li>
+    <li><a href="spline.html">explicit B-splines</a></li>
+    <li><a href="airfoil.html">explicit Bezier splines</a></li>
     </ul>
 
 </td>
@@ -80,7 +87,8 @@
     <li><a href="linkedaxes.html">linked axes</a></li>
     <li><a href="nonlinear3.html">nonlinear axes</a></li>
     <li><a href="nonlinear1.html">broken axes</a></li>
-    <li><a href="polar.html">polar coords</a></li>
+    <li><a href="ttics.html">polar coords</a></li>
+    <li><a href="polar.html">polar functions</a></li>
     <li><a href="poldat.html">polar data</a></li>
     <li><a href="world.html">cylindrical/spherical</a></li>
     <li><a href="timedat.html">time/date coords</a></li>
@@ -111,12 +119,15 @@
     <li><a href="iterate.html">iteration</a></li>
     <li><a href="scatter.html">non-gridded data</a></li>
     <li><a href="running_avg.html">running averages</a></li>
+    <li><a href="bins.html">automatic binning</a></li>
     <li><a href="smooth.html">binning/histograms</a></li>
     <li><a href="array.html">arrays</a></li>
     <li><a href="fenceplot.html">fence plots</a></li>
     <li><a href="gantt.html">Gantt chart</a></li>
+    <li><a href="columnhead.html">points labeled by origin</a></li>
     <li><a href="heatmaps.html">2D and 3D heat maps</a></li>
-    <li><a href="violinplot.html">Violin plot</a></li>
+    <li><a href="solar_path.html">solar path diagram</a></li>
+    <li><a href="violinplot.html">violin plot</a></li>
     </ul>
 
     <h4>Text options</h4>
@@ -210,7 +221,7 @@
 <tbody><tr valign="top">
 
     <td>
-    <i>This page generated November 2016</i>
+    <i>This page generated September 2017</i>
     </td>
 
     <td>

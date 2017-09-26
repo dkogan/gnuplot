@@ -15,7 +15,7 @@ function cursorPoint(evt){
 
 var gnuplot_svg = { };
 
-gnuplot_svg.version = "17 May 2016";
+gnuplot_svg.version = "17 February 2017";
 
 gnuplot_svg.SVGDoc = null;
 gnuplot_svg.SVGRoot = null;
@@ -251,8 +251,7 @@ gnuplot_svg.showHypertext = function(evt, mouseovertext)
     // left-justify multiline text
     var tspan_element = hypertext.firstChild;
     while (tspan_element) {
-        // if (typeof tspan_element == 'tspan') // Broken
-	    tspan_element.setAttributeNS(null,"x",anchor_x+14);
+	tspan_element.setAttributeNS(null,"x",anchor_x+14);
 	tspan_element = tspan_element.nextElementSibling;
     }
 
@@ -346,10 +345,19 @@ gnuplot_svg.convert_to_polar = function (x,y)
     phi = Math.atan2(y,x);
     if (gnuplot_svg.plot_logaxis_r) 
         r = Math.exp( (x/Math.cos(phi) + Math.log(gnuplot_svg.plot_axis_rmin)/Math.LN10) * Math.LN10);
+    else if (gnuplot_svg.plot_axis_rmin > gnuplot_svg.plot_axis_rmax)
+        r = gnuplot_svg.plot_axis_rmin - x/Math.cos(phi);
     else
-        r = x/Math.cos(phi) + gnuplot_svg.plot_axis_rmin;
-    polar.ang = phi * 180./Math.PI;
+        r = gnuplot_svg.plot_axis_rmin + x/Math.cos(phi);
+    phi = phi * (180./Math.PI);
+    if (gnuplot_svg.polar_sense < 0)
+	phi = -phi;
+    if (gnuplot_svg.polar_theta0 != undefined)
+	phi = phi + gnuplot_svg.polar_theta0;
+    if (phi > 180.)
+	phi = phi - 360.;
     polar.r = r;
+    polar.ang = phi;
     return polar;
 }
 

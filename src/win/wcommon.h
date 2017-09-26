@@ -1,5 +1,5 @@
 /*
- * $Id: wcommon.h,v 1.29 2016-09-08 18:43:00 markisch Exp $
+ * $Id: wcommon.h,v 1.33 2017-07-10 10:09:07 markisch Exp $
  */
 
 /* GNUPLOT - wcommon.h */
@@ -72,8 +72,9 @@ extern UINT cp_output;
 extern HINSTANCE hdllInstance;
 extern LPWSTR szParentClass;
 extern LPWSTR szTextClass;
+extern LPWSTR szToolbarClass;
+extern LPWSTR szSeparatorClass;
 extern LPWSTR szPauseClass;
-extern LPTSTR szGraphClass;
 extern LPTSTR szAboutClass;
 
 void * LocalAllocPtr(UINT flags, UINT size);
@@ -82,6 +83,7 @@ void LocalFreePtr(void *ptr);
 LPTSTR GetInt(LPTSTR str, LPINT pval);
 
 /* wtext.c */
+#ifndef WGP_CONSOLE
 void WriteTextIni(LPTW lptw);
 void ReadTextIni(LPTW lptw);
 void DragFunc(LPTW lptw, HDROP hdrop);
@@ -89,11 +91,14 @@ void TextShow(LPTW lptw);
 void TextUpdateStatus(LPTW lptw);
 void TextSuspend(LPTW lptw);
 void TextResume(LPTW lptw);
+void DockedUpdateLayout(LPTW lptw);
+void DockedGraphSize(LPTW lptw, SIZE *size, BOOL newwindow);
 
 /* wmenu.c - Menu */
 void SendMacro(LPTW lptw, UINT m);
 void LoadMacros(LPTW lptw);
 void CloseMacros(LPTW lptw);
+#endif
 
 /* wprinter.c - Printer setup and dump */
 extern HGLOBAL hDevNames;
@@ -115,7 +120,7 @@ void clear_tooltips(LPGW lpgw);
 void draw_update_keybox(LPGW lpgw, unsigned plotno, unsigned x, unsigned y);
 int draw_enhanced_text(LPGW lpgw, LPRECT rect, int x, int y, const char * str);
 void draw_get_enhanced_text_extend(PRECT extend);
-void draw_image(LPGW lpgw, HDC hdc, char *image, POINT corners[4], unsigned int width, unsigned int height, int color_mode);
+HBITMAP GraphGetBitmap(LPGW lpgw);
 
 #ifdef __cplusplus
 }

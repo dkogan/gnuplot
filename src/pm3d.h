@@ -1,5 +1,5 @@
 /*
- * $Id: pm3d.h,v 1.35 2016-11-05 21:21:07 sfeam Exp $
+ * $Id: pm3d.h,v 1.37 2017-08-01 00:56:21 sfeam Exp $
  */
 
 /* GNUPLOT - pm3d.h */
@@ -57,10 +57,12 @@
   direction of taking the scans: forward = as the scans are stored in the
   file; backward = opposite direction, i.e. like from the end of the file
 */
-#define PM3D_SCANS_AUTOMATIC  'a'
-#define PM3D_SCANS_FORWARD    'f'
-#define PM3D_SCANS_BACKWARD   'b'
-#define PM3D_DEPTH            'd'
+typedef enum {
+    PM3D_SCANS_AUTOMATIC,
+    PM3D_SCANS_FORWARD,
+    PM3D_SCANS_BACKWARD,
+    PM3D_DEPTH
+} pm3d_scandir;
 
 /*
   clipping method:
@@ -107,8 +109,8 @@ typedef struct {
   char where[7];	/* base, top, surface */
   char flush;   	/* left, right, center */
   char ftriangles;   	/* 0/1 (don't) draw flushing triangles */
-  char direction;	/* forward, backward */
   char clip;		/* 1in, 4in */
+  pm3d_scandir direction;
   PM3D_IMPL_MODE implicit;
 			/* 1: [default] draw ALL surfaces with pm3d
 			   0: only surfaces specified with 'with pm3d' */
@@ -140,12 +142,8 @@ extern struct lp_style_type default_pm3d_border;
 extern struct lp_style_type pm3d_border_lp;
 extern TBOOLEAN track_pm3d_quadrangles;
 
-#if defined(NONLINEAR_AXES) && (NONLINEAR_AXES > 0)
-#   define z2cb(z) (z)
-#else
-    /* The original routine, with log/unlog dance steps */
-#   define z2cb(z) z2cb_with_logs(z)
-#endif
+/* This became a no-op with nonlinear axis support */
+#define z2cb(z) (z)
 
 
 /****

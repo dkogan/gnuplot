@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: set.c,v 1.541 2016-11-18 08:20:57 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: set.c,v 1.570 2017-09-17 18:54:49 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - set.c */
@@ -110,7 +110,7 @@ static void set_margin __PROTO((t_position *));
 static void set_minus_sign __PROTO((void));
 static void set_micro __PROTO((void));
 static void set_missing __PROTO((void));
-static void set_separator __PROTO((void));
+static void set_separator __PROTO((char **));
 static void set_datafile_commentschars __PROTO((void));
 static void set_monochrome __PROTO((void));
 #ifdef USE_MOUSE
@@ -132,6 +132,7 @@ static void set_object __PROTO((void));
 static void set_obj __PROTO((int, int));
 #endif
 static void set_psdir __PROTO((void));
+static void set_rgbmax __PROTO((void));
 static void set_samples __PROTO((void));
 static void set_size __PROTO((void));
 static void set_style __PROTO((void));
@@ -139,6 +140,7 @@ static void set_surface __PROTO((void));
 static void set_table __PROTO((void));
 static void set_terminal __PROTO((void));
 static void set_termoptions __PROTO((void));
+static void set_theta __PROTO((void));
 static void set_tics __PROTO((void));
 static void set_ticscale __PROTO((void));
 static void set_timefmt __PROTO((void));
@@ -166,6 +168,7 @@ static void set_linestyle __PROTO((struct linestyle_def **head, lp_class destina
 static void set_arrowstyle __PROTO((void));
 static int assign_arrowstyle_tag __PROTO((void));
 static int set_tic_prop __PROTO((struct axis *));
+static void set_mttics __PROTO((struct axis *this_axis));
 
 static void check_palette_grayscale __PROTO((void));
 static int set_palette_defined __PROTO((void));
@@ -185,7 +188,7 @@ static const struct position default_offset
 	= {character, character, character, 0., 0., 0.};
 
 static lp_style_type default_hypertext_point_style
-	= {1, LT_BLACK, 4, DASHTYPE_SOLID, 0, 1.0, PTSZ_DEFAULT, DEFAULT_P_CHAR, {TC_RGB, 0x000000, 0.0}, DEFAULT_DASHPATTERN};
+	= {1, LT_BLACK, 4, DASHTYPE_SOLID, 0, 0, 1.0, PTSZ_DEFAULT, DEFAULT_P_CHAR, {TC_RGB, 0x000000, 0.0}, DEFAULT_DASHPATTERN};
 
 /******** The 'set' command ********/
 void
@@ -267,6 +270,12 @@ set_command()
 	    break;
 	case S_DGRID3D:
 	    set_dgrid3d();
+	    break;
+	case S_DEBUG:
+	    /* Developer-only option (not in user documentation) */
+	    /* Does nothing in normal use */
+	    c_token++;
+	    debug = int_expression();
 	    break;
 	case S_DECIMALSIGN:
 	    set_decimalsign();
@@ -373,7 +382,7 @@ set_command()
 	    if (almost_equals(++c_token,"miss$ing"))
 		set_missing();
 	    else if (almost_equals(c_token,"sep$arators"))
-		set_separator();
+		set_separator(&df_separators);
 	    else if (almost_equals(c_token,"com$mentschars"))
 		set_datafile_commentschars();
 	    else if (almost_equals(c_token,"bin$ary"))
@@ -448,6 +457,9 @@ set_command()
 	case S_SAMPLES:
 	    set_samples();
 	    break;
+	case S_RGBMAX:
+	    set_rgbmax();
+	    break;
 	case S_SIZE:
 	    set_size();
 	    break;
@@ -465,6 +477,9 @@ set_command()
 	    break;
 	case S_TERMOPTIONS:
 	    set_termoptions();
+	    break;
+	case S_THETA:
+	    set_theta();
 	    break;
 	case S_TICS:
 	    set_tics();
@@ -550,10 +565,14 @@ set_command()
 	    set_tic_prop(&axis_array[COLOR_AXIS]);
 	    break;
 	case S_RTICS:
-	case S_NORTICS:
 	case S_MRTICS:
-	case S_NOMRTICS:
 	    set_tic_prop(&axis_array[POLAR_AXIS]);
+	    break;
+	case S_TTICS:
+	    set_tic_prop(&THETA_AXIS);
+	    break;
+	case S_MTTICS:
+	    set_mttics(&THETA_AXIS);
 	    break;
 	case S_XDATA:
 	    set_timedata(&axis_array[FIRST_X_AXIS]);
@@ -589,6 +608,9 @@ set_command()
 	    break;
 	case S_CBLABEL:
 	    set_xyzlabel(&axis_array[COLOR_AXIS].label);
+	    break;
+	case S_RLABEL:
+	    set_xyzlabel(&axis_array[POLAR_AXIS].label);
 	    break;
 	case S_X2LABEL:
 	    set_xyzlabel(&axis_array[SECOND_X_AXIS].label);
@@ -1018,6 +1040,9 @@ set_border()
 	} else if (equals(c_token,"behind")) {
 	    border_layer = LAYER_BEHIND;
 	    c_token++;
+	} else if (equals(c_token,"polar")) {
+	    draw_border |= 4096;
+	    c_token++;
 	} else {
 	    int save_token = c_token;
 	    lp_parse(&border_lp, LP_ADHOC, FALSE);
@@ -1139,7 +1164,7 @@ set_boxwidth()
     c_token++;
 }
 
-/* process 'set clabel' command */
+/* DEPRECATED - process 'set clabel' command */
 static void
 set_clabel()
 {
@@ -1363,7 +1388,7 @@ set_colorsequence(int option)
 	    colors = podo_colors;
 	linetype_recycle_count = 8;
 	for (i = 1; i <= 8; i++) {
-	    command = gp_alloc(strlen(command_template)+8, "dynamic command"); 
+	    command = gp_alloc(strlen(command_template)+8, "dynamic command");
 	    sprintf(command, command_template, i, colors[i-1]);
 	    do_string_and_free(command);
 	}
@@ -1651,7 +1676,7 @@ set_encoding()
 static void
 set_degreesign(char *locale)
 {
-#if defined(HAVE_ICONV) && !(defined WIN32)
+#if defined(HAVE_ICONV) && !(defined _WIN32)
     char degree_utf8[3] = {'\302', '\260', '\0'};
     size_t lengthin = 3;
     size_t lengthout = 8;
@@ -1680,22 +1705,6 @@ set_degreesign(char *locale)
 	}
 	return;
     }
-#elif defined(WIN32)
-    if (locale) {
-	char *encoding = strchr(locale, '.');
-	if (encoding) {
-	    unsigned cp;
-	    encoding++; /* Step past the dot in, e.g., German_Germany.1252 */
-	    /* iconv does not understand encodings returned by setlocale() */
-	    if (sscanf(encoding, "%i", &cp)) {
-		wchar_t wdegreesign = 176; /* "\u00B0" */
-		int n = WideCharToMultiByte(cp, WC_COMPOSITECHECK, &wdegreesign, 1,
-			degree_sign, sizeof(degree_sign) - 1, NULL, NULL);
-		degree_sign[n] = NUL;
-	    }
-	}
-	return;
-    }
 #else
     (void)locale; /* -Wunused argument */
 #endif
@@ -1711,6 +1720,10 @@ set_degreesign(char *locale)
     case S_ENC_CP852:	degree_sign[0] = '\370'; break;
     case S_ENC_SJIS:	break;  /* should be 0x818B */
     case S_ENC_CP950:	break;  /* should be 0xA258 */
+    /* default applies at least to:
+       ISO8859-1, -2, -9, -15,
+       CP1250, CP1251, CP1252, CP1254
+     */
     default:		degree_sign[0] = '\260'; break;
     }
 }
@@ -2049,12 +2062,14 @@ set_grid()
 	else GRID_MATCH(POLAR_AXIS, "nor$tics")
 	else GRID_MATCH(POLAR_AXIS, "nomr$tics")
 	else if (almost_equals(c_token,"po$lar")) {
-	    if (!some_grid_selected())
-		axis_array[POLAR_AXIS].gridmajor = TRUE;
+	    /* Dec 2016 - zero or negative disables radial grid lines */
+	    axis_array[POLAR_AXIS].gridmajor = TRUE;	/* Enable both circles and radii */
 	    polar_grid_angle = 30*DEG2RAD;
 	    c_token++;
-	    if (isanumber(c_token) || type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX)
-		polar_grid_angle = ang2rad*real_expression();
+	    if (isanumber(c_token) || type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX) {
+		double ang = real_expression();
+		polar_grid_angle = (ang > 2.*M_PI) ? DEG2RAD*ang : ang2rad*ang;
+	    }
 	} else if (almost_equals(c_token,"nopo$lar")) {
 	    polar_grid_angle = 0; /* not polar grid */
 	    c_token++;
@@ -2085,6 +2100,7 @@ set_grid()
 	/* no axis specified, thus select default grid */
 	if (polar) {
 	    axis_array[POLAR_AXIS].gridmajor = TRUE;
+	    polar_grid_angle = 30.*DEG2RAD;
 	} else {
 	    axis_array[FIRST_X_AXIS].gridmajor = TRUE;
 	    axis_array[FIRST_Y_AXIS].gridmajor = TRUE;
@@ -2115,7 +2131,7 @@ set_history()
 	    continue;
 	} else if (almost_equals(c_token, "num$bers")) {
 	    c_token++;
-	    history_quiet = FALSE; 
+	    history_quiet = FALSE;
 	    continue;
 	} else if (equals(c_token, "full")) {
 	    c_token++;
@@ -2744,7 +2760,6 @@ set_logscale()
 	}
     }
 
-#if defined(NONLINEAR_AXES) && (NONLINEAR_AXES > 0)
     for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++) {
 	if (set_for_axis[axis]) {
 	    static char command[128];
@@ -2775,7 +2790,7 @@ set_logscale()
 		sprintf(command, "set nonlinear %s via log(%s)/log(%g) inv (%g)**%s",
 			axis_name(axis), dummy, newbase, newbase, dummy);
 	    }
-	    do_string(command); 
+	    do_string(command);
 	    axis_array[axis].ticdef.logscaling = TRUE;
 	    axis_array[axis].base = newbase;
 	    axis_array[axis].log_base = log(newbase);
@@ -2787,23 +2802,6 @@ set_logscale()
 	    axis_array[axis].linked_to_primary->log = TRUE;
 	}
     }
-
-#else
-    for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++) {
-	if (set_for_axis[axis]) {
-	    axis_array[axis].log = TRUE;
-	    axis_array[axis].base = newbase;
-	    axis_array[axis].log_base = log(newbase);
-	    if ((axis == POLAR_AXIS) && polar)
-		rrange_to_xy();
-	}
-    }
-
-    /* Because the log scaling is applied during data input, a quick refresh */
-    /* using existing stored data will not work if the log setting changes.  */
-    SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);
-#endif
-
 }
 
 /* process 'set mapping3d' command */
@@ -2823,7 +2821,7 @@ set_mapping()
     else
 	int_error(c_token,
 		  "expecting 'cartesian', 'spherical', or 'cylindrical'");
-	c_token++;
+    c_token++;
 }
 
 
@@ -2875,24 +2873,27 @@ set_minus_sign()
 }
 
 static void
-set_separator()
+set_separator(char **xx_separators)
 {
     c_token++;
-    free(df_separators);
-    df_separators = NULL;
+    free(*xx_separators);
+    *xx_separators = NULL;
 
     if (END_OF_COMMAND)
 	return;
 
     if (almost_equals(c_token, "white$space")) {
 	c_token++;
+    } else if (equals(c_token,"space")) {
+	*xx_separators = gp_strdup(" ");
+	c_token++;
     } else if (equals(c_token, "comma")) {
-	df_separators = gp_strdup(",");
+	*xx_separators = gp_strdup(",");
 	c_token++;
     } else if (equals(c_token, "tab") || equals(c_token, "\'\\t\'")) {
-	df_separators = gp_strdup("\t");
+	*xx_separators = gp_strdup("\t");
 	c_token++;
-    } else if (!(df_separators = try_to_get_string())) {
+    } else if (!(*xx_separators = try_to_get_string())) {
 	int_error(c_token, "expected \"<separator_char>\"");
     }
 }
@@ -2921,7 +2922,12 @@ set_missing()
     c_token++;
     free(missing_val);
     missing_val = NULL;
-    if (!END_OF_COMMAND && !(missing_val = try_to_get_string()))
+    if (END_OF_COMMAND)
+	return;
+    if (equals(c_token,"NaN") || equals(c_token,"nan")) {
+	missing_val = strdup("NaN");
+	c_token++;
+    } else if (!(missing_val = try_to_get_string()))
 	int_error(c_token, "expected missing-value string");
 }
 
@@ -4070,8 +4076,9 @@ set_polar()
 
     if (polar)
 	return;
-    else
-	polar = TRUE;
+
+    polar = TRUE;
+    raxis = TRUE;
 
     if (!parametric) {
 	if (interactive)
@@ -4519,6 +4526,18 @@ set_obj(int tag, int obj_type)
 }
 #endif
 
+static void
+set_rgbmax()
+{
+    c_token++;
+    if (END_OF_COMMAND)
+	rgbmax = 255;
+    else
+	rgbmax = real_expression();
+    if (rgbmax <= 0)
+	rgbmax = 255;
+}
+
 /* process 'set samples' command */
 static void
 set_samples()
@@ -4741,6 +4760,11 @@ set_style()
 		if (equals(c_token,"lt"))
 		    c_token--;
 		parse_colorspec(&textbox_opts.border_color, TC_RGB);
+	    } else if (almost_equals(c_token,"linew$idth") || equals(c_token,"lw")) {
+		c_token++;
+		textbox_opts.linewidth = real_expression();
+		if (textbox_opts.linewidth < 0)
+		    textbox_opts.linewidth = 1.0;
 	    } else
 		int_error(c_token,"unrecognized option");
 	}
@@ -4793,6 +4817,7 @@ set_table()
 {
     char *tablefile;
     int filename_token = ++c_token;
+    TBOOLEAN append = FALSE;
 
     if (table_outfile) {
 	fclose(table_outfile);
@@ -4803,22 +4828,34 @@ set_table()
     if (equals(c_token, "$") && isletter(c_token + 1)) { /* datablock */
 	/* NB: has to come first because try_to_get_string will choke on the datablock name */
 	table_var = add_udv_by_name(parse_datablock_name());
-	gpfree_string(&table_var->udv_value);
-	gpfree_datablock(&table_var->udv_value);
-	table_var->udv_value.type = DATABLOCK;
-	table_var->udv_value.v.data_array = NULL;
+	if (table_var == NULL)
+	    int_error(c_token, "Error allocating datablock");
+	if (equals(c_token, "append")) {
+	    c_token++;
+	    append = TRUE;
+	}
+	if (!append || table_var->udv_value.type != DATABLOCK) {
+	    gpfree_datablock(&table_var->udv_value);
+	    gpfree_string(&table_var->udv_value);
+	    table_var->udv_value.type = DATABLOCK;
+	    table_var->udv_value.v.data_array = NULL;
+	}
 
     } else if ((tablefile = try_to_get_string())) {  /* file name */
 	/* 'set table "foo"' creates a new output file */
 	/* 'set table "foo" append' writes to the end of an existing output file */
-	TBOOLEAN append = FALSE;
-	if (equals(c_token,"append")) {
+	gp_expand_tilde(&tablefile);
+	if (equals(c_token, "append")) {
 	    c_token++;
 	    append = TRUE;
 	}
 	if (!(table_outfile = fopen(tablefile, (append ? "a" : "w"))))
 	   os_error(filename_token, "cannot open table output file");
 	free(tablefile);
+    }
+
+    if (almost_equals(c_token, "sep$arator")) {
+	set_separator(&table_sep);
     }
 
     table_mode = TRUE;
@@ -4913,6 +4950,14 @@ set_termoptions()
 	    c_token++;
 	    real_expression();   /* Silently ignore the request */
 	}
+    } else if (equals(c_token,"pointscale") || equals(c_token,"ps")) {
+	num_tokens = GPMIN(num_tokens,c_token+2);
+	if (term->flags & TERM_POINTSCALE)
+	    ok_to_call_terminal = TRUE;
+	else {
+	    c_token++;
+	    real_expression();   /* Silently ignore the request */
+	}
     } else if (equals(c_token,"lw") || almost_equals(c_token,"linew$idth")) {
 	num_tokens = GPMIN(num_tokens,c_token+2);
 	if (term->flags & TERM_LINEWIDTH)
@@ -4942,6 +4987,29 @@ set_termoptions()
     num_tokens = save_end_of_line;
 }
 
+/* Various properties of the theta axis in polar mode */
+static void
+set_theta()
+{
+    c_token++;
+    while (!END_OF_COMMAND) {
+	if (almost_equals(c_token, "r$ight"))
+	    theta_origin = 0.0;
+	else if (almost_equals(c_token, "t$op"))
+	    theta_origin = 90.0;
+	else if (almost_equals(c_token, "l$eft"))
+	    theta_origin = 180.0;
+	else if (almost_equals(c_token, "b$ottom"))
+	    theta_origin = -90.;
+	else if (equals(c_token, "clockwise") || equals(c_token, "cw"))
+	    theta_direction = -1;
+	else if (equals(c_token, "counterclockwise") || equals(c_token, "ccw"))
+	    theta_direction = 1;
+	else
+	    int_error(c_token,"unrecognized option");
+	c_token++;
+    }
+}
 
 /* process 'set tics' command */
 static void
@@ -5279,7 +5347,11 @@ set_view()
 	if (equals(c_token,"scale")) {
 	    c_token++;
 	    mapview_scale = real_expression();
-	} 
+	}
+	if (aspect_ratio_3D != 0) {
+	    aspect_ratio = -1;
+	    aspect_ratio_3D = 0;
+	}
 	return;
     };
 
@@ -5383,16 +5455,16 @@ set_range(struct axis *this_axis)
 	this_axis->set_max = this_axis->writeback_max;
 	this_axis->set_autoscale = AUTOSCALE_NONE;
     } else {
-	if (!equals(c_token,"["))
-	    int_error(c_token, "expecting '[' or 'restore'");
-	c_token++;
-	this_axis->set_autoscale =
-	    load_range(this_axis,
-		       &this_axis->set_min, &this_axis->set_max,
-		       this_axis->set_autoscale);
-	if (!equals(c_token,"]"))
-	    int_error(c_token, "expecting ']'");
-	c_token++;
+	if (equals(c_token,"[")) {
+	    c_token++;
+	    this_axis->set_autoscale =
+		load_range(this_axis,
+			   &this_axis->set_min, &this_axis->set_max,
+			   this_axis->set_autoscale);
+	    if (!equals(c_token,"]"))
+		int_error(c_token, "expecting ']'");
+	    c_token++;
+	}
 	while (!END_OF_COMMAND) {
 	    if (almost_equals(c_token, "rev$erse")) {
 		++c_token;
@@ -5500,6 +5572,8 @@ set_tic_prop(struct axis *this_axis)
 	sfxptr = &nocmd[strlen(nocmd)];
 	(void) strcpy(sfxptr, "t$ics");	/* STRING */
     }
+    if (axis == THETA_AXIS.index)
+	cmdptr = "ttics";
 
     if (almost_equals(c_token, cmdptr) || axis >= PARALLEL_AXES) {
 	TBOOLEAN axisset = FALSE;
@@ -5538,7 +5612,7 @@ set_tic_prop(struct axis *this_axis)
 		    this_axis->miniticscale = 0.5;
 		    ++c_token;
 		} else {
-		    axis_array[axis].ticscale = real_expression();
+		    this_axis->ticscale = real_expression();
 		    if (equals(c_token, ",")) {
 			++c_token;
 			this_axis->miniticscale = real_expression();
@@ -5546,7 +5620,7 @@ set_tic_prop(struct axis *this_axis)
 			this_axis->miniticscale = 0.5 * this_axis->ticscale;
 		}
 	    } else if (almost_equals(c_token, "ro$tate")) {
-		axis_array[axis].tic_rotate = TEXT_VERTICAL;
+		this_axis->tic_rotate = TEXT_VERTICAL;
 		++c_token;
 		if (equals(c_token, "by")) {
 		    c_token++;
@@ -5631,14 +5705,12 @@ set_tic_prop(struct axis *this_axis)
 		    this_axis->ticdef.def.user = NULL;
 		}
 		this_axis->ticdef.type = TIC_COMPUTED;
-#ifdef NONLINEAR_AXES
 	    } else if (almost_equals(c_token, "log$scale")) {
 		++c_token;
 		this_axis->ticdef.logscaling = TRUE;
 	    } else if (almost_equals(c_token, "nolog$scale")) {
 		++c_token;
 		this_axis->ticdef.logscaling = FALSE;
-#endif
 	    } else if (equals(c_token,"add")) {
 		++c_token;
 		this_axis->ticdef.def.mix = TRUE;
@@ -5731,6 +5803,31 @@ set_tic_prop(struct axis *this_axis)
 	match = 1;
     }
     return (match);
+}
+
+/*
+ * minor tics around perimeter of polar grid circle (theta).
+ * This version works like other axes (parameter is # of subintervals)
+ * but it might be more reasonable to simply take increment in degress.
+ */
+static void
+set_mttics(struct axis *this_axis)
+{
+    c_token++;
+
+    if (END_OF_COMMAND) {
+	this_axis->minitics = MINI_AUTO;
+	++c_token;
+    } else {
+	int freq = int_expression();
+	if (freq > 0 && freq < 361) {
+	    this_axis->mtic_freq = freq;
+	    this_axis->minitics = MINI_USER;
+	} else {
+	    this_axis->minitics = MINI_AUTO;
+	    int_warn(c_token-1,"Expecting number of intervals");
+	}
+    }
 }
 
 /* process a 'set {x/y/z}label command */
@@ -6053,6 +6150,7 @@ load_tic_series(struct axis *this_axis)
 
     if (!equals(c_token, ",")) {
 	/* only step specified */
+	incr_token = c_token;
 	incr = start;
 	start = -VERYLARGE;
 	end = VERYLARGE;
@@ -6322,8 +6420,10 @@ parse_label_options( struct text_label *this_label, int ndim)
 	    this_label->rotate = rotate;
 	if (set_layer)
 	    this_label->layer = layer;
-	if (set_font)
+	if (set_font) {
+	    free(this_label->font);
 	    this_label->font = font;
+	}
 	if (set_textcolor)
 	    this_label->textcolor = textcolor;
 	if ((loc_lp.flags & LP_NOT_INITIALIZED) == 0)
@@ -6336,6 +6436,8 @@ parse_label_options( struct text_label *this_label, int ndim)
     /* Make sure the z coord and the z-coloring agree */
     if (this_label->textcolor.type == TC_Z)
 	this_label->textcolor.value = this_label->place.z;
+    if (this_label->lp_properties.pm3d_color.type == TC_Z)
+	this_label->lp_properties.pm3d_color.value = this_label->place.z;
 }
 
 
@@ -6425,7 +6527,7 @@ parse_lighting_options()
 	    pm3d_shade.strength = clip_to_01(pm3d_shade.strength);
 	    continue;
 	}
-	
+
 	if (almost_equals(c_token,"spec$ular")) {
 	    c_token++;
 	    pm3d_shade.spec = real_expression();
@@ -6464,6 +6566,20 @@ void
 rrange_to_xy()
 {
     double min;
+
+    /* An inverted R axis makes no sense in most cases.
+     * One reasonable use is to project altitude/azimuth spherical coordinates
+     * so that the zenith (azimuth = 90) is in the center and the horizon
+     * (azimuth = 0) is at the perimeter.
+     */
+    if (R_AXIS.set_min > R_AXIS.set_max) {
+	if (nonlinear(&R_AXIS))
+	    int_error(NO_CARET, "cannot invert nonlinear R axis");
+	inverted_raxis = TRUE;
+    } else {
+	inverted_raxis = FALSE;
+    }
+
     if (R_AXIS.set_autoscale & AUTOSCALE_MIN)
 	min = 0;
     else
@@ -6476,13 +6592,10 @@ rrange_to_xy()
 	Y_AXIS.set_autoscale = AUTOSCALE_NONE;
 	if (nonlinear(&R_AXIS))
 	    X_AXIS.set_max = eval_link_function(R_AXIS.linked_to_primary, R_AXIS.set_max)
-			   - eval_link_function(R_AXIS.linked_to_primary, R_AXIS.set_min);
-	else if (R_AXIS.log)
-	    /* NB: Can't get here if "set log" is implemented as nonlinear */
-	    X_AXIS.set_max =  AXIS_DO_LOG(POLAR_AXIS, R_AXIS.set_max)
-			    - AXIS_DO_LOG(POLAR_AXIS, min);
+			   - eval_link_function(R_AXIS.linked_to_primary, min);
 	else
-	    X_AXIS.set_max = R_AXIS.set_max - min;
+	    X_AXIS.set_max = fabs(R_AXIS.set_max - min);
+
 	Y_AXIS.set_max = X_AXIS.set_max;
 	Y_AXIS.set_min = X_AXIS.set_min = -X_AXIS.set_max;
     }

@@ -1,5 +1,5 @@
 /*
- * $Id: wxt_gui.cpp,v 1.166 2016-11-15 08:16:12 markisch Exp $
+ * $Id: wxt_gui.cpp,v 1.170 2017-04-14 18:01:06 sfeam Exp $
  */
 
 /* GNUPLOT - wxt_gui.cpp */
@@ -135,7 +135,6 @@ extern "C" {
 static int wxt_cur_plotno = 0;
 static TBOOLEAN wxt_in_key_sample = FALSE;
 static TBOOLEAN wxt_in_plot = FALSE;
-static TBOOLEAN wxt_zoom_command = FALSE;
 #ifdef USE_MOUSE
 typedef struct {
 	unsigned int left;
@@ -166,7 +165,7 @@ wxtAnchorPoint wxt_display_anchor = {0,0,0};
 #endif
 
 #if defined(WXT_MONOTHREADED) && !defined(_WIN32)
-static int yield = 0;	/* used in wxt_waitforinput() */
+static int wxt_yield = 0;	/* used in wxt_waitforinput() */
 #endif
 
 char *wxt_enhanced_fontname = NULL;
@@ -1591,6 +1590,7 @@ void wxtPanel::RaiseConsoleWindow()
 	if (window_env)
 		sscanf(window_env, "%lu", &windowid);
 
+#ifdef USE_KDE3_DCOP
 /* NOTE: This code uses DCOP, a KDE3 mechanism that no longer exists in KDE4 */
 	char *ptr = getenv("KONSOLE_DCOP_SESSION"); /* Try KDE's Konsole first. */
 	if (ptr) {
@@ -1645,7 +1645,8 @@ void wxtPanel::RaiseConsoleWindow()
 		if (konsole_name) free(konsole_name);
 		if (cmd) free(cmd);
 	}
-/* NOTE: End of DCOP/KDE3 code (doesn't work in KDE4) */
+#endif /* USE_KDE3_DCOP */
+
 	/* now test for GNOME multitab console */
 	/* ... if somebody bothers to implement it ... */
 	/* we are not running in any known (implemented) multitab console */
@@ -2136,12 +2137,6 @@ void wxt_graphics()
 	/* clear the command list, and free the allocated memory */
 	wxt_current_panel->ClearCommandlist();
 
-	/* Don't reset the hide_plot flags if this refresh is a zoom/unzoom */
-	if (wxt_zoom_command)
-		wxt_zoom_command = FALSE;
-	else
-		wxt_initialize_hidden(0);
-
 	/* Clear the count of hypertext anchor points */
 	wxt_n_anchors = 0;
 
@@ -2201,7 +2196,7 @@ void wxt_reset()
 	FPRINTF((stderr,"wxt_reset\n"));
 
 #if defined(WXT_MONOTHREADED) && !defined(_WIN32)
-	yield = 0;
+	wxt_yield = 0;
 #endif
 
 	if (wxt_status == STATUS_UNINITIALIZED)
@@ -2689,7 +2684,6 @@ void wxt_layer(t_termlayer layer)
 	/* operations in the plot itself.  These are buffered for later	*/
 	/* execution in sequential order.				*/
 	if (layer == TERM_LAYER_BEFORE_ZOOM) {
-		wxt_zoom_command = TRUE;
 		return;
 	}
 	if (layer == TERM_LAYER_RESET || layer == TERM_LAYER_RESET_PLOTNO) {
@@ -2908,6 +2902,9 @@ void wxt_modify_plots(unsigned int ops, int plotno)
 	}
 	wxt_MutexGuiEnter();
 	wxt_current_panel->wxt_cairo_refresh();
+	// Empirically, without this Update() the plots are toggled correctly but the 
+	// change may not show on the screen until a mouse or other event next arrives
+	wxt_current_panel->Update();
 	wxt_MutexGuiLeave();
 }
 
@@ -3989,7 +3986,7 @@ int wxt_waitforinput(int options)
 #else /* !_WIN32 */
 	/* Generic hybrid GUI & console message loop */
 	/* (used mainly on MacOSX - still single threaded) */
-	if (yield)
+	if (wxt_yield)
 		return '\0';
 
 	if (wxt_status == STATUS_UNINITIALIZED)
@@ -3999,7 +3996,7 @@ int wxt_waitforinput(int options)
 		// If we're just checking mouse status, yield to the app for a while
 		if (wxTheApp) {
 			wxTheApp->Yield();
-			yield = 0;
+			wxt_yield = 0;
 		}
 		return '\0'; // gets dropped on floor
 	}
@@ -4007,9 +4004,9 @@ int wxt_waitforinput(int options)
 	while (wxTheApp) {
 	  // Loop with timeout of 10ms until stdin is ready to read,
 	  // while also handling window events.
-	  yield = 1;
+	  wxt_yield = 1;
 	  wxTheApp->Yield();
-	  yield = 0;
+	  wxt_yield = 0;
 
 	  struct timeval tv;
 	  fd_set read_fd;

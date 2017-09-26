@@ -1,6 +1,6 @@
 ﻿;
 
-; $Id: gnuplot.iss,v 1.16 2016-08-09 07:59:30 markisch Exp $
+; $Id: gnuplot.iss,v 1.18 2017-07-31 15:52:58 sfeam Exp $
 
 ;
 
@@ -78,11 +78,11 @@
 
 #define MyAppName "gnuplot"
 
-#define MyAppVersionShort "5.1"
+#define MyAppVersionShort "5.3"
 
-#define MyAppVersion "5.1 CVS"
+#define MyAppVersion "5.3 CVS"
 
-#define MyAppNumVersion "5.1.0"
+#define MyAppNumVersion "5.3.0"
 
 #define MyAppPublisher "gnuplot development team"
 
@@ -90,7 +90,7 @@
 
 #define MyAppExeName "wgnuplot.exe"
 
-#define MyInstallerName "gp510-win32-setup"
+#define MyInstallerName "gp530-win32-setup"
 
 #define MyDocuments "%USERPROFILE%\Documents"
 
@@ -260,7 +260,7 @@ Source: "etc\*"; DestDir: {app}\etc\; Flags: skipifsourcedoesntexist recursesubd
 
 ; demo files / contrib
 
-Source: "contrib\*"; DestDir: {app}\contrib\; Flags: recursesubdirs; Components: demo
+;Source: "contrib\*"; DestDir: {app}\contrib\; Flags: recursesubdirs; Components: demo
 
 Source: "demo\*"; DestDir: {app}\demo\; Flags: recursesubdirs; Components: demo
 

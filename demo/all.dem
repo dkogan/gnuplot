@@ -1,5 +1,5 @@
 #
-# $Id: all.dem,v 1.76 2016-11-05 21:21:07 sfeam Exp $
+# $Id: all.dem,v 1.80 2017-09-23 04:48:03 sfeam Exp $
 #
 # Executes all demos (OK, MOST demos) in this directory.
 # This serves as a series of unit tests for non-interactive capabilities.
@@ -38,8 +38,14 @@ print "******************** file autoscale.dem ********************"
 load "autoscale.dem"
 reset
 
-print "******************** file mgr.dem ********************"
-load "mgr.dem"
+print "******************** file smooth_splines.dem ********************"
+load "smooth_splines.dem"
+load "monotonic_spline.dem"
+reset
+
+
+print "******************** file errorbars.dem ********************"
+load "errorbars.dem"
 reset
 
 print "******************** file zerror.dem ********************"
@@ -71,6 +77,14 @@ reset
 
 print "******************** file poldat.dem ********************"
 load "poldat.dem"
+reset
+
+print "******************** file solar_path.dem ****************"
+load "solar_path.dem"
+reset
+
+print "******************** file ttics.dem ********************"
+load "ttics.dem"
 reset
 
 print "******************** file boxplot.dem ********************"
@@ -133,10 +147,6 @@ reset
 
 print "******************** file spline.dem ********************"
 load "spline.dem"
-reset
-
-print "******************** file monotonic_spline.dem **********"
-load "monotonic_spline.dem"
 reset
 
 print "******************** file binary.dem ********************"
@@ -380,6 +390,7 @@ load "nonlinear2.dem"
 load "nonlinear3.dem"
 load "nonlinear4.dem"
 load "nonlinear5.dem"
+load "nonlinear6.dem"
 reset
 
 print "********************** file transparent.dem *********************"

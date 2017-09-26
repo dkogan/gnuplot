@@ -1,5 +1,5 @@
 /* Hey Emacs this is -*- C -*-
- * $Id: emf.trm,v 1.102 2016-05-06 17:40:08 sfeam Exp $
+ * $Id: emf.trm,v 1.104 2017-07-14 19:16:29 sfeam Exp $
  */
 
 /* GNUPLOT - emf.trm */
@@ -455,8 +455,10 @@ static void EMF_setfont __PROTO((void));
 #define GP_TA_BASELINE         0x18
 
 /* ExtTextOut options */
-// #define ETO_NO_RECT	   0x100
-// #define ETO_PDY		  0x2000
+#if 0
+#define ETO_NO_RECT	   0x100
+#define ETO_PDY		  0x2000
+#endif
 
 static void 
 EMF_setfont()
@@ -1347,7 +1349,7 @@ EMF_put_text(unsigned int x, unsigned int y, const char str[])
     int nchars = slen;
 
 #ifdef HAVE_ICONV
-    char * wstr;
+    char * wstr = 0;
     if (encoding == S_ENC_UTF8 || encoding == S_ENC_SJIS) {
 	iconv_t cd;
 	size_t wsize, wlen, mblen;

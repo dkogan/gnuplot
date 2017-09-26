@@ -1,5 +1,5 @@
 /* Hello, Emacs, this is -*-C-*-
- * $Id: svg.trm,v 1.183 2016-10-23 23:09:29 sfeam Exp $
+ * $Id: svg.trm,v 1.189 2017-06-28 19:05:33 sfeam Exp $
  */
 
 /*------------------------------------------------------------------------------------------------------------------------------------
@@ -640,12 +640,11 @@ SVG_options ()
 	    continue;
 	}
 
-	if (almost_equals(c_token, "fs$ize")) {
+	if (equals(c_token, "fontscale")) {
 	    c_token++;
-
-	    if (END_OF_COMMAND)
-		int_error(c_token,"fsize: expecting font size");
-	    SVG_fontSizeDef = real_expression();
+	    SVG_fontscale = real_expression();
+	    if (SVG_fontscale <= 0)
+		SVG_fontscale = 1.0;
 	    continue;
 	}
 
@@ -702,7 +701,7 @@ SVG_options ()
     SVG_set_font("");
 
     /* Save options back into options string in normalized format */
-    sprintf(term_options, "size %d,%d%s %s fname '%s'  fsize %g ",
+    sprintf(term_options, "size %d,%d%s %s font '%s,%g' ",
 	    (int)(SVG_xSize/SVG_SCALE), (int)(SVG_ySize/SVG_SCALE),
 	SVG_fixed_size ? " fixed": " dynamic",
 	term->put_text == ENHsvg_put_text ? "enhanced" : "",
@@ -944,7 +943,7 @@ SVG_write_preamble ()
 		int_warn(NO_CARET, "Failed to insert javascript file %s\n", fullname);
  	    else {
 		fprintf(gpoutfile,
-		    "<script language=\"javaScript\" TYPE=\"text/javascript\" > <![CDATA[\n");
+		    "<script type=\"text/javascript\" > <![CDATA[\n");
 		while (fgets(buf, sizeof(buf), svg_js_fd))
 		    fputs(buf, gpoutfile);
 		fprintf(gpoutfile,"]]>\n</script>\n");
@@ -1074,6 +1073,22 @@ SVG_graphics ()
     SVG_xLast = SVG_yLast = UINT_MAX;
 }
 
+static void
+svg_mouse_param( char *gp_name, const char *js_name)
+{
+    struct udvt_entry *udv;
+    if ((udv = add_udv_by_name(gp_name))) {
+	if (udv->udv_value.type == INTGR) {
+	    fprintf(gpoutfile, "gnuplot_svg.%s = ", js_name);
+	    fprintf(gpoutfile, "%d", udv->udv_value.v.int_val);
+	    fprintf(gpoutfile, "\n");
+	} else if (udv->udv_value.type == CMPLX) {
+	    fprintf(gpoutfile, "gnuplot_svg.%s = %g;\n",
+		    js_name, udv->udv_value.v.cmplx_val.real);
+	}
+    }
+}
+
 /*------------------------------------------------------------------------------------------------------------------------------------
 	SVG_text
 ------------------------------------------------------------------------------------------------------------------------------------*/
@@ -1084,7 +1099,6 @@ SVG_text ()
     SVG_GroupClose ();
 
     if (SVG_mouseable) {
-	struct udvt_entry *udv;
 
 	fprintf(gpoutfile, "\n<script type=\"text/javascript\"><![CDATA[\n");
 	fprintf(gpoutfile, "// plot boundaries and axis scaling information for mousing \n");
@@ -1100,15 +1114,8 @@ SVG_text ()
 	/* Get true axis ranges as used in the plot */
 	update_gpval_variables(1);
 
-#define	MOUSE_PARAM( GP_NAME, js_NAME ) \
-	if ((udv = add_udv_by_name(GP_NAME))) { \
-	    if (udv->udv_value.type == INTGR)   \
-		fprintf(gpoutfile, "gnuplot_svg.%s = %d;\n", \
-			js_NAME, udv->udv_value.v.int_val); \
-	    else if (udv->udv_value.type == CMPLX) \
-		fprintf(gpoutfile, "gnuplot_svg.%s = %g;\n", \
-			js_NAME, udv->udv_value.v.cmplx_val.real); \
-	}
+#define	MOUSE_PARAM( GP_NAME, js_NAME ) svg_mouse_param(GP_NAME, js_NAME)
+
 	if (axis_array[FIRST_X_AXIS].datatype != DT_TIMEDATE) {
 	    MOUSE_PARAM("GPVAL_X_MIN", "plot_axis_xmin");
 	    MOUSE_PARAM("GPVAL_X_MAX", "plot_axis_xmax");
@@ -1124,9 +1131,13 @@ SVG_text ()
 
 	fprintf(gpoutfile, "gnuplot_svg.polar_mode = %s;\n",
 		polar ? "true" : "false");
-	if (polar)
+	if (polar) {
 	    fprintf(gpoutfile, "gnuplot_svg.plot_axis_rmin = %g;\n",
 		(R_AXIS.autoscale & AUTOSCALE_MIN) ? 0.0 : R_AXIS.set_min);
+	    fprintf(gpoutfile, "gnuplot_svg.plot_axis_rmax = %g;\n", R_AXIS.set_max);
+	    fprintf(gpoutfile, "gnuplot_svg.polar_theta0 = %d;\n", (int)theta_origin);
+	    fprintf(gpoutfile, "gnuplot_svg.polar_sense = %d;\n", (int)theta_direction);
+	}
 
 	if ((axis_array[SECOND_X_AXIS].ticmode & TICS_MASK) != NO_TICS) {
 	    MOUSE_PARAM("GPVAL_X2_MIN", "plot_axis_x2min");
@@ -1807,7 +1818,8 @@ SVG_image (unsigned m, unsigned n, coordval *image, gpiPoint *corner, t_imagecol
 	    PREC, X(corner[0].x), PREC, Y(corner[0].y), 
 	    PREC, X(corner[1].x) - X(corner[0].x), PREC, Y(corner[1].y) - Y(corner[0].y));
 
-    if (SVG_standalone || SVG_domterm) {
+    /* Feb 2017 - always embed images */
+    if (TRUE || SVG_standalone || SVG_domterm) {
 	/* Embed the PNG file in SVG by converting to base64 */
 	fprintf(gpoutfile, "xlink:href='data:image/png;base64,");
 	if (write_png_base64_image(m, n, image, color_mode, gpoutfile))
@@ -2192,11 +2204,10 @@ START_HELP(svg)
 "",
 " Syntax:",
 "       set terminal svg {size <x>,<y> {|fixed|dynamic}}",
-"                        {{no}enhanced}",
-"                        {fname \"<font>\"} {fsize <fontsize>}",
 "                        {mouse} {standalone | jsdir <dirname>}",
 "                        {name <plotname>}",
-"                        {font \"<fontname>{,<fontsize>}\"}",
+"                        {font \"<fontname>{,<fontsize>}\"} {{no}enhanced}",
+"                        {fontscale <multiplier>}",
 "                        {rounded|butt|square} {solid|dashed} {linewidth <lw>}",
 "                        {background <rgb_color>}",
 "",
@@ -2211,10 +2222,8 @@ START_HELP(svg)
 " <fontsize> is the font size (in points, default 12). SVG viewing",
 " programs may substitute other fonts when the file is displayed.",
 "",
-" The svg terminal supports an enhanced text mode, which allows font",
-" and other formatting commands to be embedded in labels and other text",
-" strings. The enhanced text mode syntax is shared with other gnuplot",
-" terminal types. See `enhanced` for more details.",
+" The enhanced text mode syntax is shared with other gnuplot terminal types.",
+" See `enhanced` for more details.",
 "",
 " The `mouse` option tells gnuplot to add support for mouse tracking and for",
 " toggling individual plots on/off by clicking on the corresponding key entry.",
@@ -2223,15 +2232,13 @@ START_HELP(svg)
 " You can change this by using the `jsdir` option to specify either a",
 " different local directory or a general URL. The latter is usually",
 " appropriate if you are embedding the svg into a web page.",
-" Alternatively, the `standalone` option embeds the mousing code and any",
-" images in the svg document itself rather than linking to an external",
-" resource.",
+" Alternatively, the `standalone` option embeds the mousing code in the svg",
+" document itself rather than linking to an external resource.",
 "",
 " When an SVG file will be used in conjunction with external files,",
-" e.g. if it embeds a PNG image or is referenced by javascript code",
-" in a web page or embedding document, then a unique name is required",
-" to avoid potential conflicting references to other SVG plots.",
-" Use the `name` option to ensure uniqueness.",
+" e.g. if it is referenced by javascript code in a web page or parent document,",
+" then a unique name is required to avoid potential conflicting references",
+" to other SVG plots.  Use the `name` option to ensure uniqueness.",
 ""
 END_HELP(svg)
 

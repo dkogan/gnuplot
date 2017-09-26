@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: misc.c,v 1.208 2016-11-18 08:20:57 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: misc.c,v 1.213 2017-07-25 21:48:16 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - misc.c */
@@ -46,22 +46,21 @@ static char *RCSid() { return RCSid("$Id: misc.c,v 1.208 2016-11-18 08:20:57 mar
 #include "axis.h"
 #include "scanner.h"		/* so that scanner() can count curly braces */
 #include "setshow.h"
-#ifdef _Windows
+#ifdef _WIN32
 # include <fcntl.h>
 # if defined(__WATCOMC__) || defined(__MSC__)
 #  include <io.h>        /* for setmode() */
 # endif
 #endif
-#if defined(HAVE_DIRENT_H)
+#if defined(HAVE_DIRENT_H) && !defined(_WIN32)
 # include <sys/types.h>
 # include <dirent.h>
-#elif defined(_WIN32)
-/* Windows version of opendir() and friends in stdfn.c */
-# ifdef __WATCOM
-#  include <direct.h>
-# endif
 #endif
 #ifdef _WIN32
+/* Windows version of opendir() and friends are in stdfn.c */
+/* Note: OpenWatcom has them in direct.h, but we prefer
+         the built-in variants as they handle encodings.
+*/
 # include "win/winmain.h"
 #endif
 
@@ -206,7 +205,6 @@ prepare_call(int calltype)
 
     /* Old-style "call" arguments were referenced as $0 ... $9 and $# */
     /* New-style has ARG0 = script-name, ARG1 ... ARG9 and ARGC */
-    /* FIXME:  If we defined these on entry, we could use get_udv* here */
     udv = add_udv_by_name("ARGC");
     Ginteger(&(udv->udv_value), call_argc);
     udv = add_udv_by_name("ARG0");
@@ -952,8 +950,6 @@ parse_dashtype(struct t_dashtype *dt)
 	res = DASHTYPE_CUSTOM;
 
     /* Or index of previously defined dashtype */
-    /* FIXME: Is the index enough or should we copy its contents into this one? */
-    /* FIXME: What happens if there is a recursive definition? */
     } else {
 	res = int_expression();
 	if (res < 0)
@@ -979,6 +975,7 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
     /* keep track of which options were set during this call */
     int set_lt = 0, set_pal = 0, set_lw = 0; 
     int set_pt = 0, set_ps  = 0, set_pi = 0;
+    int set_pn = 0;
     int set_dt = 0;
     int new_lt = 0;
 
@@ -1188,7 +1185,19 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
 		newlp.p_interval = int_expression();
 		set_pi = 1;
 	    } else {
-		int_warn(c_token, "No pointinterval specifier allowed, here");
+		int_warn(c_token, "No pointinterval specifier allowed here");
+		int_expression();
+	    }
+	    continue;
+	}
+
+	if (almost_equals(c_token, "pointn$umber") || equals(c_token, "pn")) {
+	    c_token++;
+	    if (allow_point) {
+		newlp.p_number = int_expression();
+		set_pn = 1;
+	    } else {
+		int_warn(c_token, "No pointnumber specifier allowed here)");
 		int_expression();
 	    }
 	    continue;
@@ -1215,8 +1224,9 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
 	break;
     }
 
-    if (set_lt > 1 || set_pal > 1 || set_lw > 1 || set_pt > 1 || set_ps > 1 || set_dt > 1)
-	int_error(c_token, "duplicated arguments in style specification");
+    if (set_lt > 1 || set_pal > 1 || set_lw > 1 || set_pt > 1 || set_ps > 1 || set_dt > 1
+    || (set_pi + set_pn > 1))
+	int_error(c_token, "duplicate or conflicting arguments in style specification");
 
     if (set_pal) {
 	lp->pm3d_color = newlp.pm3d_color;
@@ -1233,8 +1243,14 @@ lp_parse(struct lp_style_type *lp, lp_class destination_class, TBOOLEAN allow_po
     }
     if (set_ps)
 	lp->p_size = newlp.p_size;
-    if (set_pi)
+    if (set_pi) {
 	lp->p_interval = newlp.p_interval;
+        lp->p_number = 0;
+    }
+    if (set_pn) {
+        lp->p_number = newlp.p_number;
+	lp->p_interval = 0;
+    }
     if (newlp.l_type == LT_COLORFROMCOLUMN)
 	lp->l_type = LT_COLORFROMCOLUMN;
     if (set_dt) {
@@ -1298,7 +1314,8 @@ parse_fillstyle(struct fill_style_type *fs, int def_style, int def_density, int 
 		set_fill = TRUE;
 		c_token++;
 		
-		if (isanumber(c_token) || type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX) {
+		if (isanumber(c_token) || is_function(c_token)
+                ||  type_udv(c_token) == INTGR || type_udv(c_token) == CMPLX) {
 		    if (fs->fillstyle == FS_SOLID) {
 			/* user sets 0...1, but is stored as an integer 0..100 */
 			fs->filldensity = 100.0 * real_expression() + 0.5;
@@ -1397,8 +1414,6 @@ parse_colorspec(struct t_colorspec *tc, int options)
 	/*
 	 * July 2014 - translate linetype into user-defined linetype color.
 	 * This is a CHANGE!
-	 * FIXME: calling load_linetype here may obviate the need to call it
-	 * many places in the higher level code.  They could be removed.
 	 */
 	load_linetype(&lptemp, tc->lt + 1);
 	*tc = lptemp.pm3d_color;
@@ -1521,7 +1536,7 @@ arrow_use_properties(struct arrow_style_type *arrow, int tag)
     }
 
     /* tag not found: */
-    if (this->tag != tag)
+    if (!this || this->tag != tag)
 	int_warn(NO_CARET,"arrowstyle %d not found", tag);
 
     /* Restore orginal color if the style doesn't specify one */

@@ -1,5 +1,5 @@
 /*
- * $Id: axis.h,v 1.156 2016-11-14 19:59:24 sfeam Exp $
+ * $Id: axis.h,v 1.178 2017-09-10 03:40:01 sfeam Exp $
  *
  */
 
@@ -36,15 +36,9 @@
 #ifndef GNUPLOT_AXIS_H
 #define GNUPLOT_AXIS_H
 
-#ifdef DISABLE_NONLINEAR_AXES
-# define nonlinear(axis) FALSE
-# define invalid_coordinate(x,y) FALSE
-#else
-
-# define NONLINEAR_AXES 1
+/* Aug 2017 - unconditional support for nonlinear axes */
 # define nonlinear(axis) ((axis)->linked_to_primary != NULL && (axis)->link_udf->at != NULL)
 # define invalid_coordinate(x,y) ((unsigned)(x)==intNaN || (unsigned)(y)==intNaN)
-#endif
 
 #include <stddef.h>		/* for offsetof() */
 #include "gp_types.h"		/* for TBOOLEAN */
@@ -88,6 +82,7 @@ typedef enum AXIS_INDEX {
     U_AXIS,
     V_AXIS,		/* Last index into axis_array[] */
     PARALLEL_AXES,	/* Parallel axis data is allocated dynamically */
+    THETA_index = 1234,	/* Used to identify THETA_AXIS */
 
     AXIS_ARRAY_SIZE = PARALLEL_AXES
 } AXIS_INDEX;
@@ -104,13 +99,6 @@ typedef enum en_ticseries_type {
     TIC_MONTH,   		/* print out month names ((mo-1)%12)+1 */
     TIC_DAY      		/* print out day of week */
 } t_ticseries_type;
-
-typedef enum {
-    DT_NORMAL=0,		/* default; treat values as pure numeric */
-    DT_TIMEDATE,		/* old datatype */
-    DT_DMS,			/* degrees minutes seconds */
-    DT_UNINITIALIZED
-} td_type;
 
 /* Defines one ticmark for TIC_USER style.
  * If label==NULL, the value is printed with the usual format string.
@@ -274,7 +262,7 @@ typedef struct axis {
 } AXIS;
 
 #define DEFAULT_AXIS_TICDEF {TIC_COMPUTED, NULL, {TC_DEFAULT, 0, 0.0}, {NULL, {0.,0.,0.}, FALSE},  { character, character, character, 0., 0., 0. }, FALSE, TRUE, FALSE }
-#define DEFAULT_AXIS_ZEROAXIS {0, LT_AXIS, 0, DASHTYPE_AXIS, 0, 1.0, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}
+#define DEFAULT_AXIS_ZEROAXIS {0, LT_AXIS, 0, DASHTYPE_AXIS, 0, 0, 1.0, PTSZ_DEFAULT, DEFAULT_P_CHAR, BLACK_COLORSPEC, DEFAULT_DASHPATTERN}
 
 #define DEFAULT_AXIS_STRUCT {						    \
 	AUTOSCALE_BOTH, AUTOSCALE_BOTH, /* auto, set_auto */		    \
@@ -372,7 +360,10 @@ extern int tic_text, rotate_tics, tic_hjust, tic_vjust;
 /* extern int grid_selection; --- comm'ed out, HBB 20010806 */
 extern struct lp_style_type grid_lp; /* linestyle for major grid lines */
 extern struct lp_style_type mgrid_lp; /* linestyle for minor grid lines */
+
 extern double polar_grid_angle; /* angle step in polar grid in radians */
+extern double theta_origin;	/* 0 = right side of plot */
+extern double theta_direction;	/* 1 = counterclockwise -1 = clockwise */
 
 /* Length of the longest tics label, set by widest_tic_callback(): */
 extern int widest_tic_strlen;
@@ -382,6 +373,9 @@ extern TBOOLEAN inside_zoom;
 
 /* axes being used by the current plot */
 extern AXIS_INDEX x_axis, y_axis, z_axis;
+
+extern struct axis THETA_AXIS;
+
 /* macros to reduce code clutter caused by the array notation, mainly
  * in graphics.c and fit.c */
 #define X_AXIS axis_array[x_axis]
@@ -407,37 +401,6 @@ extern AXIS_INDEX x_axis, y_axis, z_axis;
 #define axis_mapback(axis, pos) \
     (((double)(pos) - axis->term_lower)/axis->term_scale + axis->min)
 
-#if defined(NONLINEAR_AXES) && (NONLINEAR_AXES > 0)
-
-/* These become no-ops because the nonlinear axis code stores untransformed values */
-#define AXIS_DO_LOG(axis,value) (value)
-#define AXIS_UNDO_LOG(axis,value) (value)
-#define axis_do_log(axis,value) (value)
-#define axis_undo_log(axis,value) (value)
-#define AXIS_LOG_VALUE(axis,value) (value)
-#define AXIS_DE_LOG_VALUE(axis,coordinate) (coordinate)
-#define axis_log_value(axis,value) (value)
-#define axis_de_log_value(axis,coordinate) (coordinate)
-
-#else /* !(NONLINEAR_AXES > 0) */
-
-/* Macros to deal with logscale axis values being stored as log */
-#define AXIS_DO_LOG(axis,value) (log(value) / axis_array[axis].log_base)
-#define AXIS_UNDO_LOG(axis,value) exp((value) * axis_array[axis].log_base)
-#define axis_do_log(axis,value) (log(value) / axis->log_base)
-#define axis_undo_log(axis,value) exp((value) * axis->log_base)
-
-/* Same, but these test if the axis is log, first: */
-#define AXIS_LOG_VALUE(axis,value)				\
-    (axis_array[axis].log ? AXIS_DO_LOG(axis,value) : (value))
-#define AXIS_DE_LOG_VALUE(axis,coordinate)				  \
-    (axis_array[axis].log ? AXIS_UNDO_LOG(axis,coordinate): (coordinate))
-#define axis_log_value(axis,value)				\
-    (axis->log ? axis_do_log(axis,value) : (value))
-#define axis_de_log_value(axis,coordinate)				  \
-    (axis->log ? axis_undo_log(axis,coordinate): (coordinate))
-
-#endif /* (NONLINEAR_AXES > 0) */
 
 /* April 2015:  I'm not 100% sure, but I believe there is no longer
  * any need to treat 2D and 3D axis initialization differently
@@ -455,9 +418,9 @@ do {									\
 									\
     this->autoscale = this->set_autoscale;				\
     this->min = (infinite && (this->set_autoscale & AUTOSCALE_MIN))	\
-	? VERYLARGE : AXIS_LOG_VALUE(axis, this->set_min);		\
+	? VERYLARGE : this->set_min;		\
     this->max = (infinite && (this->set_autoscale & AUTOSCALE_MAX))	\
-	? -VERYLARGE : AXIS_LOG_VALUE(axis, this->set_max);		\
+	? -VERYLARGE : this->set_max;		\
     this->log_base = this->log ? log(this->base) : 0;			\
 } while(0)
 
@@ -465,10 +428,20 @@ do {									\
 do {									\
     AXIS *this_axis = axis_array + axis;				\
     if ((this_axis->set_autoscale & AUTOSCALE_MIN) == 0)		\
-	this_axis->min = AXIS_LOG_VALUE(axis, this_axis->set_min);	\
+	this_axis->min = this_axis->set_min;	\
     if ((this_axis->set_autoscale & AUTOSCALE_MAX) == 0)		\
-	this_axis->max = AXIS_LOG_VALUE(axis, this_axis->set_max);	\
+	this_axis->max = this_axis->set_max;	\
 } while (0)
+
+/* Simplest form of autoscaling (no check on autoscale constraints).
+ * Used by refresh_bounds() and refresh_3dbounds().
+ */
+#define autoscale_one_point(axis, x) do {\
+    if (axis->set_autoscale & AUTOSCALE_MIN && x < axis->min) \
+	axis->min = x; \
+    if (axis->set_autoscale & AUTOSCALE_MAX && x > axis->max) \
+	axis->max = x; \
+    } while (0);
 
 /* parse a position of the form
  *    [coords] x, [coords] y {,[coords] z}
@@ -483,26 +456,20 @@ do {									\
     (store) = get_num_or_time(this_axis);				\
 } while(0)
 
-/* store VALUE or log(VALUE) in STORE, set TYPE as appropriate
- * Do OUT_ACTION or UNDEF_ACTION as appropriate
- * adjust range provided type is INRANGE (ie dont adjust y if x is outrange
+/* store VALUE in STORE, set TYPE to INRANGE/OUTRANGE/UNDEFINED
  * VALUE must not be same as STORE
+ * Version 5: OK to store infinities or NaN
+ * Do UNDEF_ACTION as appropriate
+ * adjust range provided type is INRANGE (ie dont adjust y if x is outrange
  * NOAUTOSCALE is per-plot property, whereas AUTOSCALE_XXX is per-axis.
  * Note: see the particular implementation for COLOR AXIS below.
  */
-#if defined(NONLINEAR_AXES) && (NONLINEAR_AXES > 0)
-#define OPTIMIZE_LOG 1
-#else
-#define OPTIMIZE_LOG 0
-#endif
 
-#define ACTUAL_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,  \
-					       NOAUTOSCALE, OUT_ACTION,   \
-					       UNDEF_ACTION, is_cb_axis)  \
+#define ACTUAL_STORE_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,           \
+					NOAUTOSCALE, UNDEF_ACTION)        \
 do {									  \
     struct axis *axis = AXIS;						  \
     double curval = (VALUE);						  \
-    /* Version 5: OK to store infinities or NaN */			  \
     STORE = curval;							  \
     if (! (curval > -VERYLARGE && curval < VERYLARGE)) {		  \
 	TYPE = UNDEFINED;						  \
@@ -511,68 +478,48 @@ do {									  \
     }									  \
     if (axis->log) {							  \
 	if (curval < 0.0) {						  \
-	    if (!OPTIMIZE_LOG) STORE = not_a_number();			  \
 	    TYPE = UNDEFINED;						  \
 	    UNDEF_ACTION;						  \
 	    break;							  \
 	} else if (curval == 0.0) {					  \
-	    if (!OPTIMIZE_LOG) STORE = -VERYLARGE;			  \
 	    TYPE = OUTRANGE;						  \
-	    OUT_ACTION;							  \
 	    break;							  \
-	} else if (!OPTIMIZE_LOG) {					  \
-	    STORE = axis_do_log(axis, curval);				  \
 	}								  \
     }									  \
     if (NOAUTOSCALE)							  \
 	break;  /* this plot is not being used for autoscaling */	  \
     if (TYPE != INRANGE)						  \
 	break;  /* don't set y range if x is outrange, for example */	  \
-    if ((! is_cb_axis) && axis->linked_to_primary) {	  		  \
-	axis = axis->linked_to_primary;					  \
-	if (axis->link_udf->at) 					  \
-	    curval = eval_link_function(axis, curval);			  \
-    } 									  \
     if (   (curval < axis->min)						  \
         && ((curval <= axis->max) || (axis->max == -VERYLARGE))		  \
        ) {								  \
 	if (axis->autoscale & AUTOSCALE_MIN)	{			  \
+	    axis->min = curval;						  \
 	    if (axis->min_constraint & CONSTRAINT_LOWER) {		  \
-		if (axis->min_lb <= curval) {				  \
-		    axis->min = curval;					  \
-		} else {						  \
+		if (axis->min_lb > curval) {				  \
 		    axis->min = axis->min_lb;				  \
 		    TYPE = OUTRANGE;					  \
-		    OUT_ACTION;						  \
 		    break;						  \
 		}							  \
-	    } else {							  \
-		axis->min = curval;					  \
 	    }								  \
 	} else if (curval != axis->max) {				  \
 	    TYPE = OUTRANGE;						  \
-	    OUT_ACTION;							  \
 	    break;							  \
 	}								  \
     }									  \
     if ( curval > axis->max						  \
     &&  (curval >= axis->min || axis->min == VERYLARGE)) {		  \
 	if (axis->autoscale & AUTOSCALE_MAX)	{			  \
+	    axis->max = curval;						  \
 	    if (axis->max_constraint & CONSTRAINT_UPPER) {		  \
-		if (axis->max_ub >= curval) {		 		  \
-		    axis->max = curval;					  \
-		} else {						  \
+		if (axis->max_ub < curval) {		 		  \
 		    axis->max = axis->max_ub;				  \
 		    TYPE =OUTRANGE;					  \
-		    OUT_ACTION;						  \
 		    break;						  \
 		}							  \
-	    } else {							  \
-		axis->max = curval;					  \
 	    }								  \
 	} else if (curval != axis->min) {				  \
 	    TYPE = OUTRANGE;						  \
-	    OUT_ACTION;							  \
 	}								  \
     }									  \
     /* Only update data min/max if the point is INRANGE Jun 2016 */	  \
@@ -584,24 +531,12 @@ do {									  \
     }									  \
 } while(0)
 
-/* normal calls go though this macro, marked as not being a color axis */
-#define STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS, NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	 \
+/* normal calls go though this macro */
+#define STORE_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS, NOAUTOSCALE, UNDEF_ACTION)	 \
  if (AXIS != NO_AXIS) \
- ACTUAL_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, (&axis_array[AXIS]), NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION, 0)
+ ACTUAL_STORE_AND_UPDATE_RANGE(STORE, VALUE, TYPE, (&axis_array[AXIS]), NOAUTOSCALE, UNDEF_ACTION)
 
-/* Implementation of the above for the color axis. It should not change
- * the type of the point (out-of-range color is plotted with the color
- * of the min or max color value).
- */
-#define COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, TYPE, AXIS,	  \
-			       NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION)	  \
-{									  \
-    coord_type c_type_tmp = TYPE;					  \
-    ACTUAL_STORE_WITH_LOG_AND_UPDATE_RANGE(STORE, VALUE, c_type_tmp, &axis_array[AXIS],	  \
-					   NOAUTOSCALE, OUT_ACTION, UNDEF_ACTION, 1); \
-}
-
-/* #define NOOP (0) caused many warnings from gcc 3.2 */
+/* Use NOOP for UNDEF_ACTION if no action is wanted */
 #define NOOP ((void)0)
 
 /* HBB 20000506: new macro to automatically build initializer lists
@@ -622,13 +557,14 @@ typedef void (*tic_callback) __PROTO((struct axis *, double, char *, int,
 
 /* ------------ functions exported by axis.c */
 t_autoscale load_range __PROTO((struct axis *, double *, double *, t_autoscale));
-void axis_unlog_interval __PROTO((struct axis *, double *, double *, TBOOLEAN));
+void check_log_limits __PROTO((struct axis *, double, double));
 void axis_invert_if_requested __PROTO((struct axis *));
-void axis_revert_range __PROTO((AXIS_INDEX));
-void axis_revert_and_unlog_range __PROTO((AXIS_INDEX));
+void axis_check_range __PROTO((AXIS_INDEX));
 void axis_init __PROTO((AXIS *this_axis, TBOOLEAN infinite));
+void set_explicit_range __PROTO((struct axis *axis, double newmin, double newmax));
 double axis_log_value_checked __PROTO((AXIS_INDEX, double, const char *));
 void axis_checked_extend_empty_range __PROTO((AXIS_INDEX, const char *mesg));
+void axis_check_empty_nonlinear __PROTO((struct axis *this_axis));
 char * copy_or_invent_formatstring __PROTO((struct axis *));
 double quantize_normal_tics __PROTO((double, int));
 void setup_tics __PROTO((struct axis *, int));
@@ -639,6 +575,7 @@ void axis_draw_2d_zeroaxis __PROTO((AXIS_INDEX, AXIS_INDEX));
 TBOOLEAN some_grid_selected __PROTO((void));
 void add_tic_user __PROTO((struct axis *, char *, double, int));
 double get_num_or_time __PROTO((struct axis *));
+TBOOLEAN bad_axis_range __PROTO((struct axis *axis));
 
 void save_writeback_all_axes __PROTO((void));
 int  parse_range __PROTO((AXIS_INDEX axis));
@@ -657,9 +594,13 @@ void gstrdms __PROTO((char *label, char *format, double value));
 void clone_linked_axes __PROTO((AXIS *axis1, AXIS *axis2));
 AXIS *get_shadow_axis __PROTO((AXIS *axis));
 void extend_primary_ticrange __PROTO((AXIS *axis));
+void update_primary_axis_range __PROTO((struct axis *secondary));
 
 int map_x __PROTO((double value));
 int map_y __PROTO((double value));
+
+coord_type polar_to_xy __PROTO(( double theta, double r, double *x, double *y, TBOOLEAN update));
+double polar_radius __PROTO((double r));
 
 void set_cbminmax __PROTO((void));
 
@@ -680,5 +621,10 @@ double eval_link_function __PROTO((AXIS *, double));
      ticlevel == 1 ? axis->miniticscale : \
      ticlevel < MAX_TICLEVEL ? ticscale[ticlevel] : \
      0)
+
+/* convenience macro to make sure min < max */
+#define reorder_if_necessary( min, max ) \
+do { if (max < min) { double temp = min; min = max; max = temp; } \
+} while (0)
 
 #endif /* GNUPLOT_AXIS_H */

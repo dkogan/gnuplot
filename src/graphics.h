@@ -1,5 +1,5 @@
 /*
- * $Id: graphics.h,v 1.68 2016-01-28 23:54:13 sfeam Exp $
+ * $Id: graphics.h,v 1.73 2017-09-11 20:13:24 sfeam Exp $
  */
 
 /* GNUPLOT - graphics.h */
@@ -61,7 +61,8 @@ typedef struct curve_points {
     struct fill_style_type fill_properties;
     struct text_label *labels;	/* Only used if plot_style == LABELPOINTS */
     struct t_image image_properties;	/* only used if plot_style is IMAGE or RGB_IMAGE */
-    struct udvt_entry *sample_var;	/* Only used if plot has private sampling range */
+    struct udvt_entry *sample_var;	/* used by '+' if plot has private sampling range */
+    struct udvt_entry *sample_var2;	/* used by '++'if plot has private sampling range */
 
     /* 2D and 3D plot structure fields overlay only to this point */
     filledcurves_opts filledcurves_options;
@@ -78,6 +79,7 @@ typedef struct curve_points {
     int x_axis;			/* FIRST_X_AXIS or SECOND_X_AXIS */
     int y_axis;			/* FIRST_Y_AXIS or SECOND_Y_AXIS */
     int z_axis;			/* same as either x_axis or y_axis, for 5-column plot types */
+    int current_plotno;		/* Only used by "pn" option of linespoints */
     int n_par_axes;		/* Only used for parallel axis plots */
     double **z_n;		/* Only used for parallel axis plots */
     double *varcolor;		/* Only used if plot has variable color */
@@ -93,6 +95,9 @@ extern t_position loff, roff, toff, boff;
 extern double bar_size;
 extern int bar_layer;
 extern struct lp_style_type bar_lp;
+
+/* 'set rgbmax {0|255}' */
+extern double rgbmax;
 
 /* function prototypes */
 
@@ -123,5 +128,6 @@ void do_polygon __PROTO((int dimensions, t_polygon *p, int style, t_clip_object 
 #endif
 
 int filter_boxplot __PROTO((struct curve_points *));
+void attach_title_to_plot __PROTO((struct curve_points *this_plot, legend_key *key));
 
 #endif /* GNUPLOT_GRAPHICS_H */

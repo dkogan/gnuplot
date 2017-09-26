@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: wgnuplib.c,v 1.12 2016-07-21 09:07:44 markisch Exp $"); }
+static char *RCSid() { return RCSid("$Id: wgnuplib.c,v 1.14 2017-06-24 09:15:38 markisch Exp $"); }
 #endif
 
 /* GNUPLOT - win/wgnuplib.c */
@@ -52,8 +52,9 @@ static char *RCSid() { return RCSid("$Id: wgnuplib.c,v 1.12 2016-07-21 09:07:44 
 HINSTANCE hdllInstance;
 LPWSTR szParentClass = L"wgnuplot_parent";
 LPWSTR szTextClass = L"wgnuplot_text";
+LPWSTR szToolbarClass = L"wgnuplot_toolbar";
+LPWSTR szSeparatorClass = L"wgnuplot_separator";
 LPWSTR szPauseClass = L"wgnuplot_pause";
-LPTSTR szGraphClass = TEXT("wgnuplot_graph");
 
 /* Window ID */
 struct WID {

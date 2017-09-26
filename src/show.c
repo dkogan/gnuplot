@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: show.c,v 1.376 2016-11-14 19:59:24 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: show.c,v 1.392 2017-09-11 20:13:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - show.c */
@@ -59,6 +59,7 @@ static char *RCSid() { return RCSid("$Id: show.c,v 1.376 2016-11-14 19:59:24 sfe
 #include "plot3d.h"
 #include "save.h"
 #include "tables.h"
+#include "tabulate.h"
 #include "util.h"
 #include "term_api.h"
 #include "variable.h"
@@ -70,7 +71,7 @@ static char *RCSid() { return RCSid("$Id: show.c,v 1.376 2016-11-14 19:59:24 sfe
 #include "pm3d.h"
 #include "getcolor.h"
 #include <ctype.h>
-#ifdef WIN32
+#ifdef _WIN32
 # include "win/winmain.h"
 #endif
 #ifdef HAVE_LIBCACA
@@ -123,6 +124,7 @@ static void show_palette_colornames __PROTO((void));
 static void show_colorbox __PROTO((void));
 static void show_pointsize __PROTO((void));
 static void show_pointintervalbox __PROTO((void));
+static void show_rgbmax __PROTO((void));
 static void show_encoding __PROTO((void));
 static void show_decimalsign __PROTO((void));
 static void show_fit __PROTO((void));
@@ -145,7 +147,7 @@ static void show_size __PROTO((void));
 static void show_origin __PROTO((void));
 static void show_term __PROTO((void));
 static void show_tics __PROTO((TBOOLEAN showx, TBOOLEAN showy, TBOOLEAN showz, TBOOLEAN showx2, TBOOLEAN showy2, TBOOLEAN showcb));
-static void show_mtics __PROTO((AXIS_INDEX));
+static void show_mtics __PROTO((struct axis *));
 static void show_timestamp __PROTO((void));
 static void show_range __PROTO((AXIS_INDEX axis));
 static void show_link __PROTO((void));
@@ -160,6 +162,7 @@ static void show_loadpath __PROTO((void));
 static void show_fontpath __PROTO((void));
 static void show_zero __PROTO((void));
 static void show_datafile __PROTO((void));
+static void show_table __PROTO((void));
 static void show_micro __PROTO((void));
 static void show_minus_sign __PROTO((void));
 #ifdef USE_MOUSE
@@ -237,6 +240,9 @@ show_command()
     case S_CNTRPARAM:
     case S_CNTRLABEL:
 	show_contour();
+	break;
+    case S_DEBUG:
+	fprintf(stderr,"debug level is %d\n",debug);
 	break;
     case S_DGRID3D:
 	show_dgrid3d();
@@ -382,6 +388,9 @@ show_command()
     case S_POINTSIZE:
 	show_pointsize();
 	break;
+    case S_RGBMAX:
+	show_rgbmax();
+	break;
     case S_DECIMALSIGN:
 	show_decimalsign();
 	break;
@@ -454,29 +463,37 @@ show_command()
     case S_TICS:
     case S_TICSLEVEL:
     case S_TICSCALE:
-    case S_XYPLANE:
 	show_tics(TRUE, TRUE, TRUE, TRUE, TRUE, TRUE);
 	break;
     case S_MXTICS:
-	show_mtics(FIRST_X_AXIS);
+	show_mtics(&axis_array[FIRST_X_AXIS]);
 	break;
     case S_MYTICS:
-	show_mtics(FIRST_Y_AXIS);
+	show_mtics(&axis_array[FIRST_Y_AXIS]);
 	break;
     case S_MZTICS:
-	show_mtics(FIRST_Z_AXIS);
+	show_mtics(&axis_array[FIRST_Z_AXIS]);
 	break;
     case S_MCBTICS:
-	show_mtics(COLOR_AXIS);
+	show_mtics(&axis_array[COLOR_AXIS]);
 	break;
     case S_MX2TICS:
-	show_mtics(SECOND_X_AXIS);
+	show_mtics(&axis_array[SECOND_X_AXIS]);
 	break;
     case S_MY2TICS:
-	show_mtics(SECOND_Y_AXIS);
+	show_mtics(&axis_array[SECOND_Y_AXIS]);
 	break;
     case S_MRTICS:
-	show_mtics(POLAR_AXIS);
+	show_mtics(&R_AXIS);
+	break;
+    case S_MTTICS:
+	show_mtics(&THETA_AXIS);
+	break;
+    case S_XYPLANE:
+	if (xyplane.absolute)
+	    fprintf(stderr, "\txyplane intercepts z axis at %g\n", xyplane.z);
+	else
+	    fprintf(stderr, "\txyplane %g\n", xyplane.z);
 	break;
     case S_TIMESTAMP:
 	show_timestamp();
@@ -526,6 +543,9 @@ show_command()
     case S_CBLABEL:
 	show_axislabel(COLOR_AXIS);
 	break;
+    case S_RLABEL:
+	show_axislabel(POLAR_AXIS);
+	break;
     case S_X2LABEL:
 	show_axislabel(SECOND_X_AXIS);
 	break;
@@ -564,6 +584,9 @@ show_command()
 	break;
     case S_DATAFILE:
 	show_datafile();
+	break;
+    case S_TABLE:
+	show_table();
 	break;
 #ifdef USE_MOUSE
     case S_MOUSE:
@@ -608,6 +631,9 @@ show_command()
     case S_RTICS:
 	show_ticdef(POLAR_AXIS);
 	break;
+    case S_TTICS:
+	show_ticdefp(&THETA_AXIS);
+	break;
     case S_X2TICS:
     case S_X2DTICS:
     case S_X2MTICS:
@@ -626,6 +652,13 @@ show_command()
     case S_TERMOPTIONS:
 	fprintf(stderr,"Terminal options are '%s'\n",
 		(*term_options) ? term_options : "[none]");
+	break;
+
+    case S_THETA:
+	fprintf(stderr,"Theta increases %s with origin at %s of plot\n",
+		theta_direction > 0 ? "counterclockwise" : "clockwise",
+		theta_origin == 180 ? "left" : theta_origin ==  90 ? "top" :
+		theta_origin == -90 ? "bottom" : "right");
 	break;
 
     /* HBB 20010525: 'set commands' that don't have an
@@ -776,6 +809,7 @@ show_all()
     show_pm3d();
     show_pointsize();
     show_pointintervalbox();
+    show_rgbmax();
     show_encoding();
     show_decimalsign();
     show_fit();
@@ -794,11 +828,11 @@ show_all()
     show_origin();
     show_term();
     show_tics(TRUE,TRUE,TRUE,TRUE,TRUE,TRUE);
-    show_mtics(FIRST_X_AXIS);
-    show_mtics(FIRST_Y_AXIS);
-    show_mtics(FIRST_Z_AXIS);
-    show_mtics(SECOND_X_AXIS);
-    show_mtics(SECOND_Y_AXIS);
+    show_mtics(&axis_array[FIRST_X_AXIS]);
+    show_mtics(&axis_array[FIRST_Y_AXIS]);
+    show_mtics(&axis_array[FIRST_Z_AXIS]);
+    show_mtics(&axis_array[SECOND_X_AXIS]);
+    show_mtics(&axis_array[SECOND_Y_AXIS]);
     show_xyzlabel("", "time", &timelabel);
     if (parametric || polar) {
 	if (!is_3d_plot)
@@ -940,10 +974,6 @@ show_version(FILE *fp)
 #endif
 		"";
 
-	    const char *binary_files =
-		"+BINARY_DATA  "
-		"";
-
 	    const char *nocwdrc =
 #ifdef USE_CWDRC
 		"+"
@@ -955,10 +985,6 @@ show_version(FILE *fp)
 	    const char *x11 =
 #ifdef X11
 		"+X11  "
-		"+X11_POLYGON  "
-#ifdef USE_X11_MULTIBYTE
-		"+MULTIBYTE  "
-#endif
 #ifdef EXTERNAL_X11_WINDOW
 		"+X11_EXTERNAL "
 #endif
@@ -982,16 +1008,9 @@ show_version(FILE *fp)
 		"";
 
 	    const char *plotoptions=
-		"+DATASTRINGS  "
-		"+HISTOGRAMS  "
 #ifdef EAM_OBJECTS
 		"+OBJECTS  "
 #endif
-		"+STRINGVARS  "
-		"+MACROS  "
-		"+THIN_SPLINES  "
-		"+IMAGE  "
-		"+USER_LINETYPES "
 #ifdef USE_STATS
 		"+STATS "
 #else
@@ -1009,14 +1028,11 @@ show_version(FILE *fp)
 		"";
 #endif
 
-	    sprintf(compile_options, "\
-%s%s\n%s%s%s\n\
-%s%s%s\n\
-%s%s%s%s\n%s\n",
-		    rdline, gnu_rdline, compatibility, unicodebuild, binary_files,
+	    sprintf(compile_options, "    %s%s\n    %s%s%s\n    %s%s%s\n    %s%s%s%s\n",
+		    rdline, gnu_rdline, compatibility, unicodebuild, plotoptions,
 		    libcerf, libgd, linuxvga,
-		    nocwdrc, x11, use_mouse, hiddenline,
-		    plotoptions);
+		    nocwdrc, x11, use_mouse, hiddenline
+		    );
 	}
 
 	compile_options = gp_realloc(compile_options, strlen(compile_options)+1, "compile_options");
@@ -1078,8 +1094,8 @@ show_version(FILE *fp)
     if (almost_equals(c_token, "l$ong")) {
 
 	c_token++;
-	fprintf(stderr, "Compile options:\n%s", compile_options);
-	fprintf(stderr, "MAX_PARALLEL_AXES=%d\n\n", MAX_PARALLEL_AXES);
+	fprintf(stderr, "\nCompile options:\n%s", compile_options);
+	fprintf(stderr, "    MAX_PARALLEL_AXES=%d\n\n", MAX_PARALLEL_AXES);
 
 #ifdef X11
 	{
@@ -1146,12 +1162,9 @@ show_autoscale()
 
     fputs("\tautoscaling is ", stderr);
     if (parametric) {
-	if (is_3d_plot) {
-	    SHOW_AUTOSCALE(T_AXIS);
-	} else {
-	    SHOW_AUTOSCALE(U_AXIS);
-	    SHOW_AUTOSCALE(V_AXIS);
-	}
+	SHOW_AUTOSCALE(T_AXIS);
+	SHOW_AUTOSCALE(U_AXIS);
+	SHOW_AUTOSCALE(V_AXIS);
     }
 
     if (polar) {
@@ -1180,8 +1193,8 @@ show_border()
     if (!draw_border)
 	fprintf(stderr, "\tborder is not drawn\n");
     else {
-	fprintf(stderr, "\tborder %d is drawn in %s layer with\n\t ",
-	    draw_border, 
+	fprintf(stderr, "\tborder %d (0x%X) is drawn in %s layer with\n\t ",
+	    draw_border, draw_border, 
 	    border_layer == LAYER_BEHIND ? "behind" : border_layer == LAYER_BACK ? "back" : "front");
 	save_linetype(stderr, &border_lp, FALSE);
 	fputc('\n',stderr);
@@ -1455,20 +1468,13 @@ show_format()
     SHOW_ALL_NL;
 
     fprintf(stderr, "\ttic format is:\n");
-#define SHOW_FORMAT(_axis)						\
-    fprintf(stderr, "\t  %s-axis: \"%s\"%s\n", axis_name(_axis),	\
-	    conv_text(axis_array[_axis].formatstring),			\
-	    axis_array[_axis].tictype == DT_DMS ? " geographic" :	\
-	    axis_array[_axis].tictype == DT_TIMEDATE ? " time" :	\
-	    "");
-    SHOW_FORMAT(FIRST_X_AXIS );
-    SHOW_FORMAT(FIRST_Y_AXIS );
-    SHOW_FORMAT(SECOND_X_AXIS);
-    SHOW_FORMAT(SECOND_Y_AXIS);
-    SHOW_FORMAT(FIRST_Z_AXIS );
-    SHOW_FORMAT(COLOR_AXIS);
-    SHOW_FORMAT(POLAR_AXIS);
-#undef SHOW_FORMAT
+    save_axis_format(stderr, FIRST_X_AXIS );
+    save_axis_format(stderr, FIRST_Y_AXIS );
+    save_axis_format(stderr, SECOND_X_AXIS);
+    save_axis_format(stderr, SECOND_Y_AXIS);
+    save_axis_format(stderr, FIRST_Z_AXIS );
+    save_axis_format(stderr, COLOR_AXIS);
+    save_axis_format(stderr, POLAR_AXIS);
 }
 
 
@@ -1579,7 +1585,6 @@ show_style_rectangle()
     fprintf(stderr, "\tRectangle style is %s, fill color ",
 		default_rectangle.layer > 0 ? "front" :
 		default_rectangle.layer < 0 ? "behind" : "back");
-    /* FIXME: Broke with removal of use_palette? */
     save_pm3dcolor(stderr, &default_rectangle.lp_properties.pm3d_color);
     fprintf(stderr, ", lw %.1f ", default_rectangle.lp_properties.l_width);
     fprintf(stderr, ", fillstyle");
@@ -2538,6 +2543,14 @@ show_pointintervalbox()
     fprintf(stderr, "\tpointintervalbox is %g\n", pointintervalbox);
 }
 
+/* process 'show rgbmax' command */
+static void
+show_rgbmax()
+{
+    SHOW_ALL_NL;
+    fprintf(stderr, "\tRGB image color components are in range [0:%g]\n", rgbmax);
+}
+
 
 /* process 'show encoding' command */
 static void
@@ -2858,11 +2871,6 @@ show_tics(
     int i;
     SHOW_ALL_NL;
 
-    if (xyplane.absolute)
-	fprintf(stderr, "\txyplane intercepts z axis at %g\n", xyplane.z);
-    else
-	fprintf(stderr, "\txyplane ticslevel is %g\n", xyplane.z);
-
     fprintf(stderr, "\ttics are in %s of plot\n", (grid_tics_in_front) ? "front" : "back");
 
     if (showx)
@@ -2888,24 +2896,27 @@ show_tics(
 
 /* process 'show m[xyzx2y2cb]tics' commands */
 static void
-show_mtics(AXIS_INDEX axis)
+show_mtics(struct axis *axis)
 {
-    switch (axis_array[axis].minitics) {
+    char *name = axis_name(axis->index);
+
+    switch (axis->minitics) {
     case MINI_OFF:
-	fprintf(stderr, "\tminor %stics are off\n", axis_name(axis));
+	fprintf(stderr, "\tminor %stics are off\n", name);
 	break;
     case MINI_DEFAULT:
 	fprintf(stderr, "\
 \tminor %stics are off for linear scales\n\
-\tminor %stics are computed automatically for log scales\n", axis_name(axis), axis_name(axis));
+\tminor %stics are computed automatically for log scales\n", 
+	name, name);
 	break;
     case MINI_AUTO:
-	fprintf(stderr, "\tminor %stics are computed automatically\n", axis_name(axis));
+	fprintf(stderr, "\tminor %stics are computed automatically\n", name);
 	break;
     case MINI_USER:
 	fprintf(stderr, "\
 \tminor %stics are drawn with %d subintervals between major xtic marks\n",
-		axis_name(axis), (int) axis_array[axis].mtic_freq);
+		name, (int) axis->mtic_freq);
 	break;
     default:
 	int_error(NO_CARET, "Unknown minitic type in show_mtics()");
@@ -3030,7 +3041,7 @@ static void
 show_locale()
 {
     SHOW_ALL_NL;
-    locale_handler(ACTION_SHOW,NULL);
+    dump_locale();
 }
 
 
@@ -3039,7 +3050,7 @@ static void
 show_loadpath()
 {
     SHOW_ALL_NL;
-    loadpath_handler(ACTION_SHOW,NULL);
+    dump_loadpath();
 }
 
 
@@ -3048,7 +3059,7 @@ static void
 show_fontpath()
 {
     SHOW_ALL_NL;
-    fontpath_handler(ACTION_SHOW,NULL);
+    dump_fontpath();
 }
 
 
@@ -3070,6 +3081,8 @@ show_datafile()
     if (END_OF_COMMAND || almost_equals(c_token,"miss$ing")) {
 	if (missing_val == NULL)
 	    fputs("\tNo missing data string set for datafile\n", stderr);
+	else if (!strcmp(missing_val,"NaN"))
+	    fprintf(stderr,"\tall NaN (not-a-number) values will be treated as missing data\n");
 	else
 	    fprintf(stderr, "\t\"%s\" in datafile is interpreted as missing value\n",
 		missing_val);
@@ -3108,6 +3121,23 @@ show_datafile()
 
     if (!END_OF_COMMAND)
 	c_token++;
+}
+
+/* process 'show table' command */
+static void
+show_table()
+{
+    char foo[2] = {0,0};
+    foo[0] = (table_sep && *table_sep) ? *table_sep : '\t';
+    SHOW_ALL_NL;
+    if (table_mode)
+	fprintf(stderr, "\ttable mode is on, field separator %s\n",
+		foo[0] == '\t' ? "tab" :
+		foo[0] == ',' ? "comma" :
+		foo[0] == ' ' ? "space" :
+		foo);
+    else
+	fprintf(stderr, "\ttable mode is off\n");
 }
 
 #ifdef USE_MOUSE

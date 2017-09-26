@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: save.c,v 1.318 2016-11-14 23:29:36 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: save.c,v 1.331 2017-09-11 20:13:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - save.c */
@@ -57,12 +57,12 @@ static char *RCSid() { return RCSid("$Id: save.c,v 1.318 2016-11-14 23:29:36 sfe
 
 static void save_functions__sub __PROTO((FILE *));
 static void save_variables__sub __PROTO((FILE *));
-static void save_tics __PROTO((FILE *, AXIS_INDEX));
-static void save_ptics __PROTO((FILE *, struct axis *));
+static void save_tics __PROTO((FILE *, struct axis *));
+static void save_mtics __PROTO((FILE *, struct axis *));
 static void save_zeroaxis __PROTO((FILE *,AXIS_INDEX));
 static void save_set_all __PROTO((FILE *));
 
-const char *coord_msg[] = {"first ", "second ", "graph ", "screen ", "character "};
+const char *coord_msg[] = {"first ", "second ", "graph ", "screen ", "character ", "polar "};
 /*
  *  functions corresponding to the arguments of the GNUPLOT `save` command
  */
@@ -280,7 +280,6 @@ save_set_all(FILE *fp)
     fprintf(fp, "set style rectangle %s fc ",
 	    default_rectangle.layer > 0 ? "front" :
 	    default_rectangle.layer < 0 ? "behind" : "back");
-    /* FIXME: broke with removal of use_palette? */
     save_pm3dcolor(fp, &default_rectangle.lp_properties.pm3d_color);
     fprintf(fp, " fillstyle ");
     save_fillstyle(fp, &default_rectangle.fillstyle);
@@ -337,20 +336,14 @@ save_set_all(FILE *fp)
     }
     fprintf(fp, "\n");
 
-#define SAVE_FORMAT(axis)					\
-    fprintf(fp, "set format %s \"%s\" %s\n", axis_name(axis),	\
-	    conv_text(axis_array[axis].formatstring),		\
-	    axis_array[axis].tictype == DT_DMS ? "geographic" :	\
-	    axis_array[axis].tictype == DT_TIMEDATE ? "timedate" : \
-	    "");
-    SAVE_FORMAT(FIRST_X_AXIS );
-    SAVE_FORMAT(FIRST_Y_AXIS );
-    SAVE_FORMAT(SECOND_X_AXIS);
-    SAVE_FORMAT(SECOND_Y_AXIS);
-    SAVE_FORMAT(FIRST_Z_AXIS );
-    SAVE_FORMAT(COLOR_AXIS );
-    SAVE_FORMAT(POLAR_AXIS );
-#undef SAVE_FORMAT
+    save_axis_format(fp, FIRST_X_AXIS );
+    save_axis_format(fp, FIRST_Y_AXIS );
+    save_axis_format(fp, SECOND_X_AXIS);
+    save_axis_format(fp, SECOND_Y_AXIS);
+    save_axis_format(fp, FIRST_Z_AXIS );
+    save_axis_format(fp, COLOR_AXIS);
+    save_axis_format(fp, POLAR_AXIS);
+    fprintf(fp, "set ttics format \"%s\"\n", THETA_AXIS.formatstring);
 
     fprintf(fp, "set timefmt \"%s\"\n", timefmt);
 
@@ -377,6 +370,7 @@ save_set_all(FILE *fp)
 	SAVE_GRID(FIRST_X_AXIS);
 	SAVE_GRID(FIRST_Y_AXIS);
 	SAVE_GRID(FIRST_Z_AXIS);
+	SAVE_GRID(POLAR_AXIS);
 	fputs(" \\\n", fp);
 	SAVE_GRID(SECOND_X_AXIS);
 	SAVE_GRID(SECOND_Y_AXIS);
@@ -391,6 +385,12 @@ save_set_all(FILE *fp)
 	fputc('\n', fp);
     }
     fprintf(fp, "%sset raxis\n", raxis ? "" : "un");
+
+    /* Theta axis origin and direction */
+    fprintf(fp, "set theta %s %s\n",
+	theta_direction > 0 ? "counterclockwise" : "clockwise",
+	theta_origin == 180 ? "left" : theta_origin ==  90 ? "top" :
+	theta_origin == -90 ? "bottom" : "right");
 
     /* Save parallel axis state */
     save_style_parallel(fp);
@@ -633,6 +633,8 @@ set encoding %s\n\
 	fprintf(fp, "\nset view  %s", aspect_ratio_3D == 2 ? "equal xy" :
 			aspect_ratio_3D == 3 ? "equal xyz": "");
 
+    fprintf(fp, "\nset rgbmax %g", rgbmax);
+
     fprintf(fp, "\n\
 set samples %d, %d\n\
 set isosamples %d, %d\n\
@@ -756,41 +758,25 @@ set origin %g,%g\n",
 	fprintf(fp, " %g%c", ticscale[i], i<MAX_TICLEVEL-1 ? ',' : '\n');
     }
 
-#define SAVE_MINI(axis)							\
-    switch(axis_array[axis].minitics & TICS_MASK) {			\
-    case 0:								\
-	fprintf(fp, "set nom%stics\n", axis_name(axis));	\
-	break;								\
-    case MINI_AUTO:							\
-	fprintf(fp, "set m%stics\n", axis_name(axis));		\
-	break;								\
-    case MINI_DEFAULT:							\
-	fprintf(fp, "set m%stics default\n", axis_name(axis));	\
-	break;								\
-    case MINI_USER:							\
-	fprintf(fp, "set m%stics %f\n", axis_name(axis),	\
-		axis_array[axis].mtic_freq);				\
-	break;								\
-    }
+    save_mtics(fp, &axis_array[FIRST_X_AXIS]);
+    save_mtics(fp, &axis_array[FIRST_Y_AXIS]);
+    save_mtics(fp, &axis_array[FIRST_Z_AXIS]);
+    save_mtics(fp, &axis_array[SECOND_X_AXIS]);
+    save_mtics(fp, &axis_array[SECOND_Y_AXIS]);
+    save_mtics(fp, &axis_array[COLOR_AXIS]);
+    save_mtics(fp, &R_AXIS);
+    save_mtics(fp, &THETA_AXIS);
 
-    SAVE_MINI(FIRST_X_AXIS);
-    SAVE_MINI(FIRST_Y_AXIS);
-    SAVE_MINI(FIRST_Z_AXIS);	/* HBB 20000506: noticed mztics were not saved! */
-    SAVE_MINI(SECOND_X_AXIS);
-    SAVE_MINI(SECOND_Y_AXIS);
-    SAVE_MINI(COLOR_AXIS);
-    SAVE_MINI(POLAR_AXIS);
-#undef SAVE_MINI
-
-    save_tics(fp, FIRST_X_AXIS);
-    save_tics(fp, FIRST_Y_AXIS);
-    save_tics(fp, FIRST_Z_AXIS);
-    save_tics(fp, SECOND_X_AXIS);
-    save_tics(fp, SECOND_Y_AXIS);
-    save_tics(fp, COLOR_AXIS);
-    save_tics(fp, POLAR_AXIS);
+    save_tics(fp, &axis_array[FIRST_X_AXIS]);
+    save_tics(fp, &axis_array[FIRST_Y_AXIS]);
+    save_tics(fp, &axis_array[FIRST_Z_AXIS]);
+    save_tics(fp, &axis_array[SECOND_X_AXIS]);
+    save_tics(fp, &axis_array[SECOND_Y_AXIS]);
+    save_tics(fp, &axis_array[COLOR_AXIS]);
+    save_tics(fp, &R_AXIS);
+    save_tics(fp, &THETA_AXIS);
     for (axis=0; axis<num_parallel_axes; axis++)
-	save_ptics(fp, &parallel_axis[axis]);
+	save_tics(fp, &parallel_axis[axis]);
 
 #define SAVE_AXISLABEL_OR_TITLE(name,suffix,lab)			 \
     {									 \
@@ -813,11 +799,9 @@ set origin %g,%g\n",
 
     SAVE_AXISLABEL_OR_TITLE("", "title", title);
 
-    /* FIXME */
     fprintf(fp, "set timestamp %s \n", timelabel_bottom ? "bottom" : "top");
     SAVE_AXISLABEL_OR_TITLE("", "timestamp", timelabel);
 
-    save_prange(fp, axis_array + POLAR_AXIS);
     save_prange(fp, axis_array + T_AXIS);
     save_prange(fp, axis_array + U_AXIS);
     save_prange(fp, axis_array + V_AXIS);
@@ -841,6 +825,9 @@ set origin %g,%g\n",
 
     SAVE_AXISLABEL(COLOR_AXIS);
     save_prange(fp, axis_array + COLOR_AXIS);
+
+    SAVE_AXISLABEL(POLAR_AXIS);
+    save_prange(fp, axis_array + POLAR_AXIS);
 
     for (axis=0; axis<num_parallel_axes; axis++)
 	save_prange(fp, &parallel_axis[axis]);
@@ -1094,7 +1081,7 @@ set origin %g,%g\n",
 
 
 static void
-save_ptics(FILE *fp, struct axis *this_axis)
+save_tics(FILE *fp, struct axis *this_axis)
 {
     if ((this_axis->ticmode & TICS_MASK) == NO_TICS) {
 	fprintf(fp, "unset %stics\n", axis_name(this_axis->index));
@@ -1188,9 +1175,24 @@ save_ptics(FILE *fp, struct axis *this_axis)
 }
 
 static void
-save_tics(FILE *fp, AXIS_INDEX axis)
+save_mtics(FILE *fp, struct axis *axis)
 {
-    save_ptics(fp, &axis_array[axis]);
+    char *name = axis_name(axis->index);
+
+    switch(axis->minitics & TICS_MASK) {
+    case 0:
+	fprintf(fp, "set nom%stics\n", name);
+	break;
+    case MINI_AUTO:
+	fprintf(fp, "set m%stics\n", name);
+	break;
+    case MINI_DEFAULT:
+	fprintf(fp, "set m%stics default\n", name);
+	break;
+    case MINI_USER:
+	fprintf(fp, "set m%stics %f\n", name, axis->mtic_freq);
+	break;
+    }
 }
 
 void
@@ -1206,6 +1208,17 @@ save_num_or_time_input(FILE *fp, double x, struct axis *this_axis)
     } else {
 	fprintf(fp,"%#g",x);
     }
+}
+
+void
+save_axis_format(FILE *fp, AXIS_INDEX axis)
+{
+    fprintf(fp, 
+	    (fp == stderr) ? "\t  %s-axis: \"%s\"%s\n" : "set format %s \"%s\" %s\n",
+	     axis_name(axis), conv_text(axis_array[axis].formatstring),
+	    axis_array[axis].tictype == DT_DMS ? "geographic" :
+	    axis_array[axis].tictype == DT_TIMEDATE ? "timedate" :
+	    "");
 }
 
 void
@@ -1236,6 +1249,7 @@ save_style_textbox(FILE *fp)
 	fprintf(fp, " border ");
 	save_pm3dcolor(fp, &(textbox_opts.border_color));
     }
+    fprintf(fp, " linewidth %4.1f", textbox_opts.linewidth);
     fputs("\n",fp);
 }
 #endif
@@ -1243,9 +1257,6 @@ save_style_textbox(FILE *fp)
 void
 save_position(FILE *fp, struct position *pos, int ndim, TBOOLEAN offset)
 {
-    assert(first_axes == 0 && second_axes == 1 && graph == 2 && screen == 3 &&
-	   character == 4);
-
     if (offset) {
 	if (pos->x == 0 && pos->y == 0 && pos->z == 0)
 	    return;
@@ -1264,7 +1275,7 @@ save_position(FILE *fp, struct position *pos, int ndim, TBOOLEAN offset)
     else
 	fprintf(fp, ", ");
 
-    if (pos->scaley == first_axes) {
+    if (pos->scaley == first_axes || pos->scalex == polar_axes) {
 	if (pos->scaley != pos->scalex) fprintf(fp, "first ");
 	save_num_or_time_input(fp, pos->y, &axis_array[FIRST_Y_AXIS]);
     } else {
@@ -1367,7 +1378,6 @@ save_link(FILE *fp, AXIS *this_axis)
 void
 save_nonlinear(FILE *fp, AXIS *this_axis)
 {
-#ifdef NONLINEAR_AXES
     AXIS *primary = this_axis->linked_to_primary;
 
     if (primary &&  this_axis->index == -primary->index) {
@@ -1382,7 +1392,6 @@ save_nonlinear(FILE *fp, AXIS *this_axis)
 	    fprintf(stderr, "[corrupt linkage] ");
 	fputs("\n", fp);
     }
-#endif
 }
 
 static void
@@ -1588,7 +1597,8 @@ save_data_func_style(FILE *fp, const char *which, enum PLOT_STYLE style)
     }
 }
 
-void save_dashtype(FILE *fp, int d_type, const t_dashtype *dt)
+void
+save_dashtype(FILE *fp, int d_type, const t_dashtype *dt)
 {
     /* this is indicated by LT_AXIS (lt 0) instead */
     if (d_type == DASHTYPE_AXIS)
@@ -1617,15 +1627,15 @@ save_linetype(FILE *fp, lp_style_type *lp, TBOOLEAN show_point)
 {
     if (lp->l_type == LT_NODRAW)
 	fprintf(fp, " lt nodraw");
-    else if (lp->l_type == LT_BLACK)
-	fprintf(fp, " lt black");
     else if (lp->l_type == LT_BACKGROUND)
 	fprintf(fp, " lt bgnd");
     else if (lp->l_type == LT_DEFAULT)
 	; /* Dont' print anything */
-    else if (lp->l_type < 0)
-	fprintf(fp, " lt %d", lp->l_type+1);
+    else if (lp->l_type == LT_AXIS)
+	fprintf(fp, " lt 0");
 
+    if (lp->l_type == LT_BLACK && lp->pm3d_color.type == TC_LT)
+	fprintf(fp, " lt black");
     else if (lp->pm3d_color.type != TC_DEFAULT) {
 	fprintf(fp, " linecolor");
 	if (lp->pm3d_color.type == TC_LT)
@@ -1653,6 +1663,7 @@ save_linetype(FILE *fp, lp_style_type *lp, TBOOLEAN show_point)
 	else
 	    fprintf(fp, " pointsize %.3f", lp->p_size);
 	fprintf(fp, " pointinterval %d", lp->p_interval);
+	fprintf(fp, " pointnumber %d", lp->p_number);
     }
 
 }
@@ -1815,7 +1826,7 @@ save_object(FILE *fp, int tag)
 	    fprintf(fp, " fc ");
 	    if (this_object->lp_properties.l_type == LT_DEFAULT)
 		    fprintf(fp,"default");
-	    else /* FIXME: Broke with removal of use_palette? */
+	    else
 		    save_pm3dcolor(fp, &this_object->lp_properties.pm3d_color);
 	    fprintf(fp, " fillstyle ");
 	    save_fillstyle(fp, &this_object->fillstyle);

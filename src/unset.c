@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: unset.c,v 1.245 2016-11-08 05:41:24 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: unset.c,v 1.258 2017-09-11 20:13:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - unset.c */
@@ -219,6 +219,10 @@ unset_command()
     case S_DGRID3D:
 	unset_dgrid3d();
 	break;
+    case S_DEBUG:
+	debug = 0;
+	c_token++;
+	break;
     case S_DUMMY:
 	unset_dummy();
 	break;
@@ -396,6 +400,9 @@ unset_command()
     case S_RTICS:
 	unset_tics(&axis_array[POLAR_AXIS]);
 	break;
+    case S_TTICS:
+	unset_tics(&THETA_AXIS);
+	break;
     case S_PAXIS:
 	i = int_expression();
 	if (almost_equals(c_token, "tic$s")) {
@@ -403,6 +410,9 @@ unset_command()
 		unset_tics(&parallel_axis[i-1]);
 	    c_token++;
 	}
+	break;
+    case S_RGBMAX:
+	rgbmax = 255;
 	break;
     case S_SAMPLES:
 	unset_samples();
@@ -511,6 +521,9 @@ unset_command()
     case S_MRTICS:
 	unset_minitics(&axis_array[POLAR_AXIS]);
 	break;
+    case S_MTTICS:
+	unset_minitics(&THETA_AXIS);
+	break;
     case S_XDATA:
 	unset_timedata(FIRST_X_AXIS);
 	break;
@@ -540,6 +553,9 @@ unset_command()
 	break;
     case S_CBLABEL:
 	unset_axislabel(COLOR_AXIS);
+	break;
+    case S_RLABEL:
+	unset_axislabel(POLAR_AXIS);
 	break;
     case S_X2LABEL:
 	unset_axislabel(SECOND_X_AXIS);
@@ -931,6 +947,7 @@ unset_grid()
 	axis_array[i].gridmajor = FALSE;
 	axis_array[i].gridminor = FALSE;
     }
+    polar_grid_angle = 0;
 }
 
 
@@ -1181,7 +1198,6 @@ unset_logscale()
 	c_token++;
     }
 
-#if defined(NONLINEAR_AXES) && (NONLINEAR_AXES > 0)
     for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++) {
 	if (set_for_axis[axis]) {
 	    static char command[64];
@@ -1193,19 +1209,6 @@ unset_logscale()
 	    axis_array[axis].ticdef.logscaling = FALSE;
 	}
     }
-
-#else
-    for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++) {
-	if (set_for_axis[axis]) {
-	    reset_logscale(&axis_array[axis]);
-	}
-    }
-
-    /* Because the log scaling is applied during data input, a quick refresh */
-    /* using existing stored data will not work if the log setting changes.  */
-    SET_REFRESH_OK(E_REFRESH_NOT_OK, 0);
-#endif
-
 }
 
 /* process 'unset mapping3d' command */
@@ -1459,6 +1462,23 @@ unset_polar()
 		(void) fprintf(stderr,"\n\tdummy variable is x for curves\n");
 	}
     }
+    raxis = FALSE;
+    theta_origin = 0.0;
+    theta_direction = 1.0;
+
+    /* Clear and reinitialize THETA axis structure */
+    unset_tics(&THETA_AXIS);
+    unset_minitics(&THETA_AXIS);
+    THETA_AXIS.min = 0.;
+    THETA_AXIS.max = 360.;
+    THETA_AXIS.ticdef = default_axis_ticdef;
+    THETA_AXIS.index = THETA_index;
+    free(THETA_AXIS.formatstring);
+    THETA_AXIS.formatstring = gp_strdup(DEF_FORMAT);
+    THETA_AXIS.ticscale = 1.0;
+    THETA_AXIS.miniticscale = 0.5;
+    THETA_AXIS.tic_in = TRUE;
+    THETA_AXIS.tic_rotate = 0;
 }
 
 
@@ -1605,9 +1625,14 @@ unset_terminal()
 
     term_reset();
 
+    /* FIXME: change is correct but reported result is truncated */
     if (original_terminal && original_terminal->udv_value.type != NOTDEFINED) {
-	char *termname = original_terminal->udv_value.v.string_val;
+	char *termname = gp_strdup(original_terminal->udv_value.v.string_val);
+	if (strchr(termname, ' '))
+	    *strchr(termname, ' ') = '\0';
+	*term_options = '\0';
 	term = change_term(termname, strlen(termname));
+	free(termname);
     }
     screen_ok = FALSE;
 }
@@ -1877,16 +1902,14 @@ reset_command()
     parallel_axis = NULL;
     num_parallel_axes = 0;
 
-#ifdef NONLINEAR_AXES
     if (shadow_axis_array) {
 	for (i=0; i<NUMBER_OF_MAIN_VISIBLE_AXES; i++)
 	    free_axis_struct(&shadow_axis_array[i]);
 	free(shadow_axis_array);
 	shadow_axis_array = NULL;
     }
-#endif
 
-    raxis = TRUE;
+    raxis = FALSE;
     for (i=2; i<MAX_TICLEVEL; i++)
 	ticscale[i] = 1;
     unset_timefmt();
@@ -1899,6 +1922,7 @@ reset_command()
     clip_lines2 = FALSE;
 
     border_lp = default_border_lp;
+    border_layer = LAYER_FRONT;
     draw_border = 31;
 
     draw_surface = TRUE;
@@ -1929,6 +1953,7 @@ reset_command()
 
     unset_size();
     aspect_ratio = 0.0;		/* don't force it */
+    rgbmax = 255;
 
     unset_origin();
     unset_timestamp();

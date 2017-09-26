@@ -1,5 +1,5 @@
 /*
- * $Id: winmain.c,v 1.95 2016-11-15 08:16:12 markisch Exp $
+ * $Id: winmain.c,v 1.104 2017-09-01 05:21:01 markisch Exp $
  */
 
 /* GNUPLOT - win/winmain.c */
@@ -78,6 +78,9 @@
 #ifdef HAVE_GDIPLUS
 #include "wgdiplus.h"
 #endif
+#ifdef HAVE_D2D
+#include "wd2d.h"
+#endif
 #ifdef WXWIDGETS
 #include "wxterminal/wxt_term.h"
 #endif
@@ -121,10 +124,12 @@ char *authors[]={
 void WinExit(void);
 static void WinCloseHelp(void);
 int CALLBACK ShutDown();
+static BOOL WINAPI ConsoleHandler(DWORD dwType);
 #ifdef WGP_CONSOLE
 static int ConsolePutS(const char *str);
 static int ConsolePutCh(int ch);
 #endif
+
 
 static void
 CheckMemory(LPTSTR str)
@@ -165,7 +170,7 @@ WinExit(void)
 {
     LPGW lpgw;
 
-    /* Last chance, call before anything else to avoid a crash. */
+    /* Last chance to close Windows help, call before anything else to avoid a crash. */
     WinCloseHelp();
 
     /* clean-up call for printing system */
@@ -191,6 +196,10 @@ WinExit(void)
 #ifdef HAVE_GDIPLUS
     gdiplusCleanup();
 #endif
+#ifdef HAVE_D2D
+    d2dCleanup();
+#endif
+    CoUninitialize();
     return;
 }
 
@@ -543,6 +552,11 @@ main(int argc, char **argv)
     graphwin->lptw = &textwin;
 #endif
 
+    /* COM Initialization */
+    if (!SUCCEEDED(CoInitialize(NULL))) {
+	// FIXME: Need to abort
+    }
+
     /* init common controls */
     {
 	INITCOMMONCONTROLSEX initCtrls;
@@ -584,7 +598,21 @@ main(int argc, char **argv)
     /* Finally, also redirect C++ standard output streams. */
     RedirectOutputStreams(TRUE);
 # endif
+#else  /* !WGP_CONSOLE */
+# ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#  define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+# endif
+    {
+	/* Enable Windows 10 Console Virtual Terminal Sequences */
+	HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+	DWORD  mode;
+	GetConsoleMode(handle, &mode);
+	SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    }
 #endif
+
+    // set console mode handler to catch "abort" signals
+    SetConsoleCtrlHandler(ConsoleHandler, TRUE);
 
     gp_atexit(WinExit);
 
@@ -946,7 +974,8 @@ fake_popen(const char * command, const char * type)
     char tmpfile[MAX_PATH];
     DWORD ret;
 
-    if (type == NULL) return NULL;
+    if (type == NULL)
+	return NULL;
 
     pipe_type = NUL;
     if (pipe_filename != NULL)
@@ -967,11 +996,17 @@ fake_popen(const char * command, const char * type)
 	LPWSTR wcmd;
 	pipe_type = *type;
 	/* Execute command with redirection of stdout to temporary file. */
+#ifndef __WATCOMC__
 	cmd = (char *) malloc(strlen(command) + strlen(pipe_filename) + 5);
 	sprintf(cmd, "%s > %s", command, pipe_filename);
 	wcmd = UnicodeText(cmd, encoding);
 	rc = _wsystem(wcmd);
 	free(wcmd);
+#else
+	cmd = (char *) malloc(strlen(command) + strlen(pipe_filename) + 15);
+	sprintf(cmd, "cmd /c %s > %s", command, pipe_filename);
+	system(cmd);
+#endif
 	free(cmd);
 	/* Now open temporary file. */
 	/* system() returns 1 if the command could not be executed. */
@@ -1011,13 +1046,20 @@ fake_pclose(FILE *stream)
     if (pipe_type == 'w') {
 	char * cmd;
 	LPWSTR wcmd;
+
+#ifndef __WATCOMC__
 	cmd = (char *) gp_alloc(strlen(pipe_command) + strlen(pipe_filename) + 10, "fake_pclose");
 	/* FIXME: this won't work for binary data. We need a proper `cat` replacement. */
 	sprintf(cmd, "type %s | %s", pipe_filename, pipe_command);
 	wcmd = UnicodeText(cmd, encoding);
 	rc = _wsystem(wcmd);
-	free(cmd);
 	free(wcmd);
+#else
+	cmd = (char *) gp_alloc(strlen(pipe_command) + strlen(pipe_filename) + 20, "fake_pclose");
+	sprintf(cmd, "cmd/c type %s | %s", pipe_filename, pipe_command);
+	system(cmd);
+#endif
+	free(cmd);
     }
 
     /* Delete temp file again. */
@@ -1189,8 +1231,51 @@ ConsolePutCh(int ch)
     }
     return ch;
 }
-
 #endif
+
+
+/* This is called by the system to signal various events. 
+   Note that it is executed in a separate thread.  */
+BOOL WINAPI
+ConsoleHandler(DWORD dwType)
+{
+    switch (dwType) {
+    case CTRL_CLOSE_EVENT:
+    case CTRL_LOGOFF_EVENT:
+    case CTRL_SHUTDOWN_EVENT: {
+#ifdef WGP_CONSOLE
+	HANDLE h;
+	INPUT_RECORD rec;
+	DWORD written;
+#endif
+
+	// NOTE: returning from this handler terminates the application.
+	// Instead, we signal the main thread to clean up and exit and
+	// then idle by sleeping.
+#ifndef WGP_CONSOLE
+	// close the main window to exit gnuplot
+	PostMessage(textwin.hWndParent, WM_CLOSE, 0, 0);
+#else
+	terminate_flag = TRUE;
+	// send ^D to main thread input queue
+	h = GetStdHandle(STD_INPUT_HANDLE);
+	ZeroMemory(&rec, sizeof(rec));
+	rec.EventType = KEY_EVENT;
+	rec.Event.KeyEvent.bKeyDown = TRUE;
+	rec.Event.KeyEvent.wRepeatCount = 1;
+	rec.Event.KeyEvent.uChar.AsciiChar = 004;
+	WriteConsoleInput(h, &rec, 1, &written);
+#endif
+	// give the main thread time to exit
+	Sleep(10000);
+	return TRUE;
+    }
+    default:
+	break;
+    }
+    return FALSE;
+}
+
 
 /* public interface to printer routines : Windows PRN emulation
  * (formerly in win.trm)
@@ -1386,6 +1471,8 @@ WinRaiseConsole(void)
     HWND console = NULL;
 #ifndef WGP_CONSOLE
     console = textwin.hWndParent;
+    if (pausewin.bPause && IsWindow(pausewin.hWndPause))
+	console = pausewin.hWndPause;
 #else
     console = GetConsoleWindow();
 #endif
@@ -1520,6 +1607,21 @@ win_fopen(const char *filename, const char *mode)
     free(wmode);
     return file;
 }
+
+
+#ifndef USE_FAKEPIPES
+FILE *
+win_popen(const char *filename, const char *mode)
+{
+    FILE * file;
+    LPWSTR wfilename = UnicodeText(filename, encoding);
+    LPWSTR wmode = UnicodeText(mode, encoding);
+    file = _wpopen(wfilename, wmode);
+    free(wfilename);
+    free(wmode);
+    return file;
+}
+#endif
 
 
 UINT

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: tables.c,v 1.150 2016-11-05 21:21:07 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: tables.c,v 1.157 2017-09-11 20:13:24 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - tables.c */
@@ -119,6 +119,7 @@ const struct gen_table plot_axes_tbl[] =
 const struct gen_table plot_smooth_tbl[] =
 {
     { "a$csplines", SMOOTH_ACSPLINES },
+    { "bins", SMOOTH_BINS },
     { "b$ezier", SMOOTH_BEZIER },
     { "c$splines", SMOOTH_CSPLINES },
     { "s$bezier", SMOOTH_SBEZIER },
@@ -149,10 +150,11 @@ const struct gen_table dgrid3d_mode_tbl[] =
 /* 'save' command */
 const struct gen_table save_tbl[] =
 {
-    { "f$unctions", SAVE_FUNCS },
-    { "s$et", SAVE_SET },
-    { "t$erminal", SAVE_TERMINAL },
-    { "v$ariables", SAVE_VARS },
+    { "fit", SAVE_FIT },
+    { "fun$ctions", SAVE_FUNCS },
+    { "set", SAVE_SET },
+    { "ter$minal", SAVE_TERMINAL },
+    { "var$iables", SAVE_VARS },
     { NULL, SAVE_INVALID }
 };
 
@@ -180,6 +182,7 @@ const struct gen_table set_tbl[] =
 
     { "data$file", S_DATAFILE },
 
+    { "debug", S_DEBUG },
     { "dg$rid3d", S_DGRID3D },
     { "du$mmy", S_DUMMY },
     { "enc$oding", S_ENCODING },
@@ -236,7 +239,7 @@ const struct gen_table set_tbl[] =
     { "mzt$ics", S_MZTICS },
     { "nomzt$ics", S_NOMZTICS },
     { "mrt$ics", S_MRTICS },
-    { "nomrt$ics", S_NOMRTICS },
+    { "mtt$ics", S_MTTICS },
     { "mcbt$ics", S_MCBTICS },
     { "nomcbt$ics", S_NOMCBTICS },
     { "nonlinear", S_NONLINEAR },
@@ -257,6 +260,7 @@ const struct gen_table set_tbl[] =
     { "pr$int", S_PRINT },
     { "psdir", S_PSDIR },
     { "obj$ect", S_OBJECT },
+    { "rgbmax", S_RGBMAX },
     { "sa$mples", S_SAMPLES },
     { "si$ze", S_SIZE },
     { "st$yle", S_STYLE },
@@ -264,6 +268,7 @@ const struct gen_table set_tbl[] =
     { "table", S_TABLE },
     { "t$erminal", S_TERMINAL },
     { "termopt$ions", S_TERMOPTIONS },
+    { "theta$0", S_THETA },
     { "ti$cs", S_TICS },
     { "ticsc$ale", S_TICSCALE },
     { "ticsl$evel", S_TICSLEVEL },
@@ -288,6 +293,7 @@ const struct gen_table set_tbl[] =
     { "y2l$abel", S_Y2LABEL },
     { "zl$abel", S_ZLABEL },
     { "cbl$abel", S_CBLABEL },
+    { "rlabel", S_RLABEL },
 
     { "xti$cs", S_XTICS },
     { "noxti$cs", S_NOXTICS },
@@ -300,7 +306,7 @@ const struct gen_table set_tbl[] =
     { "zti$cs", S_ZTICS },
     { "nozti$cs", S_NOZTICS },
     { "rti$cs", S_RTICS },
-    { "norti$cs", S_NORTICS },
+    { "tti$cs", S_TTICS },
     { "cbti$cs", S_CBTICS },
     { "nocbti$cs", S_NOCBTICS },
 

@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.356 2016-11-16 21:47:22 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: graph3d.c,v 1.372 2017-09-18 03:55:42 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - graph3d.c */
@@ -525,7 +525,7 @@ get_arrow3d(
 	double radius;
 	int junkw, junkh;
 
-#ifdef WIN32
+#ifdef _WIN32
 	if (strcmp(term->name, "windows") == 0)
 	    aspect = 1.;
 #endif
@@ -623,8 +623,9 @@ do_3dplot(
     struct termentry *t = term;
     int surface;
     struct surface_points *this_plot = NULL;
-    int xl, yl;
-    int xl_save, yl_save, xl_prev, yl_prev;
+    int xl = 0, yl = 0;
+    int xl_save, yl_save;
+    int xl_prev = 0, yl_prev = 0;
     transform_matrix mat;
     int key_count;
     TBOOLEAN key_pass = FALSE;
@@ -656,14 +657,19 @@ do_3dplot(
 
     /* absolute or relative placement of xyplane along z */
     if (nonlinear(&Z_AXIS)) {
-	if (xyplane.absolute)
-	    base_z1 = eval_link_function(primary_z, xyplane.z);
-	else
+	if (xyplane.absolute) {
+	    if (primary_z->log && xyplane.z <= 0) {
+		base_z1 = eval_link_function(primary_z, Z_AXIS.min);
+	    } else {
+		base_z1 = eval_link_function(primary_z, xyplane.z);
+	    }
+	} else {
 	    base_z1 = primary_z->min - (primary_z->max - primary_z->min) * xyplane.z;
+	}
 	base_z = eval_link_function(&Z_AXIS, base_z1);
     } else {
 	if (xyplane.absolute)
-	    base_z1 = AXIS_LOG_VALUE(0, xyplane.z);
+	    base_z1 = xyplane.z;
 	else
 	    base_z1 = primary_z->min - (primary_z->max - primary_z->min) * xyplane.z;
 	base_z = base_z1;
@@ -794,6 +800,7 @@ do_3dplot(
     memcpy(&page_bounds, &plot_bounds, sizeof(page_bounds));
 
     /* Clipping in 'set view map' mode should be like 2D clipping */
+    /* FIXME:  Wasn't this already done in boundary3d?            */
     if (splot_map) {
 	int map_x1, map_y1, map_x2, map_y2;
 	map3d_xy(X_AXIS.min, Y_AXIS.min, base_z, &map_x1, &map_y1);
@@ -921,14 +928,8 @@ do_3dplot(
 
 	if (key->title.text) {
 	    int center = (key->bounds.xright + key->bounds.xleft) / 2;
-
-	    if (key->textcolor.type == TC_RGB && key->textcolor.value < 0)
-		apply_pm3dcolor(&(key->box.pm3d_color));
-	    else
-		apply_pm3dcolor(&(key->textcolor));
-	    write_multiline(center, key->bounds.ytop - (key_title_extra + t->v_char)/2,
-			    key->title.text, CENTRE, JUST_TOP, 0, 
-			    key->title.font ? key->title.font : key->font);
+	    int titley = key->bounds.ytop - (key_title_extra + t->v_char)/2;
+	    write_label(center, titley, &key->title);
 	    (*t->linetype)(LT_BLACK);
 	}
     }
@@ -995,14 +996,20 @@ do_3dplot(
 	    draw_this_surface = (draw_surface && !this_plot->opt_out_of_surface);
 
 	    /* User-specified key locations can use the 2D code */
-	    if (this_plot->title_position && this_plot->title_position->scalex != character) {
+	    if (this_plot->title_position) {
 		xl_prev = xl;
 		yl_prev = yl;
-		map3d_position(this_plot->title_position, &xl, &yl, "key sample");
-		xl -=  (key->just == GPKEY_LEFT) ? key_text_left : key_text_right;
+		if (this_plot->title_position->scalex != character) {
+		    map3d_position(this_plot->title_position, &xl, &yl, "key sample");
+		    xl -=  (key->just == GPKEY_LEFT) ? key_text_left : key_text_right;
+		} else { 
+		    /* Option to label the end of the curve on the plot itself */
+		    attach_title_to_plot((struct curve_points *)this_plot, key);
+		}
 	    }
 
-	    if (lkey) {
+	    if (lkey
+	    &&  (!this_plot->title_position || this_plot->title_position->scalex != character)) {
 		if (key->textcolor.type != TC_DEFAULT)
 		    /* Draw key text in same color as key title */
 		    apply_pm3dcolor(&key->textcolor);
@@ -1128,7 +1135,8 @@ do_3dplot(
 	    }			/* switch(plot-style) plot proper */
 
 	    /* Next draw the key sample */
-	    if (lkey)
+	    if (lkey
+	    &&  (!this_plot->title_position || this_plot->title_position->scalex != character))
 	    switch (this_plot->plot_style) {
 	    case BOXES:	/* can't do boxes in 3d yet so use impulses */
 	    case FILLEDCURVES:
@@ -1207,15 +1215,15 @@ do_3dplot(
 
 	    }			/* switch(plot-style) key sample */
 
-	    /* move down one line in the key... */
-	    if (lkey)
-		NEXT_KEY_LINE();
-
-	    /* but not if the plot title was drawn somewhere else */
-	    if (this_plot->title_position && this_plot->title_position->scalex != character) {
+	    /* If the title went somewhere other than the key,
+	     * restore the previous key position.
+	     * Else move down one line in the key.
+	     */
+	    if (this_plot->title_position) {
 		xl = xl_prev;
 		yl = yl_prev;
-	    }
+	    } else if (lkey)
+		NEXT_KEY_LINE();
 
 	    /* Draw contours for previous surface */
 	    if (draw_contour && this_plot->contours != NULL) {
@@ -1362,7 +1370,9 @@ do_3dplot(
      * then the graph, and now the front pieces.
      */
     if (hidden3d && border_layer == LAYER_BEHIND)
-	draw_3d_graphbox(plots, pcount, FRONTGRID, LAYER_FRONT);
+	/* the important thing is _not_ to draw the back grid */
+	/* draw_3d_graphbox(plots, pcount, FRONTGRID, LAYER_FRONT) */
+	;
 
     else if (hidden3d || grid_layer == LAYER_FRONT)
 	draw_3d_graphbox(plots, pcount, ALLGRID, LAYER_FRONT);
@@ -1802,6 +1812,7 @@ plot3d_points(struct surface_points *plot)
     int x, y;
     struct termentry *t = term;
     struct iso_curve *icrvs = plot->iso_crvs;
+    int interval = plot->lp_properties.p_interval;
 
     /* Set whatever we can that applies to every point in the loop */
     if (plot->lp_properties.p_type == PT_CHARACTER) {
@@ -1820,11 +1831,26 @@ plot3d_points(struct surface_points *plot)
 	    set_rgbcolor_const( plot->lp_properties.pm3d_color.lt );
 
 	for (i = 0; i < icrvs->p_count; i++) {
+	
+	    /* Only print 1 point per interval */
+	    if ((plot->plot_style == LINESPOINTS) && (interval) && (i % interval))
+		continue;
+
 	    point = &(icrvs->points[i]);
 	    if (point->type == INRANGE) {
 		map3d_xy(point->x, point->y, point->z, &x, &y);
 
 		if (!clip_point(x, y)) {
+
+		    /* A negative interval indicates we should blank */
+		    /* out the area behind the point symbol          */
+		    if (plot->plot_style == LINESPOINTS && interval < 0) {
+			(*t->set_color)(&background_fill);
+			(*t->pointsize)(pointsize * pointintervalbox);
+			(*t->point) (x, y, 6);
+			term_apply_lp_properties(&(plot->lp_properties));
+		    }
+
 		    check3d_for_variable_color(plot, point);
 
 		    if ((plot->plot_style == POINTSTYLE || plot->plot_style == LINESPOINTS)
@@ -2106,6 +2132,10 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
     struct termentry *t = term;
     BoundingBox *clip_save = clip_area;
 
+    FPRINTF((stderr,
+	"draw_3d_graphbox: whichgrid = %d current_layer = %d border_layer = %d\n",
+	whichgrid,current_layer,border_layer));
+
     clip_area = &canvas;
     if (draw_border && splot_map) {
 	if (border_layer == current_layer) {
@@ -2294,10 +2324,14 @@ draw_3d_graphbox(struct surface_points *plot, int plot_num, WHICHGRID whichgrid,
     } /* if (draw_border) */
 
     /* In 'set view map' mode, treat grid as in 2D plots */
-    if (splot_map && current_layer != abs(grid_layer))
+    if (splot_map && current_layer != abs(grid_layer)) {
+	clip_area = clip_save;
 	return;
-    if (whichgrid == BORDERONLY)
+    }
+    if (whichgrid == BORDERONLY) {
+	clip_area = clip_save;
 	return;
+    }
 
     /* Draw ticlabels and axis labels */
 
@@ -2932,6 +2966,7 @@ map3d_getposition(
     TBOOLEAN screen_coords = FALSE;
     TBOOLEAN char_coords = FALSE;
     TBOOLEAN plot_coords = FALSE;
+    double xx, yy;
 
     switch (pos->scalex) {
     case first_axes:
@@ -2950,6 +2985,13 @@ map3d_getposition(
     case character:
 	*xpos = *xpos * term->h_char + 0.5;
 	char_coords = TRUE;
+	break;
+    case polar_axes:
+	(void) polar_to_xy(*xpos, *ypos, &xx, &yy, FALSE);
+	*xpos = axis_log_value_checked(FIRST_X_AXIS, xx, what);
+	*ypos = axis_log_value_checked(FIRST_Y_AXIS, yy, what);
+	plot_coords = TRUE;
+	pos->scaley = polar_axes;	/* Just to make sure */
 	break;
     }
 
@@ -2974,12 +3016,18 @@ map3d_getposition(
 	*ypos = *ypos * term->v_char + 0.5;
 	char_coords = TRUE;
 	break;
+    case polar_axes:
+	break;
     }
 
     switch (pos->scalez) {
     case first_axes:
     case second_axes:
-	*zpos = axis_log_value_checked(FIRST_Z_AXIS, *zpos, what);
+    case polar_axes:
+	if (splot_map)
+	    *zpos = 1;	/* Avoid failure if z=0 with logscale z */
+	else
+	    *zpos = axis_log_value_checked(FIRST_Z_AXIS, *zpos, what);
 	plot_coords = TRUE;
 	break;
     case graph:
@@ -3043,7 +3091,7 @@ map3d_position_r(
 {
     double xpos = pos->x;
     double ypos = pos->y;
-    double zpos = pos->z;
+    double zpos = (splot_map) ? Z_AXIS.min : pos->z;
 
     /* startpoint in graph coordinates */
     if (map3d_getposition(pos, what, &xpos, &ypos, &zpos) == 0) {
@@ -3061,6 +3109,8 @@ map3d_position_r(
 	else
 	    ypos = 0;
 	if (pos->scalez == graph)
+	    zpos = Z_AXIS.min;
+	else if (splot_map)
 	    zpos = Z_AXIS.min;
 	else
 	    zpos = 0;
@@ -3503,7 +3553,11 @@ do_3dkey_layout(legend_key *key, int *xinkey, int *yinkey)
 	*yinkey = key->bounds.ytop - key_title_height - key_title_extra;
 
     } else {
-	BoundingBox *bounds = key->fixed ? &page_bounds : &plot_bounds;
+	BoundingBox *bounds;
+	if (key->fixed && !splot_map)
+	    bounds = &page_bounds;
+	else
+	    bounds = &plot_bounds;
 
 	if (key->region != GPKEY_AUTO_INTERIOR_LRTBC && key->margin == GPKEY_BMARGIN) {
 	    if (ptitl_cnt > 0) {

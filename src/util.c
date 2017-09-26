@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: util.c,v 1.144 2016-10-10 22:53:38 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: util.c,v 1.156 2017-09-04 18:02:21 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - util.c */
@@ -38,6 +38,7 @@ static char *RCSid() { return RCSid("$Id: util.c,v 1.144 2016-10-10 22:53:38 sfe
 
 #include "alloc.h"
 #include "command.h"
+#include "datablock.h"
 #include "datafile.h"		/* for df_showdata and df_reset_after_error */
 #include "internal.h"		/* for eval_reset_after_error */
 #include "misc.h"
@@ -46,15 +47,9 @@ static char *RCSid() { return RCSid("$Id: util.c,v 1.144 2016-10-10 22:53:38 sfe
 #include "setshow.h"		/* for conv_text() */
 #include "tabulate.h"		/* for table_mode */
 
-#if defined(HAVE_DIRENT_H)
+#if defined(HAVE_DIRENT_H) && !defined(_WIN32)
 # include <sys/types.h>
 # include <dirent.h>
-#elif defined(_WIN32)
-# include <windows.h>
-#endif
-#if defined(__MSC__) || defined (__WATCOMC__)
-# include <io.h>
-# include <direct.h>
 #endif
 
 /* Exported (set-table) variables */
@@ -85,12 +80,15 @@ const char *current_prompt = NULL; /* to be set by read_line() */
  */
 TBOOLEAN screen_ok;
 
+int debug = 0;
+
 /* internal prototypes */
 
 static void mant_exp __PROTO((double, double, TBOOLEAN, double *, int *, const char *));
 static void parse_sq __PROTO((char *));
 static TBOOLEAN utf8_getmore __PROTO((unsigned long * wch, const char **str, int nbytes));
 static char *utf8_strchrn __PROTO((const char *s, int N));
+static char *num_to_str(double r);
 
 /*
  * equals() compares string value of token number t_num with str[], and
@@ -497,28 +495,31 @@ mant_exp(
 
 /*}}} */
 
+/* Wrapper for gprintf_value() */
+void
+gprintf(char *outstring, size_t count, char *format, double log10_base, double x)
+{
+    struct value v;
+    Gcomplex(&v, x, 0.0);
+    gprintf_value(outstring, count, format, log10_base, &v);
+}
 
-/*{{{  gprintf */
-/* extended s(n)printf */
+/* Analogous to snprintf() but uses gnuplot's private format specs */
 /* HBB 20010121: added code to maintain consistency between mantissa
  * and exponent across sprintf() calls.  The problem: format string
  * '%t*10^%T' will display 9.99 as '10.0*10^0', but 10.01 as
  * '1.0*10^1'.  This causes problems for people using the %T part,
  * only, with logscaled axes, in combination with the occasional
  * round-off error. */
-/* EAM Nov 2012:
- * Unbelievably, the count parameter has been silently ignored or
- * improperly applied ever since this routine was introduced back
- * in version 3.7.  Now fixed to prevent buffer overflow.
- */
 void
-gprintf(
+gprintf_value(
     char *outstring,
     size_t count,
     char *format,
     double log10_base,
-    double x)
+    struct value *v)
 {
+    double x = real(v);
     char tempdest[MAX_LINE_LEN + 1];
     char temp[MAX_LINE_LEN + 1];
     char *t;
@@ -539,8 +540,13 @@ gprintf(
 
     set_numeric_locale();
 
-    /* Oct 2013 - default format is now expected to be "%h" */
-    if (((term->flags & TERM_IS_LATEX)) && !strcmp(format, DEF_FORMAT))
+    /* Should never happen but fuzzer managed to hit it */
+    if (!format)
+	format = DEF_FORMAT;
+
+    /* By default we wrap numbers output to latex terminals in $...$ */
+    if (!strcmp(format, DEF_FORMAT)  && !table_mode
+    &&  ((term->flags & TERM_IS_LATEX)))
 	format = DEF_FORMAT_LATEX;
 
     for (;;) {
@@ -576,22 +582,17 @@ gprintf(
 
 	/*{{{  convert conversion character */
 	switch (*format) {
-	    /*{{{  x and o */
+	    /*{{{  x and o can handle 64bit unsigned integers */
 	case 'x':
 	case 'X':
 	case 'o':
 	case 'O':
-	    if (fabs(x) >= (double)INT_MAX) {
-		t[0] = 'l';
-		t[1] = 'l';
-		t[2] = *format;
-		t[3] = '\0';
-		snprintf(dest, remaining_space, temp, (long long) x);
-	    } else {
-		t[0] = *format;
-		t[1] = '\0';
-		snprintf(dest, remaining_space, temp, (int) x);
-	    }
+	    t[0] = 'l';
+	    t[1] = 'l';
+	    t[2] = *format;
+	    t[3] = '\0';
+	    snprintf(dest, remaining_space, temp, 
+		     v->type == INTGR ? v->v.int_val : (int)real(v));
 	    break;
 	    /*}}} */
 	    /*{{{  e, f and g */
@@ -939,8 +940,7 @@ gprintf(
 	    }
 	}
 
-    /* EXPERIMENTAL
-     * Some people prefer a "real" minus sign to the hyphen that standard
+    /* Some people prefer a "real" minus sign to the hyphen that standard
      * formatted input and output both use.  Unlike decimal signs, there is
      * no internationalization mechanism to specify this preference.
      * This code replaces all hyphens with the character string specified by
@@ -1003,8 +1003,6 @@ done:
 
     reset_numeric_locale();
 }
-
-/*}}} */
 
 /* some macros for the error and warning functions below
  * may turn this into a utility function later
@@ -1171,6 +1169,8 @@ common_error_exit()
     eval_reset_after_error();
     clause_reset_after_error();
     parse_reset_after_error();
+    set_iterator = cleanup_iteration(set_iterator);
+    plot_iterator = cleanup_iteration(plot_iterator);
     scanning_range_in_progress = FALSE;
     inside_zoom = FALSE;
 
@@ -1312,8 +1312,7 @@ parse_esc(char *instr)
 }
 
 
-/* FIXME HH 20020915: This function does nothing if dirent.h and windows.h
- * not available. */
+/* This function does nothing if dirent.h and windows.h not available. */
 TBOOLEAN
 existdir(const char *name)
 {
@@ -1550,7 +1549,8 @@ strappend(char **dest, size_t *size, size_t len, const char *src)
     size_t destlen = (len != 0) ? len : strlen(*dest);
     size_t srclen = strlen(src);
     if (destlen + srclen + 1 > *size) {
-	*size *= 2;
+	while (destlen + srclen + 1 > *size)
+	    *size *= 2;
 	*dest = (char *) gp_realloc(*dest, *size, "strappend");
     }
     memcpy(*dest + destlen, src, srclen + 1);
@@ -1613,13 +1613,7 @@ value_to_str(struct value *val, TBOOLEAN need_quotes)
 	break;
     case DATABLOCK:
 	{
-	char **dataline = val->v.data_array;
-	int nlines = 0;
-	if (dataline != NULL) {
-	    while (*dataline++ != NULL)
-		nlines++;
-	}
-	sprintf(s[j], "<%d line data block>", nlines);
+	sprintf(s[j], "<%d line data block>", datablock_size(val));
 	break;
 	}
     case ARRAY:
@@ -1644,7 +1638,7 @@ value_to_str(struct value *val, TBOOLEAN need_quotes)
  * format. Rotates through 4 buffers 's[j]', and returns pointers to
  * them, to avoid execution ordering problems if this function is
  * called more than once between sequence points. */
-char *
+static char *
 num_to_str(double r)
 {
     static int i = 0;

@@ -1,12 +1,12 @@
 dnl Process this file with autoconf to produce a configure script.
 dnl configure.in for gnuplot on Unix.
 dnl
-dnl $Id: configure.ac,v 1.24 2016-11-18 05:51:30 sfeam Exp $
+dnl $Id: configure.ac,v 1.39 2017-09-04 23:25:00 sfeam Exp $
 dnl
 dnl this is actually major.minor ...
 dnl note that for a non-beta release, we need to disable DEVELOPMENT_RELEASE
 dnl
-AC_INIT([gnuplot],[5.1])
+AC_INIT([gnuplot],[5.3])
 AC_CONFIG_SRCDIR(src/graphics.c)
 AC_PREREQ([2.69])
 AC_CONFIG_HEADERS(config.h:config.hin)
@@ -173,6 +173,9 @@ if test "$no_x" != yes; then
   CPPFLAGS="$CPPFLAGS $X_CFLAGS"
   LIBRARIES_FOR_X="$X_LIBS -lX11 $X_EXTRA_LIBS"
   AC_DEFINE(X11,1,[ Define if you are using the X11 window system. ])
+  AC_ARG_WITH(x-dcop,dnl
+  [--with-x-dcop           gnuplot_x11 can use KDE3/DCOP for space-raises-console],
+  AC_DEFINE(USE_KDE3_DCOP,1,[ Define if gnuplot_x11 can use KDE3 DCOP to raise konsole]))
 fi
 AM_CONDITIONAL(BUILD_GNUPLOT_X11, test "$no_x" != yes)
 
@@ -285,16 +288,6 @@ AC_CHECK_FUNCS(atexit memcpy memmove memset \
   strcspn strdup strndup strnlen strcasecmp stricmp strncasecmp strnicmp \
   sysinfo tcgetattr vfprintf doprnt uname usleep
 )
-
-AC_CHECK_FUNCS(snprintf, ,
- [  AC_MSG_RESULT([ 
-  WARNING: Could not find a working version of snprintf.
-           If a user provides gnuplot with an improper format statement
-	   then a buffer overflow and/or segfault can result.
-	   Please consider providing snprintf via an external library.
-  ])
-])
-
 
 dnl HBB 20030624: see if signgam is declared by math.h
 AC_CHECK_DECLS([signgam],,,
@@ -561,15 +554,15 @@ dnl check presence of gd library
 dnl we don't check for libfreetype and libjpeg locations - if gd requires
 dnl them, the gdlib-config scipt contains all the required information
 AC_ARG_WITH(gd,dnl
-[  --with-gd[=DIR]         where to find Tom Boutell's gd library],,
+[  --with-gd[=DIR]           location of gd library (png jpeg gif terminals)],,
   with_gd=yes)
 
 if test "$with_gd" != no; then
   AC_PATH_PROG([GDLIB_CONFIG], [gdlib-config])
   if test -n "$GDLIB_CONFIG"; then
-    libgd_CPPFLAGS=`gdlib-config --cflags`
-    libgd_LDFLAGS=`gdlib-config --ldflags`
-    libgd_LIBS=`gdlib-config --libs`
+    libgd_CPPFLAGS=`$GDLIB_CONFIG --cflags`
+    libgd_LDFLAGS=`$GDLIB_CONFIG --ldflags`
+    libgd_LIBS=`$GDLIB_CONFIG --libs`
   elif test -d "$with_gd"; then
     libgd_CPPFLAGS="-I$with_gd/include"
     libgd_LDFLAGS="-L$with_gd/lib"
@@ -639,8 +632,15 @@ AC_ARG_WITH(lua,dnl
 [  --without-lua         disable lua/TikZ terminal (default enabled)],,
   [test -z "${with_lua}" && with_lua=yes])
 
+dnl Some distributions allow for parallel installation of different
+dnl lua versions.  We test for that in order of pereference.
 if test "${with_lua}" = yes ; then
-  PKG_CHECK_MODULES(LUA, [lua], LUAFOUND=yes, [PKG_CHECK_MODULES(LUA, [lua5.1], LUAFOUND=yes, [LUAFOUND=no])])
+  LUA=lua
+  PKG_CHECK_MODULES([LUA], [lua], LUAFOUND=yes,
+    [PKG_CHECK_MODULES([LUA], [lua5.3], LUA=lua5.3, 
+      [PKG_CHECK_MODULES([LUA], [lua5.2], LUA=lua5.2, 
+        [PKG_CHECK_MODULES([LUA], [lua5.1], LUA=lua5.1, 
+          [LUAFOUND=no])])])])
   if test $pkg_failed != no; then
     AC_MSG_WARN([Could not find support for lua using pkg-config.])
     with_lua=no
@@ -651,7 +651,7 @@ if test "${with_lua}" = yes ; then
     CPPFLAGS="$CPPFLAGS $LUA_CFLAGS"
   else
     dnl if pkg-config didn't work, we migh still find it manually
-    AC_SEARCH_LIBS(luaL_openlibs, lua lua5.1,
+    AC_SEARCH_LIBS(luaL_openlibs, lua lua5.3 lua5.2 lua5.1,
        with_lua=yes, with_lua=no)
   fi
   if test "$with_lua" = yes; then
@@ -659,7 +659,7 @@ if test "${with_lua}" = yes ; then
      AC_CHECK_HEADERS(lua.h,,
        AC_MSG_WARN([please add path to lua.h to CPPFLAGS in Makefile]))
   fi
-
+  AC_SUBST(LUA)
 fi
 AM_CONDITIONAL(BUILD_LUA, test "${with_lua}" = yes)
 dnl end lua
@@ -734,14 +734,6 @@ AC_ARG_WITH(cwdrc,dnl
 if test "$with_cwdrc" = yes; then
      AC_DEFINE(USE_CWDRC,1,
                [ Define if you want to read .gnuplot from current directory (SECURITY RISK!).])
-fi
-
-dnl Disable experimental support for nonlinear axes
-AC_ARG_WITH(nonlinear-axes,dnl
-[  --without-nonlinear-axes     disable EXPERIMENTAL support for nonlinear axes])
-if test "$with_nonlinear_axes" = no; then
-    AC_DEFINE(DISABLE_NONLINEAR_AXES, 1,
-               [ Define if you want to disable EXPERIMENTAL support for nonlinear axes ])
 fi
 
 dnl Sort help/subtopic tables by row or column
@@ -988,7 +980,7 @@ fi
 
 if test "${enable_wxwidgets_ok}" = yes ; then
   WX_CXXFLAGS="`$WX_CONFIG --cxxflags | sed 's/-fno-exceptions//'` $CAIROPANGO_CFLAGS"
-  WX_LIBS="`$WX_CONFIG --libs` $CAIROPANGO_LIBS"
+  WX_LIBS="`$WX_CONFIG --libs` $CAIROPANGO_LIBS $LIBRARIES_FOR_X"
 
   dnl Check for fork(), used for the 'persist' effect
   AC_FUNC_FORK
@@ -1053,7 +1045,7 @@ AC_ARG_WITH(cairo,dnl
 if test "${with_cairo}" = yes ; then
   dnl cairo terminals
   PKG_CHECK_MODULES_NOFAIL(CAIROPDF,dnl
-       [cairo >= 1.2 cairo-pdf >= 1.2 pango >= 1.22 pangocairo >= 1.10 glib-2.0])
+       [cairo >= 1.2 cairo-pdf >= 1.2 pango >= 1.22 pangocairo >= 1.10 glib-2.0 >= 2.28])
   if test $pkg_failed != no; then
     AC_MSG_WARN([The cairo terminals will not be compiled.])
     with_cairo=no
@@ -1080,7 +1072,7 @@ AM_CONDITIONAL(BUILD_GPCAIRO, test "${build_gpcairo}" = yes)
 
 dnl Enable subsystem to generate statistical summary of file contents
 AC_ARG_ENABLE(stats,dnl
-[  --enable-stats          Include command to generate statistical summary of data],
+[  --disable-stats          Omit calculation of statistical summary of data],
   [if test "$enableval" != no; then
     AC_DEFINE(USE_STATS,1,
                [ Define to add support for generating a statistical summary of data])
@@ -1142,18 +1134,18 @@ if test "${enable_qt}" = yes ; then
     PKG_CHECK_MODULES_NOFAIL(QT, [QtCore >= 4.5 QtGui >= 4.5 QtNetwork >= 4.5 QtSvg >= 4.5])
     if test $pkg_failed != no; then
       enable_qt_ok=no
-      AC_MSG_WARN([The Qt terminal will not be compiled.])
+      AC_MSG_RESULT([The Qt terminal will not be compiled.])
     else
       QT4LOC=`$PKG_CONFIG --variable=exec_prefix QtCore`
       UIC=`$PKG_CONFIG --variable=uic_location QtCore`
       MOC=`$PKG_CONFIG --variable=moc_location QtCore`
       RCC=`$PKG_CONFIG --variable=rcc_location QtCore`
       LRELEASE=`$PKG_CONFIG --variable=lrelease_location QtCore`
-      AC_MSG_WARN([The Qt terminal will use Qt4.])
+      AC_MSG_RESULT([The Qt terminal will use Qt4.])
       QTVER="4"
     fi
   else
-    AC_MSG_WARN([The Qt terminal will use Qt5.])
+    AC_MSG_RESULT([The Qt terminal will use Qt5.])
     QTVER="5"
   fi
 fi
@@ -1191,6 +1183,7 @@ if test "${enable_qt_ok}" = yes ; then
   AC_SUBST(QT_LIBS)
   AC_SUBST(LRELEASE)
   AC_DEFINE(QTTERM,1, [ Define if you want the Qt terminal. ])
+  AC_DEFINE_UNQUOTED(QTVER,$QTVER,[ only used for docs])
 fi
 AM_CONDITIONAL(BUILD_QT, test "${enable_qt_ok}" = yes)
 
@@ -1265,8 +1258,8 @@ AC_MSG_RESULT([gnuplot will be compiled with the following terminals:])
 AC_MSG_RESULT([])
 
 AC_MSG_RESULT([  Standalone terminals: yes (always builtin)])
-AC_MSG_RESULT([    canvas, cgm, context, corel, dumb, dxf, eepic, emf, emtex,])
-AC_MSG_RESULT([    epslatex, fig, hpgl,latex, metafont, metapost, mif, pcl5,])
+AC_MSG_RESULT([    canvas, cgm, context, dumb, dxf, eepic, emf, emtex,])
+AC_MSG_RESULT([    epslatex, fig, hpgl, latex, metafont, metapost, mif, pcl5,])
 AC_MSG_RESULT([    postscript, pslatex, pstex, pstricks, qms, svg,])
 AC_MSG_RESULT([    tek40xx, tek410x, texdraw, tgif, tkcanvas, tpic, vttek])
 AC_MSG_RESULT([])
@@ -1292,6 +1285,10 @@ if test "$no_x" != yes; then
     AC_MSG_RESULT([    (enable plotting to windows opened by external apps) ])
   else
     AC_MSG_RESULT([    (disable plotting to windows opened by external apps) ])
+  fi
+
+  if test "$with_x_dcop" = yes; then
+    AC_MSG_RESULT([    (gnuplot_x11 can use KDE3/DCOP to raise konsole) ])
   fi
 
   AC_MSG_RESULT([    (with application defaults, in $X11_APPDEFAULTS_DIR)])
@@ -1342,14 +1339,10 @@ if test "$build_src_beos_subdir" = yes; then
   AC_MSG_RESULT([  be terminal (BeOS): yes])
 fi
 
-if test "$is_next" = yes; then
-  AC_MSG_RESULT([  next terminal: yes])
-fi
-
 if test "$with_caca" = yes; then
   AC_MSG_RESULT([  caca terminal: yes (EXPERIMENTAL)])
 else
-  AC_MSG_RESULT([  caca terminal: no (requires libcaca >= 0.99.beta15)])
+  AC_MSG_RESULT([  caca terminal: no (use --with-caca to enable)])
 fi
 
 if test "$gnuplot_framework_AquaTerm" = yes; then
@@ -1367,13 +1360,13 @@ if test "$ac_cv_lib_gd_gdImageJpeg" = yes &&
       AC_MSG_RESULT([  libgd-based png, jpeg, and gif terminals: yes (no animated gif)])
     fi
 else
-    AC_MSG_RESULT([  libgd-based png, jpeg, and gif terminals: no (see config.log) ])
+    AC_MSG_RESULT([  libgd-based png, jpeg, and gif terminals: no (requires libgd,  see config.log) ])
 fi
 
 if test "$with_cairo" = yes; then
   AC_MSG_RESULT([  cairo-based pdf and png terminals: yes ])
 else
-  AC_MSG_RESULT([  cairo-based terminals: no (requires cairo>1.2, pango>1.22)])
+  AC_MSG_RESULT([  cairo-based terminals: no (requires cairo>=1.2, pango>=1.22, glib>=2.28)])
 fi
 
 if test "$with_lua" = yes; then
@@ -1519,12 +1512,6 @@ AC_MSG_RESULT([])
 AC_MSG_RESULT([gnuplot will install the following additional materials:])
 AC_MSG_RESULT([])
 
-if test "$TUTORIAL" = tutorial; then
-  AC_MSG_RESULT([  LaTeX tutorial: yes])
-else
-  AC_MSG_RESULT([  LaTeX tutorial: no])
-fi
-
 if test "$with_latex" != no; then
   AC_MSG_RESULT([  cfg file for epslatex terminal: yes])
   if test "$with_lua" != no; then
@@ -1539,9 +1526,9 @@ else
   AC_MSG_RESULT([  TeX *.sty for lua/tikz terminal: no])
 fi
 
-AC_MSG_RESULT([  Help file: yes (always), in $GIHDIR/gnuplot.gih])
+AC_MSG_RESULT([  Help file: $GIHDIR/gnuplot.gih])
 
-AC_MSG_RESULT([  PostScript prologue files: yes (always)])
+AC_MSG_RESULT([  PostScript prologue files: $GIHDIR/PostScript/])
 
 dnl end config report
 

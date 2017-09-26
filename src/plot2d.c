@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.404 2016-10-27 18:43:47 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.458 2017-09-25 16:44:52 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - plot2d.c */
@@ -48,6 +48,7 @@ static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.404 2016-10-27 18:43:47 s
 #include "interpol.h"
 #include "misc.h"
 #include "parse.h"
+#include "pm3d.h"	/* for is_plot_with_palette */
 #include "setshow.h"
 #include "tables.h"
 #include "tabulate.h"
@@ -55,7 +56,7 @@ static char *RCSid() { return RCSid("$Id: plot2d.c,v 1.404 2016-10-27 18:43:47 s
 #include "util.h"
 #include "variable.h" /* For locale handling */
 
-#ifndef _Windows
+#ifndef _WIN32
 # include "help.h"
 #endif
 
@@ -214,7 +215,7 @@ void
 plotrequest()
 {
     int dummy_token = 0;
-    AXIS_INDEX t_axis;
+    AXIS_INDEX axis;
 
     if (!term)                  /* unknown */
 	int_error(c_token, "use 'set term' to set terminal type first");
@@ -235,24 +236,24 @@ plotrequest()
     AXIS_INIT2D(SECOND_X_AXIS, 0);
     AXIS_INIT2D(SECOND_Y_AXIS, 1);
     AXIS_INIT2D(T_AXIS, 0);
+    AXIS_INIT2D(U_AXIS, 0);
+    AXIS_INIT2D(V_AXIS, 0);
     AXIS_INIT2D(POLAR_AXIS, 1);
     AXIS_INIT2D(COLOR_AXIS, 1);
 
-#ifdef NONLINEAR_AXES
     /* Nonlinear mapping of x or y via linkage to a hidden primary axis. */
     /* The user set autoscale for the visible axis; apply it also to the hidden axis. */
-    for (t_axis = 0; t_axis < NUMBER_OF_MAIN_VISIBLE_AXES; t_axis++) {
-	if (t_axis == SAMPLE_AXIS)
+    for (axis = 0; axis < NUMBER_OF_MAIN_VISIBLE_AXES; axis++) {
+	AXIS *secondary = &axis_array[axis];
+	if (axis == SAMPLE_AXIS)
 	    continue;
-	if (axis_array[t_axis].linked_to_primary
-	&&  axis_array[t_axis].linked_to_primary->index == -t_axis) {
-	    AXIS *secondary = &axis_array[t_axis];
+	if (secondary->linked_to_primary
+	&&  secondary->linked_to_primary->index == -secondary->index) {
 	    AXIS *primary = secondary->linked_to_primary;
 	    primary->set_autoscale = secondary->set_autoscale;
 	    axis_init(primary, 1);
 	}
     }
-#endif
 
     /* If we are called from a mouse zoom operation we should ignore	*/
     /* any range limits because otherwise the zoom won't zoom.		*/
@@ -276,8 +277,8 @@ plotrequest()
 	c_token++;
 
     /* Clear out any tick labels read from data files in previous plot */
-    for (t_axis=0; t_axis<AXIS_ARRAY_SIZE; t_axis++) {
-	struct ticdef *ticdef = &axis_array[t_axis].ticdef;
+    for (axis=0; axis<AXIS_ARRAY_SIZE; axis++) {
+	struct ticdef *ticdef = &axis_array[axis].ticdef;
 	if (ticdef->def.user)
 	    ticdef->def.user = prune_dataticks(ticdef->def.user);
 	if (!ticdef->def.user && ticdef->type == TIC_USER)
@@ -318,7 +319,7 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 	    continue;
 	}
 
-	/* FIXME: I'm not entirely convinced this test does what the comment says. */
+	/* FIXME: I don't think this test does what the comment says. */
 	/*
 	 * If the state has been set to autoscale since the last plot,
 	 * mark everything INRANGE and re-evaluate the axis limits now.
@@ -326,9 +327,9 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 	 */
 	if (!this_plot->noautoscale) {
 	    if (x_axis->set_autoscale & AUTOSCALE_MIN && x_axis->data_min < x_axis->min)
-		 x_axis->min = axis_log_value(x_axis, x_axis->data_min);
+		 x_axis->min = x_axis->data_min;
 	    if (x_axis->set_autoscale & AUTOSCALE_MAX && x_axis->data_max > x_axis->max)
-		 x_axis->max = axis_log_value(x_axis, x_axis->data_max);
+		 x_axis->max = x_axis->data_max;
 	}
 
 	for (i=0; i<this_plot->p_count; i++) {
@@ -343,20 +344,18 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
 	     * refresh_3dbounds() in plot3d.c
 	     */
 	    if (!this_plot->noautoscale) {
-		if (x_axis->set_autoscale & AUTOSCALE_MIN && point->x < x_axis->min)
-		     x_axis->min = point->x;
-		if (x_axis->set_autoscale & AUTOSCALE_MAX && point->x > x_axis->max)
-		     x_axis->max = point->x;
+		autoscale_one_point(x_axis, point->x);
+		if (this_plot->plot_style == VECTOR)
+		    autoscale_one_point(x_axis, point->xhigh);
 	    }
 	    if (!inrange(point->x, x_axis->min, x_axis->max)) {
 		point->type = OUTRANGE;
 		continue;
 	    }
 	    if (!this_plot->noautoscale) {
-		if (y_axis->set_autoscale & AUTOSCALE_MIN && point->y < y_axis->min)
-		     y_axis->min = point->y;
-		if (y_axis->set_autoscale & AUTOSCALE_MAX && point->y > y_axis->max)
-		     y_axis->max = point->y;
+		autoscale_one_point(y_axis, point->y);
+		if (this_plot->plot_style == VECTOR)
+		    autoscale_one_point(y_axis, point->yhigh);
 	    }
 	    if (!inrange(point->y, y_axis->min, y_axis->max)) {
 		point->type = OUTRANGE;
@@ -371,8 +370,8 @@ refresh_bounds(struct curve_points *first_plot, int nplots)
     for (iplot = 0;  iplot < nplots; iplot++, this_plot = this_plot->next) {
 
 	/* handle 'reverse' ranges */
-	axis_revert_range( this_plot->x_axis );
-	axis_revert_range( this_plot->y_axis );
+	axis_check_range( this_plot->x_axis );
+	axis_check_range( this_plot->y_axis );
 
 	/* Make sure the bounds are reasonable, and tweak them if they aren't */
 	axis_checked_extend_empty_range(this_plot->x_axis, NULL);
@@ -667,14 +666,20 @@ get_data(struct curve_points *current_plot)
 	    cp_extend(current_plot, i + i + 1000);
 	}
 
-	/* Version 5	DEBUG DEBUG
+	/* Version 5
 	 * We are now trying to pass back all available info even if one of the requested
 	 * columns was missing or undefined.  This check replaces the DF_UNDEFINED case in
 	 * the main switch statement below.
 	 */
 	if (j == DF_UNDEFINED) {
 	    current_plot->points[i].type = UNDEFINED;
-	    j = df_no_use_specs;
+	    if (missing_val && !strcmp(missing_val, "NaN"))
+		j = DF_MISSING;
+	    else
+		j = df_no_use_specs;
+	} else {
+	    /* Assume range is OK; we will check later */
+	    current_plot->points[i].type = INRANGE;
 	}
 
 	if (j > 0) {
@@ -735,32 +740,10 @@ get_data(struct curve_points *current_plot)
 	    }
 
 	    if (current_plot->plot_style == TABLESTYLE) {
-	    /* Echo the values directly to the output file. FIXME: formats? */
-		int col;
-		int dummy_type = INRANGE;
-		FILE *outfile = (table_outfile) ? table_outfile : gpoutfile;
-
-		if (table_var == NULL) {
-		    for (col = 0; col < j; col++)
-			fprintf(outfile, " %g", v[col]);
-		    fprintf(outfile, "\n");
-		} else {
-		    char buf[64]; /* buffer large enough to hold %g + 2 extra chars */
-		    size_t size = sizeof(buf);
-		    char *line = (char *) gp_alloc(size, "");
-		    size_t len = 0;
-
-		    line[0] = NUL;
-		    for (col = 0; col < j; col++) {
-			snprintf(buf, sizeof(buf), " %g", v[col]);
-			len = strappend(&line, &size, len, buf);
-		    }
-		    append_to_datablock(&table_var->udv_value, line);
-		}
-		/* This tracks x range and avoids "invalid x range" error message */
-		STORE_WITH_LOG_AND_UPDATE_RANGE( current_plot->points[i].x,
-			v[0], dummy_type, current_plot->x_axis,
-			current_plot->noautoscale, NOOP, NOOP );
+		/* tabulate_one_line() applies an input data filter and 
+		 * returns TRUE if the line was accepted and written out
+		 */
+		tabulate_one_line(v, df_strings, j);
 		continue;
 	    }
 
@@ -772,9 +755,8 @@ get_data(struct curve_points *current_plot)
 	/* I decided the only reasonable option is to handle it separately.	*/
 	if (current_plot->plot_style == PARALLELPLOT && j > 0) {
 	    int iaxis;
-	    /* FIXME: this apparently cannot trigger.  Good or bad? */
 	    if (j != current_plot->n_par_axes)
-		fprintf(stderr,"Expecting %d input columns, got %d\n",
+		int_error(NO_CARET, "Expecting %d input columns, got %d\n",
 			current_plot->n_par_axes, j);
 	    /* Primary coordinate structure holds only x range and 1st y value.	*/
 	    /* The x range brackets the parallel axes by 0.5 on either side.	*/
@@ -784,10 +766,9 @@ get_data(struct curve_points *current_plot)
 	    /* The parallel axis data is stored in separate arrays */
 	    for (iaxis = 0; iaxis < current_plot->n_par_axes; iaxis++) {
 		int dummy_type = INRANGE;
-		ACTUAL_STORE_WITH_LOG_AND_UPDATE_RANGE( current_plot->z_n[iaxis][i],
-			v[iaxis], dummy_type,
-			&parallel_axis[iaxis],
-			current_plot->noautoscale, NOOP, NOOP, 0 );
+		ACTUAL_STORE_AND_UPDATE_RANGE( current_plot->z_n[iaxis][i],
+			v[iaxis], dummy_type, &parallel_axis[iaxis],
+			current_plot->noautoscale, NOOP );
 	    }
 	    i++;
 
@@ -816,15 +797,7 @@ get_data(struct curve_points *current_plot)
 	    continue;
 
 	case DF_UNDEFINED:
-	    /* NaN or bad result from extended using expression */
-	    /* Version 5:
-	     * FIXME - can't actually get here because we trapped DF_UNDEFINED above
-	     */
-	    current_plot->points[i].type = UNDEFINED;
-	    FPRINTF((stderr,"undefined point %g %g %g\n", v[0], v[1], v[2]));
-	    if (current_plot->plot_style == IMAGE)
-		goto images;
-	    i++;
+	    /* Version 5:  can't get here because we trapped DF_UNDEFINED above */
 	    continue;
 
 	case DF_FIRST_BLANK:
@@ -1035,12 +1008,16 @@ get_data(struct curve_points *current_plot)
 		    break;
 
 		case IMAGE:  /* x_center y_center color_value */
+		    {
+		    coord_type dummy_type;
 		    store2d_point(current_plot, i, v[0], v[1], v[0], v[0], v[1],
 				  v[1], v[2]);
 		    cp = &(current_plot->points[i]);
-		    COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(cp->CRD_COLOR, v[2], cp->type,
-			COLOR_AXIS, current_plot->noautoscale, NOOP, NOOP);
+		    dummy_type = cp->type;
+		    STORE_AND_UPDATE_RANGE(cp->CRD_COLOR, v[2], dummy_type,
+				COLOR_AXIS, current_plot->noautoscale, NOOP);
 		    i++;
+		    }
 		    break;
 
 		case POINTSTYLE: /* x, y, variable point size or type */
@@ -1300,16 +1277,17 @@ images:
     current_plot->p_count = i;
     cp_extend(current_plot, i); /* shrink to fit */
 
-    /* Last chance to substitute input values for placeholders in plot title */
-    df_set_key_title(current_plot);
-
     df_close();
 
     /* We are finished reading user input; return to C locale for internal use */
     reset_numeric_locale();
 
+    /* Deferred evaluation of plot title now that we know column headers */
+    reevaluate_plot_title(current_plot);
+
     return ngood;                   /* 0 indicates an 'empty' file */
 }
+
 
 /* called by get_data for each point */
 static void
@@ -1325,33 +1303,11 @@ store2d_point(
     coord_type dummy_type = INRANGE;   /* sometimes we dont care about outranging */
     TBOOLEAN excluded_range = FALSE;
 
-#ifdef BACKWARDS_COMPATIBLE
-    /* jev -- pass data values thru user-defined function */
-    /* div -- y is dummy variable 2 - copy value there */
-    if (ydata_func.at) {
-	struct value val;
-
-	(void) Gcomplex(&ydata_func.dummy_values[0], y, 0.0);
-	ydata_func.dummy_values[2] = ydata_func.dummy_values[0];
-	evaluate_at(ydata_func.at, &val);
-	y = undefined ? 0.0 : real(&val);
-
-	(void) Gcomplex(&ydata_func.dummy_values[0], ylow, 0.0);
-	ydata_func.dummy_values[2] = ydata_func.dummy_values[0];
-	evaluate_at(ydata_func.at, &val);
-	ylow = undefined ? 0 : real(&val);
-
-	(void) Gcomplex(&ydata_func.dummy_values[0], yhigh, 0.0);
-	ydata_func.dummy_values[2] = ydata_func.dummy_values[0];
-	evaluate_at(ydata_func.at, &val);
-	yhigh = undefined ? 0 : real(&val);
-    }
-#endif
-
-    dummy_type = cp->type = INRANGE;
+    /* FIXME this destroys any UNDEFINED flag assigned during input */
+    cp->type = INRANGE;
+    dummy_type = cp->type;
 
     if (polar) {
-	double newx, newy;
 	double theta = x * ang2rad;
 	AXIS *theta_axis = &axis_array[T_AXIS];
 
@@ -1374,42 +1330,12 @@ store2d_point(
 	/* "y" at this point is really "r", so check it against rrange.	*/
 	if (y < R_AXIS.data_min)
 	    R_AXIS.data_min = y;
-	if (y < R_AXIS.min) {
-	    if (R_AXIS.autoscale & AUTOSCALE_MIN)
-		R_AXIS.min = 0;
-	    else
-		cp->type = OUTRANGE;
-	}
 	if (y > R_AXIS.data_max)
 	    R_AXIS.data_max = y;
-	if (y > R_AXIS.max) {
-	    if (R_AXIS.autoscale & AUTOSCALE_MAX)	{
-		if ((R_AXIS.max_constraint & CONSTRAINT_UPPER)
-		&&  (R_AXIS.max_ub < y))
-			R_AXIS.max = R_AXIS.max_ub;
-		else
-		    R_AXIS.max = y;
-	    } else {
-		cp->type = OUTRANGE;
-	    }
-	}
 
-	if (nonlinear(&R_AXIS)) {
-	    AXIS *shadow = R_AXIS.linked_to_primary;
-	    y = eval_link_function(shadow, y) - shadow->min;
-	} else if (R_AXIS.log) {
-	    if (R_AXIS.min <= 0 || R_AXIS.autoscale & AUTOSCALE_MIN)
-		int_error(NO_CARET,"In log mode rrange must not include 0");
-	    y = AXIS_DO_LOG(POLAR_AXIS,y) - AXIS_DO_LOG(POLAR_AXIS,R_AXIS.min);
-	} else if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
-	    /* we store internally as if plotting r(t)-rmin */
-		y -= R_AXIS.min;
-	}
-
-	newx = y * cos(x * ang2rad);
-	newy = y * sin(x * ang2rad);
-	y = newy;
-	x = newx;
+	/* Convert from polar to cartesian coordinates and check ranges */
+	if (polar_to_xy(x, y, &x, &y, TRUE) == OUTRANGE)
+	    cp->type = OUTRANGE;
 
 	/* Some plot styles use xhigh and yhigh for other quantities, */
 	/* which polar mode transforms would break		      */
@@ -1419,52 +1345,18 @@ store2d_point(
 	    xhigh = x + radius;
 
 	} else {
-	    if (!(R_AXIS.autoscale & AUTOSCALE_MAX) 
-	    &&  yhigh > R_AXIS.max) {
-		cp->type = OUTRANGE;
-	    }
-	    if (nonlinear(&R_AXIS)) {
-		AXIS *shadow = R_AXIS.linked_to_primary;
-		yhigh = eval_link_function(shadow, yhigh) - shadow->min;
-	    } else if (R_AXIS.log) {
-		yhigh = AXIS_DO_LOG(POLAR_AXIS,yhigh)
-			- AXIS_DO_LOG(POLAR_AXIS,R_AXIS.min);
-	    } else if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
-		/* we store internally as if plotting r(t)-rmin */
-		yhigh -= R_AXIS.min;
-	    }
-	    newx = yhigh * cos(xhigh * ang2rad);
-	    newy = yhigh * sin(xhigh * ang2rad);
-	    yhigh = newy;
-	    xhigh = newx;
-
-	    if (!(R_AXIS.autoscale & AUTOSCALE_MAX) 
-	    &&  ylow > R_AXIS.max) {
-		cp->type = OUTRANGE;
-	    }
-	    if (nonlinear(&R_AXIS)) {
-		AXIS *shadow = R_AXIS.linked_to_primary;
-		ylow = eval_link_function(shadow, ylow) - shadow->min;
-	    } else if (R_AXIS.log) {
-		ylow = AXIS_DO_LOG(POLAR_AXIS,ylow)
-		     - AXIS_DO_LOG(POLAR_AXIS,R_AXIS.min);
-	    } else if (!(R_AXIS.autoscale & AUTOSCALE_MIN)) {
-		/* we store internally as if plotting r(t)-rmin */
-		ylow -= R_AXIS.min;
-	    }
-	    newx = ylow * cos(xlow * ang2rad);
-	    newy = ylow * sin(xlow * ang2rad);
-	    ylow = newy;
-	    xlow = newx;
+	    /* Jan 2017 - now skipping range check on rhigh, rlow */
+	    (void) polar_to_xy(xhigh, yhigh, &xhigh, &yhigh, FALSE);
+	    (void) polar_to_xy(xlow, ylow, &xlow, &ylow, FALSE);
 	}
     }
 
     /* Version 5: Allow to store Inf or NaN 
      *  We used to exit immediately in this case rather than storing anything */
-    STORE_WITH_LOG_AND_UPDATE_RANGE(cp->x, x, cp->type, current_plot->x_axis,
-			current_plot->noautoscale, NOOP, NOOP);
-    STORE_WITH_LOG_AND_UPDATE_RANGE(cp->y, y, cp->type, current_plot->y_axis,
-			current_plot->noautoscale, NOOP, NOOP);
+    STORE_AND_UPDATE_RANGE(cp->x, x, cp->type, current_plot->x_axis,
+			current_plot->noautoscale, NOOP);
+    STORE_AND_UPDATE_RANGE(cp->y, y, cp->type, current_plot->y_axis,
+			current_plot->noautoscale, NOOP);
 
     switch (current_plot->plot_style) {
     case POINTSTYLE:		/* Only x and y are relevant to axis scaling */
@@ -1482,28 +1374,21 @@ store2d_point(
 	cp->yhigh = yhigh;
 	break;
     case BOXES:			/* auto-scale to xlow xhigh */
-	cp->ylow = ylow;
+    case BOXPLOT:		/* auto-scale to xlow xhigh, factor is already in z */
+	cp->ylow = ylow;	/* ylow yhigh not really needed but store them anyway */
 	cp->yhigh = yhigh;
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, current_plot->x_axis, 
-					current_plot->noautoscale, NOOP, cp->xlow = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
-					current_plot->noautoscale, NOOP, cp->xhigh = -VERYLARGE);
-	break;
-    case BOXPLOT:			/* auto-scale to xlow xhigh, factor is already in z */
-	cp->ylow = ylow;		/* ylow yhigh not really needed but store them anyway */
-	cp->yhigh = yhigh;
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, current_plot->x_axis, 
-					current_plot->noautoscale, NOOP, cp->xlow = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
-					current_plot->noautoscale, NOOP, cp->xhigh = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, current_plot->x_axis, 
+				current_plot->noautoscale, cp->xlow = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
+				current_plot->noautoscale, cp->xhigh = -VERYLARGE);
 	break;
 #ifdef EAM_OBJECTS
     case CIRCLES:
 	cp->yhigh = yhigh;
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, current_plot->x_axis, 
-					current_plot->noautoscale, NOOP, cp->xlow = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
-					current_plot->noautoscale, NOOP, cp->xhigh = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, current_plot->x_axis, 
+				current_plot->noautoscale, cp->xlow = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
+				current_plot->noautoscale, cp->xhigh = -VERYLARGE);
 	cp->ylow = ylow;	/* arc begin */
 	cp->xhigh = yhigh;	/* arc end */
 	if (fabs(ylow) > 1000. || fabs(yhigh) > 1000.) /* safety check for insane arc angles */
@@ -1519,22 +1404,22 @@ store2d_point(
 	/* xlow = major axis, xhigh = minor axis, ylow = orientation */
 #define YRANGE_FACTOR ((current_plot->ellipseaxes_units == ELLIPSEAXES_YY) ? 1.0 : 1.4)
 #define XRANGE_FACTOR ((current_plot->ellipseaxes_units == ELLIPSEAXES_XX) ? 1.1 : 1.0)
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xlow, x-0.5*GPMAX(xlow, xhigh)*XRANGE_FACTOR, 
-					dummy_type, current_plot->x_axis, 
-					current_plot->noautoscale, NOOP, 
-					cp->xlow = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xhigh, x+0.5*GPMAX(xlow, xhigh)*XRANGE_FACTOR, 
-					dummy_type, current_plot->x_axis, 
-					current_plot->noautoscale, NOOP, 
-					cp->xhigh = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->ylow, y-0.5*GPMAX(xlow, xhigh)*YRANGE_FACTOR, 
-					dummy_type, current_plot->y_axis, 
-					current_plot->noautoscale, NOOP, 
-					cp->ylow = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->yhigh, y+0.5*GPMAX(xlow, xhigh)*YRANGE_FACTOR, 
-					dummy_type, current_plot->y_axis, 
-					current_plot->noautoscale, NOOP, 
-					cp->yhigh = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->xlow, x-0.5*GPMAX(xlow, xhigh)*XRANGE_FACTOR, 
+				dummy_type, current_plot->x_axis, 
+				current_plot->noautoscale, 
+				cp->xlow = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->xhigh, x+0.5*GPMAX(xlow, xhigh)*XRANGE_FACTOR, 
+				dummy_type, current_plot->x_axis, 
+				current_plot->noautoscale, 
+				cp->xhigh = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->ylow, y-0.5*GPMAX(xlow, xhigh)*YRANGE_FACTOR, 
+				dummy_type, current_plot->y_axis, 
+				current_plot->noautoscale, 
+				cp->ylow = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->yhigh, y+0.5*GPMAX(xlow, xhigh)*YRANGE_FACTOR, 
+				dummy_type, current_plot->y_axis, 
+				current_plot->noautoscale,
+				cp->yhigh = -VERYLARGE);
 	/* So after updating the axes we re-store the parameters */
 	cp->xlow = xlow;    /* major axis */
 	cp->xhigh = xhigh;  /* minor axis */
@@ -1543,14 +1428,14 @@ store2d_point(
 #endif
 
     default:			/* auto-scale to xlow xhigh ylow yhigh */
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, current_plot->x_axis, 
-					current_plot->noautoscale, NOOP, cp->xlow = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
-					current_plot->noautoscale, NOOP, cp->xhigh = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->ylow, ylow, dummy_type, current_plot->y_axis,
-					current_plot->noautoscale, NOOP, cp->ylow = -VERYLARGE);
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->yhigh, yhigh, dummy_type, current_plot->y_axis,
-					current_plot->noautoscale, NOOP, cp->yhigh = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->xlow, xlow, dummy_type, current_plot->x_axis, 
+				current_plot->noautoscale, cp->xlow = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->xhigh, xhigh, dummy_type, current_plot->x_axis,
+				current_plot->noautoscale, cp->xhigh = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->ylow, ylow, dummy_type, current_plot->y_axis,
+				current_plot->noautoscale, cp->ylow = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->yhigh, yhigh, dummy_type, current_plot->y_axis,
+					current_plot->noautoscale, cp->yhigh = -VERYLARGE);
 	break;
     }
 
@@ -1559,15 +1444,14 @@ store2d_point(
     if ((int)current_plot->z_axis == NO_AXIS)
 	cp->z = width;
     else
-	STORE_WITH_LOG_AND_UPDATE_RANGE(cp->z, width, dummy_type, current_plot->z_axis, 
-					current_plot->noautoscale, NOOP, cp->z = -VERYLARGE);
+	STORE_AND_UPDATE_RANGE(cp->z, width, dummy_type, current_plot->z_axis, 
+				current_plot->noautoscale, cp->z = -VERYLARGE);
 
     /* If we have variable color corresponding to a z-axis value, use it to autoscale */
     /* June 2010 - New mechanism for variable color */
     if (current_plot->lp_properties.pm3d_color.type == TC_Z && current_plot->varcolor)
-	COLOR_STORE_WITH_LOG_AND_UPDATE_RANGE(current_plot->varcolor[i],
-		current_plot->varcolor[i], dummy_type, 
-		COLOR_AXIS, current_plot->noautoscale, NOOP, NOOP);
+	STORE_AND_UPDATE_RANGE(current_plot->varcolor[i], current_plot->varcolor[i],
+		dummy_type, COLOR_AXIS, current_plot->noautoscale, NOOP);
 
     /* July 2014 - Some points are excluded because they fall outside of trange	*/
     /* even though they would be inside the plot if drawn.			*/
@@ -1668,7 +1552,6 @@ box_range_fiddling(struct curve_points *plot)
 		xlow = plot->points[0].x - boxwidth;
 	    else
 		xlow = plot->points[0].x - (plot->points[1].x - plot->points[0].x) / 2.;
-	    xlow = AXIS_DE_LOG_VALUE(plot->x_axis, xlow);
 	    if (axis_array[plot->x_axis].min > xlow)
 		axis_array[plot->x_axis].min = xlow;
 	}
@@ -1679,7 +1562,6 @@ box_range_fiddling(struct curve_points *plot)
 		xhigh = plot->points[i].x + boxwidth;
 	    else
 		xhigh = plot->points[i].x + (plot->points[i].x - plot->points[i-1].x) / 2.;
-	    xhigh = AXIS_DE_LOG_VALUE(plot->x_axis, xhigh);
 	    if (axis_array[plot->x_axis].max < xhigh)
 		axis_array[plot->x_axis].max = xhigh;
 	}
@@ -1692,6 +1574,9 @@ boxplot_range_fiddling(struct curve_points *plot)
 {
     double extra_width;
     int N;
+
+    if (plot->p_count <= 0)
+	return;
 
     /* Create a tic label for each boxplot category */
     if (plot->boxplot_factors > 0) {
@@ -1943,8 +1828,7 @@ store_label(
 	string = "";
 
     textlen = 0;
-    /* FIXME EAM - this code is ugly but seems to work */
-    /* We need to handle quoted separators and quoted quotes */
+    /* Handle quoted separators and quoted quotes */
     if (df_separators) {
 	TBOOLEAN in_quote = FALSE;
 	while (string[textlen]) {
@@ -1996,9 +1880,11 @@ static void
 eval_plots()
 {
     int i;
-    struct curve_points *this_plot, **tp_ptr;
+    struct curve_points *this_plot = NULL;
+    struct curve_points **tp_ptr;
     t_uses_axis uses_axis[AXIS_ARRAY_SIZE];
-    int some_functions = 0;
+    TBOOLEAN some_functions = FALSE;
+    TBOOLEAN some_tables = FALSE;
     int plot_num, line_num;
     TBOOLEAN was_definition = FALSE;
     int pattern_num;
@@ -2008,10 +1894,8 @@ eval_plots()
     legend_key *key = &keyT;
     char orig_dummy_var[MAX_ID_LEN+1];
 
-#ifdef SMOOTH_BINS_OPTION
     int nbins = 0;
-    double binlow, binhigh;
-#endif
+    double binlow = 0, binhigh = 0, binwidth = 0;
 
     double newhist_start = 0.0;
     int histogram_sequence = -1;
@@ -2140,18 +2024,35 @@ eval_plots()
 #endif
 	    t_colorspec fillcolor = DEFAULT_COLORSPEC;
 
-	    int sample_range_token;	/* Only used by function plots */
+	    /* CHANGE: Aug 2017
+	     * Allow sampling both u and v so that it is possible to do
+	     * plot sample [u=min:max:inc] [v=min:max:inc] '++' ... with image
+	     */
+	    t_value original_value_sample_var, original_value_sample_var2;
+	    int sample_range_token, v_range_token;
 
 	    plot_num++;
 
 	    /* Check for a sampling range. */
 	    init_sample_range(axis_array + FIRST_X_AXIS);
 	    sample_range_token = parse_range(SAMPLE_AXIS);
-	    if (sample_range_token != 0)
+	    v_range_token = 0;
+	    if (sample_range_token != 0) {
 		axis_array[SAMPLE_AXIS].range_flags |= RANGE_SAMPLED;
+		/* If the sample was specifically on u we need to check v also */
+		if (equals(sample_range_token, "u")) {
+		    axis_array[U_AXIS].min = axis_array[SAMPLE_AXIS].min;
+		    axis_array[U_AXIS].max = axis_array[SAMPLE_AXIS].max;
+		    axis_array[U_AXIS].autoscale = axis_array[SAMPLE_AXIS].autoscale;
+		    axis_array[U_AXIS].SAMPLE_INTERVAL = axis_array[SAMPLE_AXIS].SAMPLE_INTERVAL;
+		    axis_array[U_AXIS].range_flags = axis_array[SAMPLE_AXIS].range_flags;
+		    v_range_token = parse_range(V_AXIS);
+		    if (v_range_token != 0)
+			axis_array[V_AXIS].range_flags |= RANGE_SAMPLED;
+		}
+	    }
 
 	    was_definition = FALSE;
-	    dummy_func = &plot_func;
 
 	    /* Allow replacement of the dummy variable in a function */
 	    if (sample_range_token > 0)
@@ -2161,7 +2062,7 @@ eval_plots()
 	    else
 		strcpy(c_dummy_var[0], orig_dummy_var);
 
-	    /* Should this be saved in "this_plot"? */
+	    dummy_func = &plot_func;	/* needed by parsing code */
 	    name_str = string_or_express(NULL);
 	    dummy_func = NULL;
 
@@ -2182,21 +2083,35 @@ eval_plots()
 		this_plot->plot_smooth = SMOOTH_NONE;
 		this_plot->filledcurves_options.opt_given = 0;
 
+		/* Only relevant to "with table" */
+		free_at(table_filter_at);
+		table_filter_at = NULL;
+
+		/* Mechanism for defered evaluation of plot title */
+		free_at(df_plot_title_at);
+
 		/* up to MAXDATACOLS cols */
 		df_set_plot_mode(MODE_PLOT);    /* Needed for binary datafiles */
 		specs = df_open(name_str, MAXDATACOLS, this_plot);
 
 		/* Store a pointer to the named variable used for sampling */
-		if (sample_range_token > 0) {
+		if (sample_range_token > 0)
 		    this_plot->sample_var = add_udv(sample_range_token);
-		} else {
-		    /* FIXME: This has the side effect of creating a named variable x */
-		    /* or overwriting an existing variable x.  Maybe it should save   */
-		    /* and restore the pre-existing variable in this case?            */
+		else
 		    this_plot->sample_var = add_udv_by_name(c_dummy_var[0]);
-		}
-		if (this_plot->sample_var->udv_value.type == NOTDEFINED)
-		    Gcomplex(&(this_plot->sample_var->udv_value), 0.0, 0.0);
+		if (v_range_token > 0)
+		    this_plot->sample_var2 = add_udv(v_range_token);
+		else
+		    this_plot->sample_var2 = add_udv_by_name(c_dummy_var[1]);
+
+		/* Save prior value of sample variables so we can restore them later */
+		original_value_sample_var = this_plot->sample_var->udv_value;
+		original_value_sample_var2 = this_plot->sample_var2->udv_value;
+		this_plot->sample_var->udv_value.type = NOTDEFINED;
+		this_plot->sample_var2->udv_value.type = NOTDEFINED;
+
+		/* Not sure this is necessary */
+		Gcomplex(&(this_plot->sample_var->udv_value), 0.0, 0.0);
 
 		/* include modifiers in default title */
 		this_plot->token = end_token = c_token - 1;
@@ -2205,7 +2120,7 @@ eval_plots()
 
 		/* function to plot */
 
-		some_functions = 1;
+		some_functions = TRUE;
 		if (parametric) /* working on x parametric function */
 		    in_parametric = !in_parametric;
 		if (*tp_ptr) {
@@ -2229,7 +2144,6 @@ eval_plots()
 	    while (!END_OF_COMMAND) {
 		int save_token = c_token;
 
-#ifdef SMOOTH_BINS_OPTION
 		/* bin the data if requested */
 		if (equals(c_token, "bins")) {
 		    if (set_smooth) {
@@ -2253,9 +2167,15 @@ eval_plots()
 			binlow = axis_array[SAMPLE_AXIS].min;
 			binhigh = axis_array[SAMPLE_AXIS].max;
 		    }
+		    binwidth = -1;
+		    if (equals(c_token, "binwidth")) {
+			if (!equals(++c_token, "="))
+			    int_error(c_token, "expecting binwidth=<width>");
+			c_token++;
+			binwidth = real_expression();
+		    }
 		    continue;
 		}
-#endif
 
 		/*  deal with smooth */
 		if (almost_equals(c_token, "s$mooth")) {
@@ -2269,6 +2189,10 @@ eval_plots()
 		    c_token++;
 
 		    switch(found_token) {
+		    case SMOOTH_BINS:
+			/* catch the "bins" keyword by itself on the next pass */
+			c_token--;
+			continue;
 		    case SMOOTH_UNWRAP:
 		    case SMOOTH_FREQUENCY:
 		    case SMOOTH_FREQUENCY_NORMALISED:
@@ -2386,26 +2310,21 @@ eval_plots()
 			    int_warn(c_token, "This plot style is only for datafiles, reverting to \"points\"");
 			    this_plot->plot_style = POINTSTYLE;
 			}
-		    if (this_plot->plot_style == TABLESTYLE) {
-			if (!table_mode)
-			    int_error(c_token, "'with table' requires a previous 'set table'");
-		    }
 
-		    /* Parallel plots require allocating additional storage.		*/
-		    /* NB: This will be one column more than needed if the final column	*/
-		    /*     contains variable color information. We will free it later.	*/
-		    if (this_plot->plot_style == PARALLELPLOT) {
-			int i;
-			if (df_no_use_specs < 2)
-			    int_error(NO_CARET, "not enough 'using' columns");
-			this_plot->n_par_axes = df_no_use_specs;
-			this_plot->z_n = gp_alloc((df_no_use_specs) * sizeof(double*), "z_n");
-			for (i = 0; i < this_plot->n_par_axes; i++)
-			    this_plot->z_n[i] = gp_alloc(this_plot->p_max * sizeof(double), "z_n[i]");
-		    }
-		
 		    set_with = TRUE;
 		    continue;
+		}
+
+		if (this_plot->plot_style == TABLESTYLE) {
+		    if (equals(c_token,"if")) {
+			if (table_filter_at) {
+			    duplication = TRUE;
+			    break;
+			}
+			c_token++;
+			table_filter_at = perm_at();
+			continue;
+		    }
 		}
 
 		/* pick up line/point specs and other style-specific keywords
@@ -2573,6 +2492,13 @@ eval_plots()
 
 	    if (duplication)
 		int_error(c_token, "duplicated or contradicting arguments in plot options");
+
+	    if (this_plot->plot_style == TABLESTYLE) {
+		if (!table_mode)
+		    int_error(NO_CARET, "'with table' requires a previous 'set table'");
+		expect_string( -1 );
+		some_tables = TRUE;
+	    }
 
 	    /* set default values for title if this has not been specified */
 	    this_plot->title_is_filename = FALSE;
@@ -2775,6 +2701,20 @@ eval_plots()
 		    this_plot->plot_type = NODATA;
 		    goto SKIPPED_EMPTY_FILE;
 		}
+
+		/* Parallel plots require allocating additional storage.		*/
+		/* NB: This will be one column more than needed if the final column	*/
+		/*     contains variable color information. We will free it later.	*/
+		if (this_plot->plot_style == PARALLELPLOT) {
+		    int i;
+		    if (df_no_use_specs < 2)
+			int_error(NO_CARET, "not enough 'using' columns");
+		    this_plot->n_par_axes = df_no_use_specs;
+		    this_plot->z_n = gp_alloc((df_no_use_specs) * sizeof(double*), "z_n");
+		    for (i = 0; i < this_plot->n_par_axes; i++)
+			this_plot->z_n[i] = gp_alloc(this_plot->p_max * sizeof(double), "z_n[i]");
+		}
+		
 		/* Reset flags to auto-scale X axis to contents of data set */
 		if (!(uses_axis[x_axis] & USES_AXIS_FOR_DATA) && X_AXIS.autoscale) {
 		    struct axis *scaling_axis;
@@ -2810,15 +2750,20 @@ eval_plots()
 		uses_axis[y_axis] |= USES_AXIS_FOR_FUNC;
 	    }
 
-	    if (!in_parametric
-		&& this_plot->plot_style != IMAGE
-		&& this_plot->plot_style != RGBIMAGE
-		&& this_plot->plot_style != RGBA_IMAGE
-		/* don't increment the default line/point properties if
-		 * this_plot is an image */
+	    /* These plot styles do not consume line/point properties */
+	    if (!in_parametric && this_plot->plot_style != IMAGE
+		&& this_plot->plot_style != RGBIMAGE && this_plot->plot_style != RGBA_IMAGE
 	    ) {
 		++line_num;
 	    }
+
+	    /* Image plots require 2 input dimensions */
+	    if (this_plot->plot_style == IMAGE
+	    ||  this_plot->plot_style == RGBIMAGE ||  this_plot->plot_style == RGBA_IMAGE) {
+		if (!strcmp(df_filename,"+"))
+		    int_error(NO_CARET, "image plots need more than 1 coordinate dimension ");
+	    }
+
 	    if (this_plot->plot_type == DATA) {
 
 		/* get_data() will update the ranges of autoscaled axes, but some */
@@ -2836,12 +2781,23 @@ eval_plots()
 		    goto SKIPPED_EMPTY_FILE;
 		}
 
-#ifdef SMOOTH_BINS_OPTION
+		/* Sep 2017 - Check for all points bad or out of range  */
+		/* (normally harmless but must not cause infinite loop) */
+		if (forever_iteration(plot_iterator)) {
+		    int n, ninrange = 0;
+		    for (n=0; n<this_plot->p_count; n++)
+			if (this_plot->points[n].type == INRANGE)
+			    ninrange++;
+		    if (ninrange == 0) {
+			this_plot->plot_type = NODATA;
+			goto SKIPPED_EMPTY_FILE;
+		    }
+		}
+
 		/* If we are to bin the data, do that first */
 		if (this_plot->plot_smooth == SMOOTH_BINS) {
-		    make_bins(this_plot, nbins, binlow, binhigh);
+		    make_bins(this_plot, nbins, binlow, binhigh, binwidth);
 		}
-#endif
 
 		/* Restore auto-scaling prior to smoothing operation */
 		switch (this_plot->plot_smooth) {
@@ -2864,19 +2820,8 @@ eval_plots()
 		    boxplot_range_fiddling(this_plot);
 		if (this_plot->plot_style == IMPULSES)
 		    impulse_range_fiddling(this_plot);
-
-		if (this_plot->plot_style == RGBIMAGE || this_plot->plot_style == RGBA_IMAGE) {
-		    if (CB_AXIS.autoscale & AUTOSCALE_MIN)
-			CB_AXIS.min = 0;
-		    if (CB_AXIS.autoscale & AUTOSCALE_MAX)
-			CB_AXIS.max = 255;
-		}
-		if (this_plot->plot_style == TABLESTYLE) {
-		    Y_AXIS.min = Y_AXIS.max = not_a_number();
-		}
-		if (polar) {
+		if (polar)
 		    polar_range_fiddling(this_plot);
-		}
 
 		/* sort */
 		switch (this_plot->plot_smooth) {
@@ -2918,6 +2863,7 @@ eval_plots()
 		case SMOOTH_BEZIER:
 		case SMOOTH_SBEZIER:
 		    gen_interp(this_plot);
+		    refresh_bounds(this_plot, 1);
 		    break;
 		case SMOOTH_KDENSITY:
 		    gen_interp(this_plot);
@@ -2951,6 +2897,12 @@ eval_plots()
 		this_plot->token = c_token;
 		tp_ptr = &(this_plot->next);
 
+	    /* restore original value of sample variables */
+	    if (name_str) {
+		this_plot->sample_var->udv_value = original_value_sample_var;
+		this_plot->sample_var2->udv_value = original_value_sample_var2;
+	    }
+
 	} /* !is_defn */
 
 	if (in_parametric) {
@@ -2962,9 +2914,9 @@ eval_plots()
 	}
 
 	/* Iterate-over-plot mechanism */
-	if (empty_iteration(plot_iterator) && this_plot) {
+	if (empty_iteration(plot_iterator) && this_plot)
 	    this_plot->plot_type = NODATA;
-	} else if (forever_iteration(plot_iterator) && (this_plot->plot_type == NODATA)) {
+	if (forever_iteration(plot_iterator) && (this_plot->plot_type == NODATA)) {
 	    FPRINTF((stderr,"Ending * iteration at %d\n",plot_iterator->iteration));
 	    ;
 	} else if (forever_iteration(plot_iterator) && (this_plot->plot_type == FUNC)) {
@@ -2997,21 +2949,12 @@ eval_plots()
     /* parametric or polar fns can still affect x ranges */
     if (!parametric && !polar) {
 
-	/* Autoscaling on x used the primary axis, so we must transform */
-	/* the range that was found back onto the visible X axis.	*/
-	/* If we were _not_ autoscaling, well I guess it doesn't hurt.	*/
-	/* NB: clone_linked_axes() is overkill.				*/
-	if (nonlinear(&axis_array[FIRST_X_AXIS])) {
-	    clone_linked_axes(axis_array[FIRST_X_AXIS].linked_to_primary,
-				&axis_array[FIRST_X_AXIS]);
-	}
-
 	/* If we were expecting to autoscale on X but found no usable
 	 * points in the data files, then the axis limits are still sitting
 	 * at +/- VERYLARGE.  The default range for bare functions is [-10:10].
 	 * Or we could give up and fall through to "x range invalid".
 	 */
-	if (some_functions && uses_axis[FIRST_X_AXIS])
+	if ((some_functions || some_tables) && uses_axis[FIRST_X_AXIS])
 	    if (axis_array[FIRST_X_AXIS].max == -VERYLARGE ||
 		axis_array[FIRST_X_AXIS].min == VERYLARGE) {
 		    axis_array[FIRST_X_AXIS].min = -10;
@@ -3021,10 +2964,7 @@ eval_plots()
 	/* check that xmin -> xmax is not too small */
 	axis_checked_extend_empty_range(FIRST_X_AXIS, "x range is invalid");
 
-	if (axis_array[SECOND_X_AXIS].linked_to_primary) {
-	    clone_linked_axes(axis_array[SECOND_X_AXIS].linked_to_primary, &axis_array[SECOND_X_AXIS]);
-	    /* FIXME: This obsoletes OUTRANGE/INRANGE for secondary axis data */
-	} else if (uses_axis[SECOND_X_AXIS] & USES_AXIS_FOR_DATA) {
+	if (uses_axis[SECOND_X_AXIS] & USES_AXIS_FOR_DATA) {
 	    /* check that x2min -> x2max is not too small */
 	    axis_checked_extend_empty_range(SECOND_X_AXIS, "x2 range is invalid");
 	} else if (axis_array[SECOND_X_AXIS].autoscale) {
@@ -3130,6 +3070,10 @@ eval_plots()
 		    if (parametric) {   /* toggle parametric axes */
 			in_parametric = !in_parametric;
 		    }
+
+		    if (this_plot->plot_style == TABLESTYLE)
+			int_warn(NO_CARET, "'with table' requires a data source not a pure function");
+
 		    plot_func.at = at_ptr;
 
 		    if (!parametric && !polar) {
@@ -3143,8 +3087,7 @@ eval_plots()
 			    t_max = eval_link_function(primary, t_max);
 			    FPRINTF((stderr,"sample range on primary axis: %g %g\n", t_min, t_max));
 			} else {
-			    /* FIXME: What if SAMPLE_AXIS is not x_axis? */
-			    axis_unlog_interval(&X_AXIS, &t_min, &t_max, 1);
+			    check_log_limits(&X_AXIS, t_min, t_max);
 			}
 
 			t_step = (t_max - t_min) / (samples_1 - 1);
@@ -3166,8 +3109,7 @@ eval_plots()
 			    t = 0.0;
 
 			/* parametric/polar => NOT a log quantity */
-			x = (!parametric && !polar)
-			    ? AXIS_DE_LOG_VALUE(x_axis, t) : t;
+			x = t;
 
 			(void) Gcomplex(&plot_func.dummy_values[0], x, 0.0);
 			evaluate_at(plot_func.at, &a);
@@ -3200,59 +3142,37 @@ eval_plots()
 				this_plot->points[i].z = 0;
 			} else if (polar) {
 			    double y;
-			    double phi = x;
+			    double theta = x;
 
-			    if (temp > R_AXIS.max) {
-				if (R_AXIS.autoscale & AUTOSCALE_MAX)
-				    R_AXIS.max = temp;
-				else
-				    this_plot->points[i].type = OUTRANGE;
-			    }
-			    if (temp < R_AXIS.min) {
-				if (R_AXIS.autoscale & AUTOSCALE_MIN)
-				    R_AXIS.min = 0;
-			    }
-			    if (nonlinear(&R_AXIS)) {
-				AXIS *shadow = R_AXIS.linked_to_primary;
-				temp = eval_link_function(shadow, temp) - shadow->min;
-			    } else if (R_AXIS.log) {
-				temp = AXIS_DO_LOG(POLAR_AXIS,temp)
-				     - AXIS_DO_LOG(POLAR_AXIS,R_AXIS.min);
-			    } else if (!(R_AXIS.autoscale & AUTOSCALE_MIN))
-				temp -= R_AXIS.min;
-
-			    y = temp * sin(phi * ang2rad);
-			    x = temp * cos(phi * ang2rad);
+			    /* Convert from polar to cartesian coordinates and check ranges */
+			    if (polar_to_xy(theta, temp, &x, &y, TRUE) == OUTRANGE)
+				this_plot->points[i].type = OUTRANGE;;
 
 			    if ((this_plot->plot_style == FILLEDCURVES) 
 			    &&  (this_plot->filledcurves_options.closeto == FILLEDCURVES_ATR)) {
 			    	double xhigh, yhigh;
-				double temp = this_plot->filledcurves_options.at;
-				temp = AXIS_LOG_VALUE(POLAR_AXIS,temp)
-				     - AXIS_LOG_VALUE(POLAR_AXIS,R_AXIS.min);
-				yhigh = temp * sin(phi * ang2rad);
-				xhigh = temp * cos(phi * ang2rad);
-				STORE_WITH_LOG_AND_UPDATE_RANGE(
+				(void) polar_to_xy(theta, this_plot->filledcurves_options.at,
+						    &xhigh, &yhigh, TRUE);
+				STORE_AND_UPDATE_RANGE(
 				    this_plot->points[i].xhigh, xhigh, this_plot->points[i].type, x_axis,
-				    this_plot->noautoscale, NOOP, goto come_here_if_undefined);
-			 	STORE_WITH_LOG_AND_UPDATE_RANGE(
+				    this_plot->noautoscale, goto come_here_if_undefined);
+			 	STORE_AND_UPDATE_RANGE(
 				    this_plot->points[i].yhigh, yhigh, this_plot->points[i].type, y_axis,
-				    this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+				    this_plot->noautoscale, goto come_here_if_undefined);
 			    }
 
-			    STORE_WITH_LOG_AND_UPDATE_RANGE(
+			    STORE_AND_UPDATE_RANGE(
 			    	this_plot->points[i].x, x, this_plot->points[i].type, x_axis,
-			    	this_plot->noautoscale, NOOP, goto come_here_if_undefined);
-			    STORE_WITH_LOG_AND_UPDATE_RANGE(
+			    	this_plot->noautoscale, goto come_here_if_undefined);
+			    STORE_AND_UPDATE_RANGE(
 			    	this_plot->points[i].y, y, this_plot->points[i].type, y_axis,
-			        this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+			        this_plot->noautoscale, goto come_here_if_undefined);
 			} else {        /* neither parametric or polar */
-			    /* logscale ? log(x) : x */
 			    this_plot->points[i].x = t;
 
 			    /* A sampled function can only be OUTRANGE if it has a private range */
 			    if (sample_range_token != 0) {
-				double xx = AXIS_DE_LOG_VALUE(x_axis, t);
+				double xx = t;
 				if (!inrange(xx, axis_array[this_plot->x_axis].min,
 						axis_array[this_plot->x_axis].max))
 				    this_plot->points[i].type = OUTRANGE;
@@ -3272,22 +3192,21 @@ eval_plots()
 				    xlow = x - boxwidth/2;
 				    xhigh = x + boxwidth/2;
 				}
-				STORE_WITH_LOG_AND_UPDATE_RANGE( this_plot->points[i].xlow,
+				STORE_AND_UPDATE_RANGE( this_plot->points[i].xlow,
 					xlow, dmy_type, x_axis,
-					this_plot->noautoscale, NOOP, NOOP );
+					this_plot->noautoscale, NOOP );
 				dmy_type = INRANGE;
-				STORE_WITH_LOG_AND_UPDATE_RANGE( this_plot->points[i].xhigh, 
+				STORE_AND_UPDATE_RANGE( this_plot->points[i].xhigh, 
 					xhigh, dmy_type, x_axis,
-					this_plot->noautoscale, NOOP, NOOP );
+					this_plot->noautoscale, NOOP );
 			    }
 
 			    if (this_plot->plot_style == FILLEDCURVES) {
 				this_plot->points[i].xhigh = this_plot->points[i].x;
-				STORE_WITH_LOG_AND_UPDATE_RANGE(
-				    this_plot->points[i].yhigh,
+				STORE_AND_UPDATE_RANGE( this_plot->points[i].yhigh,
 				    this_plot->filledcurves_options.at,
 				    this_plot->points[i].type, y_axis,
-				    TRUE, NOOP, NOOP);
+				    TRUE, NOOP);
 			    }
 			    
 			    /* Fill in additional fields needed to draw a circle */
@@ -3302,9 +3221,9 @@ eval_plots()
 			    }
 #endif
 
-			    STORE_WITH_LOG_AND_UPDATE_RANGE(this_plot->points[i].y, temp, 
+			    STORE_AND_UPDATE_RANGE(this_plot->points[i].y, temp, 
 			    	this_plot->points[i].type, in_parametric ? x_axis : y_axis,
-			    	this_plot->noautoscale, NOOP, goto come_here_if_undefined);
+			    	this_plot->noautoscale, goto come_here_if_undefined);
 
 			    /* could not use a continue in this case */
 			  come_here_if_undefined:
@@ -3381,23 +3300,22 @@ eval_plots()
 	if (axis_array[FIRST_X_AXIS].max == -VERYLARGE ||
 	    axis_array[FIRST_X_AXIS].min == VERYLARGE)
 	    int_error(NO_CARET, "all points undefined!");
-	axis_revert_and_unlog_range(FIRST_X_AXIS);
+	axis_check_range(FIRST_X_AXIS);
     }
     if (uses_axis[SECOND_X_AXIS]) {
 	if (axis_array[SECOND_X_AXIS].max == -VERYLARGE ||
 	    axis_array[SECOND_X_AXIS].min == VERYLARGE)
 	    int_error(NO_CARET, "all points undefined!");
-	axis_revert_and_unlog_range(SECOND_X_AXIS);
+	axis_check_range(SECOND_X_AXIS);
     } else {
 	/* FIXME: If this triggers, doesn't it clobber linked axes? */
-	/*        Maybe we should just call clone_linked_axes()?    */
 	assert(uses_axis[FIRST_X_AXIS]);
 	if (axis_array[SECOND_X_AXIS].autoscale & AUTOSCALE_MIN)
 	    axis_array[SECOND_X_AXIS].min = axis_array[FIRST_X_AXIS].min;
 	if (axis_array[SECOND_X_AXIS].autoscale & AUTOSCALE_MAX)
 	    axis_array[SECOND_X_AXIS].max = axis_array[FIRST_X_AXIS].max;
 	if (! axis_array[SECOND_X_AXIS].autoscale)
-	    axis_revert_and_unlog_range(SECOND_X_AXIS);
+	    axis_check_range(SECOND_X_AXIS);
     }
     if (! uses_axis[FIRST_X_AXIS]) {
 	assert(uses_axis[SECOND_X_AXIS]);
@@ -3407,17 +3325,26 @@ eval_plots()
 	    axis_array[FIRST_X_AXIS].max = axis_array[SECOND_X_AXIS].max;
     }
 
-    if (uses_axis[FIRST_Y_AXIS] && nonlinear(&axis_array[FIRST_Y_AXIS])) {
-	clone_linked_axes(axis_array[FIRST_Y_AXIS].linked_to_primary, &axis_array[FIRST_Y_AXIS]);
+    /* min/max values were tracked during input for the visible axes.       */
+    /* Now we use them to update the corresponding shadow (nonlinear) ones. */
+	update_primary_axis_range(&axis_array[FIRST_X_AXIS]);
+	update_primary_axis_range(&axis_array[SECOND_X_AXIS]);
+
+
+    if (this_plot && this_plot->plot_style == TABLESTYLE) {
+	/* the y axis range has no meaning in this case */
+	;
+    } else if (uses_axis[FIRST_Y_AXIS] && nonlinear(&axis_array[FIRST_Y_AXIS])) {
+	update_primary_axis_range(&axis_array[FIRST_Y_AXIS]);
     } else if (uses_axis[FIRST_Y_AXIS]) {
 	axis_checked_extend_empty_range(FIRST_Y_AXIS, "all points y value undefined!");
-	axis_revert_and_unlog_range(FIRST_Y_AXIS);
+	axis_check_range(FIRST_Y_AXIS);
     }
     if (uses_axis[SECOND_Y_AXIS] && axis_array[SECOND_Y_AXIS].linked_to_primary) {
-	clone_linked_axes(axis_array[SECOND_Y_AXIS].linked_to_primary, &axis_array[SECOND_Y_AXIS]);
+	update_primary_axis_range(&axis_array[SECOND_Y_AXIS]);
     } else if (uses_axis[SECOND_Y_AXIS]) {
 	axis_checked_extend_empty_range(SECOND_Y_AXIS, "all points y2 value undefined!");
-	axis_revert_and_unlog_range(SECOND_Y_AXIS);
+	axis_check_range(SECOND_Y_AXIS);
     } else {
 	/* else we want to copy y2 range */
 	assert(uses_axis[FIRST_Y_AXIS]);
@@ -3428,7 +3355,7 @@ eval_plots()
 	/* Log() fixup is only necessary if the range was *not* copied from
 	 * the (already logarithmized) yrange */
 	if (! axis_array[SECOND_Y_AXIS].autoscale)
-	    axis_revert_and_unlog_range(SECOND_Y_AXIS);
+	    axis_check_range(SECOND_Y_AXIS);
     }
     if (! uses_axis[FIRST_Y_AXIS]) {
 	assert(uses_axis[SECOND_Y_AXIS]);
@@ -3438,11 +3365,14 @@ eval_plots()
 	    axis_array[FIRST_Y_AXIS].max = axis_array[SECOND_Y_AXIS].max;
     }
 
-    /* June 2014 - This call was in boundary(), called from do_plot()
-     * but it caused problems if do_plot() itself was called for a refresh
-     * rather than for plot/replot.  So we call it here instead.
+    /* This call was in boundary(), called from do_plot(), but it caused
+     * logscaling problems if do_plot() itself was called for refresh
+     * rather than for plot/replot.  So we moved it here (June 2014)
+     * and added palette checks (March 2017).
      */
-    set_cbminmax();
+    set_plot_with_palette(0, MODE_PLOT);
+    if (is_plot_with_palette())
+	set_cbminmax();
 
     /* the following ~5 lines were moved from the end of the
      * function to here, as do_plot calles term->text, which
@@ -3462,7 +3392,6 @@ eval_plots()
 	print_table(first_plot, plot_num);
 
     } else {
-	/* do_plot now uses axis_array[] */
 	do_plot(first_plot, plot_num);
 
 	/* after do_plot(), axis_array[].min and .max
@@ -3535,64 +3464,33 @@ parametric_fixup(struct curve_points *start_plot, int *plot_num)
 	     */
 
 	    for (i = 0; i < yp->p_count; ++i) {
+		double x, y;
 		if (polar) {
 		    double r = yp->points[i].y;
-		    double t = xp->points[i].y * ang2rad;
-		    double x, y;
-
-		    if (!(R_AXIS.autoscale & AUTOSCALE_MAX) && r > R_AXIS.max)
+		    double t = xp->points[i].y;
+		    /* Convert from polar to cartesian coordinate and check ranges */
+		    /* FIXME: The old in-line conversion checked R_AXIS.max agains fabs(r).
+		     * That's not what polar_to_xy() is currently doing.
+		     */
+		    if (polar_to_xy(t, r, &x, &y, TRUE) == OUTRANGE)
 			yp->points[i].type = OUTRANGE;
-
-		    /* Fill in the R_AXIS min/max if autoscaling */
-		    /* EAM FIXME: This was Bug #1323.  What about log scale? */
-		    if ((R_AXIS.autoscale & AUTOSCALE_MAX) && (fabs(r) > R_AXIS.max)) {
-			if ((R_AXIS.max_constraint & CONSTRAINT_UPPER)
-			&&  (R_AXIS.max_ub < fabs(r)))
-			    R_AXIS.max = R_AXIS.max_ub;
-			else
-			    R_AXIS.max = fabs(r);
-		    }
-		    if (R_AXIS.autoscale & AUTOSCALE_MIN) {
-			    R_AXIS.min = 0;
-		    } else {
-			/* store internally as if plotting r(t)-rmin */
-			r -= (r > 0) ? R_AXIS.min : -R_AXIS.min;
-		    }
-
-		    /* Convert from polar to cartesian for plotting */
-		    x = r * cos(t);
-		    y = r * sin(t);
-
-		    if (boxwidth >= 0 && boxwidth_is_absolute) {
-			coord_type dmy_type = INRANGE;
-			STORE_WITH_LOG_AND_UPDATE_RANGE( yp->points[i].xlow, x - boxwidth/2, dmy_type, xp->x_axis,
-							 xp->noautoscale, NOOP, NOOP );
-			dmy_type = INRANGE;
-			STORE_WITH_LOG_AND_UPDATE_RANGE( yp->points[i].xhigh, x + boxwidth/2, dmy_type, xp->x_axis,
-							 xp->noautoscale, NOOP, NOOP );
-		    }
-		    /* we hadn't done logs when we stored earlier */
-		    STORE_WITH_LOG_AND_UPDATE_RANGE(yp->points[i].x, x, yp->points[i].type, xp->x_axis,
-		    				 xp->noautoscale, NOOP, NOOP);
-		    STORE_WITH_LOG_AND_UPDATE_RANGE(yp->points[i].y, y, yp->points[i].type, xp->y_axis,
-		    				 xp->noautoscale, NOOP, NOOP);
 		} else {
-		    double x = xp->points[i].y;
-		    double y = yp->points[i].y;
+		    x = xp->points[i].y;
+		    y = yp->points[i].y;
 
-		    if (boxwidth >= 0 && boxwidth_is_absolute) {
-			coord_type dmy_type = INRANGE;
-			STORE_WITH_LOG_AND_UPDATE_RANGE( yp->points[i].xlow, x - boxwidth/2, dmy_type, yp->x_axis,
-							 xp->noautoscale, NOOP, NOOP );
-			dmy_type = INRANGE;
-			STORE_WITH_LOG_AND_UPDATE_RANGE( yp->points[i].xhigh, x + boxwidth/2, dmy_type, yp->x_axis,
-							 xp->noautoscale, NOOP, NOOP );
-		    }
-		    STORE_WITH_LOG_AND_UPDATE_RANGE(yp->points[i].x, x, yp->points[i].type, yp->x_axis,
-		    				 xp->noautoscale, NOOP, NOOP);
-		    STORE_WITH_LOG_AND_UPDATE_RANGE(yp->points[i].y, y, yp->points[i].type, yp->y_axis,
-		    				 xp->noautoscale, NOOP, NOOP);
 		}
+		if (boxwidth >= 0 && boxwidth_is_absolute) {
+		    coord_type dmy_type = INRANGE;
+		    STORE_AND_UPDATE_RANGE( yp->points[i].xlow, x - boxwidth/2, dmy_type, yp->x_axis,
+					     xp->noautoscale, NOOP );
+		    dmy_type = INRANGE;
+		    STORE_AND_UPDATE_RANGE( yp->points[i].xhigh, x + boxwidth/2, dmy_type, yp->x_axis,
+					     xp->noautoscale, NOOP );
+		}
+		STORE_AND_UPDATE_RANGE( yp->points[i].x, x, yp->points[i].type, xp->x_axis,
+		    			xp->noautoscale, NOOP);
+		STORE_AND_UPDATE_RANGE( yp->points[i].y, y, yp->points[i].type, xp->y_axis,
+		    			xp->noautoscale, NOOP);
 	    }
 
 	    /* move xp to head of free list */
@@ -3655,12 +3553,35 @@ parse_plot_title(struct curve_points *this_plot, char *xtitle, char *ytitle, TBO
 	} else if (equals(c_token,"at")) {
 	    *set_title = FALSE;
 	} else {
-	    char *temp;
-	    evaluate_inside_using = TRUE;
-	    temp = try_to_get_string();
-	    evaluate_inside_using = FALSE;
-	    if (!this_plot->title_is_suppressed && !(this_plot->title = temp))
-		    int_error(c_token, "expecting \"title\" for plot");
+	    int save_token = c_token;
+
+	    /* If the command is "plot ... notitle <optional title text>" */
+	    /* we can throw the result away now that we have stepped over it  */
+	    if (this_plot->title_is_suppressed) {
+		char *skip = try_to_get_string();
+		free(skip);
+
+	    /* Create an action table that can generate the title later */
+	    } else { 
+		free_at(df_plot_title_at);
+		df_plot_title_at = perm_at();
+
+		/* We can evaluate the title for a function plot immediately */
+		/* FIXME: or this code could go into eval_plots() so that    */
+		/*        function and data plots are treated the same way.  */
+		if (this_plot->plot_type == FUNC || this_plot->plot_type == FUNC3D) {
+		    struct value a;
+		    evaluate_at(df_plot_title_at, &a);
+		    if (a.type == STRING) {
+			free(this_plot->title);
+			this_plot->title = a.v.string_val;
+		    } else {
+			int_warn(save_token, "expecting string for title");
+		    }
+		    free_at(df_plot_title_at);
+		    df_plot_title_at = NULL;
+		}
+	    }
 	}
 	if (equals(c_token,"at")) {
 	    int save_token = ++c_token;
@@ -3668,16 +3589,28 @@ parse_plot_title(struct curve_points *this_plot, char *xtitle, char *ytitle, TBO
 	    if (equals(c_token,"end")) {
 		this_plot->title_position->scalex = character;
 		this_plot->title_position->x = 1;
+		this_plot->title_position->y = LEFT;
 		c_token++;
 	    } else if (almost_equals(c_token,"beg$inning")) {
 		this_plot->title_position->scalex = character;
 		this_plot->title_position->x = -1;
+		this_plot->title_position->y = RIGHT;
 		c_token++;
 	    } else {
 		get_position_default(this_plot->title_position, screen, 2);
 	    }
 	    if (save_token == c_token)
 		int_error(c_token, "expecting \"at {beginning|end|<xpos>,<ypos>}\"");
+	    if (equals(c_token,"right")) {
+		if (this_plot->title_position->scalex == character)
+		    this_plot->title_position->y = RIGHT;
+		c_token++;
+	    }
+	    if (equals(c_token,"left")) {
+		if (this_plot->title_position->scalex == character)
+		    this_plot->title_position->y = LEFT;
+		c_token++;
+	    }
 	}
     }
 
@@ -3689,4 +3622,20 @@ parse_plot_title(struct curve_points *this_plot, char *xtitle, char *ytitle, TBO
 	this_plot->title_no_enhanced = TRUE;
     }
 
+}
+
+void
+reevaluate_plot_title(struct curve_points *this_plot)
+{
+    struct value a;
+
+    if (df_plot_title_at) {
+	evaluate_inside_using = TRUE;
+	evaluate_at(df_plot_title_at, &a);
+	evaluate_inside_using = FALSE;
+	if (a.type == STRING) {
+	    free(this_plot->title);
+	    this_plot->title = a.v.string_val;
+	}
+    }
 }

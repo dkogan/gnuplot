@@ -55,7 +55,7 @@ plot3d.c plot3d.h pm3d.c pm3d.h readline.c readline.h save.c \
 save.h scanner.c scanner.h set.c setshow.h show.c specfun.c specfun.h \
 standard.c standard.h stats.h stats.c stdfn.c stdfn.h syscfg.h tables.c tables.h \
 tabulate.c tabulate.h \
-template.h term_api.h term.c term.h time.c unset.c util.c util.h \
+term_api.h term.c term.h time.c unset.c util.c util.h \
 util3d.c util3d.h variable.c variable.h version.c version.h
 
 gnuplot_LDADD = $(TERMLIBS) $(TERMXLIBS) $(WX_LIBS) $(QT_LIBS)
@@ -178,12 +178,13 @@ qtterminal/QtGnuplotEvent.cpp
 gnuplot_qt_LDADD = $(QT_LIBS)
 
 # embed example (uncomment to build it)
-
+# 
 # bin_PROGRAMS += embed_example
 # 
-# nodist_embed_example_SOURCES = moc_embed_example.cpp moc_QtGnuplotInstance.cpp \
-#                          moc_QtGnuplotWidget.cpp moc_QtGnuplotScene.cpp \
-#                          moc_QtGnuplotEvent.cpp qrc_QtGnuplotResource.cpp
+# nodist_embed_example_SOURCES = qtterminal/moc_embed_example.cpp \
+#          qtterminal/moc_QtGnuplotInstance.cpp \
+#          qtterminal/moc_QtGnuplotWidget.cpp qtterminal/moc_QtGnuplotScene.cpp \
+#          qtterminal/moc_QtGnuplotEvent.cpp qtterminal/qrc_QtGnuplotResource.cpp
 # 
 # embed_example_SOURCES = qtterminal/embed_example.cpp \
 # qtterminal/QtGnuplotWidget.cpp qtterminal/QtGnuplotEvent.cpp \

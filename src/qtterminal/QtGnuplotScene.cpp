@@ -186,7 +186,6 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 	if (type == GEClear)
 	{
 		resetItems();
-		m_preserve_visibility = false;
 	}
 	else if (type == GELineWidth)
 	{
@@ -346,10 +345,10 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		positionText(textItem, point);
 
 		QRectF rect = textItem->boundingRect();
-		if (m_textAlignment == Qt::AlignCenter) {
+		if (m_textAlignment & Qt::AlignCenter) {
 			rect.moveCenter(point);
 			rect.moveBottom(point.y());
-		} else if (m_textAlignment == Qt::AlignRight)
+		} else if (m_textAlignment & Qt::AlignRight)
 			rect.moveBottomRight(point);
 		else
 			rect.moveBottomLeft(point);
@@ -395,10 +394,10 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 		addItem(m_enhanced);
 
 		QRectF rect = m_enhanced->boundingRect();
-		if (m_textAlignment == Qt::AlignCenter) {
+		if (m_textAlignment & Qt::AlignCenter) {
 			rect.moveCenter(point);
 			rect.moveBottom(point.y());
-		} else if (m_textAlignment == Qt::AlignRight)
+		} else if (m_textAlignment & Qt::AlignRight)
 			rect.moveBottomRight(point);
 		else
 			rect.moveBottomLeft(point);
@@ -461,7 +460,6 @@ void QtGnuplotScene::processEvent(QtGnuplotEventType type, QDataStream& in)
 			m_zoomStopText->setPlainText(text); /// @todo font
 			m_zoomStopText->setPos(m_lastMousePos);
 			m_zoomRect->setRect(QRectF(m_zoomBoxCorner + QPointF(0.5, 0.5), m_lastMousePos + QPointF(0.5, 0.5)).normalized());
-			m_zoomRect->setZValue(32767);  // make sure guide box is on top
 		}
 	}
 	else if (type == GELineTo)
@@ -665,10 +663,13 @@ void QtGnuplotScene::resetItems()
 
 	m_zoomRect = addRect(QRect(), QPen(QColor(0, 0, 0, 200)), QBrush(QColor(0, 0, 255, 40)));
 	m_zoomRect->setVisible(false);
+	m_zoomRect->setZValue(32767);       // make sure guide box is on top
 	m_zoomStartText = addText("");
 	m_zoomStopText  = addText("");
 	m_zoomStartText->setVisible(false);
 	m_zoomStopText->setVisible(false);
+	m_zoomStartText->setZValue(32767);  // make sure guide box annotation is on top
+	m_zoomStopText->setZValue(32767);
 	m_horizontalRuler = addLine(QLine(0, 0, width(), 0) , QPen(QColor(0, 0, 0, 200)));
 	m_verticalRuler   = addLine(QLine(0, 0, 0, height()), QPen(QColor(0, 0, 0, 200)));
 	m_lineTo          = addLine(QLine()                 , QPen(QColor(0, 0, 0, 200)));
@@ -738,11 +739,11 @@ void QtGnuplotScene::positionText(QGraphicsItem* item, const QPoint& point)
 
 	double cx = 0.;
 	double cy = (item->boundingRect().bottom() + item->boundingRect().top())/2.;
-	if (m_textAlignment == Qt::AlignLeft)
+	if (m_textAlignment & Qt::AlignLeft)
 		cx = item->boundingRect().left();
-	else if (m_textAlignment == Qt::AlignRight)
+	else if (m_textAlignment & Qt::AlignRight)
 		cx = item->boundingRect().right();
-	else if (m_textAlignment == Qt::AlignCenter)
+	else if (m_textAlignment & Qt::AlignCenter)
 		cx = (item->boundingRect().right() + item->boundingRect().left())/2.;
 
 	item->setTransformOriginPoint(cx, cy);
@@ -905,6 +906,7 @@ void QtGnuplotScene::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 				    m_plot_group[i]->setVisible(true);
 				    m_key_boxes[i].setHidden(false);
 			    }
+			    m_preserve_visibility = true;
 			    break;
 		    }
 	    }

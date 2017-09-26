@@ -1,5 +1,5 @@
 /*
- * $Id: stdfn.h,v 1.54 2016-10-15 09:08:52 markisch Exp $
+ * $Id: stdfn.h,v 1.58 2017-08-06 09:12:08 markisch Exp $
  */
 
 /* GNUPLOT - stdfn.h */
@@ -336,13 +336,16 @@ char *strndup __PROTO((const char * str, size_t n));
 size_t strnlen __PROTO((const char *str, size_t n));
 #endif
 
-#if defined(_MSC_VER)
+#if defined(_MSC_VER) && (_MSC_VER < 1900)
 int ms_vsnprintf(char *str, size_t size, const char *format, va_list ap);
 int ms_snprintf(char *str, size_t size, const char * format, ...);
 #endif
 
 #ifndef GP_GETCWD
-# if defined(HAVE_GETCWD)
+# if defined(_WIN32)
+#  define GP_GETCWD(path,len) gp_getcwd (path, len)
+char * gp_getcwd(char *path, size_t len);
+# elif defined(HAVE_GETCWD)
 #   if defined(__EMX__)
 #     define GP_GETCWD(path,len) _getcwd2 (path, len)
 #   else
@@ -351,10 +354,6 @@ int ms_snprintf(char *str, size_t size, const char * format, ...);
 # else
 #  define GP_GETCWD(path,len) getwd (path)
 # endif
-#endif
-
-#ifdef _WIN32
-# include <windows.h>
 #endif
 
 /* sleep delay time, where delay is a double value */
@@ -397,7 +396,7 @@ void gp_exit_cleanup __PROTO((void));
 
 char * gp_basename __PROTO((char *path));
 
-#if !defined(HAVE_DIRENT_H) && defined(WIN32) && (!defined(__WATCOMC__))
+#ifdef _WIN32
 /*
 
     Declaration of POSIX directory browsing functions and types for Win32.
@@ -419,21 +418,27 @@ char * gp_basename __PROTO((char *path));
     But that said, if there are any problems please get in touch.
 
 */
-typedef struct DIR DIR;
+typedef struct GPDIR GPDIR;
 
-struct dirent
+struct gp_dirent
 {
     char *d_name;
 };
 
-DIR           *opendir __PROTO((const char *));
-int           closedir __PROTO((DIR *));
-struct dirent *readdir __PROTO((DIR *));
-void          rewinddir __PROTO((DIR *));
+GPDIR * gp_opendir(const char *);
+int gp_closedir(GPDIR *);
+struct gp_dirent *gp_readdir(GPDIR *);
+void gp_rewinddir(GPDIR *);
+#define opendir(p) gp_opendir(p)
+#define closedir(d) gp_closedir(d)
+#define readdir(d) gp_readdir(d)
+#define rewinddir(d) gp_rewinddir(d)
+#define dirent gp_dirent
+#define DIR GPDIR
 #elif defined(HAVE_DIRENT_H)
 # include <sys/types.h>
 # include <dirent.h>
-#endif /* !HAVE_DIRENT_H && WIN32 */
+#endif /* !HAVE_DIRENT_H && _WIN32 */
 
 
 /* Misc. defines */

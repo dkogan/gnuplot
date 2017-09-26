@@ -76,7 +76,9 @@
 #define HAVE_DECL_SIGNGAM 0
 
 /* Define to 1 if you have the <dirent.h> header file. */
-#define HAVE_DIRENT_H 1
+/* dirent.h is available, but we use our own encoding-aware versions
+   of opendir() and friend in stdfn.c */
+/* #undef HAVE_DIRENT_H */
 
 /* Define to 1 if you have the <dlfcn.h> header file. */
 /* #undef HAVE_DLFCN_H */
@@ -298,9 +300,6 @@
 /* Define to 1 if you have the `sleep' function. */
 /* #undef HAVE_SLEEP */
 
-/* Define to 1 if you have the `snprintf' function. */
-#define HAVE_SNPRINTF 1
-
 /* Define to 1 if stdbool.h conforms to C99. */
 #define HAVE_STDBOOL_H 1
 
@@ -491,13 +490,13 @@
 #define PACKAGE_NAME "gnuplot"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "gnuplot 5.1"
+#define PACKAGE_STRING "gnuplot 5.3"
 
 /* Define to the one symbol short name of this package. */
 #define PACKAGE_TARNAME "gnuplot"
 
 /* Define to the version of this package. */
-#define PACKAGE_VERSION "5.1"
+#define PACKAGE_VERSION "5.3"
 
 /* The patch level, a.k.a. micro version number */
 /* #undef PATCHLEVEL */
@@ -559,7 +558,7 @@
 /* #undef USE_X11_MULTIBYTE */
 
 /* Version number of package */
-#define VERSION "5.1"
+#define VERSION "5.3"
 
 /* The main version number */
 /* #undef VERSION_MAJOR */
@@ -618,12 +617,9 @@
  * ==================================================
  */
 
-
-#ifndef WIN32
-# define WIN32
-#endif
-
 #define HAVE_GDIPLUS
+#define HAVE_DWRITE
+#define HAVE_D2D
 
 /* Windows Interprocess Communication is required for mouse support. */
 /* Both USE_MOUSE and WIN_IPC must be defined together in the Makefile. */

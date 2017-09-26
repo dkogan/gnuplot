@@ -1,5 +1,5 @@
 #ifndef lint
-static char *RCSid() { return RCSid("$Id: eval.c,v 1.142 2016-10-10 22:53:38 sfeam Exp $"); }
+static char *RCSid() { return RCSid("$Id: eval.c,v 1.151 2017-08-09 04:43:25 sfeam Exp $"); }
 #endif
 
 /* GNUPLOT - eval.c */
@@ -170,8 +170,10 @@ const struct ft_entry GPFAR ft[] =
     {"log",  f_log},
     {"besj0",  f_besj0},
     {"besj1",  f_besj1},
+    {"besjn",  f_besjn},
     {"besy0",  f_besy0},
     {"besy1",  f_besy1},
+    {"besyn",  f_besyn},
     {"erf",  f_erf},
     {"erfc",  f_erfc},
     {"gamma",  f_gamma},
@@ -326,7 +328,7 @@ magnitude(struct value *val)
 {
     switch (val->type) {
     case INTGR:
-	return ((double) abs(val->v.int_val));
+	return (fabs((double)val->v.int_val));
     case CMPLX:
 	{
 	    /* The straightforward implementation sqrt(r*r+i*i)
@@ -509,7 +511,6 @@ pop_or_convert_from_string(struct value *v)
 {
     (void) pop(v);
 
-    /* DEBUG Dec 2014 - Consolidate sanity check for variable type */
     /* FIXME: Test for INVALID_VALUE? Other corner cases? */
     if (v->type == INVALID_NAME)
 	int_error(NO_CARET, "invalid dummy variable name");
@@ -842,10 +843,10 @@ clear_udf_list()
 static void update_plot_bounds __PROTO((void));
 static void fill_gpval_axis __PROTO((AXIS_INDEX axis));
 static void fill_gpval_sysinfo __PROTO((void));
-static void set_gpval_axis_sth_double __PROTO((const char *prefix, AXIS_INDEX axis, const char *suffix, double value, int is_int));
+static void set_gpval_axis_sth_double __PROTO((const char *prefix, AXIS_INDEX axis, const char *suffix, double value));
 
 static void
-set_gpval_axis_sth_double(const char *prefix, AXIS_INDEX axis, const char *suffix, double value, int is_int)
+set_gpval_axis_sth_double(const char *prefix, AXIS_INDEX axis, const char *suffix, double value)
 {
     struct udvt_entry *v;
     char *cc, s[24];
@@ -855,10 +856,7 @@ set_gpval_axis_sth_double(const char *prefix, AXIS_INDEX axis, const char *suffi
     v = add_udv_by_name(s);
     if (!v) 
 	return; /* should not happen */
-    if (is_int)
-	Ginteger(&v->udv_value, (int)(value+0.5));
-    else
-	Gcomplex(&v->udv_value, value, 0);
+    Gcomplex(&v->udv_value, value, 0);
 }
 
 static void
@@ -866,15 +864,13 @@ fill_gpval_axis(AXIS_INDEX axis)
 {
     const char *prefix = "GPVAL";
     AXIS *ap = &axis_array[axis];
-    double a = AXIS_DE_LOG_VALUE(axis, ap->min);
-    double b = AXIS_DE_LOG_VALUE(axis, ap->max);
-    set_gpval_axis_sth_double(prefix, axis, "MIN", a, 0);
-    set_gpval_axis_sth_double(prefix, axis, "MAX", b, 0);
-    set_gpval_axis_sth_double(prefix, axis, "LOG", ap->base, 0);
+    set_gpval_axis_sth_double(prefix, axis, "MIN", ap->min);
+    set_gpval_axis_sth_double(prefix, axis, "MAX", ap->max);
+    set_gpval_axis_sth_double(prefix, axis, "LOG", ap->base);
 
     if (axis < POLAR_AXIS) {
-	set_gpval_axis_sth_double("GPVAL_DATA", axis, "MIN", AXIS_DE_LOG_VALUE(axis, ap->data_min), 0);
-	set_gpval_axis_sth_double("GPVAL_DATA", axis, "MAX", AXIS_DE_LOG_VALUE(axis, ap->data_max), 0);
+	set_gpval_axis_sth_double("GPVAL_DATA", axis, "MIN", ap->data_min);
+	set_gpval_axis_sth_double("GPVAL_DATA", axis, "MAX", ap->data_max);
     }
 }
 
@@ -974,6 +970,16 @@ update_gpval_variables(int context)
 	fill_gpval_float("GPVAL_VIEW_SCALE", surface_scale);
 	fill_gpval_float("GPVAL_VIEW_ZSCALE", surface_zscale);
 	fill_gpval_float("GPVAL_VIEW_AZIMUTH", azimuth);
+
+	/* Screen coordinates of 3D rotational center and radius of the sphere */
+	/* in which x/y axes are drawn after 'set view equal xy[z]' */
+	fill_gpval_float("GPVAL_VIEW_XCENT",
+		(double)(canvas.xright+1 - xmiddle)/(double)(canvas.xright+1));
+	fill_gpval_float("GPVAL_VIEW_YCENT", 
+		1.0 - (double)(canvas.ytop+1 - ymiddle)/(double)(canvas.ytop+1));
+	fill_gpval_float("GPVAL_VIEW_RADIUS", 
+		0.5 * surface_scale * xscaler/(double)(canvas.xright+1));
+
 	return;
     }
 
@@ -1034,16 +1040,19 @@ update_gpval_variables(int context)
     if (context == 3 || context == 4) {
 	fill_gpval_integer("GPVAL_ERRNO", 0);
 	fill_gpval_string("GPVAL_ERRMSG","");
+	fill_gpval_integer("GPVAL_SYSTEM_ERRNO", 0);
+	fill_gpval_string("GPVAL_SYSTEM_ERRMSG","");
     }
 
+    /* GPVAL_PWD is unreliable.  If the current directory becomes invalid,
+     * GPVAL_PWD does not reflect this.  If this matters, the user can
+     * instead do something like    MY_PWD = "`pwd`"
+     */
     if (context == 3 || context == 5) {
-	char *save_file = NULL;
-	save_file = (char *) gp_alloc(PATH_MAX, "filling GPVAL_PWD");
-	if (save_file) {
-	    GP_GETCWD(save_file, PATH_MAX);
-	    fill_gpval_string("GPVAL_PWD", save_file);
-	    free(save_file);
-	}
+	char *save_file = gp_alloc(PATH_MAX, "GPVAL_PWD");
+	int ierror = (GP_GETCWD(save_file, PATH_MAX) == NULL);
+	fill_gpval_string("GPVAL_PWD", ierror ? "" : save_file);
+	free(save_file);
     }
 
     if (context == 6) {

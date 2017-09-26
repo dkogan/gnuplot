@@ -1,5 +1,5 @@
 /*
- * $Id: syscfg.h,v 1.61 2016-08-06 13:22:50 markisch Exp $
+ * $Id: syscfg.h,v 1.65 2017-07-29 08:35:44 markisch Exp $
  */
 
 /* GNUPLOT - syscfg.h */
@@ -93,23 +93,12 @@
 # endif  /* __DECC */
 #endif /* VMS */
 
-#if defined(_WINDOWS) || defined(_Windows) || defined(WIN32) || defined(_WIN32)
-# ifndef _Windows
-#  define _Windows
-# endif
-# ifndef WIN32
-#  define WIN32
-# endif
-# ifndef _WIN32
-#  define _WIN32
-# endif
+#ifdef _WIN32
 # ifdef _WIN64
 #  define OS "MS-Windows 64 bit"
 # else
 #  define OS "MS-Windows 32 bit"
 # endif
-/* introduced by Pedro Mendes, prm@aber.ac.uk */
-#  define far
 /* Fix for broken compiler headers
  * See stdfn.h
  */
@@ -122,16 +111,20 @@
 # define PATHSEP ';'
 # define GNUPLOT_HISTORY_FILE "~\\gnuplot_history"
 /* Flags for windows.h:
-   Minimal required platform is Windows XP
- */
+   Minimal required platform is Windows 7, see
+   https://msdn.microsoft.com/en-us/library/windows/desktop/aa383745.aspx 
+*/
+#ifndef NTDDI_VERSION
+# define NTDDI_VERSION NTDDI_WIN7
+#endif
 #ifndef WINVER
-# define WINVER 0x0501
+# define WINVER _WIN32_WINNT_WIN7
 #endif
 #ifndef _WIN32_WINNT
-# define _WIN32_WINNT 0x0501
+# define _WIN32_WINNT _WIN32_WINNT_WIN7
 #endif
 #ifndef _WIN32_IE
-# define _WIN32_IE 0x0501
+# define _WIN32_IE _WIN32_IE_IE80
 #endif
 
 /* The unicode/encoding support requires translation of file names */
@@ -141,10 +134,15 @@
 #include <stdio.h>
 FILE * win_fopen(const char *filename, const char *mode);
 #define fopen win_fopen
+#ifndef USE_FAKEPIPES
+FILE * win_popen(const char *filename, const char *mode);
+#undef popen
+#define popen win_popen
+#endif
 #endif
 #endif /* _WINDOWS */
 
-#if defined(MSDOS) && !defined(_Windows)
+#if defined(MSDOS) && !defined(_WIN32)
 /* should this be here ? */
 # define OS       "MS-DOS"
 # undef HELPFILE
@@ -234,9 +232,6 @@ FILE * win_fopen(const char *filename, const char *mode);
  * in the Windows section
  */
 #ifdef __WATCOMC__
-# include <direct.h>
-# include <dos.h>
-# define HAVE_GETCWD 1
 # define GP_EXCEPTION_NAME _exception
 #endif
 
@@ -339,7 +334,7 @@ typedef RETSIGTYPE (*sigfunc)__PROTO((void));
 #endif
 
 /* Windows needs to redefine stdin/stdout functions */
-#if defined(_Windows) && !defined(WINDOWS_NO_GUI)
+#if defined(_WIN32) && !defined(WINDOWS_NO_GUI)
 # include "win/wtext.h"
 #endif
 
