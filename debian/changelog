@@ -1,3 +1,9 @@
+gnuplot5 (5.2~dima1-1) unstable; urgency=medium
+
+  * Upstream update
+
+ -- Dima Kogan <dkogan@debian.org>  Mon, 25 Sep 2017 23:28:17 -0700
+
 gnuplot5 (5.1~dima5-1) unstable; urgency=medium
 
   * Upstream merge
