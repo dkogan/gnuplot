@@ -32,8 +32,7 @@ Build-Depends: autoconf,
                texlive-latex-extra,
                texlive-latex-recommended,
                libwxgtk3.0-dev,
-               zlib1g-dev,
-               emacs24
+               zlib1g-dev
 Standards-Version: 3.9.6
 Vcs-Browser: https://anonscm.debian.org/cgit/debian-science/packages/gnuplot5.git
 Vcs-Git: git://anonscm.debian.org/debian-science/packages/gnuplot5.git
