@@ -6,7 +6,7 @@ Index: gnuplot/term/gd.trm
 ===================================================================
 --- gnuplot.orig/term/gd.trm
 +++ gnuplot/term/gd.trm
-@@ -990,7 +990,7 @@ PNG_options()
+@@ -1004,7 +1004,7 @@ PNG_options()
  	if (external_default)
  		png_state.ttffont = gp_strdup(external_default);
  	else	/* Might as well try some plausible font; it's no worse than failing immediately */
