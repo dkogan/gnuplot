@@ -3089,6 +3089,20 @@ map3d_position_r(
     int *x, int *y,
     const char *what)
 {
+    double xx, yy;
+    map3d_position_r_double(pos,
+                            &xx, &yy,
+                            what);
+    *x = xx;
+    *y = yy;
+}
+
+void
+map3d_position_r_double(
+    struct position *pos,
+    double *xx, double *yy,
+    const char *what)
+{
     double xpos = pos->x;
     double ypos = pos->y;
     double zpos = (splot_map) ? Z_AXIS.min : pos->z;
@@ -3096,10 +3110,7 @@ map3d_position_r(
     /* startpoint in graph coordinates */
     if (map3d_getposition(pos, what, &xpos, &ypos, &zpos) == 0) {
 	int xoriginlocal, yoriginlocal;
-	double xx, yy;
-	map3d_xy_double(xpos, ypos, zpos, &xx, &yy);
-	*x = xx;
-	*y = yy;
+	map3d_xy_double(xpos, ypos, zpos, xx, yy);
 	if (pos->scalex == graph)
 	    xpos = X_AXIS.min;
 	else
@@ -3115,12 +3126,12 @@ map3d_position_r(
 	else
 	    zpos = 0;
 	map3d_xy(xpos, ypos, zpos, &xoriginlocal, &yoriginlocal);
-	*x -= xoriginlocal;
-	*y -= yoriginlocal;
+	*xx -= xoriginlocal;
+	*yy -= yoriginlocal;
     } else {
     /* endpoint `screen' or 'character' coordinates */
-	*x = xpos;
-	*y = ypos;
+	*xx = xpos;
+	*yy = ypos;
     }
     return;
 }
