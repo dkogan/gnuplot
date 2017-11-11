@@ -3310,13 +3310,16 @@ TERM_PUBLIC void PS_arrow (
     int head)
 {
     do_arrow( sx, sy, ex, ey, head );
-    if (!ps_params->solid && head != 0) {
-	PS_FLUSH_PATH;
-	fputs("gsave [] 0 setdash\n", gppsfile);
-	do_arrow( sx, sy, ex, ey, -head );
-	PS_FLUSH_PATH;
-	fputs("grestore\n", gppsfile);
+#if 0
+    /* Broken test in v5 because solid is always FALSE */
+    if (!ps_params->solid && head > 0) {
+       PS_FLUSH_PATH;
+       fputs("gsave [] 0 setdash\n", gppsfile);
+       do_arrow( sx, sy, ex, ey, -head );
+       PS_FLUSH_PATH;
+       fputs("grestore\n", gppsfile);
     }
+#endif
 }
 
 static void
