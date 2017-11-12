@@ -325,8 +325,49 @@ draw_clip_arrow( double dsx, double dsy, double dex, double dey, int head)
 
     /* clip_line returns 0 if the whole thing is out of range */
     if (clip_line(&sx, &sy, &ex, &ey))
-	(*t->arrow)((unsigned int)sx, (unsigned int)sy,
-		    (unsigned int)ex, (unsigned int)ey, head);
+    {
+        // If we're supposed to draw the body of the vector, I do that normally
+        if( head >= 0 )
+            (*t->arrow)(sx, sy,
+                        ex, ey, NOHEAD);
+
+        // and if we're not supposed to be drawing any heads, then I'm done
+        if( head == NOHEAD )
+            return;
+
+        // If this is truly a 0-vector, then we CAN'T draw the head (no
+        // direction is available), and I'm done too
+        if( dsx == dex && dsy == dey )
+            return;
+
+
+        // I now draw the heads. I produce integer coordinates for the arrowhead
+        // direction, and draw the heads ONLY
+
+        // Direction vector in (dex,dey). I need to convert this to integers
+        // with a scale that's large-enough to give me good angular resolution,
+        // but small-enough to not overflow the data type. Let's aim for the
+        // vectors to be on the order of 1e6 ~ 2^20
+        dex -= dsx;
+        dey -= dsy;
+
+        double delta_largest = fmax( fabs(dex), fabs(dey) );
+        double scale_want    = (double)(1U << 20);
+        double scale = scale_want / delta_largest;
+
+        dex *= scale_want;
+        dey *= scale_want;
+
+        if(head < 0) head = -head;
+        if( head & END_HEAD )
+            (*t->arrow)(sx - dex, sy - dey,
+                        ex,       ey,
+                        -END_HEAD);
+        if( head & BACKHEAD )
+            (*t->arrow)(sx,       sy,
+                        ex + dex, ey + dey,
+                        -BACKHEAD);
+    }
 }
 
 /* Clip the given line to drawing coords defined by BoundingBox.
