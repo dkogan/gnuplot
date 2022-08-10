@@ -1514,6 +1514,7 @@ record()
 		    else {
 			current_plot = Add_Plot_To_Linked_List(-1); /* Use invalid plot number. */
 			if (current_plot) {
+			    FPRINTF((stderr, "psp->external_container = 0x%x\n", window_id));
 			    current_plot->external_container = window_id;
 			    prepare_plot(current_plot);
 			}
@@ -6914,7 +6915,10 @@ Add_Plot_To_Linked_List(int plot_number)
 #if EXTERNAL_X11_WINDOW
 	    /* Number and container methods are mutually exclusive. */
 	    if (plot_number >= 0)
+	    {
+		FPRINTF((stderr, "psp->external_container = None\n"));
 		psp->external_container = None;
+	    }
 #endif
 	    /* Add link to beginning of the list. */
 	    psp->prev_plot = NULL;
