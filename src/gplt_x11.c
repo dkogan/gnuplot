@@ -6647,7 +6647,7 @@ pr_window(plot_struct *plot)
 	sprintf(numstr, "%s%d%c", ICON_TEXT, plot->plot_number, '\0');
     else
 	sprintf(numstr, "%s%c", ICON_TEXT, '\0');
-    FPRINTF((stderr, "term_number is %d", plot->plot_number));
+    FPRINTF((stderr, "term_number is %d\n", plot->plot_number));
     XSetIconName(dpy, plot->window, numstr);
 #undef TEMP_NUM_LEN
     if (!plot->titlestring) {
