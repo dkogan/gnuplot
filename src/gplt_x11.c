@@ -1231,6 +1231,13 @@ read_input()
 
     if (!buffered_input_available) {
 	total_chars = read(fd, rdbuf, rdbuf_size);
+
+#ifdef DEBUG
+	FPRINTF((stderr, "Received data from gnuplot: ========\n"));
+	fwrite(rdbuf, 1, total_chars, stderr);
+	FPRINTF((stderr, "\n========\n"));
+#endif
+
 	buffered_input_available = 1;
 	partial_read = 0;
 	rdbuf_offset = 0;
