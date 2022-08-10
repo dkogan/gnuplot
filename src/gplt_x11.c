@@ -105,6 +105,7 @@
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
+#include <X11/Xproto.h>
 #ifdef USE_X11_MULTIBYTE
 # include <X11/Xlocale.h>
 #endif
@@ -4051,6 +4052,174 @@ ErrorHandler(Display * display, XErrorEvent * error_event)
 {
     /* Don't remove directly.  Main program might be using the memory. */
     (void) display;		/* avoid -Wunused warnings */
+
+
+#ifdef DEBUG
+
+#define STRINGIFY_ENUM(n) case n: return #n;
+
+    const char* lookup_error_code_string(int x)
+    {
+#define ERROR_LIST(_)                           \
+  _(Success)                                    \
+  _(BadRequest)                                 \
+  _(BadValue)                                   \
+  _(BadWindow)                                  \
+  _(BadPixmap)                                  \
+  _(BadAtom)                                    \
+  _(BadCursor)                                  \
+  _(BadFont)                                    \
+  _(BadMatch)                                   \
+  _(BadDrawable)                                \
+  _(BadAccess)                                  \
+  _(BadAlloc)                                   \
+  _(BadColor)                                   \
+  _(BadGC)                                      \
+  _(BadIDChoice)                                \
+  _(BadName)                                    \
+  _(BadLength)                                  \
+  _(BadImplementation)
+        switch(x) { ERROR_LIST(STRINGIFY_ENUM) default: return NULL; }
+#undef ERROR_LIST
+    }
+    const char* lookup_request_code_string(int x)
+    {
+#define REQUEST_LIST(_)                         \
+  _(X_CreateWindow)                             \
+  _(X_ChangeWindowAttributes)                   \
+  _(X_GetWindowAttributes)                      \
+  _(X_DestroyWindow)                            \
+  _(X_DestroySubwindows)                        \
+  _(X_ChangeSaveSet)                            \
+  _(X_ReparentWindow)                           \
+  _(X_MapWindow)                                \
+  _(X_MapSubwindows)                            \
+  _(X_UnmapWindow)                              \
+  _(X_UnmapSubwindows)                          \
+  _(X_ConfigureWindow)                          \
+  _(X_CirculateWindow)                          \
+  _(X_GetGeometry)                              \
+  _(X_QueryTree)                                \
+  _(X_InternAtom)                               \
+  _(X_GetAtomName)                              \
+  _(X_ChangeProperty)                           \
+  _(X_DeleteProperty)                           \
+  _(X_GetProperty)                              \
+  _(X_ListProperties)                           \
+  _(X_SetSelectionOwner)                        \
+  _(X_GetSelectionOwner)                        \
+  _(X_ConvertSelection)                         \
+  _(X_SendEvent)                                \
+  _(X_GrabPointer)                              \
+  _(X_UngrabPointer)                            \
+  _(X_GrabButton)                               \
+  _(X_UngrabButton)                             \
+  _(X_ChangeActivePointerGrab)                  \
+  _(X_GrabKeyboard)                             \
+  _(X_UngrabKeyboard)                           \
+  _(X_GrabKey)                                  \
+  _(X_UngrabKey)                                \
+  _(X_AllowEvents)                              \
+  _(X_GrabServer)                               \
+  _(X_UngrabServer)                             \
+  _(X_QueryPointer)                             \
+  _(X_GetMotionEvents)                          \
+  _(X_TranslateCoords)                          \
+  _(X_WarpPointer)                              \
+  _(X_SetInputFocus)                            \
+  _(X_GetInputFocus)                            \
+  _(X_QueryKeymap)                              \
+  _(X_OpenFont)                                 \
+  _(X_CloseFont)                                \
+  _(X_QueryFont)                                \
+  _(X_QueryTextExtents)                         \
+  _(X_ListFonts)                                \
+  _(X_ListFontsWithInfo)                        \
+  _(X_SetFontPath)                              \
+  _(X_GetFontPath)                              \
+  _(X_CreatePixmap)                             \
+  _(X_FreePixmap)                               \
+  _(X_CreateGC)                                 \
+  _(X_ChangeGC)                                 \
+  _(X_CopyGC)                                   \
+  _(X_SetDashes)                                \
+  _(X_SetClipRectangles)                        \
+  _(X_FreeGC)                                   \
+  _(X_ClearArea)                                \
+  _(X_CopyArea)                                 \
+  _(X_CopyPlane)                                \
+  _(X_PolyPoint)                                \
+  _(X_PolyLine)                                 \
+  _(X_PolySegment)                              \
+  _(X_PolyRectangle)                            \
+  _(X_PolyArc)                                  \
+  _(X_FillPoly)                                 \
+  _(X_PolyFillRectangle)                        \
+  _(X_PolyFillArc)                              \
+  _(X_PutImage)                                 \
+  _(X_GetImage)                                 \
+  _(X_PolyText8)                                \
+  _(X_PolyText16)                               \
+  _(X_ImageText8)                               \
+  _(X_ImageText16)                              \
+  _(X_CreateColormap)                           \
+  _(X_FreeColormap)                             \
+  _(X_CopyColormapAndFree)                      \
+  _(X_InstallColormap)                          \
+  _(X_UninstallColormap)                        \
+  _(X_ListInstalledColormaps)                   \
+  _(X_AllocColor)                               \
+  _(X_AllocNamedColor)                          \
+  _(X_AllocColorCells)                          \
+  _(X_AllocColorPlanes)                         \
+  _(X_FreeColors)                               \
+  _(X_StoreColors)                              \
+  _(X_StoreNamedColor)                          \
+  _(X_QueryColors)                              \
+  _(X_LookupColor)                              \
+  _(X_CreateCursor)                             \
+  _(X_CreateGlyphCursor)                        \
+  _(X_FreeCursor)                               \
+  _(X_RecolorCursor)                            \
+  _(X_QueryBestSize)                            \
+  _(X_QueryExtension)                           \
+  _(X_ListExtensions)                           \
+  _(X_ChangeKeyboardMapping)                    \
+  _(X_GetKeyboardMapping)                       \
+  _(X_ChangeKeyboardControl)                    \
+  _(X_GetKeyboardControl)                       \
+  _(X_Bell)                                     \
+  _(X_ChangePointerControl)                     \
+  _(X_GetPointerControl)                        \
+  _(X_SetScreenSaver)                           \
+  _(X_GetScreenSaver)                           \
+  _(X_ChangeHosts)                              \
+  _(X_ListHosts)                                \
+  _(X_SetAccessControl)                         \
+  _(X_SetCloseDownMode)                         \
+  _(X_KillClient)                               \
+  _(X_RotateProperties)                         \
+  _(X_ForceScreenSaver)                         \
+  _(X_SetPointerMapping)                        \
+  _(X_GetPointerMapping)                        \
+  _(X_SetModifierMapping)                       \
+  _(X_GetModifierMapping)                       \
+  _(X_NoOperation)
+        switch(x) { REQUEST_LIST(STRINGIFY_ENUM) default: return NULL; }
+#undef REQUEST_LIST
+    }
+#undef STRINGIFY_ENUM
+
+    const char* error_code_string   = lookup_error_code_string(  error_event->error_code);
+    const char* request_code_string = lookup_request_code_string(error_event->request_code);
+    FPRINTF((stderr, "Received X error: "));
+    if(error_code_string)   fprintf(stderr, " error_code=%s",             error_code_string);
+    else                    fprintf(stderr, " error_code=%d (unknown)",   error_event->error_code);
+    if(request_code_string) fprintf(stderr, " request_code=%s",           request_code_string);
+    else                    fprintf(stderr, " request_code=%d (unknown)", error_event->request_code);
+    fprintf(stderr, " minor_code=%d\n", error_event->minor_code);
+#endif // DEBUG
+
     Add_Plot_To_Remove_FIFO_Queue((Window) error_event->resourceid);
     gp_exec_event(GE_reset, 0, 0, 0, 0, 0);
     return 0;
