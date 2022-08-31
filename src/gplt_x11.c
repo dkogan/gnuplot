@@ -119,6 +119,14 @@
 #include "gplt_x11.h"
 #include "version.h"
 
+#undef DEBUG_WHERE
+#undef FPRINTF
+
+# define DEBUG_WHERE do { fprintf(fdebug,"%s:%d ",__FILE__,__LINE__); } while (0)
+# define FPRINTF(a) do { DEBUG_WHERE; fprintf a; fflush(fdebug); } while (0)
+
+static FILE* fdebug;
+
 #ifdef EXPORT_SELECTION
 # undef EXPORT_SELECTION
 #endif /* EXPORT SELECTION */
@@ -707,6 +715,10 @@ int
 main(int argc, char *argv[])
 {
 
+    fdebug = fopen("/tmp/debuglog", "w");
+
+
+
 #ifdef PIPE_IPC
     int getfl;
 #endif
@@ -754,7 +766,7 @@ main(int argc, char *argv[])
     mainloop();
 
     if (persist) {
-	FPRINTF((stderr, "waiting for %d windows\n", windows_open));
+	FPRINTF((fdebug, "waiting for %d windows\n", windows_open));
 
 #ifndef DEBUG
 	/* HBB 20030519: Some programs executing gnuplot -persist may
@@ -775,7 +787,7 @@ main(int argc, char *argv[])
     }
     XCloseDisplay(dpy);
 
-    FPRINTF((stderr, "exiting\n"));
+    FPRINTF((fdebug, "exiting\n"));
 
     EXIT(0);
 }
@@ -1073,7 +1085,7 @@ delete_plot(plot_struct *plot)
 {
     int i;
 
-    FPRINTF((stderr, "Delete plot %d\n", plot->plot_number));
+    FPRINTF((fdebug, "Delete plot %d\n", plot->plot_number));
 
     for (i = 0; i < plot->ncommands; ++i) {
 	free(plot->commands[i]);
@@ -1097,7 +1109,7 @@ delete_plot(plot_struct *plot)
     }
 
     if (plot->window) {
-	FPRINTF((stderr, "Destroy window 0x%x\n", plot->window));
+	FPRINTF((fdebug, "Destroy window 0x%x\n", plot->window));
 	XDestroyWindow(dpy, plot->window);
 	plot->window = None;
 	--windows_open;
@@ -1232,11 +1244,9 @@ read_input()
     if (!buffered_input_available) {
 	total_chars = read(fd, rdbuf, rdbuf_size);
 
-#ifdef DEBUG
-	FPRINTF((stderr, "Received data from gnuplot: ========\n"));
-	fwrite(rdbuf, 1, total_chars, stderr);
-	FPRINTF((stderr, "\n========\n"));
-#endif
+        FPRINTF((fdebug, "read data from input\n"));
+        fwrite(rdbuf, 1, total_chars, fdebug);
+
 
 	buffered_input_available = 1;
 	partial_read = 0;
@@ -1521,7 +1531,7 @@ record()
 		    else {
 			current_plot = Add_Plot_To_Linked_List(-1); /* Use invalid plot number. */
 			if (current_plot) {
-			    FPRINTF((stderr, "psp->external_container = 0x%x\n", window_id));
+                            FPRINTF((fdebug, "psp->external_container = 0x%x\n", window_id));
 			    current_plot->external_container = window_id;
 			    prepare_plot(current_plot);
 			}
@@ -1895,7 +1905,7 @@ record()
 		    double scale = (double)plot->width / 4096.0;
 		    scaled_hchar = (1.0/scale) * hchar;
 		    scaled_vchar = (1.0/scale) * vchar;
-		    FPRINTF((stderr, "gplt_x11: preset default font to %s hchar = %d vchar = %d \n",
+		    FPRINTF((fdebug, "gplt_x11: preset default font to %s hchar = %d vchar = %d \n",
 			     default_font, scaled_hchar, scaled_vchar));
 		    gp_exec_event(GE_fontprops, plot->width, plot->gheight,
 				  scaled_hchar, scaled_vchar, 0);
@@ -2297,14 +2307,14 @@ exec_cmd(plot_struct *plot, char *command)
 		    encoding = (enum set_encoding_id)tmp;
 		    clear_used_font_list();
 		}
-		FPRINTF((stderr, "gnuplot_x11: changing encoding to %d\n", encoding));
+		FPRINTF((fdebug, "gnuplot_x11: changing encoding to %d\n", encoding));
 		break;
 	case 'D':
 		/* Save the request default font */
 		c = &(buffer[strlen(buffer)-1]);
 		while (*c <= ' ') *c-- = '\0';
 		strncpy(default_font, &buffer[2], sizeof(default_font)-1);
-		FPRINTF((stderr, "gnuplot_x11: exec_cmd() set default_font to \"%s\"\n", default_font));
+		FPRINTF((fdebug, "gnuplot_x11: exec_cmd() set default_font to \"%s\"\n", default_font));
 		break;
 	}
     }
@@ -2760,13 +2770,13 @@ exec_cmd(plot_struct *plot, char *command)
 	    xcolor.red = (double)(0xffff) * (double)((rgb255color >> 16) & 0xff) /255.;
 	    xcolor.green = (double)(0xffff) * (double)((rgb255color >> 8) & 0xff) /255.;
 	    xcolor.blue = (double)(0xffff) * (double)(rgb255color & 0xff) /255.;
-	    FPRINTF((stderr, "gplt_x11: got request for color %d %d %d\n",
+	    FPRINTF((fdebug, "gplt_x11: got request for color %d %d %d\n",
 		    xcolor.red, xcolor.green, xcolor.blue));
 	    if (XAllocColor(dpy, plot->cmap->colormap, &xcolor)) {
 		XSetForeground(dpy, gc, xcolor.pixel);
 		plot->current_rgb = rgb255color;
 	    } else {
-		FPRINTF((stderr, "          failed to allocate color\n"));
+		FPRINTF((fdebug, "          failed to allocate color\n"));
 	    }
 	    current_gc = &gc;
 
@@ -3099,11 +3109,11 @@ exec_cmd(plot_struct *plot, char *command)
 
 			    /* Graphics info in case strange behavior occurs in a particular system.
 			     */
-			    FPRINTF((stderr, "\n\nvis->visualid: 0x%x   vis->class: %d   vis->bits_per_rgb: %d\n",
+			    FPRINTF((fdebug, "\n\nvis->visualid: 0x%x   vis->class: %d   vis->bits_per_rgb: %d\n",
 				(int)vis->visualid, vis->class, vis->bits_per_rgb));
-			    FPRINTF((stderr, "vis->red_mask: %lx   vis->green_mask: %lx   vis->blue_mask: %lx\n",
+			    FPRINTF((fdebug, "vis->red_mask: %lx   vis->green_mask: %lx   vis->blue_mask: %lx\n",
 				vis->red_mask, vis->green_mask, vis->blue_mask));
-			    FPRINTF((stderr, "ImageByteOrder:  %d\n\n", ImageByteOrder(dpy)));
+			    FPRINTF((fdebug, "ImageByteOrder:  %d\n\n", ImageByteOrder(dpy)));
 
 			    R_bits = 32-R_rshift-R_lshift;
 			    G_bits = 32-G_rshift-G_lshift;
@@ -3413,7 +3423,7 @@ exec_cmd(plot_struct *plot, char *command)
 	    sscanf(&buffer[1], "%d %lg %d %lg %lg", &axis,
 		&(plot->axis_scale[axis].min), &(plot->axis_scale[axis].term_lower),
 		&(plot->axis_scale[axis].term_scale), &(plot->axis_scale[axis].logbase));
-	    FPRINTF((stderr, "gnuplot_x11: axis %d scaling %16.6lg %14d %16.6lg %16.6lg\n",
+	    FPRINTF((fdebug, "gnuplot_x11: axis %d scaling %16.6lg %14d %16.6lg %16.6lg\n",
 		axis, plot->axis_scale[axis].min, plot->axis_scale[axis].term_lower,
 		plot->axis_scale[axis].term_scale, plot->axis_scale[axis].logbase));
 	}
@@ -3481,7 +3491,7 @@ display(plot_struct *plot)
     unsigned int winW = plot->width;
     unsigned int winH = GRAPH_HEIGHT(plot);
 
-    FPRINTF((stderr, "Display %d ; %d commands\n", plot->plot_number, plot->ncommands));
+    FPRINTF((fdebug, "Display %d ; %d commands\n", plot->plot_number, plot->ncommands));
 
     if (plot->ncommands == 0)
 	return;
@@ -3508,7 +3518,7 @@ display(plot_struct *plot)
 
     /* create new pixmap & GC */
     if (plot->pixmap == None) {
-	FPRINTF((stderr, "Create pixmap %d : %dx%dx%d\n", plot->plot_number, plot->width, PIXMAP_HEIGHT(plot), dep));
+	FPRINTF((fdebug, "Create pixmap %d : %dx%dx%d\n", plot->plot_number, plot->width, PIXMAP_HEIGHT(plot), dep));
 	plot->pixmap = XCreatePixmap(dpy, root, plot->width, PIXMAP_HEIGHT(plot), dep);
     }
 
@@ -3691,7 +3701,7 @@ FreeColors(cmap_t *cmp)
 {
     if (cmp->total && cmp->pixels) {
 	if (cmp->allocated) {
-	    FPRINTF((stderr, "freeing palette colors\n"));
+	    FPRINTF((fdebug, "freeing palette colors\n"));
 	    XFreeColors(dpy, cmp->colormap, cmp->pixels,
 			cmp->allocated, 0 /* XXX ??? XXX */ );
 	}
@@ -3711,7 +3721,7 @@ ReleaseColormap(cmap_t *cmp)
 {
     if (cmp && cmp != current_cmap) {
 	FreeColors(cmp);
-	FPRINTF((stderr, "releasing private colormap\n"));
+	FPRINTF((fdebug, "releasing private colormap\n"));
 	if (cmp->colormap && cmp->colormap != current_cmap->colormap) {
 	    XFreeColormap(dpy, cmp->colormap);
 	}
@@ -3810,7 +3820,7 @@ PaletteMake(t_sm_palette * tpal)
 		max_colors = maximal_possible_colors;
 	    }
 
-	    FPRINTF((stderr, "(PaletteMake) tpal->use_maxcolors = %d\n",
+	    FPRINTF((fdebug, "(PaletteMake) tpal->use_maxcolors = %d\n",
 		     tpal->use_maxcolors));
 
 	    /*  free old gradient table  */
@@ -3852,7 +3862,7 @@ PaletteMake(t_sm_palette * tpal)
 
 	} else {
 	    max_colors = maximal_possible_colors;
-	    FPRINTF((stderr, "(PaletteMake) tpal=NULL\n"));
+	    FPRINTF((fdebug, "(PaletteMake) tpal=NULL\n"));
 	}
 
 	if (minimal_possible_colors < max_colors)
@@ -3882,7 +3892,7 @@ PaletteMake(t_sm_palette * tpal)
 
 	    if (!num_colormaps) {
 		XFree(XListInstalledColormaps(dpy, current_plot->window, &num_colormaps));
-		FPRINTF((stderr, "(PaletteMake) num_colormaps = %d\n", num_colormaps));
+		FPRINTF((fdebug, "(PaletteMake) num_colormaps = %d\n", num_colormaps));
 	    }
 
 	}
@@ -3926,7 +3936,7 @@ PaletteMake(t_sm_palette * tpal)
 		if (XAllocColor(dpy, new_cmap->colormap, &xcolor)) {
 		    new_cmap->pixels[new_cmap->allocated] = xcolor.pixel;
 		} else {
-		    FPRINTF((stderr, "failed at color %d\n", new_cmap->allocated));
+		    FPRINTF((fdebug, "failed at color %d\n", new_cmap->allocated));
 		    break;
 		}
 	    }
@@ -3942,13 +3952,13 @@ PaletteMake(t_sm_palette * tpal)
 	    }
 	}
 
-	FPRINTF((stderr, "(PaletteMake) allocated = %d\n", new_cmap->allocated));
-	FPRINTF((stderr, "(PaletteMake) max_colors = %d\n", max_colors));
-	FPRINTF((stderr, "(PaletteMake) min_colors = %d\n", min_colors));
+	FPRINTF((fdebug, "(PaletteMake) allocated = %d\n", new_cmap->allocated));
+	FPRINTF((fdebug, "(PaletteMake) max_colors = %d\n", max_colors));
+	FPRINTF((fdebug, "(PaletteMake) min_colors = %d\n", min_colors));
 
 	if (new_cmap->allocated < min_colors && tpal) {
 	    /* create a private colormap on second pass. */
-	    FPRINTF((stderr, "switching to private colormap\n"));
+	    FPRINTF((fdebug, "switching to private colormap\n"));
 	    tpal = 0;
 	} else {
 	    break;
@@ -4027,7 +4037,7 @@ PaletteSetColor(plot_struct * plot, double gray)
 	    /* with plot->cmap->allocated, but in practice they can be different.	*/
 	    if (sm_palette.use_maxcolors == plot->cmap->allocated) {
 	        gray = quantize_gray(gray);
-	        FPRINTF((stderr," %d",plot->cmap->allocated));
+	        FPRINTF((fdebug," %d",plot->cmap->allocated));
 	    } else
 	        gray = floor(gray * plot->cmap->allocated) / (plot->cmap->allocated - 1);
 	    index = gray * (plot->cmap->allocated - 1);
@@ -4061,8 +4071,7 @@ ErrorHandler(Display * display, XErrorEvent * error_event)
     /* Don't remove directly.  Main program might be using the memory. */
     (void) display;		/* avoid -Wunused warnings */
 
-
-#ifdef DEBUG
+#ifndef DEBUG
 
 #define STRINGIFY_ENUM(n) case n: return #n;
 
@@ -4220,12 +4229,12 @@ ErrorHandler(Display * display, XErrorEvent * error_event)
 
     const char* error_code_string   = lookup_error_code_string(  error_event->error_code);
     const char* request_code_string = lookup_request_code_string(error_event->request_code);
-    FPRINTF((stderr, "Received X error: "));
-    if(error_code_string)   fprintf(stderr, " error_code=%s",             error_code_string);
-    else                    fprintf(stderr, " error_code=%d (unknown)",   error_event->error_code);
-    if(request_code_string) fprintf(stderr, " request_code=%s",           request_code_string);
-    else                    fprintf(stderr, " request_code=%d (unknown)", error_event->request_code);
-    fprintf(stderr, " minor_code=%d\n", error_event->minor_code);
+    FPRINTF((fdebug, "Received X error: "));
+    if(error_code_string)   fprintf(fdebug, " error_code=%s",             error_code_string);
+    else                    fprintf(fdebug, " error_code=%d (unknown)",   error_event->error_code);
+    if(request_code_string) fprintf(fdebug, " request_code=%s",           request_code_string);
+    else                    fprintf(fdebug, " request_code=%d (unknown)", error_event->request_code);
+    fprintf(fdebug, " minor_code=%d\n", error_event->minor_code);
 #endif // DEBUG
 
     Add_Plot_To_Remove_FIFO_Queue((Window) error_event->resourceid);
@@ -4359,7 +4368,7 @@ SetTime(plot_struct *plot, Time t)
 {
     long int diff = t - plot->time;
 
-    FPRINTF((stderr, "(SetTime) difftime = %ld\n", diff));
+    FPRINTF((fdebug, "(SetTime) difftime = %ld\n", diff));
 
     plot->time = t;
     return diff > 0 ? diff : 0;
@@ -4638,13 +4647,13 @@ reset_cursor(Window skip_window)
 
     while (plot) {
 	if (plot->window && (plot->window != skip_window)) {
-	    FPRINTF((stderr, "Window for plot %d exists\n", plot->plot_number));
+	    FPRINTF((fdebug, "Window for plot %d exists\n", plot->plot_number));
 	    XUndefineCursor(dpy, plot->window);
 	}
 	plot = plot->next_plot;
     }
 
-    FPRINTF((stderr, "Cursors reset\n"));
+    FPRINTF((fdebug, "Cursors reset\n"));
     return;
 }
 
@@ -4769,7 +4778,7 @@ process_configure_notify_event(XEvent *event, TBOOLEAN isRetry )
 
 	    if (plot->pixmap) {
 		/* it is the wrong size now */
-		FPRINTF((stderr, "Free pixmap %d\n", 0));
+		FPRINTF((fdebug, "Free pixmap %d\n", 0));
 		XFreePixmap(dpy, plot->pixmap);
 		plot->pixmap = None;
 	    }
@@ -4876,7 +4885,7 @@ process_event(XEvent *event)
     KeySym keysym;
     char key_sequence[8];
 
-    FPRINTF((stderr, "Event %s\n", evt_names(event->type)));
+    FPRINTF((fdebug, "Event %s\n", evt_names(event->type)));
 
     switch (event->type) {
     case ConfigureNotify:
@@ -4938,7 +4947,7 @@ process_event(XEvent *event)
 #ifdef USE_MOUSE
 		/* If the "-ctrlq" resource is set, ignore q unless control key is also pressed */
 		if (ctrlq && !(modifier_mask & Mod_Ctrl)) {
-		    FPRINTF((stderr, "ignoring q, modifier_mask = %o\n", modifier_mask));
+		    FPRINTF((fdebug, "ignoring q, modifier_mask = %o\n", modifier_mask));
 		    break;
 		}
 #endif
@@ -5436,7 +5445,7 @@ preset(int argc, char *argv[])
 #endif
     char *db_string;
 
-    FPRINTF((stderr, "(preset) \n"));
+    FPRINTF((fdebug, "(preset) \n"));
 
     /* avoid bus error when env vars are not set */
     if (ldisplay == NULL)
@@ -6398,7 +6407,7 @@ char *fontname;
 	    fprintf(stderr, "\ngnuplot_x11: can't find usable font - X11 aborted.\n");
 	    EXIT(1);
 	}
-	FPRINTF((stderr, "\ngnuplot_x11: requested font not found, using '%s' instead.\n", fontname));
+	FPRINTF((fdebug, "\ngnuplot_x11: requested font not found, using '%s' instead.\n", fontname));
     }
 #ifdef USE_X11_MULTIBYTE
     if (usemultibyte && !mbfont) { /* multibyte font setting */
@@ -6442,9 +6451,9 @@ char *fontname;
     search->vchar = vchar;
     search->hchar = hchar;
 
-    FPRINTF((stderr, "gnuplot_x11: pr_font() set font %s, vchar %d hchar %d\n",
+    FPRINTF((fdebug, "gnuplot_x11: pr_font() set font %s, vchar %d hchar %d\n",
 		fontname, vchar, hchar));
-    FPRINTF((stderr, "gnuplot_x11: requested \"%s\" succeeded with \"%s\"\n",
+    FPRINTF((fdebug, "gnuplot_x11: requested \"%s\" succeeded with \"%s\"\n",
     		requested_name, try_name));
 
 }
@@ -6545,7 +6554,7 @@ pr_window(plot_struct *plot)
 	| PointerMotionMask | PointerMotionHintMask | ButtonPressMask
 	| ButtonReleaseMask | ExposureMask | EnterWindowMask;
 
-    FPRINTF((stderr, "(pr_window) \n"));
+    FPRINTF((fdebug, "(pr_window) \n"));
 
 #ifdef EXTERNAL_X11_WINDOW
     if (plot->external_container != None) {
@@ -6655,7 +6664,7 @@ pr_window(plot_struct *plot)
 	sprintf(numstr, "%s%d%c", ICON_TEXT, plot->plot_number, '\0');
     else
 	sprintf(numstr, "%s%c", ICON_TEXT, '\0');
-    FPRINTF((stderr, "term_number is %d\n", plot->plot_number));
+    FPRINTF((fdebug, "term_number is %d\n", plot->plot_number));
     XSetIconName(dpy, plot->window, numstr);
 #undef TEMP_NUM_LEN
     if (!plot->titlestring) {
@@ -6715,7 +6724,7 @@ pr_feedback()
 {
     if (pr_GetR(db, ".feedback"))
 	feedback = !(!strncasecmp(value.addr, "off", 3) || !strncasecmp(value.addr, "false", 5));
-    FPRINTF((stderr, "gplt_x11: set feedback to %d (%s)\n", feedback, value.addr));
+    FPRINTF((fdebug, "gplt_x11: set feedback to %d (%s)\n", feedback, value.addr));
 }
 
 static void
@@ -6723,7 +6732,7 @@ pr_ctrlq()
 {
     if (pr_GetR(db, ".ctrlq")) {
 	ctrlq = (!strncasecmp(value.addr, "on", 2) || !strncasecmp(value.addr, "true", 4));
-	FPRINTF((stderr, "gplt_x11: require <ctrl>q and <ctrl><space>\n"));
+	FPRINTF((fdebug, "gplt_x11: require <ctrl>q and <ctrl><space>\n"));
     }
 }
 
@@ -6732,7 +6741,7 @@ pr_fastrotate()
 {
     if (pr_GetR(db, ".fastrotate")) {
 	fast_rotate = (!strncasecmp(value.addr, "on", 2) || !strncasecmp(value.addr, "true", 4));
-	FPRINTF((stderr, "gplt_x11: Use fast but imperfect text rotation\n"));
+	FPRINTF((fdebug, "gplt_x11: Use fast but imperfect text rotation\n"));
     }
 }
 
@@ -6744,7 +6753,7 @@ pr_exportselection()
     if (pr_GetR(db, ".exportselection")) {
 	if (!strncmp((char *)value.addr, "off", 3) || !strncmp((char *)value.addr, "false", 5)) {
 	    exportselection = FALSE;
-	    FPRINTF((stderr, "gnuplot_x11: exportselection is disabled\n"));
+	    FPRINTF((fdebug, "gnuplot_x11: exportselection is disabled\n"));
 	}
     }
 }
@@ -6761,7 +6770,7 @@ static Time export_time;
 static void
 export_graph(struct plot_struct *plot)
 {
-    FPRINTF((stderr, "export_graph(0x%x)\n", plot));
+    FPRINTF((fdebug, "export_graph(0x%x)\n", plot));
 
     XSetSelectionOwner(dpy, EXPORT_SELECTION, plot->window, CurrentTime);
     /* to check we have selection, we would have to do a
@@ -6802,7 +6811,7 @@ handle_selection_event(XEvent *event)
 		static Atom targets[] = { XA_PIXMAP, XA_COLORMAP };
 		static Atom mousecoord[] = { XA_STRING };
 
-		FPRINTF((stderr, "Targets request from %d\n", reply.xselection.requestor));
+		FPRINTF((fdebug, "Targets request from %d\n", reply.xselection.requestor));
 
 		if (*selection)
 		    XChangeProperty(dpy, reply.xselection.requestor,
@@ -6814,14 +6823,14 @@ handle_selection_event(XEvent *event)
 				32, PropModeReplace, (unsigned char *) targets, 2);
 	    } else if (reply.xselection.target == XA_COLORMAP) {
 
-		FPRINTF((stderr, "colormap request from %d\n", reply.xselection.requestor));
+		FPRINTF((fdebug, "colormap request from %d\n", reply.xselection.requestor));
 
 		XChangeProperty(dpy, reply.xselection.requestor,
 				reply.xselection.property, reply.xselection.target,
 				32, PropModeReplace, (unsigned char *) &(default_cmap.colormap), 1);
 	    } else if (reply.xselection.target == XA_PIXMAP && exported_plot) {
 
-		FPRINTF((stderr, "pixmap request from %d\n", reply.xselection.requestor));
+		FPRINTF((fdebug, "pixmap request from %d\n", reply.xselection.requestor));
 
 		XChangeProperty(dpy, reply.xselection.requestor,
 				reply.xselection.property, reply.xselection.target,
@@ -6829,7 +6838,7 @@ handle_selection_event(XEvent *event)
 		exported_plot = NULL;
 	    } else if (reply.xselection.target == XA_TIMESTAMP) {
 
-		FPRINTF((stderr, "timestamp request from %d : %ld\n",
+		FPRINTF((fdebug, "timestamp request from %d : %ld\n",
 			reply.xselection.requestor, export_time));
 
 		XChangeProperty(dpy, reply.xselection.requestor,
@@ -6843,7 +6852,7 @@ handle_selection_event(XEvent *event)
 				8, PropModeReplace, (unsigned char *) selection, strlen(selection));
 #endif
 	    } else {
-		FPRINTF((stderr, "selection request target: %d\n", reply.xselection.target));
+		FPRINTF((fdebug, "selection request target: %d\n", reply.xselection.target));
 		reply.xselection.property = None;
 		if (!exported_plot && ! *selection)
 		    /* We have now satisfied the select request. Say goodbye */
@@ -6872,14 +6881,14 @@ mouse_to_coords(plot_struct *plot, XEvent *event,
     int xx = RevX( event->xbutton.x );
     int yy = RevY( event->xbutton.y );
 
-    FPRINTF((stderr, "gnuplot_x11 %d: mouse at %d %d\t", __LINE__, xx, yy));
+    FPRINTF((fdebug, "gnuplot_x11 %d: mouse at %d %d\t", __LINE__, xx, yy));
 
     *x  = mouse_to_axis(xx, &(plot->axis_scale[FIRST_X_AXIS]));
     *y  = mouse_to_axis(yy, &(plot->axis_scale[FIRST_Y_AXIS]));
     *x2 = mouse_to_axis(xx, &(plot->axis_scale[SECOND_X_AXIS]));
     *y2 = mouse_to_axis(yy, &(plot->axis_scale[SECOND_Y_AXIS]));
 
-    FPRINTF((stderr, "mouse x y %10g %10g x2 y2 %10g %10g\n", *x, *y, *x2, *y2 ));
+    FPRINTF((fdebug, "mouse x y %10g %10g x2 y2 %10g %10g\n", *x, *y, *x2, *y2 ));
 }
 
 static double
@@ -6922,10 +6931,10 @@ Add_Plot_To_Linked_List(int plot_number)
 #if EXTERNAL_X11_WINDOW
 	    /* Number and container methods are mutually exclusive. */
 	    if (plot_number >= 0)
-	    {
-		FPRINTF((stderr, "psp->external_container = None\n"));
+            {
+                FPRINTF((fdebug, "psp->external_container = None\n"));
 		psp->external_container = None;
-	    }
+            }
 #endif
 	    /* Add link to beginning of the list. */
 	    psp->prev_plot = NULL;
@@ -7090,13 +7099,13 @@ Add_Plot_To_Remove_FIFO_Queue(Window plot_window)
 {
     /* Clean up any processed links. */
     plot_remove_struct *prsp = remove_fifo_queue_start;
-    FPRINTF((stderr, "Add plot to remove FIFO queue called.\n"));
+    FPRINTF((fdebug, "Add plot to remove FIFO queue called.\n"));
     while (prsp != NULL) {
 	if (prsp->processed) {
 	    remove_fifo_queue_start = prsp->next_remove;
 	    free(prsp);
 	    prsp = remove_fifo_queue_start;
-	    FPRINTF((stderr, "  -> Removed a processed element from FIFO queue.\n"));
+	    FPRINTF((fdebug, "  -> Removed a processed element from FIFO queue.\n"));
 	} else {
 	    break;
 	}
@@ -7129,7 +7138,7 @@ Add_Plot_To_Remove_FIFO_Queue(Window plot_window)
 	else
 	    remove_fifo_queue_start = prsp_new;
 	process_remove_fifo_queue = 1; /* Indicate to main loop that there is a plot to remove. */
-	FPRINTF((stderr, "  -> Added an element to FIFO queue.\n"));
+	FPRINTF((fdebug, "  -> Added an element to FIFO queue.\n"));
     }
     else {
 	fprintf(stderr, ERROR_NOTICE("Could not allocate memory for plot remove queue.\n\n"));
@@ -7181,7 +7190,7 @@ Process_Remove_FIFO_Queue()
 	 * could potentially be lost.
 	 */
 	prsp->processed = 1;
-	FPRINTF((stderr, "Processed element in remove FIFO queue.\n"));
+	FPRINTF((fdebug, "Processed element in remove FIFO queue.\n"));
 
 	/* NOW process the plot to remove. */
 	if (!prs.processed)
@@ -7383,7 +7392,7 @@ x11_setfill(GC *gc, int style)
 	    xcolor.red   = dim*xcolor.red   + (1.-dim)*bgnd.red;
 	    xcolor.green = dim*xcolor.green + (1.-dim)*bgnd.green;
 	    xcolor.blue  = dim*xcolor.blue  + (1.-dim)*bgnd.blue;
-	    FPRINTF((stderr,"Dimming poly color %.6x by %.2f to %2d %2d %2d\n",
+	    FPRINTF((fdebug,"Dimming poly color %.6x by %.2f to %2d %2d %2d\n",
 			(unsigned long)(plot->current_rgb), dim, xcolor.red, xcolor.green, xcolor.blue));
 	    if (XAllocColor(dpy, plot->cmap->colormap, &xcolor))
 		XSetForeground(dpy, *gc, xcolor.pixel);
