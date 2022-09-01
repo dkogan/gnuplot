@@ -152,8 +152,6 @@ Error. Incompatible options.
 # define XC_crosshair 34
 #endif
 
-#include <signal.h>
-
 #ifdef HAVE_SYS_BSDTYPES_H
 # include <sys/bsdtypes.h>
 #endif
@@ -5452,13 +5450,6 @@ preset(int argc, char *argv[])
 	ldisplay = "";
     if (home == NULL)
 	home = "";
-
-/*---set to ignore ^C and ^Z----------------------------------------------*/
-
-    signal(SIGINT, SIG_IGN);
-#ifdef SIGTSTP
-    signal(SIGTSTP, SIG_IGN);
-#endif
 
 /*---prescan arguments for "-name"  or "--version"  ----------------------*/
 
