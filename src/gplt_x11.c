@@ -432,7 +432,7 @@ char byteswap_char;
     ((char *)x)[2] = byteswap_char
 
 static void store_command(char *, plot_struct *);
-static void prepare_plot(plot_struct *);
+static TBOOLEAN prepare_plot(plot_struct *);
 static void delete_plot(plot_struct *);
 
 static int record(void);
@@ -489,7 +489,7 @@ static void pr_font(char *);
 static void pr_geometry(char *);
 static void pr_pointsize(void);
 static void pr_width(void);
-static void pr_window(plot_struct *);
+static TBOOLEAN pr_window(plot_struct *);
 static void pr_raise(void);
 static void pr_replotonresize(void);
 static void pr_persist(void);
@@ -1131,7 +1131,7 @@ delete_plot(plot_struct *plot)
 
 
 /* prepare the plot structure */
-static void
+static TBOOLEAN
 prepare_plot(plot_struct *plot)
 {
     int i;
@@ -1163,7 +1163,14 @@ prepare_plot(plot_struct *plot)
     }
     if (plot->window == None) {
 	plot->cmap = current_cmap;	/* color space */
-	pr_window(plot);
+
+        fprintf(fdebug, "1calling pr_window()\n");
+	if(!pr_window(plot))
+        {
+            fprintf(fdebug, "1called pr_window() failure\n");
+            return False;
+        }
+        fprintf(fdebug, "1called pr_window() success\n");
 #ifdef USE_MOUSE
 	/*
 	 * set all mouse parameters
@@ -1195,6 +1202,8 @@ prepare_plot(plot_struct *plot)
     plot->angle = 0;		/* default is horizontal */
     reset_cursor(plot->window);	/* to avoid flash, don't reset cursor of active window */
     XDefineCursor(dpy, plot->window, cursor);
+
+    return True;
 }
 
 /* store a command in a plot structure */
@@ -3548,7 +3557,11 @@ display(plot_struct *plot)
     XSetBackground(dpy, gc, plot->cmap->colors[0]);
 
     if (plot->window == None)
+    {
+        fprintf(fdebug, "calling pr_window()\n");
 	pr_window(plot);
+        fprintf(fdebug, "called pr_window()\n");
+    }
 
     /* top the window but don't put keyboard or mouse focus into it. */
     if (do_raise)
@@ -4063,6 +4076,9 @@ gp_execute_GE_plotdone (int windowid)
     }
 }
 
+
+static int gcount = 0;
+
 static int
 ErrorHandler(Display * display, XErrorEvent * error_event)
 {
@@ -4234,6 +4250,19 @@ ErrorHandler(Display * display, XErrorEvent * error_event)
     else                    fprintf(fdebug, " request_code=%d (unknown)", error_event->request_code);
     fprintf(fdebug, " minor_code=%d\n", error_event->minor_code);
 #endif // DEBUG
+
+
+    if(error_event->error_code   == BadWindow &&
+       (error_event->request_code == X_GetWindowAttributes ||
+        error_event->request_code == X_ChangeWindowAttributes))
+    {
+        // Tried to access existing X window, which didn't exist. I just return,
+        // and let the caller deal with it
+        fprintf(fdebug, "handler returning\n");
+        return 0;
+    }
+
+
 
     Add_Plot_To_Remove_FIFO_Queue((Window) error_event->resourceid);
     gp_exec_event(GE_reset, 0, 0, 0, 0, 0);
@@ -4650,6 +4679,36 @@ reset_cursor(Window skip_window)
 	}
 	plot = plot->next_plot;
     }
+
+
+
+
+
+
+
+
+    /*
+      Why does this happen a second time?
+
+        gplt_x11.c:4235 Received X error:  error_code=BadWindow request_code=X_ChangeWindowAttributes minor_code=0
+
+      Because there's no error checking on anything, and we do other stuff with
+      a non-existing window
+
+
+
+      Need to fail with an error message
+
+
+      If I type in the "set terminal", "plot" commands manually, a new window
+      DOES pop up even though it shouldn't
+     */
+
+
+
+
+
+
 
     FPRINTF((fdebug, "Cursors reset\n"));
     return;
@@ -5450,6 +5509,7 @@ preset(int argc, char *argv[])
 	ldisplay = "";
     if (home == NULL)
 	home = "";
+
 
 /*---prescan arguments for "-name"  or "--version"  ----------------------*/
 
@@ -6534,7 +6594,7 @@ pr_width()
  *   pr_window - create window
  *---------------------------------------------------------------------------*/
 
-static void
+static TBOOLEAN
 pr_window(plot_struct *plot)
 {
     char *title = pr_GetR(db, ".title");
@@ -6550,13 +6610,34 @@ pr_window(plot_struct *plot)
 #ifdef EXTERNAL_X11_WINDOW
     if (plot->external_container != None) {
 	XWindowAttributes gattr;
-	XGetWindowAttributes(dpy, plot->external_container, &gattr);
+
+        while(1)
+        {
+            FPRINTF((fdebug, "XGetWindowAttributes()\n"));
+            if(!XGetWindowAttributes(dpy, plot->external_container, &gattr))
+            {
+                FPRINTF((fdebug, "Done with XGetWindowAttributes() error\n"));
+                //gp_exec_event(GE_reset, 0, 0, 0, 0, 0);
+
+                fprintf(fdebug, "Waiting for window\n");
+                fflush(fdebug);
+                sleep(1);
+                continue;
+
+                return False;
+            }
+            FPRINTF((fdebug, "Done with XGetWindowAttributes() success\n"));
+            break;
+        }
+
+
 	plot->x = 0;
 	plot->y = 0;
 	plot->width = gattr.width;
 	plot->height = gattr.height;
 	plot->gheight = gattr.height;
 	if (!plot->window) {
+            FPRINTF((fdebug, "making plot window\n"));
 	    plot->window = XCreateWindow(dpy, plot->external_container, plot->x, plot->y, plot->width,
 					 plot->height, 0, dep, InputOutput, gattr.visual, 0, NULL);
 		gp_execute_GE_plotdone(plot->window); /* notify main program, send WINDOWID */
@@ -6576,12 +6657,20 @@ pr_window(plot_struct *plot)
 		gp_execute_GE_plotdone(plot->window); /* notify main program, send WINDOWID */
 	}
 	else
+        {
+            fprintf(fdebug, "calling XChangeWindowAttributes()...\n");
 	    XChangeWindowAttributes(dpy, plot->window, mask, &attr);
+            fprintf(fdebug, "done calling XChangeWindowAttributes()...\n");
+        }
     } else
 #ifdef EXTERNAL_X11_WINDOW
     if (!plot->window)
 #endif
 	{
+
+            FPRINTF((fdebug, "still don't have window. trying again\n"));
+
+
 	plot->window = XCreateSimpleWindow(dpy, root, plot->x, plot->y, plot->width, plot->height,
 					   BorderWidth, plot->cmap->colors[1], plot->cmap->colors[0]);
 		gp_execute_GE_plotdone(plot->window); /* notify main program, send WINDOWID */
@@ -6589,7 +6678,7 @@ pr_window(plot_struct *plot)
 
     /* Return if something wrong. */
     if (plot->window == None)
-	return;
+	return False;
 
     /* ask ICCCM-compliant window manager to tell us when close window
      * has been chosen, rather than just killing us
@@ -6685,6 +6774,8 @@ pr_window(plot_struct *plot)
 #endif
 
     windows_open++;
+
+    return True;
 }
 
 
