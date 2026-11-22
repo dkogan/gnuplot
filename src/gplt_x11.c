@@ -241,6 +241,7 @@ typedef struct plot_struct {
     Window window;
 #ifdef EXTERNAL_X11_WINDOW
     Window external_container;
+    TBOOLEAN nokeys;
 #endif
     Pixmap pixmap;
     unsigned int posn_flags;
@@ -1330,17 +1331,20 @@ record()
 	case X11_GR_SET_WINDOW_ID:	/* X11 window ID */
 	    {
 		unsigned long ultmp;
-		if (strcspn(buf+1," \n") && sscanf(buf+1, "%lx", &ultmp)) {
+		int nokeys_flag = 0;
+		if (strcspn(buf+1," \n") && sscanf(buf+1, "%lx %d", &ultmp, &nokeys_flag)) {
 		    Window window_id = (Window) ultmp;
 		    plot_struct *tmpplot = Find_Plot_In_Linked_List_By_Window(window_id);
 		    if (tmpplot) {
 			current_plot = tmpplot;
 			most_recent_plot_number = tmpplot->plot_number;
+			tmpplot->nokeys = nokeys_flag;
 		    }
 		    else {
 			current_plot = Add_Plot_To_Linked_List(-1); /* Use invalid plot number. */
 			if (current_plot) {
 			    current_plot->external_container = window_id;
+			    current_plot->nokeys = nokeys_flag;
 			    prepare_plot(current_plot);
 			}
 		    }
@@ -6236,11 +6240,20 @@ pr_window(plot_struct *plot)
     /* Set up the events to process */
     XSelectInput(dpy, plot->window, event_mask);
 #ifdef EXTERNAL_X11_WINDOW
-    /* Two clients of an X window cannot share ButtonPress events at the same time.
-     * The outside application may still have ButtonPress selected, and that is the
-     * reason for using the external window as a container. */
-    if (plot->external_container != None)
-	XSelectInput(dpy, plot->external_container, event_mask & (~(ButtonPressMask|ButtonReleaseMask)));
+    /* Two clients of an X window cannot share ButtonPress events at the same
+     * time.  The outside application may still have ButtonPress selected, and
+     * that is the reason for using the external window as a container.
+     * With "nokeys", also strip key events from both windows so the parent
+     * application can receive and handle them via its own X connection. */
+    if (plot->external_container != None) {
+	long container_mask = event_mask & ~(ButtonPressMask|ButtonReleaseMask);
+	if (plot->nokeys) {
+	    long nokey_bits = KeyPressMask|KeyReleaseMask;
+	    XSelectInput(dpy, plot->window, event_mask & ~nokey_bits);
+	    container_mask &= ~nokey_bits;
+	}
+	XSelectInput(dpy, plot->external_container, container_mask);
+    }
 #endif
     XSync(dpy, 0);
 

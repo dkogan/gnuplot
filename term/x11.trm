@@ -232,6 +232,9 @@ static int do_raise = UNSET;
 static int replot_on_resize = UNSET;
 static int dashedlines = UNSET;
 static int ctrlq = UNSET;
+#ifdef EXTERNAL_X11_WINDOW
+static TBOOLEAN x11_nokeys = FALSE;
+#endif
 static int set_size = UNSET;
 static int set_position = UNSET;
 
@@ -398,6 +401,7 @@ enum X11_id {
     X11_BACKGROUND,
 #ifdef EXTERNAL_X11_WINDOW
     X11_WINDOW,
+    X11_NOKEYS,
 #endif
     X11_OTHER
 };
@@ -427,6 +431,7 @@ static struct gen_table X11_opts[] = {
     {"backg$round", X11_BACKGROUND},
 #ifdef EXTERNAL_X11_WINDOW
     {"w$indow", X11_WINDOW},
+    {"noke$ys", X11_NOKEYS},
 #endif
     {NULL, X11_OTHER}
 };
@@ -629,6 +634,10 @@ X11_options()
 	    set_window = TRUE;
 	    break;
 	}
+	case X11_NOKEYS:
+	    c_token++;
+	    x11_nokeys = TRUE;
+	    break;
 #endif
 	case X11_OTHER:
 	default:
@@ -679,7 +688,7 @@ X11_options()
 	    fflush(X11_ipc);
 #ifdef EXTERNAL_X11_WINDOW
 	} else if (set_window) {
-	    fprintf(X11_ipc, "%c%lx\n", X11_GR_SET_WINDOW_ID, existing_X11_window_id);
+	    fprintf(X11_ipc, "%c%lx %d\n", X11_GR_SET_WINDOW_ID, existing_X11_window_id, x11_nokeys);
 	    fflush(X11_ipc);
 #endif
 	}
@@ -687,7 +696,8 @@ X11_options()
 
 #ifdef EXTERNAL_X11_WINDOW
     if (set_window) {
-	sprintf(term_options, "XID 0x%lX", existing_X11_window_id);
+	sprintf(term_options, "XID 0x%lX%s", existing_X11_window_id,
+		x11_nokeys ? " nokeys" : "");
     } else
 #endif
     if (set_number && new_term_number >= 0) {
@@ -2206,7 +2216,7 @@ START_HELP(x11)
 "?X11",
 "",
 " Syntax:",
-"    set terminal x11 {<n> | window \"<string>\"}",
+"    set terminal x11 {<n> | window \"<string>\" {{no}keys}}",
 "                     {title \"<string>\"}",
 "                     {{no}enhanced} {font <fontspec>}",
 "                     {linewidth LW}",
@@ -2230,6 +2240,11 @@ START_HELP(x11)
 " the contained plot window.",
 "",
 "    set term x11 window \"220001e\"",
+"",
+" The `nokeys` option (only with `window`) prevents gnuplot from selecting",
+" keyboard events on the embedded window.  This allows the parent application",
+" to receive and handle keyboard input, forwarding selected keys to gnuplot",
+" via `test keypress` as needed.",
 "",
 " The x11 terminal supports enhanced text mode (see `enhanced`), subject",
 " to the available fonts. In order for font size commands embedded in text",
