@@ -980,6 +980,8 @@ prepare_plot(plot_struct *plot)
     if (plot->window == None) {
 	plot->cmap = current_cmap;	/* color space */
 	pr_window(plot);
+	if (plot->window == None)
+	    return;
 #ifdef USE_MOUSE
 	/*
 	 * set all mouse parameters
@@ -1761,8 +1763,20 @@ record()
 static int
 DrawRotatedErrorHandler(Display * display, XErrorEvent * error_event)
 {
+  (void) display; (void) error_event;
   return 0;  /* do nothing */
 }
+
+#ifdef EXTERNAL_X11_WINDOW
+static int pr_window_error_flag = 0;
+static int
+pr_window_error_handler(Display * display, XErrorEvent * error_event)
+{
+  (void) display; (void) error_event;
+  pr_window_error_flag = 1;
+  return 0;
+}
+#endif
 
 static void
 DrawRotated(plot_struct *plot, Display *dpy, GC gc, int xdest, int ydest,
@@ -6118,7 +6132,25 @@ pr_window(plot_struct *plot)
 #ifdef EXTERNAL_X11_WINDOW
     if (plot->external_container != None) {
 	XWindowAttributes gattr;
+	XErrorHandler prev_handler;
+
+	/* Validate the container window before using it.
+	 * Temporarily suppress the default ErrorHandler so that a
+	 * BadWindow error doesn't silently remove the plot and later
+	 * create an unrequested standalone window.  Instead we detect
+	 * the error and report it. */
+	pr_window_error_flag = 0;
+	prev_handler = XSetErrorHandler(pr_window_error_handler);
 	XGetWindowAttributes(dpy, plot->external_container, &gattr);
+	XSync(dpy, False);
+	XSetErrorHandler(prev_handler);
+
+	if (pr_window_error_flag) {
+	    fprintf(stderr, "gnuplot_x11: container window 0x%lx does not exist; will retry on next plot\n",
+		    plot->external_container);
+	    return;
+	}
+
 	plot->x = 0;
 	plot->y = 0;
 	plot->width = gattr.width;
