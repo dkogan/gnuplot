@@ -470,6 +470,7 @@ const struct gen_table test_tbl[] =
 {
     { "term$inal", TEST_TERMINAL },
     { "pal$ette", TEST_PALETTE },
+    { "key$press", TEST_KEY },
     { NULL, TEST_INVALID }
 };
 

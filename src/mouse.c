@@ -196,6 +196,12 @@ static struct {
  */
 static int mouse_x = -1, mouse_y = -1;
 
+void
+get_mouse_pixel_pos(int *mx, int *my)
+{
+    *mx = mouse_x;
+    *my = mouse_y;
+}
 
 /* the "real" coordinates of the mouse cursor, i.e., in the user's coordinate
  * system(s)

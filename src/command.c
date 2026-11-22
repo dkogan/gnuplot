@@ -3061,6 +3061,41 @@ test_command()
 	    /* otherwise fall through to test_term */
 	case TEST_TERMINAL: test_term(); break;
 	case TEST_PALETTE: test_palette_subcommand(); break;
+#ifdef USE_MOUSE
+	case TEST_KEY:
+	    /* Simulate a keypress event, triggering the same binding handler
+	     * that an interactive keypress would. This allows external
+	     * applications to invoke gnuplot's key bindings via the command
+	     * pipe. Accepts either a single-character string or an integer
+	     * keysym value (for special keys like arrows). test keypress "g"
+	     * test keypress 0xff51 test keypress "r" at 100,200 Without "at",
+	     * uses the current mouse position. */
+	    {
+		struct gp_event_t ge = {0};
+		c_token++;
+		ge.type = GE_keypress;
+		if (isstring(c_token)) {
+		    char *s = try_to_get_string();
+		    ge.par1 = (strlen(s) == 1) ? s[0] : 0;
+		    free(s);
+		} else {
+		    ge.par1 = int_expression();
+		}
+		if (equals(c_token, "at")) {
+		    c_token++;
+		    ge.mx = int_expression();
+		    if (!equals(c_token, ","))
+			int_error(c_token, "expecting 'at x,y'");
+		    c_token++;
+		    ge.my = int_expression();
+		} else {
+		    get_mouse_pixel_pos(&ge.mx, &ge.my);
+		}
+		if (ge.par1)
+		    do_event(&ge);
+	    }
+	    break;
+#endif
     }
 
     /* prevent annoying error messages if there was no previous plot */

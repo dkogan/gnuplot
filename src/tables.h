@@ -182,7 +182,8 @@ enum set_pm3d_id {
 enum test_id {
     TEST_INVALID,
     TEST_TERMINAL,
-    TEST_PALETTE
+    TEST_PALETTE,
+    TEST_KEY
 };
 
 enum show_style_id {

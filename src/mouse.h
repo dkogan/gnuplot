@@ -104,6 +104,7 @@ void update_ruler(void);
 void set_ruler(TBOOLEAN on, int mx, int my);
 void UpdateStatusline(void);
 void do_event(struct gp_event_t *ge);
+void get_mouse_pixel_pos(int *mx, int *my);
 TBOOLEAN exec_event(char type, int mx, int my, int par1, int par2, int winid); /* wrapper for do_event() */
 int plot_mode(int mode);
 void event_reset(struct gp_event_t *ge);
