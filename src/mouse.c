@@ -380,6 +380,11 @@ static void put_label(char *label, double x, double y);
 static void
 alert()
 {
+    /* Don't beep if stderr is not a terminal (e.g. redirected to a pipe).
+     * Beep characters on a pipe corrupt the communication protocol when
+     * gnuplot is controlled by an external application like gnuplotlib. */
+    if (!isatty(fileno(stderr)))
+	return;
 # ifdef OS2
     DosBeep(444, 111);
 # else
