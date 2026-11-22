@@ -1711,6 +1711,14 @@ record()
 			     default_font, scaled_hchar, scaled_vchar));
 		    gp_exec_event(GE_fontprops, plot->width, plot->gheight,
 				  scaled_hchar, scaled_vchar, 0);
+		    /* Set gW/gH to match the actual window, as the Qg
+		     * handler already does for replots. Without this,
+		     * gW/gH stay at the 640x450 defaults, and display()
+		     * scales the plot to preserve that aspect ratio,
+		     * leaving blank areas when the window has a different
+		     * aspect ratio (e.g. an external container window). */
+		    gW   = plot->width;
+		    gH   = plot->gheight;
 		    ymax = 4096.0 * (double)plot->gheight / (double)plot->width;
 		}
 		return 1;
