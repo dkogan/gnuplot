@@ -913,9 +913,12 @@ X11_waitforinput(int options)
             int_error(NO_CARET,"Mousing not active");
         }
 
-        if (options & TERM_WAIT_FOR_FONTPROPS) {
-            /* Similar. No back-channel, so we'll never get the "done" event.
-             * Here I just silently return.
+        if (options & (TERM_WAIT_FOR_FONTPROPS | TERM_ONLY_CHECK_MOUSING)) {
+            /* No back-channel, so there are no mouse events to check
+             * and no font properties response to wait for.
+             * Without TERM_ONLY_CHECK_MOUSING here, check_for_mouse_events()
+             * falls through to getchar() and swallows a byte of stdin,
+             * corrupting the next command read from a pipe.
 	     */
             return 0;
         }
